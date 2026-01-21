@@ -79,34 +79,45 @@
                 <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
                 Online
             </button>
+            @using Microsoft.AspNetCore.Components.Authorization
+
             <AuthorizeView>
-    <Authorized>
-        <div class="mt-auto border-t border-slate-800 p-4">
-            <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-500 font-bold text-white shadow-md">
-                    @context.User.Identity?.Name?.Substring(0, 1).ToUpper()
-                </div>
+                <Authorized>
+                    <div class="mt-auto border-t border-slate-800 p-4">
 
-                <div class="flex-1 overflow-hidden">
-                    <p class="truncate text-sm font-semibold text-white">
-                        @context.User.Identity?.Name
-                    </p>
-                    <div class="flex items-center gap-1.5">
-                        <span class="h-2 w-2 rounded-full bg-emerald-400"></span> <span class="text-xs text-slate-400">Active</span>
+                        <div class="flex items-center gap-3 rounded-xl bg-slate-800/50 p-3 transition-all hover:bg-slate-800 border border-slate-700/50">
+
+                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 font-bold text-white shadow-lg ring-2 ring-white/10">
+                                @context.User.Identity?.Name?.Substring(0, 1).ToUpper()
+                            </div>
+
+                            <div class="flex-1 overflow-hidden min-w-0">
+                                <p class="truncate text-sm font-semibold text-slate-200">
+                                    @context.User.Identity?.Name
+                                </p>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="relative flex h-2 w-2">
+                                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                                    </span>
+                                    <span class="text-xs font-medium text-slate-400">Online</span>
+                                </div>
+                            </div>
+
+                            <form action="api/auth/logout" method="post" class="flex items-center">
+                                <button type="submit"
+                                        class="group flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-all focus:outline-none"
+                                        title="Sign Out">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                    </svg>
+                                </button>
+                            </form>
+
+                        </div>
                     </div>
-                </div>
-
-                <form action="api/auth/logout" method="post">
-                    <button type="submit" class="group rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-all" title="Sign Out">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
-                    </button>
-                </form>
-            </div>
-        </div>
-    </Authorized>
-</AuthorizeView>
+                </Authorized>
+            </AuthorizeView>
         </div>
     </div>
 </header>

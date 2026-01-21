@@ -15,19 +15,21 @@ namespace Primafit_ERP.Controllers
             _signInManager = signInManager;
         }
 
-        // 👇 NEW METHOD: Specific for Browser Form Login
         [HttpPost("login-form")]
         public async Task<IActionResult> LoginFromForm([FromForm] LoginDto model)
         {
+            // Force logout before attempting login (Clears old sessions)
+            await _signInManager.SignOutAsync();
+
+            // Attempt Sign In
+            // isPersistent: false = Cookie dies when Browser closes.
             var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, isPersistent: false, lockoutOnFailure: false);
 
             if (result.Succeeded)
             {
-                // The Controller sets the cookie & sends browser to Dashboard
                 return LocalRedirect("/");
             }
 
-            // On failure, go back to login with error
             return Redirect("/login?error=Invalid credentials");
         }
 
@@ -35,6 +37,10 @@ namespace Primafit_ERP.Controllers
         public async Task<IActionResult> Logout()
         {
             await _signInManager.SignOutAsync();
+
+            // Clear cookies manually to be safe
+            Response.Cookies.Delete(".AspNetCore.Identity.Application");
+
             return LocalRedirect("/login");
         }
     }
