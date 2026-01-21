@@ -1,45 +1,100 @@
-﻿using System.Net.Http.Json;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
+using PrimafitERP.Data;
 
 namespace Primafit_ERP.Services
 {
     public class CompanyApiService
     {
-        private readonly HttpClient _http;
+        private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-        public CompanyApiService(HttpClient http)
+        public CompanyApiService(IDbContextFactory<AppDbContext> dbFactory)
         {
-            _http = http;
+            _dbFactory = dbFactory;
         }
 
-        // LIST: Calls [HttpGet] api/company-details
         public async Task<List<CompanyDetails>> GetCompaniesAsync()
         {
-            return await _http.GetFromJsonAsync<List<CompanyDetails>>("api/company-details") 
-                   ?? new List<CompanyDetails>();
+            using var context = _dbFactory.CreateDbContext();
+
+            return await context.CompanyDetails
+                                .AsNoTracking() // Faster for read-only lists
+                                .OrderByDescending(x => x.CompanyDetailsId)
+                                .ToListAsync();
         }
 
-        // ADD: Calls [HttpPost] api/company-details
-        public async Task<CompanyDetails?> CreateCompanyAsync(CompanyDetails company)
+        public async Task<CompanyDetails?> GetCompanyByIdAsync(Guid id)
         {
-            var response = await _http.PostAsJsonAsync("api/company-details", company);
-            if (response.IsSuccessStatusCode)
+            using var context = _dbFactory.CreateDbContext();
+
+            return await context.CompanyDetails
+                                .AsNoTracking()
+                                .FirstOrDefaultAsync(x => x.CompanyDetailsId == id);
+        }
+
+        public async Task<bool> CreateCompanyAsync(CompanyDetails model)
+        {
+            using var context = _dbFactory.CreateDbContext();
+
+            if (model.CompanyDetailsId == Guid.Empty)
+                model.CompanyDetailsId = Guid.NewGuid();
+
+            model.CreatedDate = DateTime.UtcNow;
+            model.ModifiedDate = DateTime.UtcNow;
+
+            // Handle Logo Logic here if you aren't using a Controller anymore
+            // (If complex file handling is needed, simple DB save is easiest here)
+
+            context.CompanyDetails.Add(model);
+            await context.SaveChangesAsync();
+            return true;
+        }
+
+        public async Task<bool> UpdateCompanyAsync(CompanyDetails model)
+        {
+            using var context = _dbFactory.CreateDbContext();
+
+            var entity = await context.CompanyDetails.FindAsync(model.CompanyDetailsId);
+            if (entity == null) return false;
+
+            // Map fields manually to ensure safety
+            entity.CompanyName = model.CompanyName;
+            entity.ComanyRegNumber = model.ComanyRegNumber;
+            entity.TaxIdentidicationNum = model.TaxIdentidicationNum;
+            entity.CompanyEmail = model.CompanyEmail;
+            entity.PhysicalAddress = model.PhysicalAddress;
+            entity.PostalAddress = model.PostalAddress;
+            entity.FiscalStartYear = model.FiscalStartYear;
+            entity.FiscalEndYear = model.FiscalEndYear;
+            entity.country = model.country;
+            entity.CompanyWebsite = model.CompanyWebsite;
+            entity.FunctionalCurrency = model.FunctionalCurrency;
+            entity.BaseCurrency = model.BaseCurrency;
+            entity.Type = model.Type;
+            entity.Status = model.Status;
+
+            // Logo path logic would go here if needed
+            if (!string.IsNullOrEmpty(model.LogoPath))
             {
-                return await response.Content.ReadFromJsonAsync<CompanyDetails>();
+                entity.LogoPath = model.LogoPath;
             }
-            return null; // Handle error appropriately in production
+
+            entity.ModifiedDate = DateTime.UtcNow;
+
+            await context.SaveChangesAsync();
+            return true;
         }
 
-        // EDIT: Calls [HttpPut("{id}")] api/company-details/{id}
-        public async Task<bool> UpdateCompanyAsync(Guid id, CompanyDetails company)
-        {
-            var response = await _http.PutAsJsonAsync($"api/company-details/{id}", company);
-            return response.IsSuccessStatusCode;
-        }
         public async Task<bool> DeleteCompanyAsync(Guid id)
         {
-            var response = await _http.DeleteAsync($"api/company-details/{id}");
-            return response.IsSuccessStatusCode;
+            using var context = _dbFactory.CreateDbContext();
+
+            var entity = await context.CompanyDetails.FindAsync(id);
+            if (entity == null) return false;
+
+            context.CompanyDetails.Remove(entity);
+            await context.SaveChangesAsync();
+            return true;
         }
     }
 }

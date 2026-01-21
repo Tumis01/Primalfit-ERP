@@ -192,7 +192,11 @@
                 <thead class="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
                     <tr>
                         <th class="px-6 py-4">Company Name</th>
+                        <th class="px-6 py-4">Reg No.</th>
                         <th class="px-6 py-4">Email</th>
+                        <th class="px-6 py-4">Address</th>
+                        <th class="px-6 py-4">Type</th>
+                        <th class="px-6 py-4">Status</th>
                         <th class="px-6 py-4">Country</th>
                         <th class="px-6 py-4">Fiscal Year</th>
                         <th class="px-6 py-4 text-right">Actions</th>
@@ -201,11 +205,11 @@
                 <tbody class="divide-y divide-slate-100">
                     @if (isLoading)
                     {
-                        <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Loading companies...</td></tr>
+                        <tr><td colspan="9" class="px-6 py-8 text-center text-slate-400">Loading companies...</td></tr>
                     }
                     else if (companies == null || !companies.Any())
                     {
-                        <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">No companies found. Click "Add Company" to start.</td></tr>
+                        <tr><td colspan="9" class="px-6 py-8 text-center text-slate-400">No companies found. Click "Add Company" to start.</td></tr>
                     }
                     else
                     {
@@ -213,14 +217,52 @@
                         {
                             <tr class="group hover:bg-slate-50/50 transition-colors">
                                 <td class="px-6 py-4 font-medium text-slate-900">
-                                    @item.CompanyName
-                                    <div class="text-xs text-slate-400 font-normal">@item.ComanyRegNumber</div>
+                                    <div class="flex items-center gap-3">
+                                        @if (!string.IsNullOrEmpty(item.LogoPath))
+                                        {
+                                            <img src="@item.LogoPath" class="h-8 w-8 rounded-full object-cover border border-slate-200" alt="" />
+                                        }
+                                        @item.CompanyName
+                                    </div>
                                 </td>
-                                <td class="px-6 py-4">@item.CompanyEmail</td>
-                                <td class="px-6 py-4">@item.country</td>
+
+                                <td class="px-6 py-4 font-mono text-xs">
+                                    @item.ComanyRegNumber
+                                </td>
+
                                 <td class="px-6 py-4">
+                                    @item.CompanyEmail
+                                </td>
+
+                                <td class="px-6 py-4 max-w-[200px] truncate" title="@item.PhysicalAddress">
+                                    @item.PhysicalAddress
+                                </td>
+
+                                <td class="px-6 py-4">
+                                    @SplitCamelCase(item.Type.ToString())
+                                </td>
+
+                                <td class="px-6 py-4">
+                                    @if (item.Status.ToString() == "Active")
+                                    {
+                                        <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
+                                            Active
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
+                                            @item.Status
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="px-6 py-4">@item.country</td>
+
+                                <td class="px-6 py-4 text-xs">
                                     @item.FiscalStartYear.ToString("MMM") - @item.FiscalEndYear.ToString("MMM")
                                 </td>
+
                                 <td class="px-6 py-4 text-right">
                                     <div class="flex items-center justify-end gap-3">
                                         <button @onclick="() => EditCompany(item)" class="text-indigo-600 hover:text-indigo-900 font-medium hover:underline">
@@ -330,7 +372,7 @@
             {
                 // EDIT MODE: Calls Controller [HttpPut("{id}")]
                 // NOTE: ApiService.UpdateCompanyAsync needs to accept (Guid, CompanyDetails)
-                var success = await ApiService.UpdateCompanyAsync(currentCompany.CompanyDetailsId, currentCompany);
+                var success = await ApiService.UpdateCompanyAsync(currentCompany);
                 if (success)
                 {
                     await LoadData(); // Refresh List

@@ -1,0 +1,135 @@
+﻿@page "/roles"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inject RoleApiService RoleService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-8">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tight text-slate-900">Role Management</h1>
+            <p class="text-slate-500 mt-1">Manage access levels and permissions for the organization.</p>
+        </div>
+
+        @if (!showForm)
+        {
+            <button @onclick="() => showForm = true"
+                    class="group inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-500 transition-all shadow-md hover:shadow-lg">
+                <svg class="w-5 h-5 text-indigo-100" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                Create New Role
+            </button>
+        }
+    </div>
+
+    @if (showForm)
+    {
+        <div class="relative overflow-hidden rounded-2xl bg-white p-8 shadow-xl ring-1 ring-slate-900/5 animate-in slide-in-from-top-4 duration-300">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-bold text-slate-900">Create New Role</h3>
+                <button @onclick="CancelForm" class="text-slate-400 hover:text-slate-600">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <EditForm Model="newRole" OnValidSubmit="HandleSubmit">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="space-y-2">
+                        <label class="text-sm font-semibold text-slate-700">Role Title</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" /></svg>
+                            </div>
+                            <InputText @bind-Value="newRole.Name"
+                                       class="block w-full pl-10 rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all placeholder:text-slate-400"
+                                       placeholder="e.g. Warehouse Manager" />
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-sm font-semibold text-slate-700">Description</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <InputText @bind-Value="newRole.Description"
+                                       class="block w-full pl-10 rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm text-slate-900 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all placeholder:text-slate-400"
+                                       placeholder="What can this role do?" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-6">
+                    <button type="button" @onclick="CancelForm" class="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-indigo-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-all">Save Role</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50/50 text-xs uppercase font-semibold text-slate-500 border-b border-slate-100">
+                <tr>
+                    <th class="px-6 py-4">Role Name</th>
+                    <th class="px-6 py-4">Description</th>
+                    <th class="px-6 py-4 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var role in roles)
+                {
+                    <tr class="group hover:bg-slate-50 transition-colors">
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">@role.Name</span>
+                        </td>
+                        <td class="px-6 py-4 text-slate-500">@role.Description</td>
+                        <td class="px-6 py-4 text-right">
+                            @if (role.Name != "SuperAdmin")
+                            {
+                                <button @onclick="() => DeleteRole(role)" class="text-slate-400 hover:text-red-600 transition-colors">
+                                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    // ... (Keep existing Logic for HandleSubmit, LoadRoles, etc.) ...
+    // Note: Ensure you define the methods here exactly as in the previous code block
+    private List<ApplicationRole> roles = new();
+    private ApplicationRole newRole = new();
+    private bool showForm = false;
+
+    protected override async Task OnInitializedAsync() => await LoadRoles();
+    private async Task LoadRoles() => roles = await RoleService.GetRolesAsync();
+
+    private async Task HandleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(newRole.Name)) return;
+        if (await RoleService.CreateRoleAsync(newRole))
+        {
+            newRole = new ApplicationRole();
+            showForm = false;
+            await LoadRoles();
+        }
+    }
+    private void CancelForm() { newRole = new ApplicationRole(); showForm = false; }
+    private async Task DeleteRole(ApplicationRole role)
+    {
+        await RoleService.DeleteRoleAsync(role.Id);
+        await LoadRoles();
+    }
+}

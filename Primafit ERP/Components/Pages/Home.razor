@@ -1,7 +1,124 @@
 ﻿@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject CompanyApiService CompanyService
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+<div class="space-y-8 animate-in fade-in duration-500">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Dashboard</h1>
+        <p class="text-slate-500">Overview of your organization's entities.</p>
+    </div>
 
-<h1>Hello, world!</h1>
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400">Loading dashboard...</div>
+    }
+    else if (!companies.Any())
+    {
+        <div class="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-12 text-center">
+            <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-50">
+                <svg class="h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+            </div>
+            <h3 class="text-lg font-semibold text-slate-900">No Companies Found</h3>
+            <p class="mt-2 text-slate-500">Get started by registering your first company entity.</p>
+            <a href="companies" class="mt-6 inline-flex items-center rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">
+                Register Company
+            </a>
+        </div>
+    }
+    else
+    {
+        <div class="grid gap-6 md:grid-cols-3">
 
-Welcome to your new app.
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h3 class="mb-6 font-semibold text-slate-900">Status Overview</h3>
+                <div class="flex flex-col items-center">
+                    <div class="relative h-40 w-40 rounded-full shadow-inner"
+                         style="background: conic-gradient(#4f46e5 @(ActivePercentage)%, #f1f5f9 0);">
+                        <div class="absolute inset-4 flex items-center justify-center rounded-full bg-white shadow-sm">
+                            <div class="text-center">
+                                <span class="block text-2xl font-bold text-slate-900">@companies.Count</span>
+                                <span class="text-xs font-medium uppercase tracking-wide text-slate-400">Total</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 flex w-full justify-center gap-6">
+                        <div class="flex items-center gap-2">
+                            <span class="h-3 w-3 rounded-full bg-indigo-600"></span>
+                            <span class="text-sm font-medium text-slate-600">Active (@activeCount)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="h-3 w-3 rounded-full bg-slate-100 ring-1 ring-slate-200"></span>
+                            <span class="text-sm font-medium text-slate-600">Inactive (@inactiveCount)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="md:col-span-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+                    <h3 class="font-semibold text-slate-900">Recent Companies</h3>
+                    <a href="companies" class="text-sm font-medium text-indigo-600 hover:text-indigo-700">View All &rarr;</a>
+                </div>
+                <table class="w-full text-left text-sm text-slate-600">
+                    <thead class="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
+                        <tr><th class="px-6 py-3">Company</th><th class="px-6 py-3">Location</th><th class="px-6 py-3">Status</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var company in companies.Take(5))
+                        {
+                            <tr class="hover:bg-slate-50/50">
+                                <td class="px-6 py-3 font-medium text-slate-900">@company.CompanyName</td>
+                                <td class="px-6 py-3"> @company.country</td>
+                                <td class="px-6 py-3">
+                                    @if (company.Status.ToString() == "Active")
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">Inactive</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<CompanyDetails> companies = new();
+    private bool isLoading = true;
+    private int activeCount = 0;
+    private int inactiveCount = 0;
+    private double ActivePercentage = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            companies = await CompanyService.GetCompaniesAsync();
+            if (companies.Any())
+            {
+                activeCount = companies.Count(c => c.Status.ToString() == "Active");
+                inactiveCount = companies.Count - activeCount;
+                ActivePercentage = ((double)activeCount / companies.Count) * 100;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

@@ -29,6 +29,7 @@
 </div>
  *@
 @using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Authorization
 @rendermode InteractiveServer
 
 <div class="@(_sidebarOpen ? "fixed inset-0 z-40 bg-black/40 lg:hidden" : "hidden")"
@@ -78,13 +79,34 @@
                 <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
                 Online
             </button>
-            <button class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 lg:hidden">
-                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 17H9a4 4 0 0 0 6 0Z" /><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7Z" /></svg>
-            </button>
-            <button class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-                <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-700">TO</span>
-                <span class="hidden sm:inline">Tumis</span>
-            </button>
+            <AuthorizeView>
+    <Authorized>
+        <div class="mt-auto border-t border-slate-800 p-4">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-500 font-bold text-white shadow-md">
+                    @context.User.Identity?.Name?.Substring(0, 1).ToUpper()
+                </div>
+
+                <div class="flex-1 overflow-hidden">
+                    <p class="truncate text-sm font-semibold text-white">
+                        @context.User.Identity?.Name
+                    </p>
+                    <div class="flex items-center gap-1.5">
+                        <span class="h-2 w-2 rounded-full bg-emerald-400"></span> <span class="text-xs text-slate-400">Active</span>
+                    </div>
+                </div>
+
+                <form action="api/auth/logout" method="post">
+                    <button type="submit" class="group rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white transition-all" title="Sign Out">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </Authorized>
+</AuthorizeView>
         </div>
     </div>
 </header>
@@ -125,7 +147,7 @@
                         <path d="M8 9h8M8 13h6M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
                     </svg>
                 </span>
-                <span class="flex-1">Sales</span>
+                <span class="flex-1">Nothing is here</span>
             </NavLink>
 
             <NavLink href="/inventory" class="@NavBase" activeClass="@NavActive">
@@ -158,9 +180,14 @@
                 @if (_setupMenuOpen)
                 {
                     <div class="ml-11 mt-1 space-y-1 border-l-2 border-slate-100 pl-3 animate-in slide-in-from-top-2 duration-200">
-                        <NavLink href="/companies" class="@SubNavBase" activeClass="@SubNavActive">Company Details</NavLink>
-                        <NavLink href="/users" class="@SubNavBase" activeClass="@SubNavActive">User</NavLink>
-                        <NavLink href="/taxes" class="@SubNavBase" activeClass="@SubNavActive">Tax</NavLink>
+
+                        <NavLink href="companies" class="@SubNavBase" activeClass="@SubNavActive">Company Details</NavLink>
+                        <NavLink href="chart-of-accounts" class="@SubNavBase" activeClass="@SubNavActive">Chart of Accounts</NavLink>
+
+                        <NavLink href="roles" class="@SubNavBase" activeClass="@SubNavActive">Roles</NavLink>
+
+                        <NavLink href="users" class="@SubNavBase" activeClass="@SubNavActive">User Management</NavLink>
+                        <NavLink href="taxes" class="@SubNavBase" activeClass="@SubNavActive">Tax Setup</NavLink>
                     </div>
                 }
             </div>
