@@ -39,9 +39,10 @@ builder.Services.AddSignalR(e => { e.MaximumReceiveMessageSize = 10 * 1024 * 102
 
 //  APPLICATION SERVICES (Direct DB Access)
 builder.Services.AddScoped<CompanyApiService>();
-builder.Services.AddScoped<ChartOfAccountService>();
 builder.Services.AddScoped<UserApiService>();
 builder.Services.AddScoped<RoleApiService>();
+builder.Services.AddScoped<GLService>();
+builder.Services.AddScoped<ProjectService>();
 
 //  AUTH SERVICE (API Based)
 builder.Services.AddHttpClient<AuthApiService>(client =>

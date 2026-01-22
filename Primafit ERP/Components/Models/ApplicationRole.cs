@@ -5,9 +5,9 @@ namespace Primafit_ERP.Components.Models
     public class ApplicationRole : IdentityRole
     {
         public ApplicationRole() : base() { }
-        public ApplicationRole(string roleName, string? description = null) : base(roleName)
+        public ApplicationRole(string roleName, string? Description = null) : base(roleName)
         {
-            Description = description;
+            this.Description = Description;
             CreatedDate = DateTime.UtcNow;
         }
 

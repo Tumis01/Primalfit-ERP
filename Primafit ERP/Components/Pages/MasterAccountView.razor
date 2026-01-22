@@ -1,0 +1,351 @@
+﻿@page "/gl/master-accounts"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using System.Text
+@using System.IO
+@inject GLService Service
+@inject ProjectService ProjectService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Masters/Sub Accounts</h1>
+            <p class="text-sm text-slate-500 mt-1">Manage Master accounts and their sub-ledgers.</p>
+        </div>
+
+        <div class="flex gap-3">
+            <label class="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Import CSV
+                <InputFile OnChange="ImportCsv" class="hidden" accept=".csv" />
+            </label>
+
+            <button @onclick="ExportCsv" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export CSV
+            </button>
+
+            @if (!showForm)
+            {
+                <button @onclick="OpenCreateForm"
+                        class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-95">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Master
+                </button>
+            }
+        </div>
+    </div>
+
+    @* --- CREATE/EDIT FORM (Existing Logic) --- *@
+    @if (showForm)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50 ring-1 ring-slate-200 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+            <div class="flex items-center justify-between mb-8">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">
+                        @(isEditing ? "Edit Master Account" : "Create New Master Account")
+                    </h3>
+                    <p class="text-sm text-slate-500">Fill in the details below.</p>
+                </div>
+                @if (isEditing)
+                {
+                    <span class="inline-flex items-center rounded-lg bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-700/10">Editing Mode</span>
+                }
+            </div>
+
+            <EditForm Model="@currentMaster" OnValidSubmit="HandleSubmitMaster">
+                <DataAnnotationsValidator />
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 items-start">
+                    <div>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Code</label>
+                        <InputText @bind-Value="currentMaster.AccountCode" class="@InputClass" placeholder="e.g. 1000" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Account Name</label>
+                        <InputText @bind-Value="currentMaster.AccountName" class="@InputClass" placeholder="e.g. Assets" />
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Type</label>
+                        <div class="relative">
+                            <InputSelect @bind-Value="currentMaster.AccountType" class="@InputClass">
+                                @foreach (var t in Enum.GetValues<AccountType>())
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </InputSelect>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-8 flex items-center justify-between border-t border-slate-100 pt-6">
+                    <div>
+                        @if (isEditing)
+                        {
+                            <button type="button" @onclick="DeleteMaster" class="inline-flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-100 transition-colors">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                Delete
+                            </button>
+                        }
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="button" @onclick="CloseForm" class="rounded-xl px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                        <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">
+                            @if (isEditing)
+                            {
+                                <span>Update Account</span>
+                            }
+                            else
+                            {
+
+                                <span>Create Master</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50/50 text-xs uppercase font-bold tracking-wider text-slate-500">
+                    <tr>
+                        <th class="px-6 py-4">Code</th>
+                        <th class="px-6 py-4">Master Account</th>
+                        <th class="px-6 py-4">Account Type</th>
+                        <th class="px-6 py-4 text-center">Sub-Accounts</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var m in PagedMasters)
+                    {
+                        <tr class="group hover:bg-slate-50/50 transition-colors @(currentMaster.Id == m.Id && isEditing ? "bg-indigo-50/30" : "")">
+                            <td class="px-6 py-4 font-mono font-bold text-indigo-600">@m.AccountCode</td>
+                            <td class="px-6 py-4 font-medium text-slate-900">@m.AccountName</td>
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">
+                                    @m.AccountType
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                                    @m.SubAccounts.Count
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <div class="flex items-center justify-end gap-2">
+                                    <button @onclick="() => EditMaster(m)" class="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-all" title="Edit Master">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                    </button>
+                                    <button @onclick="() => OpenSubAccountModal(m)" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-all">
+                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                        Add Sub
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (masters.Any())
+        {
+            <div class="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-3">
+                <div class="text-xs text-slate-500">
+                    Showing @((CurrentPage - 1) * PageSize + 1) to @(Math.Min(CurrentPage * PageSize, masters.Count)) of @masters.Count entries
+                </div>
+                <div class="flex gap-2">
+                    <button @onclick="PreviousPage" disabled="@(CurrentPage == 1)" class="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50">Previous</button>
+                    <button @onclick="NextPage" disabled="@(CurrentPage == TotalPages)" class="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50">Next</button>
+                </div>
+            </div>
+        }
+    </div>
+
+    @* --- SUB-ACCOUNT MODAL (Existing Logic) --- *@
+    @if (showSubModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 transition-all">
+            <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                <div class="border-b border-slate-100 px-6 py-5 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                    <div>
+                        <h3 class="font-bold text-slate-900">Add Sub-Account</h3>
+                        <p class="text-xs font-medium text-indigo-600 mt-0.5">Parent: @selectedMaster?.AccountCode - @selectedMaster?.AccountName</p>
+                    </div>
+                    <button @onclick="CloseSubModal" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div class="p-6">
+                    <EditForm Model="@newSub" OnValidSubmit="HandleCreateSub">
+                        <DataAnnotationsValidator />
+                        <div class="space-y-5">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1.5">Sub-Code (Suffix)</label>
+                                <div class="flex items-center rounded-xl border border-slate-200 bg-white focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 overflow-hidden transition-all shadow-sm">
+                                    <span class="bg-slate-50 px-3 py-2.5 border-r border-slate-200 text-slate-500 text-sm font-mono font-bold">@selectedMaster?.AccountCode -</span>
+                                    <InputText @bind-Value="newSub.SubCode" class="w-full border-0 bg-transparent px-3 py-2.5 text-sm font-mono focus:ring-0 placeholder:text-slate-300" placeholder="001" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1.5">Account Name</label>
+                                <InputText @bind-Value="newSub.AccountName" class="@InputClass" />
+                            </div>
+                            <div class="p-4 rounded-xl bg-indigo-50/50 border border-indigo-100">
+                                <label class="block text-sm font-semibold text-indigo-700 mb-1.5">Link Project (Optional)</label>
+                                <InputSelect @bind-Value="newSub.ProjectId" class="@InputClass">
+                                    <option value="">-- No Project (General) --</option>
+                                    @foreach (var p in projects)
+                                    {
+                                        <option value="@p.Id">@p.Code - @p.Name</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        </div>
+                        <div class="mt-8 flex justify-end gap-3">
+                            <button type="button" @onclick="CloseSubModal" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">Cancel</button>
+                            <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all">Save Sub-Account</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<script>
+    window.downloadFile = (fileName, content) => {
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = "data:text/csv;charset=utf-8," + encodeURIComponent(content);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
+
+    private List<GLMasterAccount> masters = new();
+    private List<Project> projects = new();
+    private GLMasterAccount currentMaster = new();
+    private bool isEditing = false;
+    private bool showForm = false;
+    private bool showSubModal = false;
+    private GLMasterAccount? selectedMaster;
+    private GLSubAccount newSub = new();
+
+    // PAGINATION STATE
+    private int CurrentPage = 1;
+    private int PageSize = 8;
+    private int TotalPages => (int)Math.Ceiling((double)masters.Count / PageSize);
+    private IEnumerable<GLMasterAccount> PagedMasters => masters.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        masters = await Service.GetMastersAsync();
+        projects = await ProjectService.GetProjectsAsync();
+        StateHasChanged();
+    }
+
+    // --- PAGINATION ACTIONS ---
+    private void NextPage() { if (CurrentPage < TotalPages) CurrentPage++; }
+    private void PreviousPage() { if (CurrentPage > 1) CurrentPage--; }
+
+    // --- CSV EXPORT ---
+    private async Task ExportCsv()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Code,AccountName,Type,SubAccountsCount");
+
+        foreach (var item in masters)
+        {
+            sb.AppendLine($"{item.AccountCode},{item.AccountName},{item.AccountType},{item.SubAccounts.Count}");
+        }
+
+        await JS.InvokeVoidAsync("downloadFile", "Master Account.csv", sb.ToString());
+    }
+
+    // --- CSV IMPORT ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var text = await reader.ReadToEndAsync();
+            var lines = text.Split('\n');
+
+            foreach (var line in lines.Skip(1)) // Skip Header
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var cols = line.Split(',');
+                if (cols.Length < 3) continue;
+
+                var code = cols[0].Trim();
+                var name = cols[1].Trim();
+                var typeStr = cols[2].Trim();
+
+                if (Enum.TryParse<AccountType>(typeStr, true, out var type))
+                {
+                    var newMaster = new GLMasterAccount { AccountCode = code, AccountName = name, AccountType = type };
+                    await Service.CreateMasterAsync(newMaster);
+                }
+            }
+            await LoadData();
+            await JS.InvokeVoidAsync("alert", "Import Successful!");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import Failed: {ex.Message}");
+        }
+    }
+
+    
+    private void OpenCreateForm() { currentMaster = new(); isEditing = false; showForm = true; }
+    private void CloseForm() { showForm = false; isEditing = false; currentMaster = new(); }
+
+    private async Task HandleSubmitMaster()
+    {
+        bool success = isEditing ? await Service.UpdateMasterAsync(currentMaster) : await Service.CreateMasterAsync(currentMaster);
+        if (success) { CloseForm(); await LoadData(); }
+    }
+
+    private void EditMaster(GLMasterAccount item)
+    {
+        currentMaster = new GLMasterAccount { Id = item.Id, AccountCode = item.AccountCode, AccountName = item.AccountName, AccountType = item.AccountType };
+        isEditing = true; showForm = true;
+    }
+
+    private async Task DeleteMaster()
+    {
+        if (await JS.InvokeAsync<bool>("confirm", $"Delete {currentMaster.AccountName}?")) { await Service.DeleteMasterAsync(currentMaster.Id); CloseForm(); await LoadData(); }
+    }
+
+    private void OpenSubAccountModal(GLMasterAccount master) { selectedMaster = master; newSub = new GLSubAccount { MasterAccountId = master.Id }; showSubModal = true; }
+    private async Task HandleCreateSub() { if (await Service.CreateSubAsync(newSub)) { CloseSubModal(); await LoadData(); } }
+    private void CloseSubModal() { showSubModal = false; selectedMaster = null; newSub = new(); }
+}

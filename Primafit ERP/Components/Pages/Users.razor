@@ -2,31 +2,27 @@
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Authorization
-
-@*  Allow Viewers to access the page *@
-@attribute [Authorize(Roles = "SuperAdmin, Viewer")] 
-
+@attribute [Authorize(Roles = "SuperAdmin, Viewer")]
 @inject UserApiService UserService
 @inject RoleApiService RoleService
 @inject CompanyApiService CompanyService
 @rendermode InteractiveServer
 
-<div class="max-w-5xl mx-auto space-y-8">
+<div class="max-w-6xl mx-auto space-y-8">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-            <h1 class="text-3xl font-bold tracking-tight text-slate-900">User Management</h1>
-            <p class="text-slate-500 mt-1">Manage system access and assign roles.</p>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">User Management</h1>
+            <p class="text-sm text-slate-500 mt-1">Manage system access, roles, and permissions.</p>
         </div>
 
-        @*  Hide "New User" button from Viewers *@
         <AuthorizeView Roles="SuperAdmin">
             <Authorized>
                 @if (!showForm)
                 {
                     <button @onclick="() => showForm = true"
-                            class="group inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-500 transition-all shadow-md hover:shadow-lg">
-                        <svg class="w-5 h-5 text-indigo-100" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                            class="group inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2">
+                        <svg class="w-5 h-5 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                         New User
                     </button>
                 }
@@ -34,17 +30,17 @@
         </AuthorizeView>
     </div>
 
-    @* Ensure the Form logic is also secured *@
     @if (showForm)
     {
         <AuthorizeView Roles="SuperAdmin">
             <Authorized>
-                <div class="relative overflow-hidden rounded-2xl bg-white p-8 shadow-xl ring-1 ring-slate-900/5 animate-in slide-in-from-top-4 duration-300">
-                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-cyan-500"></div>
-
-                    <div class="flex items-center justify-between mb-6">
-                        <h3 class="text-lg font-bold text-slate-900">Register New User</h3>
-                        <button @onclick="CancelForm" class="text-slate-400 hover:text-slate-600 transition-colors">
+                <div class="relative overflow-hidden rounded-2xl bg-white p-8 shadow-lg ring-1 ring-slate-200 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div class="flex items-center justify-between mb-8">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">Register New User</h3>
+                            <p class="text-sm text-slate-500">Fill in the details to create a new account.</p>
+                        </div>
+                        <button @onclick="CancelForm" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                     </div>
@@ -53,26 +49,26 @@
                         <DataAnnotationsValidator />
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wide text-slate-500">First Name</label>
-                                <InputText @bind-Value="newUser.FirstName" class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all" placeholder="John" />
+                            <div class="space-y-1.5">
+                                <label class="text-sm font-medium text-slate-700">First Name</label>
+                                <InputText @bind-Value="newUser.FirstName" class="@InputClass" placeholder="John" />
                             </div>
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Last Name</label>
-                                <InputText @bind-Value="newUser.LastName" class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all" placeholder="Doe" />
+                            <div class="space-y-1.5">
+                                <label class="text-sm font-medium text-slate-700">Last Name</label>
+                                <InputText @bind-Value="newUser.LastName" class="@InputClass" placeholder="Doe" />
                             </div>
-                            <div class="space-y-2 md:col-span-2">
-                                <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Email Address</label>
+                            <div class="space-y-1.5 md:col-span-2">
+                                <label class="text-sm font-medium text-slate-700">Email Address</label>
                                 <div class="relative">
                                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                         <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                                     </div>
-                                    <InputText @bind-Value="newUser.Email" class="block w-full pl-10 rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all" placeholder="john@primafit.com" />
+                                    <InputText @bind-Value="newUser.Email" class="@(InputClass + " pl-10")" placeholder="john@primafit.com" />
                                 </div>
                             </div>
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Assign Role</label>
-                                <InputSelect @bind-Value="newUser.RoleName" class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all">
+                            <div class="space-y-1.5">
+                                <label class="text-sm font-medium text-slate-700">Assign Role</label>
+                                <InputSelect @bind-Value="newUser.RoleName" class="@InputClass">
                                     <option value="">-- Select Role --</option>
                                     @foreach (var role in availableRoles)
                                     {
@@ -80,9 +76,9 @@
                                     }
                                 </InputSelect>
                             </div>
-                            <div class="space-y-2">
-                                <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Assign Company</label>
-                                <InputSelect @bind-Value="newUser.CompanyDetailsId" class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all">
+                            <div class="space-y-1.5">
+                                <label class="text-sm font-medium text-slate-700">Assign Company</label>
+                                <InputSelect @bind-Value="newUser.CompanyDetailsId" class="@InputClass">
                                     <option value="">-- System Level (No Company) --</option>
                                     @foreach (var c in companies)
                                     {
@@ -90,44 +86,35 @@
                                     }
                                 </InputSelect>
                             </div>
+
                             <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-100 pt-6 mt-2">
-                                <div class="space-y-2 relative">
-                                    <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Password</label>
+                                <div class="space-y-1.5 relative">
+                                    <label class="text-sm font-medium text-slate-700">Password</label>
                                     <div class="relative">
                                         <input @bind="newUser.Password"
                                                type="@(showPassword ? "text" : "password")"
-                                               class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 pr-10 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+                                               class="@InputClass"
                                                placeholder="••••••••" />
                                         <button type="button" @onclick="() => showPassword = !showPassword"
                                                 class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-indigo-600 focus:outline-none">
-                                            @if (showPassword)
-                                            {
-                                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
-                                            }
-                                            else
-                                            {
-                                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                                            }
+                                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                @if (showPassword) { <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /> }
+                                                else { <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /> }
+                                            </svg>
                                         </button>
                                     </div>
                                 </div>
-                                <div class="space-y-2">
-                                    <label class="text-xs font-bold uppercase tracking-wide text-slate-500">Confirm Password</label>
-                                    <input @bind="confirmPassword"
-                                           type="password"
-                                           class="block w-full rounded-xl border-slate-200 bg-slate-50 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all @(passwordsMatch ? "" : "border-red-300 ring-red-200")"
-                                           placeholder="Confirm password" />
-                                    @if (!passwordsMatch)
-                                    {
-                                        <p class="text-xs text-red-600 mt-1">Passwords do not match.</p>
-                                    }
+                                <div class="space-y-1.5">
+                                    <label class="text-sm font-medium text-slate-700">Confirm Password</label>
+                                    <input @bind="confirmPassword" type="password" class="@InputClass @(passwordsMatch ? "" : "border-red-300 ring-red-200")" placeholder="Confirm password" />
+                                    @if (!passwordsMatch) { <p class="text-xs text-red-600 mt-1">Passwords do not match.</p> }
                                 </div>
                             </div>
                         </div>
 
-                        <div class="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-6">
-                            <button type="button" @onclick="CancelForm" class="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-                            <button type="submit" class="rounded-xl bg-indigo-600 px-6 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 transition-all">Create User</button>
+                        <div class="mt-8 flex justify-end gap-3 pt-4">
+                            <button type="button" @onclick="CancelForm" class="rounded-xl px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                            <button type="submit" class="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-indigo-700 transition-all">Create User</button>
                         </div>
                     </EditForm>
                 </div>
@@ -149,7 +136,14 @@
                 @foreach (var u in users)
                 {
                     <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-6 py-4 font-medium text-slate-900">@u.FullName</td>
+                        <td class="px-6 py-4 font-medium text-slate-900">
+                            <div class="flex items-center gap-3">
+                                <div class="h-8 w-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xs ring-1 ring-indigo-100">
+                                    @u.FullName.Substring(0,1).ToUpper()
+                                </div>
+                                @u.FullName
+                            </div>
+                        </td>
                         <td class="px-6 py-4">@u.Email</td>
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">@u.Role</span>
@@ -157,11 +151,11 @@
                         <td class="px-6 py-4">
                             @if (u.CompanyName == "System")
                             {
-                                <span class="text-slate-400">System Level</span>
+                                <span class="text-slate-400 italic">System Level</span>
                             }
                             else
                             {
-                                @u.CompanyName
+                                <span class="font-medium text-slate-700">@u.CompanyName</span>
                             }
                         </td>
                     </tr>
@@ -172,6 +166,8 @@
 </div>
 
 @code {
+    private const string InputClass = "block w-full rounded-xl border-slate-200 bg-white py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-slate-400";
+    
     private List<UserDisplayDto> users = new();
     private List<ApplicationRole> availableRoles = new();
     private List<CompanyDetails> companies = new();
@@ -191,11 +187,7 @@
 
     private async Task HandleSubmit()
     {
-        if (newUser.Password != confirmPassword)
-        {
-            passwordsMatch = false;
-            return;
-        }
+        if (newUser.Password != confirmPassword) { passwordsMatch = false; return; }
         passwordsMatch = true;
 
         if (await UserService.CreateUserAsync(newUser))
