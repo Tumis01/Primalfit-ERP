@@ -41,7 +41,7 @@ builder.Services.AddSignalR(e => { e.MaximumReceiveMessageSize = 10 * 1024 * 102
 builder.Services.AddScoped<CompanyApiService>();
 builder.Services.AddScoped<UserApiService>();
 builder.Services.AddScoped<RoleApiService>();
-builder.Services.AddScoped<GLService>();
+builder.Services.AddScoped<GLSetupService>();
 builder.Services.AddScoped<ProjectService>();
 
 //  AUTH SERVICE (API Based)

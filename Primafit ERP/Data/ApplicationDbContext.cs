@@ -2,29 +2,27 @@
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 
-namespace PrimafitERP.Data;
-
-public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
+namespace PrimafitERP.Data
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
-
-    public DbSet<CompanyDetails> CompanyDetails { get; set; }
-    public DbSet<ApplicationUser> ApplicationUser { get; set; }
-    public DbSet<ApplicationRole> ApplicationRoles { get; set; }
-    public DbSet<GLMasterAccount> GLMasterAccounts { get; set; }
-    public DbSet<GLSubAccount> GLSubAccounts { get; set; }
-    public DbSet<Project> Projects { get; set; }
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
     {
-        base.OnModelCreating(modelBuilder);
+        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-        //  Single-Table Hierarchy Configuration
-        modelBuilder.Entity<GLSubAccount>()
-            .HasOne(s => s.MasterAccount)
-            .WithMany(m => m.SubAccounts)
-            .HasForeignKey(s => s.MasterAccountId)
-            .OnDelete(DeleteBehavior.Cascade); // Prevent deleting a Master if Subs exist
+        public DbSet<CompanyDetails> CompanyDetails { get; set; }
+        public DbSet<Project> Projects { get; set; }
+        public DbSet<GLAccountType> GLAccountTypes { get; set; }
+        public DbSet<GLMainAccount> GLMainAccounts { get; set; }
+        public DbSet<GLChartOfAccount> GLChartOfAccounts { get; set; }
+
+        //protected override void OnModelCreating(ModelBuilder builder)
+        //{
+        //    base.OnModelCreating(builder);
+
+        //    builder.Entity<GLChartOfAccount>()
+        //        .HasOne(c => c.AccountType)
+        //        .WithMany()
+        //        .HasForeignKey(c => c.AccountTypeId)
+        //        .OnDelete(DeleteBehavior.NoAction); 
+        //}
     }
-
-
 }

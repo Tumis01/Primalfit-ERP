@@ -12,8 +12,8 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260122192520_new")]
-    partial class @new
+    [Migration("20260127135103_Gl setup3")]
+    partial class Glsetup3
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -313,7 +313,29 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("CompanyDetails");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.GLMasterAccount", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLAccountType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Class")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GLAccountTypes");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLChartOfAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -321,60 +343,47 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<string>("AccountCode")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("AccountName")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("AccountType")
-                        .HasColumnType("int");
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime2");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
+                    b.Property<Guid>("MainAccountId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
-                    b.ToTable("GLMasterAccounts");
+                    b.HasIndex("MainAccountId");
+
+                    b.ToTable("GLChartOfAccounts");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.GLSubAccount", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLMainAccount", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("AccountName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<decimal>("Budget")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("MasterAccountId")
+                    b.Property<Guid>("AccountTypeId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("ProjectId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("SubCode")
+                    b.Property<string>("Code")
                         .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MasterAccountId");
+                    b.HasIndex("AccountTypeId");
 
-                    b.HasIndex("ProjectId");
-
-                    b.ToTable("GLSubAccounts");
+                    b.ToTable("GLMainAccounts");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Project", b =>
@@ -455,26 +464,26 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.GLSubAccount", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLChartOfAccount", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.GLMasterAccount", "MasterAccount")
-                        .WithMany("SubAccounts")
-                        .HasForeignKey("MasterAccountId")
+                    b.HasOne("Primafit_ERP.Components.Models.GLMainAccount", "MainAccount")
+                        .WithMany()
+                        .HasForeignKey("MainAccountId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.Project", "LinkedProject")
-                        .WithMany()
-                        .HasForeignKey("ProjectId");
-
-                    b.Navigation("LinkedProject");
-
-                    b.Navigation("MasterAccount");
+                    b.Navigation("MainAccount");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.GLMasterAccount", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLMainAccount", b =>
                 {
-                    b.Navigation("SubAccounts");
+                    b.HasOne("Primafit_ERP.Components.Models.GLAccountType", "AccountType")
+                        .WithMany()
+                        .HasForeignKey("AccountTypeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AccountType");
                 });
 #pragma warning restore 612, 618
         }

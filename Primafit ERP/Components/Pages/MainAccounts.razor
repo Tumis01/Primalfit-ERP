@@ -1,4 +1,4 @@
-﻿@page "/gl/chart-of-accounts"
+﻿@page "/gl/main-accounts"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using System.Text
@@ -7,12 +7,12 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+<div class="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
 
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Chart of Accounts</h1>
-            <p class="text-sm text-slate-500 mt-1">The master list of all transactional accounts linked to Main Headers.</p>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Main Accounts</h1>
+            <p class="text-sm text-slate-500 mt-1">Define main headers (e.g., Land & Building) linked to Account Types.</p>
         </div>
 
         <div class="flex gap-3">
@@ -38,7 +38,7 @@
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
                     </svg>
-                    Add Account
+                    Add Main Account
                 </button>
             }
         </div>
@@ -50,27 +50,27 @@
 
             <div class="flex items-center justify-between mb-8">
                 <div>
-                    <h3 class="text-lg font-bold text-slate-900">New Account</h3>
-                    <p class="text-sm text-slate-500">Select a Main Header to automatically link Type and Class.</p>
+                    <h3 class="text-lg font-bold text-slate-900">New Main Account</h3>
+                    <p class="text-sm text-slate-500">Fill in the details below.</p>
                 </div>
                 <button @onclick="CloseForm" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                     <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
 
-            <EditForm Model="@newAccount" OnValidSubmit="HandleSubmit">
+            <EditForm Model="@newMain" OnValidSubmit="HandleSubmit">
                 <DataAnnotationsValidator />
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
 
                     <div class="md:col-span-2">
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Parent Main Account</label>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Parent Account Type</label>
                         <div class="relative">
-                            <InputSelect @bind-Value="newAccount.MainAccountId" class="@InputClass">
-                                <option value="@Guid.Empty">-- Select Main Header --</option>
-                                @foreach (var m in mainAccounts)
+                            <InputSelect @bind-Value="newMain.AccountTypeId" class="@InputClass">
+                                <option value="@Guid.Empty">-- Select Type --</option>
+                                @foreach (var t in accountTypes)
                                 {
-                                    <option value="@m.Id">@m.Code - @m.Name (@m.AccountType?.Name)</option>
+                                    <option value="@t.Id">@t.Code - @t.Name (@t.Class)</option>
                                 }
                             </InputSelect>
                             <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
@@ -80,13 +80,13 @@
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Account Code</label>
-                        <InputText @bind-Value="newAccount.AccountCode" class="@InputClass" placeholder="e.g. 1001" />
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Main Code</label>
+                        <InputText @bind-Value="newMain.Code" class="@InputClass" placeholder="e.g. 111" />
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Account Name</label>
-                        <InputText @bind-Value="newAccount.AccountName" class="@InputClass" placeholder="e.g. HEAD OFFICE BUILDING" />
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Main Name</label>
+                        <InputText @bind-Value="newMain.Name" class="@InputClass" placeholder="e.g. Land & Building" />
                     </div>
                 </div>
 
@@ -95,7 +95,7 @@
                         Cancel
                     </button>
                     <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">
-                        <span>Save Account</span>
+                        <span>Save Main Account</span>
                     </button>
                 </div>
             </EditForm>
@@ -107,34 +107,30 @@
             <table class="w-full text-left text-sm text-slate-600">
                 <thead class="bg-slate-50/50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-100">
                     <tr>
-                        <th class="px-6 py-4">Acct Code</th>
-                        <th class="px-6 py-4">Acct Name</th>
                         <th class="px-6 py-4">Main Code</th>
-                        <th class="px-6 py-4">Main Name</th>
+                        <th class="px-6 py-4">Main Account</th>
                         <th class="px-6 py-4">Type Code</th>
-                        <th class="px-6 py-4">Type Name</th>
+                        <th class="px-6 py-4">Account Type</th>
                         <th class="px-6 py-4">Class Code</th>
-                        <th class="px-6 py-4">Class Name</th>
+                        <th class="px-6 py-4">Account Class</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    @if (chartOfAccounts.Any())
+                    @if (mainAccounts.Any())
                     {
-                        @foreach (var item in PagedAccounts)
+                        @foreach (var item in PagedMainAccounts)
                         {
                             <tr class="hover:bg-slate-50 transition-colors">
-                                <td class="px-6 py-4 font-mono font-bold text-indigo-600">@item.AccountCode</td>
-                                <td class="px-6 py-4 font-medium text-slate-900">@item.AccountName</td>
-                                <td class="px-6 py-4 font-mono text-slate-500">@item.MainAccount?.Code</td>
-                                <td class="px-6 py-4 text-slate-600">@item.MainAccount?.Name</td>
-                                <td class="px-6 py-4 font-mono text-slate-400">@item.MainAccount?.AccountType?.Code</td>
-                                <td class="px-6 py-4 text-slate-500">@item.MainAccount?.AccountType?.Name</td>
+                                <td class="px-6 py-4 font-mono font-bold font-indigo-600">@item.Code</td>
+                                <td class="px-6 py-4 font-medium text-slate-900">@item.Name</td>
+                                <td class="px-6 py-4 font-mono text-slate-500">@item.AccountType?.Code</td>
+                                <td class="px-6 py-4 text-slate-600">@item.AccountType?.Name</td>
                                 <td class="px-6 py-4 font-mono text-slate-400">
-                                    @(((int)(item.MainAccount?.AccountType?.Class ?? 0)).ToString("D2"))
+                                    @(((int)(item.AccountType?.Class ?? 0)).ToString("D2"))
                                 </td>
                                 <td class="px-6 py-4">
                                     <span class="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">
-                                        @item.MainAccount?.AccountType?.Class
+                                        @item.AccountType?.Class
                                     </span>
                                 </td>
                             </tr>
@@ -143,18 +139,18 @@
                     else
                     {
                         <tr>
-                            <td colspan="8" class="px-6 py-8 text-center text-slate-400">No records found. Add one or import CSV.</td>
+                            <td colspan="6" class="px-6 py-8 text-center text-slate-400">No records found. Add one or import CSV.</td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
 
-        @if (chartOfAccounts.Any())
+        @if (mainAccounts.Any())
         {
             <div class="flex items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-3">
                 <div class="text-xs text-slate-500">
-                    Showing @((CurrentPage - 1) * PageSize + 1) to @(Math.Min(CurrentPage * PageSize, chartOfAccounts.Count)) of @chartOfAccounts.Count entries
+                    Showing @((CurrentPage - 1) * PageSize + 1) to @(Math.Min(CurrentPage * PageSize, mainAccounts.Count)) of @mainAccounts.Count entries
                 </div>
                 <div class="flex gap-2">
                     <button @onclick="PreviousPage" disabled="@(CurrentPage == 1)" class="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50 transition-all">
@@ -183,35 +179,35 @@
 @code {
     private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
 
-    private List<GLChartOfAccount> chartOfAccounts = new();
     private List<GLMainAccount> mainAccounts = new();
-    private GLChartOfAccount newAccount = new();
+    private List<GLAccountType> accountTypes = new();
+    private GLMainAccount newMain = new();
     private bool showForm = false;
 
     // PAGINATION
     private int CurrentPage = 1;
     private int PageSize = 10;
-    private int TotalPages => (int)Math.Ceiling((double)chartOfAccounts.Count / PageSize);
-    private IEnumerable<GLChartOfAccount> PagedAccounts => chartOfAccounts.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
+    private int TotalPages => (int)Math.Ceiling((double)mainAccounts.Count / PageSize);
+    private IEnumerable<GLMainAccount> PagedMainAccounts => mainAccounts.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
 
     protected override async Task OnInitializedAsync() => await LoadData();
 
     private async Task LoadData()
     {
-        chartOfAccounts = await Service.GetChartOfAccountsAsync();
         mainAccounts = await Service.GetMainAccountsAsync();
+        accountTypes = await Service.GetAccountTypesAsync();
         StateHasChanged();
     }
 
-    private void OpenForm() { newAccount = new(); showForm = true; }
+    private void OpenForm() { newMain = new(); showForm = true; }
 
     private void CloseForm() { showForm = false; }
 
     private async Task HandleSubmit()
     {
-        if (newAccount.MainAccountId == Guid.Empty) return;
+        if (newMain.AccountTypeId == Guid.Empty) return;
 
-        if (await Service.CreateChartOfAccountAsync(newAccount))
+        if (await Service.CreateMainAccountAsync(newMain))
         {
             await LoadData();
             CloseForm();
@@ -226,16 +222,14 @@
     private async Task ExportCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("AccountCode,AccountName,MainCode,MainName,TypeCode,TypeName,Class");
+        sb.AppendLine("MainCode,MainName,TypeCode,TypeName,Class");
 
-        foreach (var item in chartOfAccounts)
+        foreach (var item in mainAccounts)
         {
-            var main = item.MainAccount;
-            var type = main?.AccountType;
-            sb.AppendLine($"{item.AccountCode},{item.AccountName},{main?.Code},{main?.Name},{type?.Code},{type?.Name},{type?.Class}");
+            sb.AppendLine($"{item.Code},{item.Name},{item.AccountType?.Code},{item.AccountType?.Name},{item.AccountType?.Class}");
         }
 
-        await JS.InvokeVoidAsync("downloadFile", "ChartOfAccounts.csv", sb.ToString());
+        await JS.InvokeVoidAsync("downloadFile", "MainAccounts.csv", sb.ToString());
     }
 
     // --- CSV IMPORT ---
@@ -246,7 +240,7 @@
             var file = e.File;
             if (file == null) return;
 
-            using var stream = file.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024); // 2MB
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024); // 1MB
             using var reader = new StreamReader(stream);
             var text = await reader.ReadToEndAsync();
             var lines = text.Split('\n');
@@ -259,32 +253,33 @@
                 var cols = line.Split(',');
                 if (cols.Length < 3) continue;
 
-                // Expected CSV: AccountCode, AccountName, MainCode
-                var acctCode = cols[0].Trim();
-                var acctName = cols[1].Trim();
-                var mainCode = cols[2].Trim();
+                // Expected CSV: MainCode, MainName, TypeCode (Reference)
+                var mainCode = cols[0].Trim();
+                var mainName = cols[1].Trim();
+                var typeCode = cols[2].Trim(); // Crucial: This links to AccountType
 
-                // Find Parent Main Account
-                var parentMain = mainAccounts.FirstOrDefault(m => m.Code == mainCode);
+                // Find the Parent Type GUID using the code from CSV
+                var parentType = accountTypes.FirstOrDefault(t => t.Code == typeCode);
 
-                if (parentMain != null)
+                if (parentType != null)
                 {
-                    var newItem = new GLChartOfAccount
+                    var newItem = new GLMainAccount
                     {
-                        AccountCode = acctCode,
-                        AccountName = acctName,
-                        MainAccountId = parentMain.Id
+                        Code = mainCode,
+                        Name = mainName,
+                        AccountTypeId = parentType.Id
                     };
 
-                    if (!chartOfAccounts.Any(c => c.AccountCode == newItem.AccountCode))
+                    // Avoid duplicate codes
+                    if (!mainAccounts.Any(m => m.Code == newItem.Code))
                     {
-                        await Service.CreateChartOfAccountAsync(newItem);
+                        await Service.CreateMainAccountAsync(newItem);
                         successCount++;
                     }
                 }
             }
             await LoadData();
-            await JS.InvokeVoidAsync("alert", $"Import Complete! Added {successCount} accounts.");
+            await JS.InvokeVoidAsync("alert", $"Import Complete! Added {successCount} records.");
         }
         catch (Exception ex)
         {
