@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Primafit_ERP.Migrations
 {
     /// <inheritdoc />
-    public partial class @new : Migration
+    public partial class Glsetup3 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -86,18 +86,17 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "GLMasterAccounts",
+                name: "GLAccountTypes",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AccountCode = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
-                    AccountName = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
-                    AccountType = table.Column<int>(type: "int", nullable: false),
-                    IsActive = table.Column<bool>(type: "bit", nullable: false)
+                    Code = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Class = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_GLMasterAccounts", x => x.Id);
+                    table.PrimaryKey("PK_GLAccountTypes", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -222,31 +221,44 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "GLSubAccounts",
+                name: "GLMainAccounts",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    MasterAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    SubCode = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
-                    AccountName = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
-                    ProjectId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Budget = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
-                    IsActive = table.Column<bool>(type: "bit", nullable: false)
+                    Code = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    AccountTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_GLSubAccounts", x => x.Id);
+                    table.PrimaryKey("PK_GLMainAccounts", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_GLSubAccounts_GLMasterAccounts_MasterAccountId",
-                        column: x => x.MasterAccountId,
-                        principalTable: "GLMasterAccounts",
+                        name: "FK_GLMainAccounts_GLAccountTypes_AccountTypeId",
+                        column: x => x.AccountTypeId,
+                        principalTable: "GLAccountTypes",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "GLChartOfAccounts",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AccountCode = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    AccountName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    MainAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_GLChartOfAccounts", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_GLSubAccounts_Projects_ProjectId",
-                        column: x => x.ProjectId,
-                        principalTable: "Projects",
-                        principalColumn: "Id");
+                        name: "FK_GLChartOfAccounts_GLMainAccounts_MainAccountId",
+                        column: x => x.MainAccountId,
+                        principalTable: "GLMainAccounts",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
@@ -289,14 +301,14 @@ namespace Primafit_ERP.Migrations
                 filter: "[NormalizedUserName] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_GLSubAccounts_MasterAccountId",
-                table: "GLSubAccounts",
-                column: "MasterAccountId");
+                name: "IX_GLChartOfAccounts_MainAccountId",
+                table: "GLChartOfAccounts",
+                column: "MainAccountId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_GLSubAccounts_ProjectId",
-                table: "GLSubAccounts",
-                column: "ProjectId");
+                name: "IX_GLMainAccounts_AccountTypeId",
+                table: "GLMainAccounts",
+                column: "AccountTypeId");
         }
 
         /// <inheritdoc />
@@ -321,7 +333,10 @@ namespace Primafit_ERP.Migrations
                 name: "CompanyDetails");
 
             migrationBuilder.DropTable(
-                name: "GLSubAccounts");
+                name: "GLChartOfAccounts");
+
+            migrationBuilder.DropTable(
+                name: "Projects");
 
             migrationBuilder.DropTable(
                 name: "AspNetRoles");
@@ -330,10 +345,10 @@ namespace Primafit_ERP.Migrations
                 name: "AspNetUsers");
 
             migrationBuilder.DropTable(
-                name: "GLMasterAccounts");
+                name: "GLMainAccounts");
 
             migrationBuilder.DropTable(
-                name: "Projects");
+                name: "GLAccountTypes");
         }
     }
 }

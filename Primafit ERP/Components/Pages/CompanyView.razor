@@ -50,7 +50,7 @@
                                     <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Identity</h3>
                                     <div class="space-y-4">
                                         <div class="flex items-center gap-4">
-                                            <div class="relative h-16 w-16 overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+                                            @* <div class="relative h-16 w-16 overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
                                                 @if (!string.IsNullOrEmpty(currentCompany.LogoPath))
                                                 {
                                                     <img src="@currentCompany.LogoPath" class="h-full w-full object-cover" alt="Logo" />
@@ -72,8 +72,8 @@
                                                         <InputFile OnChange="HandleFileSelected" class="hidden" accept=".jpg,.jpeg,.png" />
                                                     </label>
                                                     <span class="text-[10px] text-slate-400">JPG or PNG, max 5MB</span>
-                                                </div>
-                                            </div>
+                                                </div> 
+                                            </div>*@
                                         </div>
                                         <div>
                                             <label class="mb-1 block text-sm font-medium text-slate-700">Company Name</label>
