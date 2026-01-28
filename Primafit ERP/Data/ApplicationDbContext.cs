@@ -13,6 +13,8 @@ namespace PrimafitERP.Data
         public DbSet<GLAccountType> GLAccountTypes { get; set; }
         public DbSet<GLMainAccount> GLMainAccounts { get; set; }
         public DbSet<GLChartOfAccount> GLChartOfAccounts { get; set; }
+        public DbSet<Currency> Currencies { get; set; }
+        public DbSet<CurrencyManagement> CurrencyManagements { get; set; }
 
         //protected override void OnModelCreating(ModelBuilder builder)
         //{

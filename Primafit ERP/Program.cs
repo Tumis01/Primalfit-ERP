@@ -43,6 +43,7 @@ builder.Services.AddScoped<UserApiService>();
 builder.Services.AddScoped<RoleApiService>();
 builder.Services.AddScoped<GLSetupService>();
 builder.Services.AddScoped<ProjectService>();
+builder.Services.AddScoped<CurrencyService>();
 
 //  AUTH SERVICE (API Based)
 builder.Services.AddHttpClient<AuthApiService>(client =>

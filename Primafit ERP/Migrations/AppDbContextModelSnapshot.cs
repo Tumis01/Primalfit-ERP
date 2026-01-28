@@ -267,6 +267,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<string>("CompanyWebsite")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("nvarchar(450)");
+
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime2");
 
@@ -307,7 +310,53 @@ namespace Primafit_ERP.Migrations
 
                     b.HasKey("CompanyDetailsId");
 
+                    b.HasIndex("CreatedByUserId");
+
                     b.ToTable("CompanyDetails");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Currency", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CurrencyName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Currencies");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CurrencyManagement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExchangeCurrency")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("Rate")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
+
+                    b.ToTable("CurrencyManagements");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLAccountType", b =>
@@ -459,6 +508,26 @@ namespace Primafit_ERP.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyDetails", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.ApplicationUser", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId");
+
+                    b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CurrencyManagement", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Currency", "CurrencyName")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CurrencyName");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLChartOfAccount", b =>

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Primafit_ERP.Migrations
 {
     /// <inheritdoc />
-    public partial class Glsetup3 : Migration
+    public partial class Currencyandcompanydetailsupdate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -58,31 +58,16 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "CompanyDetails",
+                name: "Currencies",
                 columns: table => new
                 {
-                    CompanyDetailsId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    CompanyName = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ComanyRegNumber = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    TaxIdentidicationNum = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    CompanyEmail = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    PhysicalAddress = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    PostalAddress = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    FiscalStartYear = table.Column<DateOnly>(type: "date", nullable: false),
-                    FiscalEndYear = table.Column<DateOnly>(type: "date", nullable: false),
-                    country = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    CompanyWebsite = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    FunctionalCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    BaseCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Type = table.Column<int>(type: "int", nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    ModifiedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    LogoPath = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CurrencyName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CurrencyCode = table.Column<string>(type: "nvarchar(max)", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_CompanyDetails", x => x.CompanyDetailsId);
+                    table.PrimaryKey("PK_Currencies", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -221,6 +206,61 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "CompanyDetails",
+                columns: table => new
+                {
+                    CompanyDetailsId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ComanyRegNumber = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TaxIdentidicationNum = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    CompanyEmail = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    PhysicalAddress = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    PostalAddress = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    FiscalStartYear = table.Column<DateOnly>(type: "date", nullable: false),
+                    FiscalEndYear = table.Column<DateOnly>(type: "date", nullable: false),
+                    country = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CompanyWebsite = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    FunctionalCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    BaseCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Type = table.Column<int>(type: "int", nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ModifiedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatedByUserId = table.Column<string>(type: "nvarchar(450)", nullable: true),
+                    LogoPath = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CompanyDetails", x => x.CompanyDetailsId);
+                    table.ForeignKey(
+                        name: "FK_CompanyDetails_AspNetUsers_CreatedByUserId",
+                        column: x => x.CreatedByUserId,
+                        principalTable: "AspNetUsers",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "CurrencyManagements",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CurrencyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ExchangeCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Date = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    Rate = table.Column<decimal>(type: "decimal(18,2)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_CurrencyManagements", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CurrencyManagements_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "GLMainAccounts",
                 columns: table => new
                 {
@@ -301,6 +341,16 @@ namespace Primafit_ERP.Migrations
                 filter: "[NormalizedUserName] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
+                name: "IX_CompanyDetails_CreatedByUserId",
+                table: "CompanyDetails",
+                column: "CreatedByUserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CurrencyManagements_CurrencyId",
+                table: "CurrencyManagements",
+                column: "CurrencyId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_GLChartOfAccounts_MainAccountId",
                 table: "GLChartOfAccounts",
                 column: "MainAccountId");
@@ -333,6 +383,9 @@ namespace Primafit_ERP.Migrations
                 name: "CompanyDetails");
 
             migrationBuilder.DropTable(
+                name: "CurrencyManagements");
+
+            migrationBuilder.DropTable(
                 name: "GLChartOfAccounts");
 
             migrationBuilder.DropTable(
@@ -343,6 +396,9 @@ namespace Primafit_ERP.Migrations
 
             migrationBuilder.DropTable(
                 name: "AspNetUsers");
+
+            migrationBuilder.DropTable(
+                name: "Currencies");
 
             migrationBuilder.DropTable(
                 name: "GLMainAccounts");

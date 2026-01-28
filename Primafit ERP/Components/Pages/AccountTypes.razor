@@ -191,7 +191,7 @@
     private async Task LoadData()
     {
         types = await Service.GetAccountTypesAsync();
-        StateHasChanged(); // Ensure UI refreshes
+        StateHasChanged(); 
     }
 
     private void OpenForm() { newType = new(); showForm = true; }
