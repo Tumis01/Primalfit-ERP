@@ -21,13 +21,13 @@ namespace Primafit_ERP.Components.Models
         public CompanyStatus Status { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }
-        // Stores the URL/Path in the database (e.g., "/uploads/logo-123.png")
+        public string? CreatedByUserId { get; set; } 
+
+        [ForeignKey("CreatedByUserId")]
+        public virtual ApplicationUser? CreatedByUser { get; set; }
         public string? LogoPath { get; set; }
-        // Transports the file content from Blazor to API. 
-        // [NotMapped] ensures EF Core ignores this and doesn't try to create a column for it.
         [NotMapped]
         public string? NewLogoBase64 { get; set; }
-        // [NotMapped] to store the file extension (e.g., ".png") so we save it correctly
         [NotMapped]
         public string? NewLogoExtension { get; set; }
 

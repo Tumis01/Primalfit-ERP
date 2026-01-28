@@ -1,0 +1,245 @@
+﻿@page "/currency-setup"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject CurrencyService Service
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 p-6">
+
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Currency Management</h1>
+            <p class="text-sm text-slate-500 mt-1">Manage trading currencies and daily exchange rates.</p>
+        </div>
+
+        <div class="flex gap-3">
+            <button @onclick="OpenCurrencyForm" class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all">
+                New Currency
+            </button>
+            <button @onclick="OpenRateForm" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-95">
+                Add Exchange Rate
+            </button>
+        </div>
+    </div>
+
+    @if (showCurrencyForm)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl animate-in fade-in slide-in-from-top-2">
+            <h3 class="font-bold text-slate-900 mb-4">Define New Currency</h3>
+            <EditForm Model="@newCurrency" OnValidSubmit="HandleSaveCurrency">
+                <DataAnnotationsValidator />
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Code</label>
+                        <InputText @bind-Value="newCurrency.CurrencyCode" class="@InputClass" placeholder="e.g. USD" />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
+                        <InputText @bind-Value="newCurrency.CurrencyName" class="@InputClass" placeholder="e.g. Dollar" />
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end gap-3">
+                    <button type="button" @onclick="() => showCurrencyForm = false" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">Cancel</button>
+                    <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">Save Currency</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    @if (showRateForm)
+    {
+        <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-xl animate-in fade-in slide-in-from-top-2">
+            <h3 class="font-bold text-indigo-900 mb-4">@(isEditingRate ? "Edit Rate" : "Add Rate")</h3>
+            <EditForm Model="@currentRate" OnValidSubmit="HandleSaveRate">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                    <div>
+                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Currency</label>
+                        <InputSelect @bind-Value="currentRate.CurrencyId" class="@InputClass">
+                            <option value="@Guid.Empty">-- Select --</option>
+                            @foreach (var c in currencyList)
+                            {
+                                <option value="@c.Id">@c.CurrencyName (@c.CurrencyCode)</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Exchange Currency</label>
+                        <InputText @bind-Value="currentRate.ExchangeCurrency" class="@InputClass" placeholder="e.g. NGN" />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Rate</label>
+                        <InputNumber @bind-Value="currentRate.Rate" class="@InputClass" />
+                    </div>
+
+                </div>
+                <div class="mt-6 flex justify-end gap-3">
+                    <button type="button" @onclick="CloseRateForm" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-white rounded-lg">Cancel</button>
+                    <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
+                        @(isEditingRate ? "Update" : "Add")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+        <div class="lg:col-span-1 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden h-fit">
+            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100">
+                <h3 class="font-bold text-slate-700">Available Currencies</h3>
+            </div>
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                        <th class="px-6 py-2">Name</th>
+                        <th class="px-6 py-2">Code</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var c in currencyList)
+                    {
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-6 py-3 font-bold">@c.CurrencyName</td>
+                            <td class="px-6 py-3 text-slate-600">@c.CurrencyCode</td>
+                        </tr>
+                    }
+                    @if (!currencyList.Any())
+                    {
+                        <tr><td colspan="2" class="p-4 text-center text-slate-400">No currencies.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100">
+                <h3 class="font-bold text-slate-700">Management & Rates</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-600">
+                    <thead class="bg-white text-xs uppercase font-bold text-slate-500">
+                        <tr>
+                            <th class="px-6 py-3">Date</th>
+                            <th class="px-6 py-3">Currency</th>
+                            <th class="px-6 py-3">Ex. Currency</th>
+                            <th class="px-6 py-3">Rate</th>
+                            <th class="px-6 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var item in ratesList)
+                        {
+                            <tr class="hover:bg-slate-50 group">
+                                <td class="px-6 py-4">@item.Date.ToString("g")</td>
+
+                                <td class="px-6 py-4 font-bold text-slate-900">
+                                    @item.CurrencyName?.CurrencyName <span class="text-xs font-normal text-slate-400">(@item.CurrencyName?.CurrencyCode)</span>
+                                </td>
+
+                                <td class="px-6 py-4">@item.ExchangeCurrency</td>
+                                <td class="px-6 py-4 font-mono font-bold text-emerald-600">
+                                    @item.Rate.ToString("N4")
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <div class="flex justify-end gap-2">
+                                        <button @onclick="() => EditRate(item)" class="text-indigo-600 hover:text-indigo-900 font-medium">Edit</button>
+                                        <button @onclick="() => DeleteRate(item)" class="text-red-600 hover:text-red-900 font-medium">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
+
+    private List<Currency> currencyList = new();
+    private List<CurrencyManagement> ratesList = new();
+    private Currency newCurrency = new();
+    private CurrencyManagement currentRate = new();
+
+    private bool showCurrencyForm = false;
+    private bool showRateForm = false;
+    private bool isEditingRate = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        currencyList = await Service.GetCurrenciesAsync();
+        ratesList = await Service.GetRatesAsync();
+    }
+
+    private void OpenCurrencyForm() { newCurrency = new(); showCurrencyForm = true; showRateForm = false; }
+
+    private async Task HandleSaveCurrency()
+    {
+        if (await Service.SaveCurrencyAsync(newCurrency))
+        {
+            await LoadData();
+            showCurrencyForm = false;
+        }
+    }
+
+    // Initialize date to today when opening form
+    private void OpenRateForm()
+    {
+        currentRate = new CurrencyManagement { Date = DateTime.Today };
+        isEditingRate = false;
+        showRateForm = true;
+        showCurrencyForm = false;
+    }
+
+    private void EditRate(CurrencyManagement item)
+    {
+        currentRate = new CurrencyManagement
+        {
+            Id = item.Id,
+            CurrencyId = item.CurrencyId,
+            ExchangeCurrency = item.ExchangeCurrency,
+            Rate = item.Rate,
+            Date = item.Date
+        };
+        isEditingRate = true;
+        showRateForm = true;
+    }
+
+    private void CloseRateForm() { showRateForm = false; isEditingRate = false; }
+
+    private async Task HandleSaveRate()
+    {
+        if (currentRate.CurrencyId == Guid.Empty) return;
+
+        // Ensure date is today if it wasn't set (double check)
+        if (currentRate.Date == default) currentRate.Date = DateTime.Now;
+
+        if (await Service.SaveRateAsync(currentRate))
+        {
+            await LoadData();
+            CloseRateForm();
+        }
+    }
+
+    private async Task DeleteRate(CurrencyManagement item)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Delete this record?"))
+        {
+            await Service.DeleteRateAsync(item.Id);
+            await LoadData();
+        }
+    }
+}
