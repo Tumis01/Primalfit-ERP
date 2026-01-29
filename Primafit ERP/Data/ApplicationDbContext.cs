@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
+using Primafit_ERP.Services;
 
 namespace PrimafitERP.Data
 {
@@ -15,6 +16,8 @@ namespace PrimafitERP.Data
         public DbSet<GLChartOfAccount> GLChartOfAccounts { get; set; }
         public DbSet<Currency> Currencies { get; set; }
         public DbSet<CurrencyManagement> CurrencyManagements { get; set; }
+        public DbSet<Tax> Taxes { get; set; }
+        public DbSet<AccountingPeriod> AccountingPeriods { get; set; }
 
         //protected override void OnModelCreating(ModelBuilder builder)
         //{

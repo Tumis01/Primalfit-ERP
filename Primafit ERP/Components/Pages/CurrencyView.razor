@@ -2,6 +2,7 @@
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @inject CurrencyService Service
+@inject CompanyApiService CompanyService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -60,7 +61,7 @@
                         <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Currency</label>
                         <InputSelect @bind-Value="currentRate.CurrencyId" class="@InputClass">
                             <option value="@Guid.Empty">-- Select --</option>
-                            @foreach (var c in currencyList)
+                            @foreach (var c in FilteredCurrencies)
                             {
                                 <option value="@c.Id">@c.CurrencyName (@c.CurrencyCode)</option>
                             }
@@ -68,8 +69,17 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Exchange Currency</label>
-                        <InputText @bind-Value="currentRate.ExchangeCurrency" class="@InputClass" placeholder="e.g. NGN" />
+                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Base Currency</label>
+                        <InputSelect @bind-Value="currentRate.ExchangeCurrency" class="@InputClass">
+                            @if (!string.IsNullOrEmpty(companyBaseCurrency))
+                            {
+                                <option value="@companyBaseCurrency">@companyBaseCurrency</option>
+                            }
+                            else
+                            {
+                                <option value="">No Base Currency Found</option>
+                            }
+                        </InputSelect>
                     </div>
 
                     <div>
@@ -127,7 +137,7 @@
                         <tr>
                             <th class="px-6 py-3">Date</th>
                             <th class="px-6 py-3">Currency</th>
-                            <th class="px-6 py-3">Ex. Currency</th>
+                            <th class="px-6 py-3">Base Currency</th>
                             <th class="px-6 py-3">Rate</th>
                             <th class="px-6 py-3 text-right">Actions</th>
                         </tr>
@@ -136,7 +146,7 @@
                         @foreach (var item in ratesList)
                         {
                             <tr class="hover:bg-slate-50 group">
-                                <td class="px-6 py-4">@item.Date.ToString("g")</td>
+                                <td class="px-6 py-4">@item.Date.ToShortDateString()</td>
 
                                 <td class="px-6 py-4 font-bold text-slate-900">
                                     @item.CurrencyName?.CurrencyName <span class="text-xs font-normal text-slate-400">(@item.CurrencyName?.CurrencyCode)</span>
@@ -144,7 +154,7 @@
 
                                 <td class="px-6 py-4">@item.ExchangeCurrency</td>
                                 <td class="px-6 py-4 font-mono font-bold text-emerald-600">
-                                    @item.Rate.ToString("N4")
+                                    @item.Rate.ToString("N2")
                                 </td>
                                 <td class="px-6 py-4 text-right">
                                     <div class="flex justify-end gap-2">
@@ -153,6 +163,10 @@
                                     </div>
                                 </td>
                             </tr>
+                        }
+                        @if (!ratesList.Any())
+                        {
+                            <tr><td colspan="5" class="p-8 text-center text-slate-400">No rates recorded.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -166,6 +180,7 @@
 
     private List<Currency> currencyList = new();
     private List<CurrencyManagement> ratesList = new();
+
     private Currency newCurrency = new();
     private CurrencyManagement currentRate = new();
 
@@ -173,9 +188,31 @@
     private bool showRateForm = false;
     private bool isEditingRate = false;
 
+    // To store the Base Currency fetched from Company Details
+    private string companyBaseCurrency = "";
+
+    // 💡 LOGIC: Filter currencies that are ALREADY in the ratesList
+    private IEnumerable<Currency> FilteredCurrencies
+    {
+        get
+        {
+            if (isEditingRate)
+            {
+                // If editing, show all currencies (so the current one doesn't disappear)
+                return currencyList;
+            }
+            else
+            {
+                // If adding new, HIDE currencies that are already in the rates list
+                return currencyList.Where(c => !ratesList.Any(r => r.CurrencyId == c.Id));
+            }
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        await LoadCompanySettings();
     }
 
     private async Task LoadData()
@@ -184,6 +221,18 @@
         ratesList = await Service.GetRatesAsync();
     }
 
+    private async Task LoadCompanySettings()
+    {
+        // Fetch companies (assuming you want the first one or logic to pick the active one)
+        var companies = await CompanyService.GetCompaniesAsync();
+        var company = companies.FirstOrDefault();
+        if (company != null)
+        {
+            companyBaseCurrency = company.BaseCurrency;
+        }
+    }
+
+    // --- CURRENCY LOGIC ---
     private void OpenCurrencyForm() { newCurrency = new(); showCurrencyForm = true; showRateForm = false; }
 
     private async Task HandleSaveCurrency()
@@ -195,10 +244,14 @@
         }
     }
 
-    // Initialize date to today when opening form
+    // --- MANAGEMENT LOGIC ---
     private void OpenRateForm()
     {
-        currentRate = new CurrencyManagement { Date = DateTime.Today };
+        currentRate = new CurrencyManagement
+        {
+            Date = DateTime.Now,
+            ExchangeCurrency = companyBaseCurrency // Auto-fill Base Currency
+        };
         isEditingRate = false;
         showRateForm = true;
         showCurrencyForm = false;
@@ -224,8 +277,11 @@
     {
         if (currentRate.CurrencyId == Guid.Empty) return;
 
-        // Ensure date is today if it wasn't set (double check)
+        // Ensure date is today if it wasn't set
         if (currentRate.Date == default) currentRate.Date = DateTime.Now;
+
+        // Ensure Base Currency is set (security check)
+        if (string.IsNullOrEmpty(currentRate.ExchangeCurrency)) currentRate.ExchangeCurrency = companyBaseCurrency;
 
         if (await Service.SaveRateAsync(currentRate))
         {
