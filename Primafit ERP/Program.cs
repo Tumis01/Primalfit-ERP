@@ -46,6 +46,9 @@ builder.Services.AddScoped<ProjectService>();
 builder.Services.AddScoped<CurrencyService>();
 builder.Services.AddScoped<TaxService>();
 builder.Services.AddScoped<AccountingPeriodService>();
+builder.Services.AddScoped<GLOperationsService>();
+builder.Services.AddScoped<ReconciliationService>();
+builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 
 //  AUTH SERVICE (API Based)
 builder.Services.AddHttpClient<AuthApiService>(client =>

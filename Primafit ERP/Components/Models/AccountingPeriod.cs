@@ -8,15 +8,15 @@ namespace Primafit_ERP.Components.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        public string PeriodName { get; set; } // e.g. "Period 1"
+        public string PeriodName { get; set; } 
 
-        public DateOnly StartDate { get; set; } // Inherited from Company Start
+        public DateOnly StartDate { get; set; }
 
-        public DateOnly EndDate { get; set; }   // Start + 1 Month
+        public DateOnly EndDate { get; set; } 
 
-        public bool IsClosed { get; set; } = false; // The Checkbox
+        public bool IsClosed { get; set; } = false; 
 
-        // Link to Company
+       
         public Guid CompanyId { get; set; }
 
         [ForeignKey("CompanyId")]

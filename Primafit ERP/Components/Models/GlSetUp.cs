@@ -16,7 +16,13 @@ namespace Primafit_ERP.Components.Models
     public class GLAccountType
     {
         [Key]
-        public Guid Id { get; set; } = Guid.NewGuid(); 
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
 
         [Required]
         public string Code { get; set; }
@@ -31,45 +37,59 @@ namespace Primafit_ERP.Components.Models
         public string FullName => $"[{Class}] {Code} - {Name}";
     }
 
+
     public class GLMainAccount
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public string Code { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
 
         [Required]
-        public string Name { get; set; }
+        public string Code { get; set; } = string.Empty;
 
         [Required]
-        public Guid AccountTypeId { get; set; } 
+        public string Name { get; set; } = string.Empty;
 
-        [ForeignKey("AccountTypeId")]
+        [Required]
+        public Guid AccountTypeId { get; set; }
+
+        [ForeignKey(nameof(AccountTypeId))]
         public virtual GLAccountType? AccountType { get; set; }
 
         [NotMapped]
         public string FullName => $"{Code} - {Name}";
     }
 
+
     public class GLChartOfAccount
     {
         [Key]
-        public Guid Id { get; set; } = Guid.NewGuid(); 
+        public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public string AccountCode { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
 
         [Required]
-        public string AccountName { get; set; }
+        public string AccountCode { get; set; } = string.Empty;
 
         [Required]
-        public Guid MainAccountId { get; set; } 
+        public string AccountName { get; set; } = string.Empty;
 
-        [ForeignKey("MainAccountId")]
+        [Required]
+        public Guid MainAccountId { get; set; }
+
+        [ForeignKey(nameof(MainAccountId))]
         public virtual GLMainAccount? MainAccount { get; set; }
 
-
-        public DateTime CreatedDate { get; set; } = DateTime.Now;
+        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     }
+
 }

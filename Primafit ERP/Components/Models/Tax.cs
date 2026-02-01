@@ -1,10 +1,20 @@
-﻿namespace Primafit_ERP.Components.Models
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+public class Tax
 {
-    public class Tax
-    {
-        public Guid Id { get; set; }
-        public string TaxName { get; set; }
-        public string TaxCode { get; set; }
-        public double Per { get; set; }
-    }
+    [Key]
+    public Guid Id { get; set; }
+
+    [Required]
+    public Guid CompanyId { get; set; }
+
+    [Required]
+    public string TaxName { get; set; }
+
+    [Required]
+    public string TaxCode { get; set; }
+
+    [Column(TypeName = "decimal(9,4)")]
+    public decimal Per { get; set; }
 }

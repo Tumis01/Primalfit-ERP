@@ -13,50 +13,53 @@ namespace Primafit_ERP.Services
             _dbFactory = dbFactory;
         }
 
-        public async Task<List<Tax>> GetTaxesAsync()
+        public async Task<List<Tax>> GetTaxesAsync(Guid companyId)
         {
             using var context = _dbFactory.CreateDbContext();
-            return await context.Taxes.OrderBy(t => t.TaxCode).ToListAsync();
+            return await context.Taxes
+                .AsNoTracking()
+                .Where(t => t.CompanyId == companyId)
+                .OrderBy(t => t.TaxCode)
+                .ToListAsync();
         }
 
-        // Returns "Success" (empty string) or an Error Message
-        public async Task<string> SaveTaxAsync(Tax tax)
+        // empty string = success; else error msg
+        public async Task<string> SaveTaxAsync(Guid companyId, Tax tax)
         {
             using var context = _dbFactory.CreateDbContext();
 
-            // 1. Check for Null/Empty Values
+            if (companyId == Guid.Empty) return "Select a company first.";
+
+            tax.TaxCode = (tax.TaxCode ?? "").Trim().ToUpperInvariant();
+            tax.TaxName = (tax.TaxName ?? "").Trim();
+
             if (string.IsNullOrWhiteSpace(tax.TaxCode) || string.IsNullOrWhiteSpace(tax.TaxName))
-            {
-                return "Cannot save null values. Please enter both Tax Code and Tax Name.";
-            }
+                return "Tax Code and Tax Name are required.";
 
-            // 2. Check for Duplicates (Name or Code)
-            // We ensure we don't count the *current* record against itself (t.Id != tax.Id)
-            bool codeExists = await context.Taxes
-                .AnyAsync(t => t.TaxCode == tax.TaxCode && t.Id != tax.Id);
+            if (tax.Per < 0 || tax.Per > 100)
+                return "Tax percentage must be between 0 and 100.";
 
-            if (codeExists)
-            {
-                return $"The Tax Code '{tax.TaxCode}' already exists.";
-            }
+            bool codeExists = await context.Taxes.AnyAsync(t =>
+                t.CompanyId == companyId && t.TaxCode == tax.TaxCode && t.Id != tax.Id);
 
-            bool nameExists = await context.Taxes
-                .AnyAsync(t => t.TaxName == tax.TaxName && t.Id != tax.Id);
+            if (codeExists) return $"The Tax Code '{tax.TaxCode}' already exists for this company.";
 
-            if (nameExists)
-            {
-                return $"The Tax Name '{tax.TaxName}' already exists.";
-            }
+            bool nameExists = await context.Taxes.AnyAsync(t =>
+                t.CompanyId == companyId && t.TaxName == tax.TaxName && t.Id != tax.Id);
 
-            // 3. Save Logic
+            if (nameExists) return $"The Tax Name '{tax.TaxName}' already exists for this company.";
+
             if (tax.Id == Guid.Empty)
             {
                 tax.Id = Guid.NewGuid();
+                tax.CompanyId = companyId;
                 context.Taxes.Add(tax);
             }
             else
             {
-                var existing = await context.Taxes.FindAsync(tax.Id);
+                var existing = await context.Taxes.FirstOrDefaultAsync(t =>
+                    t.Id == tax.Id && t.CompanyId == companyId);
+
                 if (existing == null) return "Record not found.";
 
                 existing.TaxCode = tax.TaxCode;
@@ -65,13 +68,16 @@ namespace Primafit_ERP.Services
             }
 
             await context.SaveChangesAsync();
-            return string.Empty; // Success
+            return string.Empty;
         }
 
-        public async Task<bool> DeleteTaxAsync(Guid id)
+        public async Task<bool> DeleteTaxAsync(Guid companyId, Guid id)
         {
             using var context = _dbFactory.CreateDbContext();
-            var tax = await context.Taxes.FindAsync(id);
+
+            var tax = await context.Taxes.FirstOrDefaultAsync(t =>
+                t.Id == id && t.CompanyId == companyId);
+
             if (tax == null) return false;
 
             context.Taxes.Remove(tax);
