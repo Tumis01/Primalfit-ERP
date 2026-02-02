@@ -1,0 +1,401 @@
+﻿@page "/companies"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+@attribute [Authorize(Roles = "SuperAdmin, Chief Of FInancial Officer, Accountant, Viewer")]
+@inject CompanyApiService ApiService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Companies</h1>
+            <p class="text-sm text-slate-500">Manage your company entities and details.</p>
+        </div>
+
+        <AuthorizeView Roles="SuperAdmin, Chief Of FInancial Officer, Accountant">
+            <Authorized>
+                @if (!showForm)
+                {
+                    <button @onclick="ShowCreateForm"
+                            class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:shadow-lg hover:shadow-indigo-500/30 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Add Company
+                    </button>
+                }
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    @if (showForm)
+    {
+        <AuthorizeView Roles="SuperAdmin">
+            <Authorized Context="authContext">
+                <div class="rounded-2xl border border-slate-200 bg-white shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div class="border-b border-slate-100 px-6 py-4">
+                        <h2 class="font-semibold text-slate-900">@(isEditing ? "Edit Company" : "New Company Details")</h2>
+                    </div>
+                    <EditForm Model="@currentCompany" OnValidSubmit="HandleSubmit" FormName="CompanyForm" class="p-6">
+                        <DataAnnotationsValidator />
+
+                        <div class="grid gap-6 md:grid-cols-2 items-start">
+                            <div class="space-y-6">
+                                <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                                    <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Identity</h3>
+
+                                    <div class="mb-4 flex items-center gap-4">
+                                        <div class="relative h-16 w-16 overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+                                            @if (!string.IsNullOrEmpty(currentCompany.LogoPath))
+                                            {
+                                                <img src="@currentCompany.LogoPath" class="h-full w-full object-cover" alt="Logo" />
+                                            }
+                                            else
+                                            {
+                                                <div class="flex h-full w-full items-center justify-center text-slate-300">
+                                                    <svg class="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                                        <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" />
+                                                    </svg>
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="flex-1">
+                                            <label class="block text-sm font-medium text-slate-700">Company Logo</label>
+                                            <div class="mt-1 flex items-center gap-2">
+                                                <label class="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition-colors">
+                                                    Upload New
+                                                    <InputFile OnChange="HandleFileSelected" class="hidden" accept=".jpg,.jpeg,.png" />
+                                                </label>
+                                                <span class="text-[10px] text-slate-400">JPG or PNG, max 5MB</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Company Name</label>
+                                            <InputText @bind-Value="currentCompany.CompanyName" class="@InputClass" placeholder="e.g. Acme Corp" />
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Reg Number</label>
+                                            <InputText @bind-Value="currentCompany.ComanyRegNumber" class="@InputClass" />
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Tax ID</label>
+                                            <InputText @bind-Value="currentCompany.TaxIdentidicationNum" class="@InputClass" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                                    <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Addresses</h3>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Physical Address</label>
+                                            <InputTextArea @bind-Value="currentCompany.PhysicalAddress" class="@InputClass" rows="3" />
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Postal Address</label>
+                                            <InputTextArea @bind-Value="currentCompany.PostalAddress" class="@InputClass" rows="3" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-6">
+                                <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                                    <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Contact & Details</h3>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Email</label>
+                                            <InputText @bind-Value="currentCompany.CompanyEmail" class="@InputClass" type="email" />
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Website</label>
+                                            <InputText @bind-Value="currentCompany.CompanyWebsite" class="@InputClass" placeholder="https://" />
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-sm font-medium text-slate-700">Country</label>
+                                            <InputText @bind-Value="currentCompany.country" class="@InputClass" />
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Type</label>
+                                                <InputSelect @bind-Value="currentCompany.Type" class="@InputClass">
+                                                    @foreach (var type in Enum.GetValues<CompanyType>())
+                                                    {
+                                                        <option value="@type">@SplitCamelCase(type.ToString())</option>
+                                                    }
+                                                </InputSelect>
+                                            </div>
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Status</label>
+                                                <InputSelect @bind-Value="currentCompany.Status" class="@InputClass">
+                                                    @foreach (var status in Enum.GetValues<CompanyStatus>())
+                                                    {
+                                                        <option value="@status">@status</option>
+                                                    }
+                                                </InputSelect>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+                                    <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Financials</h3>
+                                    <div class="space-y-3">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Fiscal Start</label>
+                                                <InputDate @bind-Value="currentCompany.FiscalStartYear" class="@InputClass" />
+                                            </div>
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Fiscal End</label>
+                                                <InputDate @bind-Value="currentCompany.FiscalEndYear" class="@InputClass" />
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Base Curr.</label>
+                                                <InputText @bind-Value="currentCompany.BaseCurrency" class="@InputClass" />
+                                            </div>
+                                            <div>
+                                                <label class="mb-1 block text-sm font-medium text-slate-700">Func. Curr.</label>
+                                                <InputText @bind-Value="currentCompany.FunctionalCurrency" class="@InputClass" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+                            <button type="button" @onclick="CancelForm" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900">
+                                Cancel
+                            </button>
+                            <button type="submit" disabled="@isBusy" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm disabled:opacity-50 transition-colors">
+                                @if (isBusy)
+                                {
+                                    <span>Processing...</span>
+                                }
+                                else
+                                {
+
+                                    <span>@(isEditing ? "Update Company" : "Save Company")</span>
+                                }
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
+                    <tr>
+                        <th class="px-6 py-4">Company Name</th>
+                        <th class="px-6 py-4">Reg No.</th>
+                        <th class="px-6 py-4">Email</th>
+                        <th class="px-6 py-4">Type</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Created By</th>
+                        <AuthorizeView Roles="SuperAdmin"><Authorized><th class="px-6 py-4 text-right">Actions</th></Authorized></AuthorizeView>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var item in companies)
+                    {
+                        <tr class="group hover:bg-slate-50/50 transition-colors">
+                            <td class="px-6 py-4 font-medium text-slate-900">
+                                <div class="flex items-center gap-3">
+                                    @if (!string.IsNullOrEmpty(item.LogoPath))
+                                    {
+                                        <img src="@item.LogoPath" class="h-8 w-8 rounded-full object-cover border border-slate-200" alt="" />
+                                    }
+                                    @item.CompanyName
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 font-mono text-xs">@item.ComanyRegNumber</td>
+                            <td class="px-6 py-4">@item.CompanyEmail</td>
+                            <td class="px-6 py-4">@SplitCamelCase(item.Type.ToString())</td>
+                            <td class="px-6 py-4">
+                                @if (item.Status.ToString() == "Active")
+                                {
+                                    <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">@item.Status</span>
+                                }
+                            </td>
+                            <td class="px-6 py-4 text-xs">
+                                @(item.CreatedByUser?.UserName ?? "Unknown")
+                            </td>
+                            <AuthorizeView Roles="SuperAdmin">
+                                <Authorized>
+                                    <td class="px-6 py-4 text-right">
+                                        <div class="flex items-center justify-end gap-3">
+                                            <button @onclick="() => EditCompany(item)" class="text-indigo-600 hover:text-indigo-900 font-medium hover:underline">Edit</button>
+                                            <button @onclick="() => DeleteCompany(item)" class="text-red-600 hover:text-red-900 font-medium hover:underline">Delete</button>
+                                        </div>
+                                    </td>
+                                </Authorized>
+                            </AuthorizeView>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10";
+
+    private List<CompanyDetails> companies = new();
+    private CompanyDetails currentCompany = new();
+    private bool showForm = false;
+    private bool isEditing = false;
+    private bool isLoading = true;
+    private bool isBusy = false;
+
+    
+    private string? loggedInUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity != null && user.Identity.IsAuthenticated)
+        {
+            loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        }
+
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        companies = await ApiService.GetCompaniesAsync();
+        isLoading = false;
+    }
+
+    private void ShowCreateForm()
+    {
+        currentCompany = new CompanyDetails
+        {
+            FiscalStartYear = DateOnly.FromDateTime(DateTime.Now),
+            FiscalEndYear = DateOnly.FromDateTime(DateTime.Now.AddYears(1)),
+            BaseCurrency = "Naira",
+            FunctionalCurrency = "USD",
+            country = "Nigeria"
+        };
+        isEditing = false;
+        showForm = true;
+    }
+
+    private async Task HandleSubmit()
+    {
+        isBusy = true;
+        try
+        {
+            if (isEditing)
+            {
+                var success = await ApiService.UpdateCompanyAsync(currentCompany);
+                if (success) { await LoadData(); showForm = false; }
+            }
+            else
+            {
+                
+                if (!string.IsNullOrEmpty(loggedInUserId))
+                {
+                    currentCompany.CreatedByUserId = loggedInUserId;
+                }
+
+                var success = await ApiService.CreateCompanyAsync(currentCompany);
+                if (success) { await LoadData(); showForm = false; }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    // Logo Handling Logic
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        long maxFileSize = 1024 * 1024 * 5; // 5MB
+
+        await using var stream = file.OpenReadStream(maxFileSize);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        var bytes = ms.ToArray();
+
+        currentCompany.NewLogoBase64 = Convert.ToBase64String(bytes);
+        currentCompany.NewLogoExtension = Path.GetExtension(file.Name);
+
+        // Preview only
+        currentCompany.LogoPath = $"data:{file.ContentType};base64,{currentCompany.NewLogoBase64}";
+    }
+
+
+   
+    private void EditCompany(CompanyDetails item)
+    {
+        currentCompany = new CompanyDetails
+        {
+            CompanyDetailsId = item.CompanyDetailsId,
+            CompanyName = item.CompanyName,
+            ComanyRegNumber = item.ComanyRegNumber,
+            TaxIdentidicationNum = item.TaxIdentidicationNum,
+            CompanyEmail = item.CompanyEmail,
+            PhysicalAddress = item.PhysicalAddress,
+            PostalAddress = item.PostalAddress,
+            FiscalStartYear = item.FiscalStartYear,
+            FiscalEndYear = item.FiscalEndYear,
+            country = item.country,
+            CompanyWebsite = item.CompanyWebsite,
+            FunctionalCurrency = item.FunctionalCurrency,
+            BaseCurrency = item.BaseCurrency,
+            CreatedDate = item.CreatedDate,
+            ModifiedDate = item.ModifiedDate,
+            LogoPath = item.LogoPath, 
+            Type = item.Type,
+            Status = item.Status,
+            CreatedByUserId = item.CreatedByUserId 
+        };
+        isEditing = true;
+        showForm = true;
+    }
+
+    private string SplitCamelCase(string input) => System.Text.RegularExpressions.Regex.Replace(input, "([a-z])([A-Z])", "$1 $2");
+
+    private async Task DeleteCompany(CompanyDetails item)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"Are you sure?");
+        if (confirmed) { await ApiService.DeleteCompanyAsync(item.CompanyDetailsId); await LoadData(); }
+    }
+
+    private void CancelForm() { showForm = false; currentCompany = new(); }
+}

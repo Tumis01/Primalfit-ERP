@@ -1,0 +1,307 @@
+﻿@page "/gl/account-types"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using System.Text
+@inject GLSetupService Service
+@inject CompanyApiService CompanyService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
+
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Account Types</h1>
+            <p class="text-sm text-slate-500 mt-1">Define categories linked to Account Classes (per company).</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 sm:items-end">
+            <div class="min-w-[200px]">
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
+                <select class="w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                        value="@selectedCompanyId"
+                        @onchange="OnCompanyChanged">
+                    @foreach (var c in companies)
+                    {
+                        <option value="@c.CompanyDetailsId">@c.CompanyName</option>
+                    }
+                </select>
+            </div>
+
+            <div class="flex gap-2">
+                <label class="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50 @(!HasCompany ? "opacity-50 pointer-events-none" : "")">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Import
+                    <InputFile OnChange="ImportCsv" class="hidden" accept=".csv" disabled="@(!HasCompany)" />
+                </label>
+
+                <button @onclick="ExportCsv" disabled="@(!HasCompany || !types.Any())"
+                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Export
+                </button>
+
+                <button @onclick="OpenForm" disabled="@(!HasCompany)"
+                        class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-95 disabled:opacity-50">
+                    + Add Type
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (showForm && HasCompany)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50 ring-1 ring-slate-200 transition-all duration-300 animate-in fade-in slide-in-from-top-4">
+            <div class="flex items-center justify-between mb-8">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">New Account Type</h3>
+                    <p class="text-sm text-slate-500">Fill in the details below.</p>
+                </div>
+                <button @onclick="CloseForm" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <EditForm Model="@newType" OnValidSubmit="HandleSubmit">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                    <div>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Account Class</label>
+                        <InputSelect @bind-Value="newType.Class" class="@InputClass">
+                            @foreach (var c in Enum.GetValues<GLAccountClass>())
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Type Code</label>
+                        <InputText @bind-Value="newType.Code" class="@InputClass" placeholder="e.g. 11" />
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Type Name</label>
+                        <InputText @bind-Value="newType.Name" class="@InputClass" placeholder="e.g. Plant & Equipment" />
+                    </div>
+                </div>
+
+                <div class="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-6">
+                    <button type="button" @onclick="CloseForm" class="rounded-xl px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">Save Account Type</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50/50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-100">
+                <tr>
+                    <th class="px-6 py-4">Type Code</th>
+                    <th class="px-6 py-4">Type Name</th>
+                    <th class="px-6 py-4">Class</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @if (PagedTypes.Any())
+                {
+                    @foreach (var item in PagedTypes)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-mono font-bold text-indigo-600">@item.Code</td>
+                            <td class="px-6 py-4 font-medium text-slate-900">@item.Name</td>
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">
+                                    @item.Class
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="3" class="px-6 py-8 text-center text-slate-400">No account types found.</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        @if (TotalPages > 1)
+        {
+            <div class="flex items-center justify-between border-t border-slate-100 px-6 py-4">
+                <div class="text-xs text-slate-500">
+                    Showing page <span class="font-bold">@currentPage</span> of <span class="font-bold">@TotalPages</span>
+                </div>
+                <div class="flex gap-2">
+                    <button disabled="@(currentPage == 1)" @onclick="() => ChangePage(currentPage - 1)"
+                            class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Previous
+                    </button>
+                    <button disabled="@(currentPage == TotalPages)" @onclick="() => ChangePage(currentPage + 1)"
+                            class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Next
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
+
+    private List<CompanyDetails> companies = new();
+    private Guid selectedCompanyId;
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+
+    private List<GLAccountType> types = new();
+    private GLAccountType newType = new();
+    private bool showForm = false;
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int TotalPages => (int)Math.Ceiling((double)types.Count / pageSize);
+    private IEnumerable<GLAccountType> PagedTypes => types.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        companies = await CompanyService.GetCompaniesAsync();
+        if (companies.Any())
+        {
+            selectedCompanyId = companies.First().CompanyDetailsId;
+            await LoadData();
+        }
+    }
+
+    private async Task OnCompanyChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e?.Value?.ToString(), out var id))
+        {
+            selectedCompanyId = id;
+            currentPage = 1;
+            showForm = false;
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        if (!HasCompany) { types = new(); return; }
+        types = await Service.GetAccountTypesAsync(selectedCompanyId);
+    }
+
+    private void ChangePage(int newPage)
+    {
+        if (newPage >= 1 && newPage <= TotalPages) currentPage = newPage;
+    }
+
+    private void OpenForm() { newType = new(); showForm = true; }
+    private void CloseForm() { showForm = false; }
+
+    private async Task HandleSubmit()
+    {
+        var result = await Service.CreateAccountTypeAsync(selectedCompanyId, newType);
+        if (!string.IsNullOrEmpty(result))
+        {
+            await JS.InvokeVoidAsync("alert", result);
+            return;
+        }
+        await LoadData();
+        CloseForm();
+    }
+
+    // --- CSV EXPORT (FIXED FOR EXCEL) ---
+    private async Task ExportCsv()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Code,Name,Class");
+
+        foreach (var t in types)
+        {
+            // Escape commas for CSV
+            var cleanName = t.Name.Replace(",", " ");
+            sb.AppendLine($"{t.Code},{cleanName},{t.Class}");
+        }
+
+        var fileName = $"AccountTypes_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+        // ADD BOM (Byte Order Mark) for Excel Compatibility
+        var preamble = Encoding.UTF8.GetPreamble();
+        var content = Encoding.UTF8.GetBytes(sb.ToString());
+
+        using var stream = new MemoryStream();
+        stream.Write(preamble, 0, preamble.Length);
+        stream.Write(content, 0, content.Length);
+        stream.Position = 0;
+
+        using var streamRef = new DotNetStreamReference(stream);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+
+    // --- CSV IMPORT (FIXED LOOP) ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        if (!HasCompany) return;
+        var file = e.File;
+        if (file == null) return;
+
+        // 2MB Limit
+        using var stream = file.OpenReadStream(2 * 1024 * 1024);
+        using var reader = new StreamReader(stream);
+
+        var importedCount = 0;
+        var errors = 0;
+
+        // Skip Header
+        await reader.ReadLineAsync();
+
+        string? line;
+
+        // FIX: Use async loop check instead of .EndOfStream
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            var values = line.Split(',');
+            if (values.Length < 3) { errors++; continue; }
+
+            try
+            {
+                // TryParseEnum to prevent crashes
+                if (!Enum.TryParse<GLAccountClass>(values[2].Trim(), true, out var glClass))
+                {
+                    errors++;
+                    continue;
+                }
+
+                var importType = new GLAccountType
+                {
+                    Code = values[0].Trim(),
+                    Name = values[1].Trim(),
+                    Class = glClass
+                };
+
+                var result = await Service.CreateAccountTypeAsync(selectedCompanyId, importType);
+                if (string.IsNullOrEmpty(result)) importedCount++;
+                else errors++;
+            }
+            catch
+            {
+                errors++;
+            }
+        }
+
+        await LoadData();
+        await JS.InvokeVoidAsync("alert", $"Import Complete.\n\n✅ Success: {importedCount}\n❌ Failed/Duplicates: {errors}");
+    }
+}

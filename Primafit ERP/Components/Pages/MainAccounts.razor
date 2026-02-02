@@ -1,0 +1,363 @@
+﻿@page "/gl/main-accounts"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using System.Text
+@inject GLSetupService GLService
+@inject CompanyApiService CompanyService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Main Accounts</h1>
+            <p class="text-sm text-slate-500">Company-specific main account headers linked to Account Types.</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2">
+            <label class="cursor-pointer inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50 @(!HasCompany ? "opacity-50 pointer-events-none" : "")">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Import CSV
+                <InputFile OnChange="ImportCsv" class="hidden" accept=".csv" disabled="@(!HasCompany)" />
+            </label>
+
+            <button @onclick="ExportCsv" disabled="@(!HasCompany || !mainAccounts.Any())"
+                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export
+            </button>
+
+            <button @onclick="OpenForm"
+                    disabled="@(!HasCompany)"
+                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                + Add Main Account
+            </button>
+        </div>
+    </div>
+
+    <div class="w-full sm:max-w-sm">
+        <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Company</label>
+        <select class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                value="@selectedCompanyId"
+                @onchange="OnCompanyChanged">
+            <option value="@Guid.Empty">-- Select Company --</option>
+            @foreach (var c in companies)
+            {
+                <option value="@c.CompanyDetailsId">@c.CompanyName</option>
+            }
+        </select>
+    </div>
+
+    @if (isBusy)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm text-center">
+            <span class="inline-block animate-pulse">Loading data...</span>
+        </div>
+    }
+    else if (HasCompany)
+    {
+        @if (showForm)
+        {
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm animate-in fade-in slide-in-from-top-2">
+                <div class="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                        <h3 class="font-semibold text-slate-800">New Main Account</h3>
+                        <p class="text-xs text-slate-500">This will be created for the selected company.</p>
+                    </div>
+                    <button type="button" @onclick="CloseForm" class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Close</button>
+                </div>
+
+                <EditForm Model="@newMain" OnValidSubmit="Save">
+                    <DataAnnotationsValidator />
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div class="md:col-span-3">
+                            <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Code</label>
+                            <InputText @bind-Value="newMain.Code" class="@InputClass" placeholder="e.g. 111" />
+                        </div>
+                        <div class="md:col-span-5">
+                            <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Name</label>
+                            <InputText @bind-Value="newMain.Name" class="@InputClass" placeholder="e.g. Land & Building" />
+                        </div>
+                        <div class="md:col-span-4">
+                            <label class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">Account Type</label>
+                            <InputSelect @bind-Value="newMain.AccountTypeId" class="@InputClass">
+                                <option value="@Guid.Empty">-- Select Account Type --</option>
+                                @foreach (var t in accountTypes)
+                                {
+                                    <option value="@t.Id">@t.Code - @t.Name (@t.Class)</option>
+                                }
+                            </InputSelect>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-5">
+                        <button type="button" @onclick="CloseForm" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+                        <button type="submit" disabled="@isSaving" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50">
+                            @(isSaving ? "Saving..." : "Save Main Account")
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        }
+
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm text-slate-600">
+                <thead class="bg-slate-50/50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-100">
+                    <tr>
+                        <th class="px-6 py-4">Code</th>
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Type</th>
+                        <th class="px-6 py-4">Class</th>
+                    </tr>
+                </thead>
+
+                <tbody class="divide-y divide-slate-100">
+                    @if (PagedAccounts.Any())
+                    {
+                        @foreach (var m in PagedAccounts)
+                        {
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="px-6 py-4 font-mono font-bold text-indigo-600">@m.Code</td>
+                                <td class="px-6 py-4 font-medium text-slate-900">@m.Name</td>
+                                <td class="px-6 py-4">@m.AccountType?.Name</td>
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">
+                                        @m.AccountType?.Class
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="4" class="px-6 py-10 text-center text-slate-400">
+                                No main accounts found for this company.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (TotalPages > 1)
+            {
+                <div class="flex items-center justify-between border-t border-slate-100 px-6 py-4">
+                    <div class="text-xs text-slate-500">
+                        Page <span class="font-bold">@currentPage</span> of <span class="font-bold">@TotalPages</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button disabled="@(currentPage == 1)" @onclick="() => ChangePage(currentPage - 1)"
+                                class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Previous
+                        </button>
+                        <button disabled="@(currentPage == TotalPages)" @onclick="() => ChangePage(currentPage + 1)"
+                                class="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">
+            Please select a company to view main accounts.
+        </div>
+    }
+</div>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
+
+    private List<CompanyDetails> companies = new();
+    private List<GLAccountType> accountTypes = new();
+    private List<GLMainAccount> mainAccounts = new();
+
+    private Guid selectedCompanyId = Guid.Empty;
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+
+    private bool showForm = false;
+    private bool isBusy = false;
+    private bool isSaving = false;
+    private GLMainAccount newMain = new();
+
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private int TotalPages => (int)Math.Ceiling((double)mainAccounts.Count / pageSize);
+    private IEnumerable<GLMainAccount> PagedAccounts => mainAccounts.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        companies = await CompanyService.GetCompaniesAsync();
+        if (companies.Any())
+        {
+            selectedCompanyId = companies[0].CompanyDetailsId;
+            await LoadData();
+        }
+    }
+
+    private async Task OnCompanyChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e?.Value?.ToString(), out var id))
+        {
+            selectedCompanyId = id;
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        showForm = false;
+        newMain = new();
+        currentPage = 1;
+
+        if (!HasCompany)
+        {
+            accountTypes.Clear();
+            mainAccounts.Clear();
+            return;
+        }
+
+        try
+        {
+            isBusy = true;
+            accountTypes = await GLService.GetAccountTypesAsync(selectedCompanyId);
+            mainAccounts = await GLService.GetMainAccountsAsync(selectedCompanyId);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ChangePage(int newPage)
+    {
+        if (newPage >= 1 && newPage <= TotalPages) currentPage = newPage;
+    }
+
+    private void OpenForm()
+    {
+        if (!HasCompany) return;
+        newMain = new GLMainAccount { CompanyId = selectedCompanyId };
+        showForm = true;
+    }
+
+    private void CloseForm()
+    {
+        showForm = false;
+        newMain = new();
+    }
+
+    private async Task Save()
+    {
+        if (!HasCompany) return;
+        if (newMain.AccountTypeId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select an Account Type.");
+            return;
+        }
+
+        try
+        {
+            isSaving = true;
+            newMain.CompanyId = selectedCompanyId;
+            var msg = await GLService.CreateMainAccountAsync(selectedCompanyId, newMain);
+            if (!string.IsNullOrEmpty(msg))
+            {
+                await JS.InvokeVoidAsync("alert", msg);
+                return;
+            }
+            await LoadData();
+            CloseForm();
+        }
+        finally { isSaving = false; }
+    }
+
+    // --- CSV EXPORT (EXCEL FIX) ---
+    private async Task ExportCsv()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Code,Name,AccountTypeCode,AccountTypeName,Class");
+
+        foreach (var m in mainAccounts)
+        {
+            var cleanName = m.Name.Replace(",", " ");
+            sb.AppendLine($"{m.Code},{cleanName},{m.AccountType?.Code},{m.AccountType?.Name},{m.AccountType?.Class}");
+        }
+
+        var fileName = $"main-accounts-{DateTime.Now:yyyyMMdd_HHmm}.csv";
+
+        // Add BOM for Excel
+        var preamble = Encoding.UTF8.GetPreamble();
+        var content = Encoding.UTF8.GetBytes(sb.ToString());
+
+        using var stream = new MemoryStream();
+        stream.Write(preamble, 0, preamble.Length);
+        stream.Write(content, 0, content.Length);
+        stream.Position = 0;
+
+        using var streamRef = new DotNetStreamReference(stream);
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+
+    // --- CSV IMPORT (ASYNC FIX) ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        if (!HasCompany) return;
+        var file = e.File;
+        if (file == null) return;
+
+        using var stream = file.OpenReadStream(1024 * 1024);
+        using var reader = new StreamReader(stream);
+
+        int successCount = 0;
+        int errorCount = 0;
+
+        // Skip header
+        await reader.ReadLineAsync();
+
+        string? line;
+
+        // Use Async Loop Check
+        while ((line = await reader.ReadLineAsync()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            var values = line.Split(',');
+
+            if (values.Length < 3) { errorCount++; continue; }
+
+            var code = values[0].Trim();
+            var name = values[1].Trim();
+            var typeCode = values[2].Trim();
+
+            var matchedType = accountTypes.FirstOrDefault(t => t.Code.Equals(typeCode, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedType != null)
+            {
+                var newAcc = new GLMainAccount
+                {
+                    CompanyId = selectedCompanyId,
+                    Code = code,
+                    Name = name,
+                    AccountTypeId = matchedType.Id
+                };
+
+                var result = await GLService.CreateMainAccountAsync(selectedCompanyId, newAcc);
+                if (string.IsNullOrEmpty(result)) successCount++;
+                else errorCount++;
+            }
+            else
+            {
+                errorCount++;
+            }
+        }
+
+        await LoadData();
+        await JS.InvokeVoidAsync("alert", $"Import Finished.\n\n✅ Success: {successCount}\n❌ Failed/Duplicates: {errorCount}");
+    }
+}
