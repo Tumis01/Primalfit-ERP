@@ -27,6 +27,8 @@ namespace PrimafitERP.Data
         public DbSet<BankStatementLine> BankStatementLines { get; set; }
 
         public DbSet<AuditLog> AuditLogs { get; set; }
+        public DbSet<Warehouse> Warehouses { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

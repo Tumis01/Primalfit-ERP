@@ -1,0 +1,294 @@
+﻿@page "/warehouses"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+@attribute [Authorize(Roles = "SuperAdmin, Chief Of FInancial Officer, Accountant, Viewer")]
+@inject WarehouseService WarehouseService
+@inject CompanyApiService CompanyService
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouses</h1>
+            <p class="text-sm text-slate-500">Manage storage locations and transit points.</p>
+        </div>
+
+        <AuthorizeView Roles="SuperAdmin, Chief Of FInancial Officer, Accountant">
+            <Authorized>
+                @if (!showForm)
+                {
+                    <button @onclick="ShowCreateForm"
+                            class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:shadow-lg hover:shadow-indigo-500/30 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Add Warehouse
+                    </button>
+                }
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    @if (showForm)
+    {
+        <AuthorizeView Roles="SuperAdmin, Chief Of FInancial Officer, Accountant">
+            <Authorized Context="authContext">
+                <div class="rounded-2xl border border-slate-200 bg-white shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div class="border-b border-slate-100 px-6 py-4">
+                        <h2 class="font-semibold text-slate-900">@(isEditing ? "Edit Warehouse" : "New Warehouse")</h2>
+                    </div>
+                    <EditForm Model="@currentWarehouse" OnValidSubmit="HandleSubmit" FormName="WarehouseForm" class="p-6">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="mb-4 text-sm text-red-600" />
+
+                        <div class="grid gap-6 md:grid-cols-2 items-start">
+                            
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-4">
+                                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Details</h3>
+                                
+                                <div>
+                                    <label class="mb-1 block text-sm font-medium text-slate-700">Warehouse Name</label>
+                                    <InputText @bind-Value="currentWarehouse.Name" class="@InputClass" placeholder="e.g. Lagos Central Hub" />
+                                    <ValidationMessage For="@(() => currentWarehouse.Name)" class="text-xs text-red-500 mt-1" />
+                                </div>
+
+                                <div>
+                                    <label class="mb-1 block text-sm font-medium text-slate-700">Location / Address</label>
+                                    <InputText @bind-Value="currentWarehouse.Location" class="@InputClass" placeholder="City or Address" />
+                                </div>
+                            </div>
+
+                            <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4 space-y-4">
+                                <h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Configuration</h3>
+
+                                <div>
+                                    <label class="mb-1 block text-sm font-medium text-slate-700">Assigned Company</label>
+                                    <InputSelect @bind-Value="currentWarehouse.CompanyId" class="@InputClass">
+                                        <option value="@Guid.Empty">-- Select Company --</option>
+                                        @foreach (var company in availableCompanies)
+                                        {
+                                            <option value="@company.CompanyDetailsId">@company.CompanyName</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => currentWarehouse.CompanyId)" class="text-xs text-red-500 mt-1" />
+                                </div>
+
+                                <div class="flex items-center justify-between py-2">
+                                    <div class="flex flex-col">
+                                        <span class="text-sm font-medium text-slate-700">In Transit?</span>
+                                        <span class="text-xs text-slate-500">Is this a mobile/transit location?</span>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <InputCheckbox @bind-Value="currentWarehouse.IsInTransist" class="sr-only peer" />
+                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+                            <button type="button" @onclick="CancelForm" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900">
+                                Cancel
+                            </button>
+                            <button type="submit" disabled="@isBusy" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm disabled:opacity-50 transition-colors">
+                                @if (isBusy)
+                                {
+                                    <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <span>@(isEditing ? "Update Warehouse" : "Save Warehouse")</span>
+                                }
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
+                    <tr>
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Location</th>
+                        <th class="px-6 py-4">Company</th>
+                        <th class="px-6 py-4">Type</th>
+                        <AuthorizeView Roles="SuperAdmin, Chief Of FInancial Officer"><Authorized><th class="px-6 py-4 text-right">Actions</th></Authorized></AuthorizeView>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @if (isLoading)
+                    {
+                        <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">Loading warehouses...</td></tr>
+                    }
+                    else if (!warehouses.Any())
+                    {
+                        <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">No warehouses found.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in warehouses)
+                        {
+                            <tr class="group hover:bg-slate-50/50 transition-colors">
+                                <td class="px-6 py-4 font-medium text-slate-900">
+                                    @item.Name
+                                </td>
+                                <td class="px-6 py-4">@(item.Location ?? "N/A")</td>
+                                <td class="px-6 py-4">
+                                    <div class="flex items-center gap-2">
+                                        @if(item.Company != null)
+                                        {
+                                            <span class="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                                                @item.Company.CompanyName
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                             <span class="text-slate-400 italic">Unassigned</span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    @if (item.IsInTransist)
+                                    {
+                                        <span class="inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">Transit</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">Static</span>
+                                    }
+                                </td>
+                                <AuthorizeView Roles="SuperAdmin, Chief Of FInancial Officer">
+                                    <Authorized>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-3">
+                                                <button @onclick="() => EditWarehouse(item)" class="text-indigo-600 hover:text-indigo-900 font-medium hover:underline">Edit</button>
+                                                <button @onclick="() => DeleteWarehouse(item)" class="text-red-600 hover:text-red-900 font-medium hover:underline">Delete</button>
+                                            </div>
+                                        </td>
+                                    </Authorized>
+                                </AuthorizeView>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/10";
+
+    private List<Warehouse> warehouses = new();
+    private List<CompanyDetails> availableCompanies = new(); // For the dropdown
+    private Warehouse currentWarehouse = new();
+    private bool showForm = false;
+    private bool isEditing = false;
+    private bool isLoading = true;
+    private bool isBusy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        // Load Warehouses
+        warehouses = await WarehouseService.GetWarehousesAsync();
+        // Load Companies for the dropdown
+        availableCompanies = await CompanyService.GetCompaniesAsync();
+        isLoading = false;
+    }
+
+    private void ShowCreateForm()
+    {
+        currentWarehouse = new Warehouse();
+        isEditing = false;
+        showForm = true;
+    }
+
+    private async Task HandleSubmit()
+    {
+        isBusy = true;
+
+        try
+        {
+            // --- DUPLICATE CHECK LOGIC ---
+            // We check the local list. If you have pagination, this must be done via API instead.
+            bool isDuplicate = warehouses.Any(w => 
+                w.Name.Equals(currentWarehouse.Name, StringComparison.OrdinalIgnoreCase) && 
+                w.CompanyId == currentWarehouse.CompanyId && // Optional: Check duplicate only within same company
+                w.ID != currentWarehouse.ID); // Exclude itself during edit
+
+            if (isDuplicate)
+            {
+                await JS.InvokeVoidAsync("alert", $"A warehouse named '{currentWarehouse.Name}' already exists for this company.");
+                isBusy = false;
+                return;
+            }
+            // -----------------------------
+
+            if (isEditing)
+            {
+                var success = await WarehouseService.UpdateWarehouseAsync(currentWarehouse);
+                if (success) { await LoadData(); showForm = false; }
+            }
+            else
+            {
+                var success = await WarehouseService.CreateWarehouseAsync(currentWarehouse);
+                if (success) { await LoadData(); showForm = false; }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void EditWarehouse(Warehouse item)
+    {
+        // Clone the object to avoid editing the table row directly before saving
+        currentWarehouse = new Warehouse
+        {
+            ID = item.ID,
+            Name = item.Name,
+            IsInTransist = item.IsInTransist,
+            Location = item.Location,
+            CompanyId = item.CompanyId
+        };
+        isEditing = true;
+        showForm = true;
+    }
+
+    private async Task DeleteWarehouse(Warehouse item)
+    {
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to delete {item.Name}?");
+        if (confirmed) 
+        { 
+            await WarehouseService.DeleteWarehouseAsync(item.ID); 
+            await LoadData(); 
+        }
+    }
+
+    private void CancelForm() 
+    { 
+        showForm = false; 
+        currentWarehouse = new(); 
+    }
+}
