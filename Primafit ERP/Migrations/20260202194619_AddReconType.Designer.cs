@@ -12,8 +12,8 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260130070624_FixCascadePaths")]
-    partial class FixCascadePaths
+    [Migration("20260202194619_AddReconType")]
+    partial class AddReconType
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -347,6 +347,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.ToTable("BankReconciliations");
@@ -373,12 +376,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<bool>("IsMatched")
                         .HasColumnType("bit");
-
-                    b.Property<DateTime?>("MatchedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("MatchedByUserId")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("MatchedGLTransactionId")
                         .HasColumnType("uniqueidentifier");

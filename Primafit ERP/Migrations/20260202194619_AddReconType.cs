@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Primafit_ERP.Migrations
 {
     /// <inheritdoc />
-    public partial class FixCascadePaths : Migration
+    public partial class AddReconType : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -86,6 +86,7 @@ namespace Primafit_ERP.Migrations
                     StatementDate = table.Column<DateOnly>(type: "date", nullable: false),
                     StatementEndingBalance = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     Status = table.Column<int>(type: "int", nullable: false),
+                    Type = table.Column<int>(type: "int", nullable: false),
                     PreparedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ApprovedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
@@ -317,9 +318,7 @@ namespace Primafit_ERP.Migrations
                     Reference = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     Amount = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     IsMatched = table.Column<bool>(type: "bit", nullable: false),
-                    MatchedGLTransactionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    MatchedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    MatchedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                    MatchedGLTransactionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
                 },
                 constraints: table =>
                 {

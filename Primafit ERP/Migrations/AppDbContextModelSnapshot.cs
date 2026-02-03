@@ -344,6 +344,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.ToTable("BankReconciliations");
@@ -370,12 +373,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<bool>("IsMatched")
                         .HasColumnType("bit");
-
-                    b.Property<DateTime?>("MatchedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("MatchedByUserId")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("MatchedGLTransactionId")
                         .HasColumnType("uniqueidentifier");

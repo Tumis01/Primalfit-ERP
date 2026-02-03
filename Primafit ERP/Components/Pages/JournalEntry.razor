@@ -1,181 +1,207 @@
 ﻿@page "/gl/journal-entry"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@inject GLOperationsService GLOps
 @inject GLSetupService SetupService
+@inject GLOperationsService GlOps
 @inject CompanyApiService CompanyService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 p-6">
+<div class="max-w-7xl mx-auto space-y-6 p-6 animate-in fade-in duration-500">
 
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">General Journal Entry</h1>
-            <p class="text-sm text-slate-500">Create a manual double-entry journal.</p>
-        </div>
-        <div class="text-right">
-            <span class="block text-xs uppercase text-slate-500 font-bold">Balance Check</span>
-            <span class="text-xl font-mono font-bold @(Imbalance == 0 ? "text-emerald-600" : "text-red-600")">
-                @Imbalance.ToString("N2")
-            </span>
-        </div>
-    </div>
-
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-            <select class="@InputClass" @bind="selectedCompanyId" @bind:after="OnCompanyChanged">
-                <option value="@Guid.Empty">-- Select --</option>
-                @foreach (var c in companies)
-                {
-                    <option value="@c.CompanyDetailsId">@c.CompanyName</option>
-                }
-            </select>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Journal Entry</h1>
+            <p class="text-sm text-slate-500">Record manual adjustments to the General Ledger.</p>
         </div>
 
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
-            <InputDate class="@InputClass" @bind-Value="journalDate" />
-        </div>
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Batch Name / Ref</label>
-            <InputText class="@InputClass" @bind-Value="batchName" placeholder="e.g. Monthly Accruals" />
-        </div>
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
-            <InputText class="@InputClass" @bind-Value="description" placeholder="Narration..." />
-        </div>
-    </div>
-
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <table class="w-full text-left text-sm text-slate-700">
-            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
-                <tr>
-                    <th class="px-5 py-3 w-[40%]">Account Name</th>
-                    <th class="px-5 py-3 w-[25%]">Line Description</th>
-                    <th class="px-5 py-3 w-[15%] text-right">Debit</th>
-                    <th class="px-5 py-3 w-[15%] text-right">Credit</th>
-                    <th class="px-5 py-3 w-[5%]"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @for (int i = 0; i < lines.Count; i++)
-                {
-                    var line = lines[i];
-                    <tr class="hover:bg-slate-50">
-                        <td class="px-5 py-2">
-                            <select class="@InputClass" @bind="line.AccountId" disabled="@(!HasCompany)">
-                                <option value="@Guid.Empty">-- Select Account --</option>
-                                @foreach (var a in accounts)
-                                {
-                                    <option value="@a.Id">@a.AccountName (@a.AccountCode)</option>
-                                }
-                            </select>
-                        </td>
-
-                        <td class="px-5 py-2">
-                            <InputText class="@InputClass" @bind-Value="line.Reference" placeholder="Line memo..." />
-                        </td>
-
-                        <td class="px-5 py-2">
-                            <InputNumber class="@NumberClass" @bind-Value="line.Debit" />
-                        </td>
-
-                        <td class="px-5 py-2">
-                            <InputNumber class="@NumberClass" @bind-Value="line.Credit" />
-                        </td>
-
-                        <td class="px-5 py-2 text-center">
-                            <button @onclick="() => RemoveLine(line)" class="text-red-500 hover:text-red-700 font-bold">×</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-            <tfoot class="bg-slate-50 font-bold text-slate-900">
-                <tr>
-                    <td colspan="2" class="px-5 py-3 text-right">Totals:</td>
-                    <td class="px-5 py-3 text-right">@lines.Sum(x => x.Debit).ToString("N2")</td>
-                    <td class="px-5 py-3 text-right">@lines.Sum(x => x.Credit).ToString("N2")</td>
-                    <td></td>
-                </tr>
-            </tfoot>
-        </table>
-
-        <div class="p-4 border-t border-slate-100 flex justify-between">
-            <button @onclick="AddLine" class="text-indigo-600 font-bold hover:underline">+ Add Line</button>
-
-            <button @onclick="SaveJournal"
-                    disabled="@(!CanSave)"
-                    class="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                Post Journal Entry
+        <div class="flex gap-3">
+            <div class="text-right hidden md:block mr-4">
+                <span class="block text-xs font-bold text-slate-400 uppercase">Total Difference</span>
+                <span class="block font-mono text-xl font-bold @(IsBalanced ? "text-emerald-600" : "text-rose-600")">
+                    @((TotalDebits - TotalCredits).ToString("N2"))
+                </span>
+            </div>
+            
+            <button @onclick="PostJournal" 
+                    disabled="@(!CanPost)"
+                    class="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
+                Post Batch
             </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <div class="lg:col-span-3 space-y-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
+                        <select class="w-full rounded-xl border-slate-200 text-sm" @bind="selectedCompanyId" @bind:after="OnCompanyChanged">
+                            <option value="@Guid.Empty">-- Select --</option>
+                            @foreach (var c in companies) { <option value="@c.CompanyDetailsId">@c.CompanyName</option> }
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
+                        <InputDate class="w-full rounded-xl border-slate-200 text-sm" @bind-Value="txnDate" />
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
+                        <InputTextArea class="w-full rounded-xl border-slate-200 text-sm" rows="3" @bind-Value="batchDescription" placeholder="e.g. Monthly accruals" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-9">
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                
+                <div class="grid grid-cols-12 gap-4 bg-slate-50 px-4 py-3 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
+                    <div class="col-span-4">Account <span class="text-rose-500">*</span></div>
+                    <div class="col-span-3">Description</div>
+                    <div class="col-span-2 text-right">Debit</div>
+                    <div class="col-span-2 text-right">Credit</div>
+                    <div class="col-span-1"></div>
+                </div>
+
+                <div class="max-h-[600px] overflow-y-auto p-2 space-y-1">
+                    @foreach (var line in lines)
+                    {
+                        <div class="grid grid-cols-12 gap-2 items-center hover:bg-slate-50 p-2 rounded-lg transition-colors">
+                            
+                            <div class="col-span-4">
+                                <select class="w-full rounded-lg border-slate-200 text-sm py-2 @(line.AccountId == Guid.Empty ? "border-rose-300 bg-rose-50" : "")" 
+                                        @bind="line.AccountId">
+                                    <option value="@Guid.Empty">-- Select Account --</option>
+                                    @foreach (var acc in coaList)
+                                    {
+                                        <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-span-3">
+                                <input type="text" class="w-full rounded-lg border-slate-200 text-sm py-2" 
+                                       @bind="line.Reference" placeholder="Line desc..." />
+                            </div>
+
+                            <div class="col-span-2">
+                                <InputNumber TValue="decimal?" 
+                                             Value="@(line.Debit == 0 ? null : line.Debit)" 
+                                             ValueChanged="@(v => { line.Debit = v ?? 0; line.Credit = 0; })" 
+                                             ValueExpression="@(() => nullableDecimal)"
+                                             class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono placeholder:text-slate-300"
+                                             placeholder="0.00" />
+                            </div>
+
+                            <div class="col-span-2">
+                                <InputNumber TValue="decimal?" 
+                                             Value="@(line.Credit == 0 ? null : line.Credit)" 
+                                             ValueChanged="@(v => { line.Credit = v ?? 0; line.Debit = 0; })" 
+                                             ValueExpression="@(() => nullableDecimal)"
+                                             class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono placeholder:text-slate-300" 
+                                             placeholder="0.00" />
+                            </div>
+
+                            <div class="col-span-1 text-center">
+                                <button @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-500 transition-colors">
+                                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="border-t border-slate-200 p-4 bg-slate-50 grid grid-cols-12 gap-4 items-center">
+                    <div class="col-span-4">
+                        <button @onclick="AddLine" class="text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                            <span>+ Add Line</span>
+                        </button>
+                    </div>
+                    <div class="col-span-3 text-right font-bold text-slate-500 text-xs uppercase pt-1">Totals</div>
+                    <div class="col-span-2 text-right font-mono font-bold text-slate-800 border-t border-slate-300 pt-1">@TotalDebits.ToString("N2")</div>
+                    <div class="col-span-2 text-right font-mono font-bold text-slate-800 border-t border-slate-300 pt-1">@TotalCredits.ToString("N2")</div>
+                    <div class="col-span-1"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 @code {
-    private const string InputClass = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all";
-    private const string NumberClass = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-right font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all";
-
+    // --- Data ---
     private List<CompanyDetails> companies = new();
-    private List<GLChartOfAccount> accounts = new();
+    private List<GLChartOfAccount> coaList = new();
+    private List<GLJournalLine> lines = new();
+    
+    // --- State ---
+    private Guid selectedCompanyId = Guid.Empty;
+    private DateOnly txnDate = DateOnly.FromDateTime(DateTime.Today);
+    private string batchDescription = "";
+    
+    // Helper for binding trick
+    private decimal? nullableDecimal; 
 
-    // Header Data
-    private Guid selectedCompanyId;
-    private DateOnly journalDate = DateOnly.FromDateTime(DateTime.Today);
-    private string batchName = "General Journal"; // Default editable name
-    private string description = "";
-
-    private List<GLJournalLine> lines = new() { new GLJournalLine(), new GLJournalLine() };
-
-    private bool HasCompany => selectedCompanyId != Guid.Empty;
-    private decimal Imbalance => lines.Sum(l => l.Debit) - lines.Sum(l => l.Credit);
-    private bool CanSave => HasCompany && Imbalance == 0 && lines.Any(l => l.AccountId != Guid.Empty && (l.Debit > 0 || l.Credit > 0));
+    // --- Computed Properties ---
+    private decimal TotalDebits => lines.Sum(l => l.Debit);
+    private decimal TotalCredits => lines.Sum(l => l.Credit);
+    
+    private bool IsBalanced => TotalDebits > 0 && TotalDebits == TotalCredits;
+    
+    // VALIDATION LOGIC:
+    // 1. Must satisfy balance (Dr = Cr)
+    // 2. Must have at least 1 line
+    // 3. ALL lines must have a valid AccountId
+    private bool CanPost => IsBalanced && lines.Any() && lines.All(l => l.AccountId != Guid.Empty);
 
     protected override async Task OnInitializedAsync()
     {
         companies = await CompanyService.GetCompaniesAsync();
+        // Init with 2 lines for convenience
+        lines.Add(new GLJournalLine());
+        lines.Add(new GLJournalLine());
     }
 
     private async Task OnCompanyChanged()
     {
+        coaList.Clear();
         if (selectedCompanyId != Guid.Empty)
         {
-            accounts = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
-            // Auto-sort by Name for user convenience
-            accounts = accounts.OrderBy(a => a.AccountName).ToList();
+            coaList = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
         }
     }
 
     private void AddLine() => lines.Add(new GLJournalLine());
-    private void RemoveLine(GLJournalLine line) => lines.Remove(line);
-
-    private async Task SaveJournal()
+    
+    private void RemoveLine(GLJournalLine line)
     {
-        // Call service (Auth disabled internally)
-        var result = await GLOps.CreateJournalEntryAsync(
-            selectedCompanyId,
-            journalDate,
-            batchName,
-            description,
-            lines
-        );
+        if (lines.Count > 1) lines.Remove(line);
+    }
 
-        if (string.IsNullOrEmpty(result.error))
+    private async Task PostJournal()
+    {
+        if (!CanPost) return; // Logic check
+
+        var (err, batchId) = await GlOps.CreateJournalEntryAsync(
+            selectedCompanyId, 
+            txnDate, 
+            "Manual Journal", 
+            batchDescription, 
+            lines);
+
+        if (!string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Journal Saved Successfully!");
-            // Reset Form
-            lines = new() { new GLJournalLine(), new GLJournalLine() };
-            batchName = "General Journal";
-            description = "";
+            await JS.InvokeVoidAsync("alert", $"Error: {err}");
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", $"Error: {result.error}");
+            await JS.InvokeVoidAsync("alert", "Journal Posted Successfully (Draft Mode).");
+            lines = new() { new(), new() }; // Reset
+            batchDescription = "";
         }
     }
 }
