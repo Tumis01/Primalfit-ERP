@@ -25,6 +25,7 @@ namespace PrimafitERP.Data
 
         public DbSet<BankReconciliation> BankReconciliations { get; set; }
         public DbSet<BankStatementLine> BankStatementLines { get; set; }
+        public DbSet<Warehouse> Warehouses { get; set; }
 
         public DbSet<AuditLog> AuditLogs { get; set; }
 

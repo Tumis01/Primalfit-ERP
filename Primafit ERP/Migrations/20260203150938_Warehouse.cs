@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Primafit_ERP.Migrations
 {
     /// <inheritdoc />
-    public partial class AddReconType : Migration
+    public partial class Warehouse : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -395,6 +395,27 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Warehouses",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    IsInTransist = table.Column<bool>(type: "bit", nullable: false),
+                    Location = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Warehouses", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Warehouses_CompanyDetails_CompanyId",
+                        column: x => x.CompanyId,
+                        principalTable: "CompanyDetails",
+                        principalColumn: "CompanyDetailsId",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "GLBatches",
                 columns: table => new
                 {
@@ -630,6 +651,11 @@ namespace Primafit_ERP.Migrations
                 name: "IX_GLMainAccounts_CompanyId",
                 table: "GLMainAccounts",
                 column: "CompanyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Warehouses_CompanyId",
+                table: "Warehouses",
+                column: "CompanyId");
         }
 
         /// <inheritdoc />
@@ -673,6 +699,9 @@ namespace Primafit_ERP.Migrations
 
             migrationBuilder.DropTable(
                 name: "Taxes");
+
+            migrationBuilder.DropTable(
+                name: "Warehouses");
 
             migrationBuilder.DropTable(
                 name: "AspNetRoles");

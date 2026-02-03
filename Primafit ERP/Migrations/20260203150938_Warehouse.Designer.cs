@@ -12,8 +12,8 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260202194619_AddReconType")]
-    partial class AddReconType
+    [Migration("20260203150938_Warehouse")]
+    partial class Warehouse
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -809,6 +809,32 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("Projects");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Warehouse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsInTransist")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.ToTable("Warehouses");
+                });
+
             modelBuilder.Entity("Tax", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1013,6 +1039,17 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
 
                     b.Navigation("AccountType");
+
+                    b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Warehouse", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CompanyDetails", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Company");
                 });
