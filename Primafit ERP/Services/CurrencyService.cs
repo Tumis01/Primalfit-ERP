@@ -150,5 +150,18 @@ namespace Primafit_ERP.Services
                 await context.SaveChangesAsync();
             }
         }
+        public async Task<decimal> GetLatestExchangeRateAsync(Guid companyId, Guid currencyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // Find the most recent rate for this currency
+            var managementEntry = await ctx.CurrencyManagements // Assuming DbSet is named CurrencyManagements
+                .AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.CurrencyId == currencyId)
+                .OrderByDescending(x => x.Date) // Get the latest one
+                .FirstOrDefaultAsync();
+
+            return managementEntry?.Rate ?? 1.0m; // Default to 1.0 if no rate is defined
+        }
     }
 }

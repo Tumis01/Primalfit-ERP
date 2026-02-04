@@ -1,0 +1,252 @@
+﻿@page "/sc/stock-entry"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@inject InventoryService InvService
+@inject MasterDataService MasterService
+@inject WarehouseService WhService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Stock Entry</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Record inbound goods or services from vendors and update inventory valuation.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading context...
+        </div>
+    }
+    else if (HasCompany)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Receipt Details</h3>
+            </div>
+
+            <EditForm Model="@dummy" OnValidSubmit="ProcessReceipt" class="p-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                    <div class="space-y-5">
+                        <div>
+                            <label class="label">Vendor</label>
+                            <select @bind="selectedVendorId" class="input-class">
+                                <option value="@Guid.Empty">-- Select Vendor --</option>
+                                @foreach (var v in vendors)
+                                {
+                                    <option value="@v.Id">@v.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="label">Receiving Warehouse</label>
+                            <select @bind="selectedWarehouseId" class="input-class">
+                                <option value="@Guid.Empty">-- Select Warehouse --</option>
+                                @foreach (var w in warehouses)
+                                {
+                                    <option value="@w.Id">@w.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="space-y-5 bg-slate-50 p-5 rounded-xl border border-slate-100">
+                        <div>
+                            <label class="label">Item Selection</label>
+                            <select @bind="selectedItemId" @bind:after="OnItemChanged" class="input-class">
+                                <option value="@Guid.Empty">-- Select Item --</option>
+                                @foreach (var i in items)
+                                {
+                                    <option value="@i.Id">@i.Name (@i.SKU)</option>
+                                }
+                            </select>
+
+                            @if (IsServiceItem)
+                            {
+                                <div class="flex items-center gap-2 mt-2 text-xs font-bold text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    Service Item (Expensed immediately, No Stock Qty)
+                                </div>
+                            }
+                        </div>
+
+                        @if (!IsServiceItem)
+                        {
+                            <div class="animate-in fade-in slide-in-from-top-1">
+                                <label class="label">Quantity Received</label>
+                                <InputNumber @bind-Value="qty" class="input-class" placeholder="0.00" />
+                            </div>
+                        }
+
+                        <div>
+                            <label class="label">Total Landed Cost</label>
+                            <div class="relative">
+                                <InputNumber @bind-Value="totalCost" class="input-class pl-12 font-bold text-slate-900" placeholder="0.00" />
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1">Include Invoice Price + Freight + Duties.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end pt-6 border-t border-slate-100">
+                    <button type="submit" disabled="@isBusy"
+                            class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                        @if (isBusy)
+                        {
+                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>Processing...</span>
+                        }
+                        else
+                        {
+                            <svg class="h-5 w-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span>Post Receipt</span>
+                        }
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
+@code {
+    // --- Context ---
+    private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // --- Data ---
+    private List<BusinessPartner> vendors = new();
+    private List<Warehouse> warehouses = new();
+    private List<Item> items = new();
+
+    // --- State ---
+    private Guid selectedVendorId;
+    private Guid selectedWarehouseId;
+    private Guid selectedItemId;
+    private decimal qty;
+    private decimal totalCost;
+    private bool isBusy = false;
+    private object dummy = new();
+
+    // --- Helper ---
+    private bool IsServiceItem => items.FirstOrDefault(i => i.Id == selectedItemId)?.IsService ?? false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                await LoadData();
+            }
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        if (!HasCompany) return;
+
+        var partners = await MasterService.GetPartnersAsync(selectedCompanyId);
+        vendors = partners.Where(p => p.IsVendor).ToList();
+
+        warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
+        items = await MasterService.GetItemsAsync(selectedCompanyId);
+    }
+
+    private void OnItemChanged()
+    {
+        // If switching to a service, ensure Qty is handled correctly in UI state
+        if (IsServiceItem) qty = 0;
+    }
+
+    private async Task ProcessReceipt()
+    {
+        // Validation Logic preserved as requested
+        bool isQtyInvalid = !IsServiceItem && qty <= 0;
+
+        if (selectedVendorId == Guid.Empty || selectedWarehouseId == Guid.Empty || selectedItemId == Guid.Empty || isQtyInvalid || totalCost <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Please fill all fields correctly.");
+            return;
+        }
+
+        isBusy = true;
+
+        // Logic Preserved: Pass 1 for services to allow Cost calculation logic
+        decimal finalQty = IsServiceItem ? 1 : qty;
+
+        var err = await InvService.ReceiveStockAsync(selectedCompanyId, selectedItemId, selectedWarehouseId, finalQty, totalCost, selectedVendorId);
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Purchase Receipt Posted Successfully.");
+            qty = 0; totalCost = 0; // Reset
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+}

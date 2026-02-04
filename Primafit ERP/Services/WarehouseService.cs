@@ -16,66 +16,74 @@ namespace Primafit_ERP.Services
         // GET: Fetch warehouses for a specific company
         public async Task<List<Warehouse>> GetWarehousesAsync(Guid companyId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Warehouses
-                .AsNoTracking()
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Warehouses.AsNoTracking()
                 .Where(w => w.CompanyId == companyId)
                 .OrderBy(w => w.Name)
                 .ToListAsync();
         }
 
-        // SAVE: Create or Update (Returns string.Empty on success, or error message)
+        // SAVE: Create or Update (FIXED)
         public async Task<string> SaveWarehouseAsync(Warehouse warehouse)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            if (warehouse.CompanyId == Guid.Empty)
-                return "Error: Company not selected.";
+            if (warehouse.CompanyId == Guid.Empty) return "Error: Company not selected.";
+            if (string.IsNullOrWhiteSpace(warehouse.Name)) return "Error: Warehouse Name is required.";
 
-            if (string.IsNullOrWhiteSpace(warehouse.Name))
-                return "Error: Warehouse Name is required.";
-
-            // Check for duplicate name within the same company
-            bool exists = await ctx.Warehouses.AnyAsync(w =>
+            // Check for duplicate name within the same company (Exclude itself if editing)
+            bool duplicateExists = await ctx.Warehouses.AnyAsync(w =>
                 w.CompanyId == warehouse.CompanyId &&
                 w.Name.ToLower() == warehouse.Name.Trim().ToLower() &&
                 w.Id != warehouse.Id);
 
-            if (exists) return "Error: A warehouse with this name already exists.";
+            if (duplicateExists) return $"Error: A warehouse named '{warehouse.Name}' already exists.";
 
-            if (warehouse.Id == Guid.Empty)
+            // 1. Try to find the record in the DB
+            var existing = await ctx.Warehouses.FindAsync(warehouse.Id);
+
+            if (existing == null)
             {
-                // Create New
-                warehouse.Id = Guid.NewGuid();
+                // CASE: NEW WAREHOUSE
+                // Even if the model has an ID (Guid.NewGuid()), if it's not in DB, it's new.
+                if (warehouse.Id == Guid.Empty) warehouse.Id = Guid.NewGuid();
+
                 ctx.Warehouses.Add(warehouse);
             }
             else
             {
-                // Update Existing
-                var existing = await ctx.Warehouses.FindAsync(warehouse.Id);
-                if (existing == null) return "Error: Warehouse not found.";
-
+                // CASE: UPDATE EXISTING
                 existing.Name = warehouse.Name;
                 existing.Location = warehouse.Location;
+                // We do NOT update CompanyId generally, but you can if needed
             }
 
-            await ctx.SaveChangesAsync();
-            return string.Empty; // Success
+            try
+            {
+                await ctx.SaveChangesAsync();
+                return string.Empty; // Success
+            }
+            catch (Exception ex)
+            {
+                return $"Database Error: {ex.Message}";
+            }
         }
 
         // DELETE
         public async Task<string> DeleteWarehouseAsync(Guid id)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             var warehouse = await ctx.Warehouses.FindAsync(id);
 
             if (warehouse == null) return "Error: Warehouse not found.";
 
-           
+            // Check dependencies before delete (Optional but recommended)
+            bool hasStock = await ctx.StockLedgers.AnyAsync(s => s.WarehouseId == id);
+            if (hasStock) return "Error: Cannot delete warehouse because it has stock history.";
 
             ctx.Warehouses.Remove(warehouse);
             await ctx.SaveChangesAsync();
-            return string.Empty; // Success
+            return string.Empty;
         }
     }
 }

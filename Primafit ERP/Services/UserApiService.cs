@@ -14,32 +14,31 @@ namespace Primafit_ERP.Services
             _scopeFactory = scopeFactory;
         }
 
-        public async Task<List<UserDisplayDto>> GetUsersAsync()
+        // 1. GET USERS (Scoped to Company)
+        public async Task<List<UserDisplayDto>> GetUsersAsync(Guid companyId)
         {
             using var scope = _scopeFactory.CreateScope();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
 
-            // 1. Fetch Users
-            var users = await userManager.Users.ToListAsync();
+            // Filter users by CompanyId directly
+            var users = await userManager.Users
+                                .Where(u => u.CompanyDetailsId == companyId)
+                                .ToListAsync();
+
             var displayList = new List<UserDisplayDto>();
-
-            // 2. Fetch Company Lookup (Optimization to avoid N+1 query problem)
-            var companies = await db.CompanyDetails
-                                    .AsNoTracking()
-                                    .ToDictionaryAsync(c => c.CompanyDetailsId, c => c.CompanyName);
 
             foreach (var user in users)
             {
-                // Get Roles
-                var roles = await userManager.GetRolesAsync(user);
-                var roleName = roles.FirstOrDefault() ?? "No Role";
+                var roleNames = await userManager.GetRolesAsync(user);
+                var systemRoleName = roleNames.FirstOrDefault();
+                string displayRole = "No Role";
 
-                // Get Company Name
-                var companyName = "System Level"; // Default text
-                if (user.CompanyDetailsId.HasValue && companies.ContainsKey(user.CompanyDetailsId.Value))
+                // Convert "System Role" (Guid_Manager) to "Display Role" (Manager)
+                if (systemRoleName != null)
                 {
-                    companyName = companies[user.CompanyDetailsId.Value];
+                    var role = await roleManager.FindByNameAsync(systemRoleName);
+                    if (role != null) displayRole = role.DisplayName;
                 }
 
                 displayList.Add(new UserDisplayDto
@@ -47,25 +46,26 @@ namespace Primafit_ERP.Services
                     Id = user.Id,
                     FullName = $"{user.FirstName} {user.LastName}",
                     Email = user.Email,
-                    Role = roleName,
-                    CompanyName = companyName
+                    Role = displayRole,
+                    //IsActive = true // Can map from LockoutEnabled if needed
                 });
             }
 
             return displayList;
         }
 
-        public async Task<bool> CreateUserAsync(UserDto model)
+        // 2. CREATE USER (Internal Flow)
+        public async Task<string> CreateUserAsync(UserDto model)
         {
             using var scope = _scopeFactory.CreateScope();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
 
-            // Check if user exists
-            if (await userManager.FindByEmailAsync(model.Email) != null)
-            {
-                return false; // User already exists
-            }
+            // A. Validation
+            if (model.CompanyDetailsId == Guid.Empty) return "System Error: Company Context is missing.";
+            if (await userManager.FindByEmailAsync(model.Email) != null) return "User with this email already exists.";
 
+            // B. Create User Object
             var newUser = new ApplicationUser
             {
                 UserName = model.Email,
@@ -73,24 +73,34 @@ namespace Primafit_ERP.Services
                 FirstName = model.FirstName,
                 LastName = model.LastName,
                 CompanyDetailsId = model.CompanyDetailsId,
-                EmailConfirmed = true // Auto-confirm for internal admins
+                EmailConfirmed = true // Internal creation implies trust
             };
 
-            // 1. Create User
+            // C. Save to DB
             var result = await userManager.CreateAsync(newUser, model.Password);
 
-            if (result.Succeeded)
+            if (!result.Succeeded)
+                return string.Join(", ", result.Errors.Select(e => e.Description));
+
+            // D. Assign Role
+            if (!string.IsNullOrEmpty(model.RoleDisplayName))
             {
-                // 2. Assign Role
-                if (!string.IsNullOrEmpty(model.RoleName))
+                // Find the correct System Role for this Company
+                // e.g. Find role where Name == "{CompanyId}_{RoleName}"
+                var targetRoleName = $"{model.CompanyDetailsId}_{model.RoleDisplayName}".Replace(" ", "");
+
+                // Double check it exists
+                if (await roleManager.RoleExistsAsync(targetRoleName))
                 {
-                    await userManager.AddToRoleAsync(newUser, model.RoleName);
+                    await userManager.AddToRoleAsync(newUser, targetRoleName);
                 }
-                return true;
+                else
+                {
+                    return "User created, but Role could not be assigned (Role not found for this company).";
+                }
             }
 
-            return false; // Failed (e.g., weak password)
+            return string.Empty; // Success
         }
-
     }
 }

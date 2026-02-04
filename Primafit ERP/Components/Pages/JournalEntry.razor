@@ -1,182 +1,253 @@
 ﻿@page "/gl/journal-entry"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 @inject GLSetupService SetupService
 @inject GLOperationsService GlOps
 @inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 p-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Journal Entry</h1>
-            <p class="text-sm text-slate-500">Record manual adjustments to the General Ledger.</p>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Journal Entry</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Record manual adjustments to the General Ledger.</p>
         </div>
 
-        <div class="flex gap-3">
-            <div class="text-right hidden md:block mr-4">
-                <span class="block text-xs font-bold text-slate-400 uppercase">Total Difference</span>
-                <span class="block font-mono text-xl font-bold @(IsBalanced ? "text-emerald-600" : "text-rose-600")">
+        <div class="flex items-center gap-6">
+            <div class="text-right">
+                <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Difference</span>
+                <span class="block font-mono text-lg font-bold @(IsBalanced ? "text-emerald-600" : "text-rose-600")">
                     @((TotalDebits - TotalCredits).ToString("N2"))
                 </span>
             </div>
-            
-            <button @onclick="PostJournal" 
+
+            <button @onclick="PostJournal"
                     disabled="@(!CanPost)"
-                    class="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
+                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none">
+                <svg class="w-4 h-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 Post Batch
             </button>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        <div class="lg:col-span-3 space-y-4">
-            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-                        <select class="w-full rounded-xl border-slate-200 text-sm" @bind="selectedCompanyId" @bind:after="OnCompanyChanged">
-                            <option value="@Guid.Empty">-- Select --</option>
-                            @foreach (var c in companies) { <option value="@c.CompanyDetailsId">@c.CompanyName</option> }
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
-                        <InputDate class="w-full rounded-xl border-slate-200 text-sm" @bind-Value="txnDate" />
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
-                        <InputTextArea class="w-full rounded-xl border-slate-200 text-sm" rows="3" @bind-Value="batchDescription" placeholder="e.g. Monthly accruals" />
-                    </div>
-                </div>
-            </div>
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading context...
         </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-        <div class="lg:col-span-9">
-            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                
-                <div class="grid grid-cols-12 gap-4 bg-slate-50 px-4 py-3 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase">
-                    <div class="col-span-4">Account <span class="text-rose-500">*</span></div>
-                    <div class="col-span-3">Description</div>
-                    <div class="col-span-2 text-right">Debit</div>
-                    <div class="col-span-2 text-right">Credit</div>
-                    <div class="col-span-1"></div>
-                </div>
+            <div class="lg:col-span-3 space-y-4">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Entry Details</h3>
 
-                <div class="max-h-[600px] overflow-y-auto p-2 space-y-1">
-                    @foreach (var line in lines)
-                    {
-                        <div class="grid grid-cols-12 gap-2 items-center hover:bg-slate-50 p-2 rounded-lg transition-colors">
-                            
-                            <div class="col-span-4">
-                                <select class="w-full rounded-lg border-slate-200 text-sm py-2 @(line.AccountId == Guid.Empty ? "border-rose-300 bg-rose-50" : "")" 
-                                        @bind="line.AccountId">
-                                    <option value="@Guid.Empty">-- Select Account --</option>
-                                    @foreach (var acc in coaList)
-                                    {
-                                        <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div class="col-span-3">
-                                <input type="text" class="w-full rounded-lg border-slate-200 text-sm py-2" 
-                                       @bind="line.Reference" placeholder="Line desc..." />
-                            </div>
-
-                            <div class="col-span-2">
-                                <InputNumber TValue="decimal?" 
-                                             Value="@(line.Debit == 0 ? null : line.Debit)" 
-                                             ValueChanged="@(v => { line.Debit = v ?? 0; line.Credit = 0; })" 
-                                             ValueExpression="@(() => nullableDecimal)"
-                                             class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono placeholder:text-slate-300"
-                                             placeholder="0.00" />
-                            </div>
-
-                            <div class="col-span-2">
-                                <InputNumber TValue="decimal?" 
-                                             Value="@(line.Credit == 0 ? null : line.Credit)" 
-                                             ValueChanged="@(v => { line.Credit = v ?? 0; line.Debit = 0; })" 
-                                             ValueExpression="@(() => nullableDecimal)"
-                                             class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono placeholder:text-slate-300" 
-                                             placeholder="0.00" />
-                            </div>
-
-                            <div class="col-span-1 text-center">
-                                <button @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-500 transition-colors">
-                                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
-                            </div>
+                    <div class="space-y-5">
+                        <div>
+                            <label class="label">Posting Date</label>
+                            <InputDate class="@InputClass" @bind-Value="txnDate" />
                         </div>
-                    }
-                </div>
 
-                <div class="border-t border-slate-200 p-4 bg-slate-50 grid grid-cols-12 gap-4 items-center">
-                    <div class="col-span-4">
-                        <button @onclick="AddLine" class="text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                            <span>+ Add Line</span>
-                        </button>
+                        <div>
+                            <label class="label">Description</label>
+                            <InputTextArea class="@InputClass" rows="4" @bind-Value="batchDescription" placeholder="e.g. Monthly accruals or Correction" />
+                        </div>
                     </div>
-                    <div class="col-span-3 text-right font-bold text-slate-500 text-xs uppercase pt-1">Totals</div>
-                    <div class="col-span-2 text-right font-mono font-bold text-slate-800 border-t border-slate-300 pt-1">@TotalDebits.ToString("N2")</div>
-                    <div class="col-span-2 text-right font-mono font-bold text-slate-800 border-t border-slate-300 pt-1">@TotalCredits.ToString("N2")</div>
-                    <div class="col-span-1"></div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-9">
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+
+                    <div class="grid grid-cols-12 gap-4 bg-slate-50 px-4 py-3 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        <div class="col-span-4">Account <span class="text-rose-500">*</span></div>
+                        <div class="col-span-3">Reference</div>
+                        <div class="col-span-2 text-right">Debit</div>
+                        <div class="col-span-2 text-right">Credit</div>
+                        <div class="col-span-1"></div>
+                    </div>
+
+                    <div class="max-h-[600px] overflow-y-auto p-2 space-y-1 bg-white">
+                        @foreach (var line in lines)
+                        {
+                            <div class="grid grid-cols-12 gap-2 items-center hover:bg-slate-50 p-2 rounded-lg transition-colors group">
+
+                                <div class="col-span-4">
+                                    <select class="w-full rounded-lg border-slate-200 text-sm py-2 text-slate-900 focus:border-slate-800 focus:ring-0 transition-colors @(line.AccountId == Guid.Empty ? "bg-rose-50 border-rose-200" : "")"
+                                            @bind="line.AccountId">
+                                        <option value="@Guid.Empty">-- Select --</option>
+                                        @foreach (var acc in coaList)
+                                        {
+                                            <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
+                                        }
+                                    </select>
+                                </div>
+
+                                <div class="col-span-3">
+                                    <input type="text" class="w-full rounded-lg border-slate-200 text-sm py-2 text-slate-900 focus:border-slate-800 focus:ring-0"
+                                           @bind="line.Reference" placeholder="Details..." />
+                                </div>
+
+                                <div class="col-span-2">
+                                    <InputNumber TValue="decimal?"
+                                                 Value="@(line.Debit == 0 ? null : line.Debit)"
+                                                 ValueChanged="@(v => { line.Debit = v ?? 0; line.Credit = 0; })"
+                                                 ValueExpression="@(() => nullableDecimal)"
+                                                 class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono text-slate-900 placeholder:text-slate-300 focus:border-slate-800 focus:ring-0"
+                                                 placeholder="0.00" />
+                                </div>
+
+                                <div class="col-span-2">
+                                    <InputNumber TValue="decimal?"
+                                                 Value="@(line.Credit == 0 ? null : line.Credit)"
+                                                 ValueChanged="@(v => { line.Credit = v ?? 0; line.Debit = 0; })"
+                                                 ValueExpression="@(() => nullableDecimal)"
+                                                 class="w-full rounded-lg border-slate-200 text-sm py-2 text-right font-mono text-slate-900 placeholder:text-slate-300 focus:border-slate-800 focus:ring-0"
+                                                 placeholder="0.00" />
+                                </div>
+
+                                <div class="col-span-1 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-600 transition-colors p-1">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="border-t border-slate-200 p-4 bg-slate-50 grid grid-cols-12 gap-4 items-center">
+                        <div class="col-span-4">
+                            <button @onclick="AddLine" class="text-xs font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 uppercase tracking-wide transition-colors">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                Add Line
+                            </button>
+                        </div>
+                        <div class="col-span-3 text-right font-bold text-slate-400 text-xs uppercase pt-1">Total</div>
+                        <div class="col-span-2 text-right font-mono font-bold text-slate-900 border-t border-slate-300 pt-1">@TotalDebits.ToString("N2")</div>
+                        <div class="col-span-2 text-right font-mono font-bold text-slate-900 border-t border-slate-300 pt-1">@TotalCredits.ToString("N2")</div>
+                        <div class="col-span-1"></div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
+    }
 </div>
 
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
 @code {
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all";
+
     // --- Data ---
-    private List<CompanyDetails> companies = new();
     private List<GLChartOfAccount> coaList = new();
     private List<GLJournalLine> lines = new();
-    
-    // --- State ---
+
+    // --- Context ---
     private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool isLoading = true;
+
+    // --- State ---
     private DateOnly txnDate = DateOnly.FromDateTime(DateTime.Today);
     private string batchDescription = "";
-    
+
     // Helper for binding trick
-    private decimal? nullableDecimal; 
+    private decimal? nullableDecimal;
 
     // --- Computed Properties ---
     private decimal TotalDebits => lines.Sum(l => l.Debit);
     private decimal TotalCredits => lines.Sum(l => l.Credit);
-    
+
     private bool IsBalanced => TotalDebits > 0 && TotalDebits == TotalCredits;
-    
-    // VALIDATION LOGIC:
-    // 1. Must satisfy balance (Dr = Cr)
-    // 2. Must have at least 1 line
-    // 3. ALL lines must have a valid AccountId
     private bool CanPost => IsBalanced && lines.Any() && lines.All(l => l.AccountId != Guid.Empty);
 
     protected override async Task OnInitializedAsync()
     {
-        companies = await CompanyService.GetCompaniesAsync();
-        // Init with 2 lines for convenience
-        lines.Add(new GLJournalLine());
-        lines.Add(new GLJournalLine());
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                // Get display name
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                await LoadData();
+            }
+        }
     }
 
-    private async Task OnCompanyChanged()
+    private async Task LoadData()
     {
-        coaList.Clear();
+        isLoading = true;
+        // Fetch COA for dropdown
         if (selectedCompanyId != Guid.Empty)
         {
             coaList = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
         }
+
+        // Init lines if empty
+        if (!lines.Any())
+        {
+            lines.Add(new GLJournalLine());
+            lines.Add(new GLJournalLine());
+        }
+        isLoading = false;
     }
 
     private void AddLine() => lines.Add(new GLJournalLine());
-    
+
     private void RemoveLine(GLJournalLine line)
     {
         if (lines.Count > 1) lines.Remove(line);
@@ -184,13 +255,13 @@
 
     private async Task PostJournal()
     {
-        if (!CanPost) return; // Logic check
+        if (!CanPost) return;
 
         var (err, batchId) = await GlOps.CreateJournalEntryAsync(
-            selectedCompanyId, 
-            txnDate, 
-            "Manual Journal", 
-            batchDescription, 
+            selectedCompanyId,
+            txnDate,
+            "Manual Journal",
+            batchDescription,
             lines);
 
         if (!string.IsNullOrEmpty(err))

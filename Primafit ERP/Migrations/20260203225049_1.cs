@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Primafit_ERP.Migrations
 {
     /// <inheritdoc />
-    public partial class Warehouse : Migration
+    public partial class _1 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -16,6 +16,8 @@ namespace Primafit_ERP.Migrations
                 columns: table => new
                 {
                     Id = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    DisplayName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Description = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
                     Name = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
@@ -137,6 +139,29 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Items",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    SKU = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    IsService = table.Column<bool>(type: "bit", nullable: false),
+                    UoM = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ReorderLevel = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    WeightedAverageCost = table.Column<decimal>(type: "decimal(18,4)", nullable: false),
+                    SellingPrice = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    InventoryAssetAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CostOfGoodsSoldAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    SalesIncomeAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AdjustmentExpenseAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Items", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Projects",
                 columns: table => new
                 {
@@ -152,6 +177,25 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StockLedgers",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Date = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ItemId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    WarehouseId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Type = table.Column<int>(type: "int", nullable: false),
+                    QuantityChanged = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    CostAtTime = table.Column<decimal>(type: "decimal(18,4)", nullable: false),
+                    Reference = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StockLedgers", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Taxes",
                 columns: table => new
                 {
@@ -164,6 +208,20 @@ namespace Primafit_ERP.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Taxes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Warehouses",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Location = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Warehouses", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -290,7 +348,6 @@ namespace Primafit_ERP.Migrations
                     FunctionalCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     BaseCurrency = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Type = table.Column<int>(type: "int", nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
                     CreatedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ModifiedDate = table.Column<DateTime>(type: "datetime2", nullable: false),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(450)", nullable: true),
@@ -354,6 +411,47 @@ namespace Primafit_ERP.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StockTransfers",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Reference = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    FromWarehouseId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ToWarehouseId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ItemId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Quantity = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    QuantityReceived = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    DateShipped = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    DateReceived = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    TransitGLAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ValueAtShipment = table.Column<decimal>(type: "decimal(18,4)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StockTransfers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_StockTransfers_Items_ItemId",
+                        column: x => x.ItemId,
+                        principalTable: "Items",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_StockTransfers_Warehouses_FromWarehouseId",
+                        column: x => x.FromWarehouseId,
+                        principalTable: "Warehouses",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_StockTransfers_Warehouses_ToWarehouseId",
+                        column: x => x.ToWarehouseId,
+                        principalTable: "Warehouses",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AccountingPeriods",
                 columns: table => new
                 {
@@ -392,27 +490,6 @@ namespace Primafit_ERP.Migrations
                         column: x => x.CompanyId,
                         principalTable: "CompanyDetails",
                         principalColumn: "CompanyDetailsId");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Warehouses",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    IsInTransist = table.Column<bool>(type: "bit", nullable: false),
-                    Location = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Warehouses", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Warehouses_CompanyDetails_CompanyId",
-                        column: x => x.CompanyId,
-                        principalTable: "CompanyDetails",
-                        principalColumn: "CompanyDetailsId",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -548,6 +625,95 @@ namespace Primafit_ERP.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "BusinessPartners",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Email = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Phone = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TaxId = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    IsCustomer = table.Column<bool>(type: "bit", nullable: false),
+                    IsVendor = table.Column<bool>(type: "bit", nullable: false),
+                    ReceivablesAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    PayablesAccountId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_BusinessPartners", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_BusinessPartners_GLChartOfAccounts_PayablesAccountId",
+                        column: x => x.PayablesAccountId,
+                        principalTable: "GLChartOfAccounts",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_BusinessPartners_GLChartOfAccounts_ReceivablesAccountId",
+                        column: x => x.ReceivablesAccountId,
+                        principalTable: "GLChartOfAccounts",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "SalesOrders",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    CompanyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    OrderNumber = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CustomerId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Date = table.Column<DateOnly>(type: "date", nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    CurrencyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ExchangeRate = table.Column<decimal>(type: "decimal(18,6)", nullable: false),
+                    ShipmentBatchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    InvoiceBatchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SalesOrders", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SalesOrders_BusinessPartners_CustomerId",
+                        column: x => x.CustomerId,
+                        principalTable: "BusinessPartners",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_SalesOrders_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "SalesOrderLines",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    HeaderId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ItemId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Quantity = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    UnitPrice = table.Column<decimal>(type: "decimal(18,2)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SalesOrderLines", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_SalesOrderLines_Items_ItemId",
+                        column: x => x.ItemId,
+                        principalTable: "Items",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_SalesOrderLines_SalesOrders_HeaderId",
+                        column: x => x.HeaderId,
+                        principalTable: "SalesOrders",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_AccountingPeriods_CompanyId",
                 table: "AccountingPeriods",
@@ -596,6 +762,16 @@ namespace Primafit_ERP.Migrations
                 name: "IX_BankStatementLines_ReconciliationId",
                 table: "BankStatementLines",
                 column: "ReconciliationId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BusinessPartners_PayablesAccountId",
+                table: "BusinessPartners",
+                column: "PayablesAccountId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BusinessPartners_ReceivablesAccountId",
+                table: "BusinessPartners",
+                column: "ReceivablesAccountId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CompanyDetails_CreatedByUserId",
@@ -653,9 +829,39 @@ namespace Primafit_ERP.Migrations
                 column: "CompanyId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Warehouses_CompanyId",
-                table: "Warehouses",
-                column: "CompanyId");
+                name: "IX_SalesOrderLines_HeaderId",
+                table: "SalesOrderLines",
+                column: "HeaderId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SalesOrderLines_ItemId",
+                table: "SalesOrderLines",
+                column: "ItemId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SalesOrders_CurrencyId",
+                table: "SalesOrders",
+                column: "CurrencyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SalesOrders_CustomerId",
+                table: "SalesOrders",
+                column: "CustomerId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StockTransfers_FromWarehouseId",
+                table: "StockTransfers",
+                column: "FromWarehouseId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StockTransfers_ItemId",
+                table: "StockTransfers",
+                column: "ItemId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_StockTransfers_ToWarehouseId",
+                table: "StockTransfers",
+                column: "ToWarehouseId");
         }
 
         /// <inheritdoc />
@@ -686,9 +892,6 @@ namespace Primafit_ERP.Migrations
                 name: "CurrencyManagements");
 
             migrationBuilder.DropTable(
-                name: "GLChartOfAccounts");
-
-            migrationBuilder.DropTable(
                 name: "GLJournalLines");
 
             migrationBuilder.DropTable(
@@ -698,10 +901,16 @@ namespace Primafit_ERP.Migrations
                 name: "Projects");
 
             migrationBuilder.DropTable(
-                name: "Taxes");
+                name: "SalesOrderLines");
 
             migrationBuilder.DropTable(
-                name: "Warehouses");
+                name: "StockLedgers");
+
+            migrationBuilder.DropTable(
+                name: "StockTransfers");
+
+            migrationBuilder.DropTable(
+                name: "Taxes");
 
             migrationBuilder.DropTable(
                 name: "AspNetRoles");
@@ -710,22 +919,37 @@ namespace Primafit_ERP.Migrations
                 name: "BankReconciliations");
 
             migrationBuilder.DropTable(
-                name: "Currencies");
-
-            migrationBuilder.DropTable(
-                name: "GLMainAccounts");
-
-            migrationBuilder.DropTable(
                 name: "GLJournalHeaders");
 
             migrationBuilder.DropTable(
-                name: "GLAccountTypes");
+                name: "SalesOrders");
+
+            migrationBuilder.DropTable(
+                name: "Items");
+
+            migrationBuilder.DropTable(
+                name: "Warehouses");
 
             migrationBuilder.DropTable(
                 name: "GLBatches");
 
             migrationBuilder.DropTable(
+                name: "BusinessPartners");
+
+            migrationBuilder.DropTable(
+                name: "Currencies");
+
+            migrationBuilder.DropTable(
                 name: "AccountingPeriods");
+
+            migrationBuilder.DropTable(
+                name: "GLChartOfAccounts");
+
+            migrationBuilder.DropTable(
+                name: "GLMainAccounts");
+
+            migrationBuilder.DropTable(
+                name: "GLAccountTypes");
 
             migrationBuilder.DropTable(
                 name: "CompanyDetails");

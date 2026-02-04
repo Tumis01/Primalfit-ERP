@@ -1,12 +1,13 @@
 ﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Primafit_ERP.Components.Models;
+using PrimafitERP.Data;
 
 namespace Primafit_ERP.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("auth")]
     [ApiController]
-    public class AuthController : ControllerBase
+    public class AuthController : Controller
     {
         private readonly SignInManager<ApplicationUser> _signInManager;
 
@@ -15,33 +16,36 @@ namespace Primafit_ERP.Controllers
             _signInManager = signInManager;
         }
 
-        [HttpPost("login-form")]
-        public async Task<IActionResult> LoginFromForm([FromForm] LoginDto model)
+        [HttpPost("login")]
+        [ValidateAntiForgeryToken] // Security best practice
+        public async Task<IActionResult> Login([FromForm] LoginDto model)
         {
-            // Force logout before attempting login (Clears old sessions)
-            await _signInManager.SignOutAsync();
+            if (string.IsNullOrEmpty(model.Email) || string.IsNullOrEmpty(model.Password))
+            {
+                return Redirect("/login?error=Email and Password are required");
+            }
 
             // Attempt Sign In
-            // isPersistent: false = Cookie dies when Browser closes.
-            var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, isPersistent: false, lockoutOnFailure: false);
+            var result = await _signInManager.PasswordSignInAsync(model.Email, model.Password, isPersistent: true, lockoutOnFailure: false);
 
             if (result.Succeeded)
             {
-                return LocalRedirect("/");
+                return Redirect("/"); // Success -> Go to Dashboard
+            }
+            
+            if (result.IsLockedOut)
+            {
+                return Redirect("/login?error=Account is locked out");
             }
 
-            return Redirect("/login?error=Invalid credentials");
+            return Redirect("/login?error=Invalid login credentials");
         }
 
-        [HttpPost("logout")]
+        [HttpGet("logout")]
         public async Task<IActionResult> Logout()
         {
             await _signInManager.SignOutAsync();
-
-            // Clear cookies manually to be safe
-            Response.Cookies.Delete(".AspNetCore.Identity.Application");
-
-            return LocalRedirect("/login");
+            return Redirect("/login");
         }
     }
 }

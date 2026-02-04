@@ -128,16 +128,7 @@
                                     <td class="px-6 py-4 font-medium text-slate-900 group-hover:text-indigo-600 transition-colors">@company.CompanyName</td>
                                     <td class="px-6 py-4">@company.country</td>
                                     <td class="px-6 py-4 text-xs font-mono text-slate-500">@company.FiscalStartYear.Year - @company.FiscalEndYear.Year</td>
-                                    <td class="px-6 py-4">
-                                        @if (company.Status.ToString() == "Active")
-                                        {
-                                            <span class="inline-flex items-center rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/10">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="inline-flex items-center rounded-md bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">Inactive</span>
-                                        }
-                                    </td>
+                                    
                                 </tr>
                             }
                         </tbody>
@@ -155,21 +146,21 @@
     private int inactiveCount = 0;
     private double ActivePercentage = 0;
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            companies = await CompanyService.GetCompaniesAsync();
-            if (companies.Any())
-            {
-                activeCount = companies.Count(c => c.Status.ToString() == "Active");
-                inactiveCount = companies.Count - activeCount;
-                ActivePercentage = ((double)activeCount / companies.Count) * 100;
-            }
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
+    // protected override async Task OnInitializedAsync()
+    // {
+    //     try
+    //     {
+    //         companies = await CompanyService.GetCompaniesAsync();
+    //         if (companies.Any())
+    //         {
+    //             activeCount = companies.Count(c => c.Status.ToString() == "Active");
+    //             inactiveCount = companies.Count - activeCount;
+    //             ActivePercentage = ((double)activeCount / companies.Count) * 100;
+    //         }
+    //     }
+    //     finally
+    //     {
+    //         isLoading = false;
+    //     }
+    // }
 }

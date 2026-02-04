@@ -18,7 +18,6 @@ namespace Primafit_ERP.Components.Models
         public string FunctionalCurrency { get;set; }
         public string BaseCurrency { get; set; }
         public CompanyType Type { get; set; }
-        public CompanyStatus Status { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }
         public string? CreatedByUserId { get; set; } 
@@ -39,7 +38,8 @@ public enum CompanyType
     Partnership = 2,
     LimitedLiabilityCompany = 3,
     NonProfit = 4,
-    Government = 5
+    Government = 5,
+    Corporation = 6
 }
 
 public enum CompanyStatus

@@ -84,7 +84,6 @@ namespace Primafit_ERP.Services
             entity.FunctionalCurrency = model.FunctionalCurrency;
             entity.BaseCurrency = model.BaseCurrency;
             entity.Type = model.Type;
-            entity.Status = model.Status;
             entity.ModifiedDate = DateTime.UtcNow;
 
             

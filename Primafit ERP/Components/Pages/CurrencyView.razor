@@ -1,363 +1,318 @@
 ﻿@page "/currency-setup"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 @inject CurrencyService Service
 @inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 p-6">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Currency Management</h1>
-            <p class="text-sm text-slate-500 mt-1">Manage trading currencies and daily exchange rates per company.</p>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Currency Management</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Manage trading currencies and daily exchange rates.</p>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <div class="min-w-[250px]">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-                <select class="w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-                        value="@selectedCompanyId"
-                        @onchange="OnCompanyChanged">
-                    @if (!companies.Any())
-                    {
-                        <option value="@Guid.Empty">No companies found</option>
-                    }
-                    else
-                    {
-                        @foreach (var c in companies)
-                        {
-                            <option value="@c.CompanyDetailsId">@c.CompanyName</option>
-                        }
-                    }
-                </select>
+        <div class="flex items-center gap-4">
+            <div class="hidden md:flex flex-col items-end">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Base Currency</span>
+                <span class="text-xl font-bold text-slate-900 font-mono">@(string.IsNullOrEmpty(companyBaseCurrency) ? "-" : companyBaseCurrency)</span>
             </div>
 
-            <div class="min-w-[120px]">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Base</label>
-                <div class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 font-bold text-center">
-                    @(string.IsNullOrEmpty(companyBaseCurrency) ? "-" : companyBaseCurrency)
-                </div>
+            <div class="h-8 w-px bg-slate-200 hidden md:block"></div>
+
+            <div class="flex gap-2">
+                <button @onclick="OpenCurrencyForm" disabled="@(!HasCompany)"
+                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all active:scale-95 disabled:opacity-50">
+                    New Currency
+                </button>
+
+                <button @onclick="OpenRateForm" disabled="@(!CanAddRate)"
+                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                    Add Rate
+                </button>
             </div>
-
-            <button @onclick="OpenCurrencyForm" disabled="@(!HasCompany)"
-                    class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50">
-                New Currency
-            </button>
-
-            <button @onclick="OpenRateForm" disabled="@(!CanAddRate)"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-200 hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-95 disabled:opacity-50">
-                Add Rate
-            </button>
         </div>
     </div>
 
-    @if (!HasCompany)
+    @if (isLoading)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-8 text-slate-500 text-center">
-            Please select a company to start managing currencies.
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading currency data...
         </div>
     }
-    else if (string.IsNullOrWhiteSpace(companyBaseCurrency))
+    else if (HasCompany)
     {
-        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-900 flex gap-3">
-            <svg class="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            <div>
-                <div class="font-bold">Base Currency Missing</div>
-                <div class="text-sm mt-1">Go to Company Details and set a Base Currency (e.g., USD, NGN) before adding rates.</div>
-            </div>
-        </div>
-    }
-
-    @if (showCurrencyForm && HasCompany)
-    {
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl ring-1 ring-slate-200 animate-in fade-in slide-in-from-top-2">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-slate-900">Define New Currency</h3>
-                <button @onclick="CloseCurrencyForm" class="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-
-            <EditForm Model="@newCurrency" OnValidSubmit="HandleSaveCurrency">
-                <DataAnnotationsValidator />
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Code</label>
-                        <InputText @bind-Value="newCurrency.CurrencyCode" class="@InputClass" placeholder="e.g. EUR" />
-                        <ValidationMessage For="@(() => newCurrency.CurrencyCode)" class="text-red-500 text-xs" />
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
-                        <InputText @bind-Value="newCurrency.CurrencyName" class="@InputClass" placeholder="e.g. Euro" />
-                        <ValidationMessage For="@(() => newCurrency.CurrencyName)" class="text-red-500 text-xs" />
-                    </div>
+        @if (string.IsNullOrWhiteSpace(companyBaseCurrency))
+        {
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 flex gap-3 text-amber-900">
+                <svg class="w-6 h-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div>
+                    <div class="font-bold text-sm">Base Currency Missing</div>
+                    <div class="text-xs mt-1 opacity-90">Go to Company Details and set a Base Currency (e.g., USD, NGN) before adding rates.</div>
                 </div>
-                <div class="mt-6 flex justify-end gap-3">
-                    <button type="button" @onclick="CloseCurrencyForm" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg border border-slate-200">Cancel</button>
-                    <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">Save Currency</button>
+            </div>
+        }
+
+        @if (showCurrencyForm)
+        {
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl animate-in slide-in-from-top-2 mb-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-slate-900">Define New Currency</h3>
+                    <button @onclick="CloseCurrencyForm" class="text-slate-400 hover:text-slate-600">✕</button>
                 </div>
-            </EditForm>
-        </div>
-    }
 
-    @if (showRateForm && HasCompany)
-    {
-        <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-6 shadow-xl ring-1 ring-indigo-900/5 animate-in fade-in slide-in-from-top-2">
-            <h3 class="font-bold text-indigo-900 mb-4">@(isEditingRate ? "Edit Rate" : "Add Exchange Rate")</h3>
-
-            <EditForm Model="@currentRate" OnValidSubmit="HandleSaveRate" OnInvalidSubmit="HandleInvalidSubmit">
-                <DataAnnotationsValidator />
-
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div>
-                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Effective Date</label>
-                        <InputDate @bind-Value="currentRate.Date" class="@InputClass" />
-                        <ValidationMessage For="@(() => currentRate.Date)" class="text-red-500 text-xs" />
+                <EditForm Model="@newCurrency" OnValidSubmit="HandleSaveCurrency">
+                    <DataAnnotationsValidator />
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="label">Code</label>
+                            <InputText @bind-Value="newCurrency.CurrencyCode" class="input-class font-mono uppercase" placeholder="e.g. EUR" />
+                            <ValidationMessage For="@(() => newCurrency.CurrencyCode)" class="text-red-500 text-xs mt-1" />
+                        </div>
+                        <div>
+                            <label class="label">Name</label>
+                            <InputText @bind-Value="newCurrency.CurrencyName" class="input-class" placeholder="e.g. Euro" />
+                            <ValidationMessage For="@(() => newCurrency.CurrencyName)" class="text-red-500 text-xs mt-1" />
+                        </div>
                     </div>
+                    <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100">
+                        <button type="button" @onclick="CloseCurrencyForm" class="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+                        <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-md transition-colors">Save</button>
+                    </div>
+                </EditForm>
+            </div>
+        }
 
-                    <div>
-                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Target Currency</label>
-                        <InputSelect @bind-Value="currentRate.CurrencyId" class="@InputClass">
-                            <option value="@Guid.Empty">-- Select --</option>
-                            @if (!AvailableCurrenciesForRates.Any())
-                            {
-                                <option value="@Guid.Empty" disabled>All currencies have rates defined</option>
-                            }
-                            else
-                            {
+        @if (showRateForm)
+        {
+            <div class="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-6 shadow-xl ring-1 ring-indigo-900/5 animate-in slide-in-from-top-2 mb-6">
+                <h3 class="font-bold text-indigo-900 mb-4">@(isEditingRate ? "Edit Rate" : "Add Exchange Rate")</h3>
+
+                <EditForm Model="@currentRate" OnValidSubmit="HandleSaveRate">
+                    <DataAnnotationsValidator />
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="label text-indigo-900">Effective Date</label>
+                            <InputDate @bind-Value="currentRate.Date" class="input-class border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200" />
+                        </div>
+                        <div>
+                            <label class="label text-indigo-900">Target Currency</label>
+                            <InputSelect @bind-Value="currentRate.CurrencyId" class="input-class border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200">
+                                <option value="@Guid.Empty">-- Select --</option>
                                 @foreach (var c in AvailableCurrenciesForRates)
                                 {
                                     <option value="@c.Id">@c.CurrencyName (@c.CurrencyCode)</option>
                                 }
-                            }
-                        </InputSelect>
-                        @if (!AvailableCurrenciesForRates.Any() && !isEditingRate)
-                        {
-                            <div class="text-amber-600 text-xs mt-1">
-                                All available currencies already have rates. Add a new currency first.
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="label text-indigo-900 opacity-60">Base Currency</label>
+                            <div class="input-class bg-slate-100 text-slate-500 cursor-not-allowed flex items-center border-indigo-100">
+                                @companyBaseCurrency
                             </div>
-                        }
-                        <ValidationMessage For="@(() => currentRate.CurrencyId)" class="text-red-500 text-xs" />
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-indigo-800/60 uppercase mb-1">Base Currency</label>
-                        <div class="@InputClass bg-slate-100 text-slate-500 cursor-not-allowed flex items-center">
-                            @companyBaseCurrency
+                        </div>
+                        <div>
+                            <label class="label text-indigo-900">Rate</label>
+                            <InputNumber @bind-Value="currentRate.Rate" class="input-class font-mono border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200" placeholder="1.0000" />
                         </div>
                     </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-indigo-800 uppercase mb-1">Rate</label>
-                        <InputNumber @bind-Value="currentRate.Rate" class="@InputClass" placeholder="1.0000" />
-                        <ValidationMessage For="@(() => currentRate.Rate)" class="text-red-500 text-xs" />
+                    <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-indigo-100">
+                        <button type="button" @onclick="CloseRateForm" class="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-white rounded-lg transition-colors">Cancel</button>
+                        <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md transition-colors">
+                            @(isEditingRate ? "Update Rate" : "Add Rate")
+                        </button>
                     </div>
-                </div>
-
-                <div class="mt-6 flex justify-end gap-3">
-                    <button type="button" @onclick="CloseRateForm" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-white rounded-lg border border-transparent">Cancel</button>
-                    <button type="submit" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
-                        @(isEditingRate ? "Update Rate" : "Add Rate")
-                    </button>
-                </div>
-            </EditForm>
-        </div>
-    }
-
-    @if (HasCompany && !string.IsNullOrWhiteSpace(companyBaseCurrency) && !AvailableCurrenciesForRates.Any() && currencyList.Any())
-    {
-        <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <div class="flex items-start gap-3">
-                <svg class="w-5 h-5 text-slate-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div class="text-sm text-slate-600">
-                    <span class="font-semibold">All currencies have exchange rates.</span>
-                    To add more rates, either:
-                    <ul class="list-disc pl-5 mt-1 space-y-1">
-                        <li>Add a new currency using the "New Currency" button</li>
-                        <li>Or edit existing rates in the table below</li>
-                    </ul>
-                </div>
+                </EditForm>
             </div>
-        </div>
-    }
+        }
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-        <div class="lg:col-span-1 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden h-fit">
-            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-700">Defined Currencies</h3>
-            </div>
-            <table class="w-full text-left text-sm">
-                <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-100">
-                    <tr>
-                        <th class="px-6 py-3 w-[40%]">Code</th>
-                        <th class="px-6 py-3 w-[40%]">Name</th>
-                        <th class="px-6 py-3 w-[20%] text-right"></th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    @foreach (var c in currencyList)
-                    {
-                        var hasRates = ratesList.Any(r => r.CurrencyId == c.Id);
-                        <tr class="hover:bg-slate-50 group">
-                            <td class="px-6 py-3 font-mono font-bold @(hasRates ? "text-slate-400" : "text-indigo-600")">
-                                @c.CurrencyCode
-                                @if (hasRates)
-                                {
-                                    <span class="text-xs font-normal text-slate-500 ml-2">(has rates)</span>
-                                }
-                            </td>
-                            <td class="px-6 py-3 text-slate-700">@c.CurrencyName</td>
-                            <td class="px-6 py-3 text-right">
-                                @if (!hasRates)
-                                {
-                                    <button @onclick="() => DeleteCurrency(c)"
-                                            class="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </button>
-                                }
-                                else
-                                {
-                                    <span class="text-xs text-slate-400">Cannot delete</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                    @if (!currencyList.Any())
-                    {
-                        <tr><td colspan="3" class="p-6 text-center text-slate-400">No currencies defined.</td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-
-        <div class="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-            <div class="bg-slate-50 px-6 py-4 border-b border-slate-100">
-                <h3 class="font-bold text-slate-700">Daily Exchange Rates</h3>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm text-slate-600">
-                    <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
-                        <tr>
-                            <th class="px-6 py-3">Date</th>
-                            <th class="px-6 py-3">Currency</th>
-                            <th class="px-6 py-3">Base</th>
-                            <th class="px-6 py-3 text-right">Rate</th>
-                            <th class="px-6 py-3 text-right">Actions</th>
-                        </tr>
-                    </thead>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden h-fit">
+                <div class="bg-slate-50 px-6 py-4 border-b border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 uppercase tracking-wide">Defined Currencies</h3>
+                </div>
+                <table class="w-full text-left text-sm">
                     <tbody class="divide-y divide-slate-100">
-                        @foreach (var item in ratesList)
+                        @foreach (var c in currencyList)
                         {
+                            var hasRates = ratesList.Any(r => r.CurrencyId == c.Id);
                             <tr class="hover:bg-slate-50 group transition-colors">
-                                <td class="px-6 py-4 font-medium text-slate-900">@item.Date.ToString("yyyy-MM-dd")</td>
-                                <td class="px-6 py-4">
-                                    <span class="font-bold text-slate-900">@item.Currency?.CurrencyCode</span>
-                                    <span class="text-xs text-slate-400 ml-1">(@item.Currency?.CurrencyName)</span>
-                                </td>
-                                <td class="px-6 py-4">@item.ExchangeCurrency</td>
-                                <td class="px-6 py-4 text-right font-mono font-bold text-emerald-600">@item.Rate.ToString("N2")</td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
-                                        <button @onclick="() => EditRate(item)" class="text-indigo-600 hover:text-indigo-900 font-medium text-xs">Edit</button>
-                                        <button @onclick="() => DeleteRate(item)" class="text-red-600 hover:text-red-900 font-medium text-xs">Delete</button>
-                                    </div>
+                                <td class="px-6 py-3 font-mono font-bold text-slate-900">@c.CurrencyCode</td>
+                                <td class="px-6 py-3 text-slate-600">@c.CurrencyName</td>
+                                <td class="px-6 py-3 text-right">
+                                    @if (!hasRates)
+                                    {
+                                        <button @onclick="() => DeleteCurrency(c)" class="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        </button>
+                                    }
                                 </td>
                             </tr>
                         }
-                        @if (!ratesList.Any())
+                        @if (!currencyList.Any())
                         {
-                            <tr><td colspan="5" class="p-8 text-center text-slate-400">No exchange rates recorded.</td></tr>
+                            <tr><td colspan="3" class="p-6 text-center text-slate-400 text-xs">No currencies defined.</td></tr>
                         }
                     </tbody>
                 </table>
             </div>
+
+            <div class="lg:col-span-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden h-fit">
+                <div class="bg-slate-50 px-6 py-4 border-b border-slate-200">
+                    <h3 class="font-bold text-sm text-slate-800 uppercase tracking-wide">Daily Exchange Rates</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
+                            <tr>
+                                <th class="px-6 py-3">Date</th>
+                                <th class="px-6 py-3">Currency</th>
+                                <th class="px-6 py-3 text-right">Rate (vs @companyBaseCurrency)</th>
+                                <th class="px-6 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var item in ratesList)
+                            {
+                                <tr class="hover:bg-slate-50 group transition-colors">
+                                    <td class="px-6 py-4 font-mono text-slate-600">@item.Date.ToString("yyyy-MM-dd")</td>
+                                    <td class="px-6 py-4 font-bold text-slate-900">@item.Currency?.CurrencyCode</td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@item.Rate.ToString("N4")</td>
+                                    <td class="px-6 py-4 text-right">
+                                        <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                                            <button @onclick="() => EditRate(item)" class="text-slate-600 hover:text-indigo-600 font-bold text-xs">Edit</button>
+                                            <button @onclick="() => DeleteRate(item)" class="text-slate-400 hover:text-red-600 font-bold text-xs">Delete</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            @if (!ratesList.Any())
+                            {
+                                <tr><td colspan="4" class="p-8 text-center text-slate-400 text-xs">No exchange rates recorded.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-    </div>
+    }
 </div>
 
-@code {
-    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all";
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
 
-    private List<CompanyDetails> companies = new();
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
+@code {
+    // --- Context ---
     private Guid selectedCompanyId;
+    private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
     private string companyBaseCurrency = "";
 
-    // Only enable "Add Rate" if we have a company AND a base currency set AND there are available currencies
-    private bool CanAddRate => HasCompany && !string.IsNullOrWhiteSpace(companyBaseCurrency) && AvailableCurrenciesForRates.Any();
-
+    // --- Data ---
     private List<Currency> currencyList = new();
     private List<CurrencyManagement> ratesList = new();
 
+    // --- State ---
     private Currency newCurrency = new();
     private CurrencyManagement currentRate = new();
-
     private bool showCurrencyForm = false;
     private bool showRateForm = false;
     private bool isEditingRate = false;
 
-    // Get currencies that don't have exchange rates yet (for dropdown)
+    // Logic: Can only add rate if company has base currency AND there are currencies without rates (or editing)
+    private bool CanAddRate => HasCompany && !string.IsNullOrWhiteSpace(companyBaseCurrency) && (AvailableCurrenciesForRates.Any() || isEditingRate);
+
+    // Filter Logic
     private IEnumerable<Currency> AvailableCurrenciesForRates
     {
         get
         {
-            if (!ratesList.Any() || !currencyList.Any())
-                return currencyList;
+            if (!ratesList.Any()) return currencyList;
 
-            // Get all currency IDs that already have rates
-            var currencyIdsWithRates = ratesList
-                .Select(r => r.CurrencyId)
-                .Distinct()
-                .ToHashSet();
+            // Get IDs that already have rates
+            var usedIds = ratesList.Select(r => r.CurrencyId).ToHashSet();
 
-            // If we are editing a rate, remove the current rate's currency from the exclusion list
-            // so it appears in the dropdown
-            if (isEditingRate && currentRate.CurrencyId != Guid.Empty)
-            {
-                currencyIdsWithRates.Remove(currentRate.CurrencyId);
-            }
+            // If editing, allow the current one
+            if (isEditingRate) usedIds.Remove(currentRate.CurrencyId);
 
-            // Return currencies that don't have rates yet
-            return currencyList
-                .Where(c => !currencyIdsWithRates.Contains(c.Id))
-                .ToList();
+            return currencyList.Where(c => !usedIds.Contains(c.Id));
         }
     }
 
     protected override async Task OnInitializedAsync()
     {
-        companies = await CompanyService.GetCompaniesAsync();
-        if (companies.Any())
-        {
-            selectedCompanyId = companies.First().CompanyDetailsId;
-            await LoadAll();
-        }
-    }
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
 
-    private async Task OnCompanyChanged(ChangeEventArgs e)
-    {
-        if (Guid.TryParse(e?.Value?.ToString(), out var id))
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
         {
-            selectedCompanyId = id;
-            await LoadAll();
-            CloseCurrencyForm();
-            CloseRateForm();
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null)
+                {
+                    companyName = company.CompanyName;
+                    companyBaseCurrency = (company.BaseCurrency ?? "").Trim().ToUpperInvariant();
+                }
+
+                await LoadAll();
+            }
         }
+        isLoading = false;
     }
 
     private async Task LoadAll()
     {
         if (!HasCompany) return;
-        var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-        companyBaseCurrency = (company?.BaseCurrency ?? "").Trim().ToUpperInvariant();
         currencyList = await Service.GetCurrenciesAsync(selectedCompanyId);
         ratesList = await Service.GetRatesAsync(selectedCompanyId);
-        StateHasChanged();
     }
 
     // --- Currency Actions ---
@@ -372,6 +327,7 @@
 
     private async Task HandleSaveCurrency()
     {
+        newCurrency.CompanyId = selectedCompanyId; // Ensure context
         var result = await Service.SaveCurrencyAsync(selectedCompanyId, newCurrency);
         if (!string.IsNullOrEmpty(result))
         {
@@ -384,21 +340,16 @@
 
     private async Task DeleteCurrency(Currency item)
     {
-        // Check if currency has existing rates before deletion
-        var hasRates = ratesList.Any(r => r.CurrencyId == item.Id);
-        if (hasRates)
+        if (ratesList.Any(r => r.CurrencyId == item.Id))
         {
-            await JS.InvokeVoidAsync("alert",
-                $"Cannot delete {item.CurrencyCode} because it has existing exchange rates. " +
-                "Delete the rates first.");
+            await JS.InvokeVoidAsync("alert", "Cannot delete currency with existing rates.");
             return;
         }
 
         if (await JS.InvokeAsync<bool>("confirm", $"Delete currency {item.CurrencyCode}?"))
         {
             var result = await Service.DeleteCurrencyAsync(selectedCompanyId, item.Id);
-            if (!string.IsNullOrEmpty(result))
-                await JS.InvokeVoidAsync("alert", result);
+            if (!string.IsNullOrEmpty(result)) await JS.InvokeVoidAsync("alert", result);
             await LoadAll();
         }
     }
@@ -411,7 +362,6 @@
             CompanyId = selectedCompanyId,
             ExchangeCurrency = companyBaseCurrency,
             Date = DateTime.Today,
-            // Set to first available currency if any
             CurrencyId = AvailableCurrenciesForRates.FirstOrDefault()?.Id ?? Guid.Empty
         };
         isEditingRate = false;
@@ -443,21 +393,7 @@
 
     private async Task HandleSaveRate()
     {
-        // Validate that the currency doesn't already have a rate on the same date
-        var existingRate = ratesList
-            .Where(r => r.CurrencyId == currentRate.CurrencyId &&
-                       r.Date.Date == currentRate.Date.Date &&
-                       (isEditingRate ? r.Id != currentRate.Id : true))
-            .FirstOrDefault();
-
-        if (existingRate != null && !isEditingRate)
-        {
-            await JS.InvokeVoidAsync("alert",
-                $"This currency already has an exchange rate for {currentRate.Date:yyyy-MM-dd}. " +
-                "Please edit the existing rate instead.");
-            return;
-        }
-
+        currentRate.CompanyId = selectedCompanyId;
         currentRate.ExchangeCurrency = companyBaseCurrency;
 
         var result = await Service.SaveRateAsync(selectedCompanyId, currentRate, companyBaseCurrency);
@@ -468,11 +404,6 @@
         }
         await LoadAll();
         CloseRateForm();
-    }
-
-    private async Task HandleInvalidSubmit()
-    {
-        await JS.InvokeVoidAsync("alert", "Form Invalid. Please check that Currency, Date and Rate are entered correctly.");
     }
 
     private async Task DeleteRate(CurrencyManagement item)

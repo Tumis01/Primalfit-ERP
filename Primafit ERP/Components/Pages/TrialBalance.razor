@@ -2,160 +2,183 @@
 @using Microsoft.EntityFrameworkCore
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 @inject CompanyApiService CompanyService
-@inject IDbContextFactory<PrimafitERP.Data.AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject GLOperationsService GLOps
 @inject IJSRuntime JS
-
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900">Trial Balance</h1>
-            <p class="text-sm text-slate-500">Aggregated from posted ledger transactions (GLTransactions).</p>
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex-1">
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Trial Balance</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Aggregated financial position from posted ledger transactions.</p>
         </div>
 
-        <button class="px-4 py-2 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-50"
-                disabled="@(selectedCompanyId == Guid.Empty || selectedPeriodId == Guid.Empty || busy)"
-                @onclick="LoadTrialBalance">
-            Run Report
-        </button>
-    </div>
-
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-                <select class="w-full rounded-xl border-slate-200"
-                        @bind="selectedCompanyId"
-                        @bind:after="OnCompanyChanged">
-                    <option value="@Guid.Empty">-- Select Company --</option>
-                    @foreach (var c in companies)
-                    {
-                        <option value="@c.CompanyDetailsId">@c.CompanyName</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Accounting Period</label>
-                <select class="w-full rounded-xl border-slate-200"
-                        disabled="@(selectedCompanyId == Guid.Empty)"
-                        @bind="selectedPeriodId">
+        <div class="flex items-end gap-3 w-full md:w-auto">
+            <div class="w-full md:w-64">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Accounting Period</label>
+                <select class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all"
+                        @bind="selectedPeriodId"
+                        disabled="@(!HasCompany)">
                     <option value="@Guid.Empty">-- Select Period --</option>
                     @foreach (var p in periods)
                     {
                         <option value="@p.Id">
-                            @p.PeriodName (@p.StartDate.ToString("yyyy-MM-dd") → @p.EndDate.ToString("yyyy-MM-dd"))
+                            @p.PeriodName (@p.StartDate:yyyy-MM-dd)
                         </option>
                     }
                 </select>
             </div>
-        </div>
 
-        @if (!string.IsNullOrWhiteSpace(error))
-        {
-            <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                @error
-            </div>
-        }
+            <button class="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+                    disabled="@(selectedPeriodId == Guid.Empty || busy)"
+                    @onclick="LoadTrialBalance">
+                @(busy ? "Running..." : "Run Report")
+            </button>
+        </div>
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <div class="text-sm font-semibold text-slate-800">Results</div>
-            <div class="text-xs text-slate-500">
-                @rows.Count row(s)
-            </div>
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 font-medium">
+            @error
         </div>
+    }
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead class="bg-slate-50 text-xs uppercase text-slate-500">
-                    <tr>
-                        <th class="p-4 text-left">Account</th>
-                        <th class="p-4 text-right">Debit</th>
-                        <th class="p-4 text-right">Credit</th>
-                        <th class="p-4 text-right">Net</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (rows.Count == 0)
-                    {
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading context...
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                <div class="text-sm font-bold text-slate-900">Generated Report</div>
+                <div class="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                    Rows: @rows.Count
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                         <tr>
-                            <td colspan="4" class="p-6 text-slate-500">
-                                Select a company + period, then run the report.
-                            </td>
+                            <th class="p-4 pl-6">Account</th>
+                            <th class="p-4 text-right w-40">Debit</th>
+                            <th class="p-4 text-right w-40">Credit</th>
+                            <th class="p-4 text-right w-40 pr-6">Net Balance</th>
                         </tr>
-                    }
-                    else
-                    {
-                        @foreach (var r in rows)
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @if (rows.Count == 0)
                         {
-                            <tr class="border-t border-slate-100 hover:bg-slate-50/60">
-                                <td class="p-4">
-                                    <div class="font-mono text-xs text-slate-500">@r.AccountCode</div>
-                                    <div class="font-semibold text-slate-900">@r.AccountName</div>
-                                </td>
-                                <td class="p-4 text-right font-mono">@r.TotalDebit.ToString("N2")</td>
-                                <td class="p-4 text-right font-mono">@r.TotalCredit.ToString("N2")</td>
-                                <td class="p-4 text-right font-mono @(r.NetBalance >= 0 ? "text-slate-900" : "text-rose-600")">
-                                    @r.NetBalance.ToString("N2")
+                            <tr>
+                                <td colspan="4" class="p-12 text-center text-slate-400">
+                                    Please select a period and run the report to view data.
                                 </td>
                             </tr>
                         }
+                        else
+                        {
+                            @foreach (var r in rows)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-4 pl-6">
+                                        <div class="flex items-center gap-3">
+                                            <span class="font-mono text-xs font-bold bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 border border-slate-200">
+                                                @r.AccountCode
+                                            </span>
+                                            <span class="font-medium text-slate-900">@r.AccountName</span>
+                                        </div>
+                                    </td>
+                                    <td class="p-4 text-right font-mono text-slate-600">@r.TotalDebit.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono text-slate-600">@r.TotalCredit.ToString("N2")</td>
+                                    <td class="p-4 pr-6 text-right font-mono font-bold @(r.NetBalance >= 0 ? "text-slate-900" : "text-rose-700")">
+                                        @r.NetBalance.ToString("N2")
+                                    </td>
+                                </tr>
+                            }
 
-                        <tr class="border-t-2 border-slate-200 bg-slate-50">
-                            <td class="p-4 font-bold text-slate-900">TOTAL</td>
-                            <td class="p-4 text-right font-mono font-bold">@TotalDr.ToString("N2")</td>
-                            <td class="p-4 text-right font-mono font-bold">@TotalCr.ToString("N2")</td>
-                            <td class="p-4 text-right font-mono font-bold @(TotalNet == 0 ? "text-emerald-700" : "text-rose-700")">
-                                @TotalNet.ToString("N2")
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                            <tr class="bg-slate-50 border-t-2 border-slate-200">
+                                <td class="p-4 pl-6 font-bold text-slate-900 uppercase text-xs tracking-wider">Total</td>
+                                <td class="p-4 text-right font-mono font-bold text-slate-900">@TotalDr.ToString("N2")</td>
+                                <td class="p-4 text-right font-mono font-bold text-slate-900">@TotalCr.ToString("N2")</td>
+                                <td class="p-4 pr-6 text-right font-mono font-bold @(TotalNet == 0 ? "text-emerald-700" : "text-rose-700")">
+                                    @TotalNet.ToString("N2")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
+    }
 </div>
 
 @code {
-    private List<CompanyDetails> companies = new();
+    // --- Context ---
+    private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // --- Data ---
     private List<AccountingPeriod> periods = new();
     private List<TrialBalanceRow> rows = new();
-
-    private Guid selectedCompanyId = Guid.Empty;
     private Guid selectedPeriodId = Guid.Empty;
 
+    // --- State ---
     private bool busy;
     private string? error;
 
+    // --- Computed ---
     private decimal TotalDr => rows.Sum(x => x.TotalDebit);
     private decimal TotalCr => rows.Sum(x => x.TotalCredit);
     private decimal TotalNet => TotalDr - TotalCr;
 
     protected override async Task OnInitializedAsync()
     {
-        companies = await CompanyService.GetCompaniesAsync();
-    }
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
 
-    private async Task OnCompanyChanged()
-    {
-        rows.Clear();
-        error = null;
-        selectedPeriodId = Guid.Empty;
-        periods.Clear();
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
 
-        if (selectedCompanyId == Guid.Empty) return;
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
 
-        await LoadPeriods();
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                await LoadPeriods();
+            }
+        }
+        isLoading = false;
     }
 
     private async Task LoadPeriods()
     {
+        if (!HasCompany) return;
         try
         {
             await using var ctx = await DbFactory.CreateDbContextAsync();
@@ -170,18 +193,20 @@
 
     private async Task LoadTrialBalance()
     {
-        if (selectedCompanyId == Guid.Empty || selectedPeriodId == Guid.Empty) return;
+        if (!HasCompany || selectedPeriodId == Guid.Empty) return;
 
         busy = true;
         error = null;
+        rows.Clear();
 
         try
         {
-            // No user parameter needed
             rows = await GLOps.GetTrialBalanceAsync(selectedCompanyId, selectedPeriodId);
 
             if (TotalNet != 0)
+            {
                 await JS.InvokeVoidAsync("alert", $"Warning: Trial Balance is not balanced. Difference = {TotalNet:N2}");
+            }
         }
         catch (Exception ex)
         {
