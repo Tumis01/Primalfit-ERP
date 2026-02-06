@@ -2,13 +2,16 @@
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+
 @inject SalesService SalesService
 @inject MasterDataService MasterService
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
 @inject WarehouseService WhService
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -18,17 +21,14 @@
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <div class="flex items-center gap-3">
-                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales Orders</h1>
-                @if (!string.IsNullOrEmpty(companyName))
-                {
-                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
-                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                        @companyName
-                    </span>
-                }
-            </div>
-            <p class="text-sm text-slate-500 mt-1">Manage Orders, Shipments & Invoices.</p>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales Orders</h1>
+            @if (!string.IsNullOrEmpty(companyName))
+            {
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                    <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                    @companyName
+                </span>
+            }
         </div>
 
         <div class="flex bg-slate-100 p-1 rounded-xl">
@@ -42,6 +42,8 @@
             </button>
         </div>
     </div>
+
+
 
     @if (isLoading)
     {
@@ -61,6 +63,7 @@
                             <th class="p-4">Order #</th>
                             <th class="p-4">Customer</th>
                             <th class="p-4">Status</th>
+                            <th class="p-4 text-right">Total</th>
                             <th class="p-4 text-right">Actions</th>
                         </tr>
                     </thead>
@@ -72,30 +75,28 @@
                                 <td class="p-4 font-mono font-bold text-slate-900">@o.OrderNumber</td>
                                 <td class="p-4 font-medium">@o.Customer?.Name</td>
                                 <td class="p-4">
-                                    @switch (o.Status)
-                                    {
-                                        case OrderStatus.Draft:
-                                            <span class="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-600">Draft</span>
-                                            break;
-                                        case OrderStatus.Shipped:
-                                            <span class="inline-flex items-center rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">Shipped</span>
-                                            break;
-                                        case OrderStatus.Invoiced:
-                                            <span class="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">Invoiced</span>
-                                            break;
-                                    }
+                                    <span class="inline-flex items-center rounded border px-2 py-1 text-xs font-bold
+                                                      @(o.Status == OrderStatus.Draft ? "border-slate-200 bg-slate-50 text-slate-600" :
+                                                                                      o.Status == OrderStatus.Shipped ? "border-amber-200 bg-amber-50 text-amber-700" :
+                                                                                      o.Status == OrderStatus.Invoiced ? "border-emerald-200 bg-emerald-50 text-emerald-700" :
+                                                                                      "border-blue-200 bg-blue-50 text-blue-700")">
+                                        @o.Status
+                                    </span>
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold text-slate-800">
+                                    @o.Lines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2")
                                 </td>
                                 <td class="p-4 text-right">
                                     <button @onclick="() => EditOrder(o.Id)" class="text-slate-600 font-bold hover:text-slate-900 hover:underline">Manage</button>
                                 </td>
                             </tr>
                         }
-                        @if (!orders.Any())
-                        {
-                            <tr><td colspan="5" class="p-12 text-center text-slate-400">No orders found for this company.</td></tr>
-                        }
                     </tbody>
                 </table>
+                @if (!orders.Any())
+                {
+                    <div class="p-12 text-center text-slate-400">No orders found.</div>
+                }
             </div>
         }
         else
@@ -140,9 +141,20 @@
                         <div>
                             <label class="label">Exchange Rate</label>
                             <div class="flex items-center input-class bg-slate-50 text-slate-500 cursor-not-allowed">
-                                <span class="font-bold mr-2 text-slate-400 text-xs">@currencySymbol</span>
+                                <span class="font-bold mr-2 text-slate-400 text-xs">Rate:</span>
                                 <span class="font-mono text-sm">@currentOrder.ExchangeRate.ToString("N4")</span>
                             </div>
+                        </div>
+
+                        <div>
+                            <label class="label">Tax</label>
+                            <select @bind="currentOrder.TaxId" class="input-class" disabled="@IsLocked">
+                                <option value="">-- No Tax --</option>
+                                @foreach (var t in taxes)
+                                {
+                                    <option value="@t.Id">@t.TaxName (@t.Per.ToString("N2")%)</option>
+                                }
+                            </select>
                         </div>
                     </div>
 
@@ -162,18 +174,32 @@
                                 {
                                     <tr>
                                         <td class="p-2 pl-4">
-                                            <select value="@line.ItemId" @onchange="@(e => OnItemChanged(line, e.Value))" class="input-class text-sm py-1.5" disabled="@IsLocked">
-                                                <option value="@Guid.Empty">-- Select Item --</option>
-                                                @foreach (var i in items)
-                                                {
-                                                    <option value="@i.Id">@i.Name</option>
-                                                }
-                                            </select>
+                                            @if (IsLocked)
+                                            {
+                                                <div class="p-2 font-bold text-slate-700 bg-slate-50 rounded-lg">
+                                                    @(items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Unknown")
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <SearchableItem Label=""
+                                                                Items="@items"
+                                                                @bind-Value="line.ItemId"
+                                                                OnSelectionChanged="@(() => UpdateLinePrice(line))"
+                                                                IsInvalid="@(line.ItemId == Guid.Empty)" />
+                                            }
                                         </td>
-                                        <td class="p-2"><input type="number" @bind="line.Quantity" class="input-class py-1.5 text-center" placeholder="1" disabled="@IsLocked" /></td>
-                                        <td class="p-2"><input type="number" @bind="line.UnitPrice" class="input-class py-1.5 text-right" disabled="@IsLocked" /></td>
-                                        <td class="p-2 pr-4 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
-                                        <td class="p-2 text-center">
+
+                                        <td class="p-2 align-top pt-3">
+                                            <input type="number" @bind="line.Quantity" class="input-class py-2 text-center" placeholder="1" disabled="@IsLocked" />
+                                        </td>
+                                        <td class="p-2 align-top pt-3">
+                                            <input type="number" step="0.01" @bind="line.UnitPrice" class="input-class py-2 text-right" disabled="@IsLocked" />
+                                        </td>
+                                        <td class="p-2 pr-4 align-top pt-4 text-right font-mono font-bold text-slate-700">
+                                            @((line.Quantity * line.UnitPrice).ToString("N2"))
+                                        </td>
+                                        <td class="p-2 text-center align-top pt-4">
                                             @if (!IsLocked)
                                             {
                                                 <button @onclick="() => currentOrder.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600 transition-colors">
@@ -197,43 +223,53 @@
                         }
                     </div>
 
-                    <div class="flex flex-col md:flex-row justify-between items-center pt-4 border-t border-slate-100 gap-4">
-                        <div class="text-xl font-bold text-slate-900 flex items-baseline gap-2">
-                            <span class="text-sm text-slate-500 font-normal uppercase tracking-wider">Grand Total:</span>
-                            <span>@currencySymbol @currentOrder.Lines.Sum(l => l.LineTotal).ToString("N2")</span>
+                    <div class="flex flex-col md:flex-row justify-between items-start pt-4 border-t border-slate-100 gap-4">
+                        <div class="space-y-2 text-sm text-slate-600">
+                            <div class="flex justify-between w-64">
+                                <span>Subtotal (Base):</span>
+                                <span class="font-mono font-bold">@SubTotal.ToString("N2")</span>
+                            </div>
+                            <div class="flex justify-between w-64">
+                                <span>Tax (@TaxPercentage.ToString("N2")%):</span>
+                                <span class="font-mono font-bold text-rose-600">+ @TaxAmount.ToString("N2")</span>
+                            </div>
+                            <div class="flex justify-between w-64 border-t border-slate-300 pt-2 text-slate-900 text-base">
+                                <span class="font-bold">Total (Base):</span>
+                                <span class="font-mono font-bold">@GrandTotalBase.ToString("N2")</span>
+                            </div>
+
+                            <div class="flex justify-between w-64 bg-slate-100 p-2 rounded-lg border border-slate-200 mt-2">
+                                <span class="font-bold text-slate-800">Total (@currencySymbol):</span>
+                                <span class="font-mono font-bold text-emerald-700 text-lg">
+                                    @GrandTotalForeign.ToString("N2")
+                                </span>
+                            </div>
                         </div>
 
-                        <div class="flex items-center gap-3">
-                            <button @onclick="() => activeTab = 0" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
-                                Close
-                            </button>
+                        <div class="flex items-center gap-3 mt-4 md:mt-0">
+                            <button @onclick="() => activeTab = 0" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50">Close</button>
 
                             @if (currentOrder.Status == OrderStatus.Draft)
                             {
-                                <button @onclick="SaveOrder" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-transform active:scale-95">
-                                    Confirm Order
-                                </button>
+                                <button @onclick="SaveOrder" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md">Confirm Order</button>
                             }
                             else if (currentOrder.Status == OrderStatus.Confirmed)
                             {
                                 <div class="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                                    <select @bind="shipFromWarehouseId" class="bg-white border-0 rounded-lg py-1.5 text-sm font-medium text-slate-700 focus:ring-0 w-40">
+                                    <select @bind="shipFromWarehouseId" class="bg-white border-0 rounded-lg py-1.5 text-sm font-medium text-slate-700 w-40">
                                         <option value="@Guid.Empty">Warehouse...</option>
                                         @foreach (var w in warehouses)
                                         {
                                             <option value="@w.Id">@w.Name</option>
                                         }
                                     </select>
-                                    <button @onclick="ShipOrder" class="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 shadow-sm transition-colors">
-                                        Ship Items
-                                    </button>
+                                    <button @onclick="ShipOrder" class="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700">Ship Only</button>
+                                    <button @onclick="InvoiceOrder" class="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700">Invoice All</button>
                                 </div>
                             }
                             else if (currentOrder.Status == OrderStatus.Shipped)
                             {
-                                <button @onclick="InvoiceOrder" class="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-transform active:scale-95">
-                                    Generate Invoice
-                                </button>
+                                <button @onclick="InvoiceOrder" class="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md">Generate Invoice</button>
                             }
                         </div>
                     </div>
@@ -251,7 +287,6 @@
         color: #475569;
         text-transform: uppercase;
         margin-bottom: 0.35rem;
-        letter-spacing: 0.025em;
     }
 
     .input-class {
@@ -279,44 +314,39 @@
 </style>
 
 @code {
-    // --- Context ---
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
-
-    // --- State ---
     private int activeTab = 0;
     private bool IsLocked => currentOrder.Status != OrderStatus.Draft;
     private string currencySymbol = "";
     private Guid shipFromWarehouseId;
 
-    // --- Data ---
     private List<SalesOrder> orders = new();
     private SalesOrder currentOrder = new();
-    private List<BusinessPartner> customers = new();
+    private List<Customer> customers = new();
     private List<Currency> currencies = new();
     private List<Item> items = new();
     private List<Warehouse> warehouses = new();
+    private List<Tax> taxes = new();
+
+    private decimal SubTotal => currentOrder.Lines.Sum(l => l.LineTotal);
+    private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
+    private decimal TaxAmount => SubTotal * (TaxPercentage / 100);
+    private decimal GrandTotalBase => SubTotal + TaxAmount;
+    private decimal GrandTotalForeign => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalBase / currentOrder.ExchangeRate;
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var userPrincipal = authState.User;
-
-        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId != null)
         {
-            var currentUser = await UserManager.GetUserAsync(userPrincipal);
-
-            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
-            {
-                selectedCompanyId = currentUser.CompanyDetailsId.Value;
-
-                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-                if (company != null) companyName = company.CompanyName;
-
-                await LoadData();
-            }
+            selectedCompanyId = user.CompanyDetailsId.Value;
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+            if (company != null) companyName = company.CompanyName;
+            await LoadData();
         }
         isLoading = false;
     }
@@ -324,19 +354,18 @@
     private async Task LoadData()
     {
         if (!HasCompany) return;
-
         orders = await SalesService.GetOrdersAsync(selectedCompanyId);
-        var partners = await MasterService.GetPartnersAsync(selectedCompanyId);
-        customers = partners.Where(p => p.IsCustomer).ToList();
+        customers = await MasterService.GetCustomersAsync(selectedCompanyId);
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         items = await MasterService.GetItemsAsync(selectedCompanyId);
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
     }
 
     private async Task CreateNew()
     {
         currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today) };
-
         if (currencies.Any())
         {
             var def = currencies.First();
@@ -344,7 +373,6 @@
             currencySymbol = def.CurrencyCode;
             currentOrder.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(selectedCompanyId, def.Id);
         }
-
         currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
         activeTab = 1;
     }
@@ -356,7 +384,6 @@
         {
             currentOrder = o;
             activeTab = 1;
-
             var c = currencies.FirstOrDefault(x => x.Id == o.CurrencyId);
             currencySymbol = c?.CurrencyCode ?? "";
         }
@@ -364,13 +391,13 @@
 
     private void AddLine() => currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
 
-    private void OnItemChanged(SalesOrderLine line, object? val)
+    // UPDATED: Logic to fetch price when Searchable Item is selected
+    private void UpdateLinePrice(SalesOrderLine line)
     {
-        if (Guid.TryParse(val?.ToString(), out var itemId))
+        var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+        if (item != null)
         {
-            line.ItemId = itemId;
-            var item = items.FirstOrDefault(x => x.Id == itemId);
-            if (item != null) line.UnitPrice = item.SellingPrice;
+            line.UnitPrice = item.SellingPrice;
         }
     }
 
@@ -389,7 +416,6 @@
     {
         var err = await SalesService.SaveOrderAsync(currentOrder);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
-
         await LoadData();
         activeTab = 0;
     }
@@ -400,12 +426,21 @@
         var err = await SalesService.ShipOrderAsync(currentOrder.Id, shipFromWarehouseId);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
         await LoadData();
-        activeTab = 0; // Return to list to see updated status
+        activeTab = 0;
     }
 
     private async Task InvoiceOrder()
     {
-        var err = await SalesService.InvoiceOrderAsync(currentOrder.Id);
+        if (currentOrder.Status == OrderStatus.Confirmed && shipFromWarehouseId == Guid.Empty)
+        {
+            bool hasPhysical = currentOrder.Lines.Any();
+            if (hasPhysical)
+            {
+                await JS.InvokeVoidAsync("alert", "Please select a Warehouse to fulfill these items.");
+                return;
+            }
+        }
+        var err = await SalesService.InvoiceOrderAsync(currentOrder.Id, shipFromWarehouseId);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
         await LoadData();
         activeTab = 0;

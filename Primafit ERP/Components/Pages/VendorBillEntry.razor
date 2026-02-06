@@ -1,0 +1,349 @@
+﻿@page "/ap/bill-entry"
+@using Microsoft.EntityFrameworkCore
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchService
+@inject MasterDataService MasterService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Vendor Bill Entry</h1>
+            <p class="text-sm text-slate-500">Record incoming invoices and expenses.</p>
+        </div>
+        <button @onclick="PostBill" disabled="@isBusy" class="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-md flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700 transition-colors">
+            @if (isBusy)
+            {
+                <span class="animate-spin">↻</span> <span>Processing...</span>
+            }
+            else
+            {
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span>Post Bill</span>
+            }
+        </button>
+    </div>
+
+    @if (currentCompanyId != Guid.Empty)
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-fit">
+                <h3 class="font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider">Bill Header</h3>
+
+                <div class="bg-rose-50 p-3 rounded-lg border border-rose-100">
+                    <SearchableGlAccount 
+                        Label="Credit Liability (AP)" 
+                        Placeholder="Search AP Account..." 
+                        Accounts="@liabilityAccounts" 
+                        @bind-Value="currentBill.AccountsPayableGlId" 
+                        IsInvalid="@(currentBill.AccountsPayableGlId == Guid.Empty)" />
+                    <p class="text-[10px] text-rose-600 mt-1 font-bold">Liability increases (Credit).</p>
+                </div>
+
+                <div>
+                    <label class="label">Vendor</label>
+                    <select @bind="currentBill.VendorId" class="input-class">
+                        <option value="@Guid.Empty">-- Select Vendor --</option>
+                        @foreach (var v in vendors)
+                        {
+                            <option value="@v.Id">@v.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label">Link to PO (Import)</label>
+                    <select value="@(currentBill.PurchaseOrderId?.ToString() ?? "")" @onchange="OnPoChanged" class="input-class border-indigo-200 font-medium text-indigo-700 bg-indigo-50/30">
+                        <option value="">-- Direct Expense (No PO) --</option>
+                        @foreach (var po in openPOs.Where(p => p.VendorId == currentBill.VendorId))
+                        {
+                            <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("MM/dd"))</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label">Invoice #</label>
+                    <input @bind="currentBill.ExternalInvoiceNumber" class="input-class font-mono uppercase" placeholder="INV-..." />
+                </div>
+                
+                <div>
+                    <label class="label">Bill Date</label>
+                    <input type="date" @bind="currentBill.BillDate" class="input-class" />
+                </div>
+
+                <div>
+                    <label class="label">Total Amount</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-2.5 text-slate-400 font-bold text-sm">$</span>
+                        <input type="number" step="0.01" @bind="currentBill.TotalAmount" class="input-class pl-8 font-bold text-lg text-slate-900" placeholder="0.00" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col min-h-[500px]">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
+                    <h3 class="font-bold text-slate-700 uppercase text-xs tracking-wider">Expense Allocation</h3>
+                    <button @onclick="AddLine" class="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        Add Line
+                    </button>
+                </div>
+                
+                <div class="overflow-visible flex-1"> 
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-xs uppercase font-bold text-slate-500 border-b bg-slate-50/50">
+                            <tr>
+                                <th class="px-2 py-2 w-[30%]">Debit Account</th>
+                                <th class="px-2 py-2 w-[25%]">Item (Optional)</th>
+                                <th class="px-2 py-2 text-right w-[10%]">Qty</th>
+                                <th class="px-2 py-2 text-right w-[15%]">Cost</th>
+                                <th class="px-2 py-2 text-right w-[15%]">Total</th>
+                                <th class="px-2 py-2 w-[5%]"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var line in currentBill.Lines)
+                            {
+                                <tr class="group hover:bg-slate-50 transition-colors">
+                                    <td class="px-2 py-2 align-top">
+                                        <SearchableGlAccount 
+                                            Label="" 
+                                            Placeholder="Expense/Asset GL..." 
+                                            Accounts="@expenseAccounts" 
+                                            @bind-Value="line.ExpenseGlAccountId"
+                                            IsInvalid="@(line.ExpenseGlAccountId == Guid.Empty)" />
+                                    </td>
+                                    
+                                    <td class="px-2 py-2 align-top">
+                                        <SearchableItem 
+                                            Label="" 
+                                            Items="@items" 
+                                            @bind-Value="line.ItemId" 
+                                            OnSelectionChanged="@(() => UpdateLineGl(line))" />
+                                    </td>
+                                    
+                                    <td class="px-2 py-2 align-top pt-3">
+                                        <input type="number" @bind="line.QuantityBilled" class="input-class py-2 text-center text-xs font-bold" />
+                                    </td>
+                                    
+                                    <td class="px-2 py-2 align-top pt-3">
+                                        <input type="number" step="0.01" @bind="line.UnitCostBilled" class="input-class py-2 text-right text-xs font-mono" placeholder="0.00" />
+                                    </td>
+                                    
+                                    <td class="px-2 py-2 align-top pt-4 text-right font-mono font-bold text-slate-700">
+                                        @((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))
+                                    </td>
+                                    
+                                    <td class="px-2 py-2 align-top pt-4 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @onclick="() => currentBill.Lines.Remove(line)" class="text-slate-400 hover:text-red-500 transition-colors">
+                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="border-t border-slate-200 bg-slate-50">
+                            <tr>
+                                <td colspan="4" class="px-4 py-3 text-right font-bold text-slate-500 text-xs uppercase">Calculated Total</td>
+                                <td class="px-2 py-3 text-right font-mono font-bold text-lg text-slate-900">
+                                    @currentBill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled).ToString("N2")
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading context...
+        </div>
+    }
+</div>
+
+<style>
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: all 0.2s; background-color: #fff; }
+    .input-class:focus { border-color: #4f46e5; outline: none; ring: 2px; ring-color: #e0e7ff; }
+</style>
+
+@code {
+    private VendorBill currentBill = new();
+    
+    private List<Vendor> vendors = new();
+    private List<PurchaseOrder> openPOs = new();
+    private List<Item> items = new();
+    private List<GLChartOfAccount> liabilityAccounts = new();
+    private List<GLChartOfAccount> expenseAccounts = new();
+    
+    private Guid currentCompanyId;
+    private bool isBusy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            
+            // 1. Load Data
+            vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            items = await MasterService.GetItemsAsync(currentCompanyId);
+            openPOs = await PurchService.GetOpenPOsAsync(currentCompanyId);
+
+            // 2. Load Accounts
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            // Liability for AP Header
+            liabilityAccounts = await ctx.GLChartOfAccounts
+                .Include(a => a.MainAccount).ThenInclude(m => m.AccountType)
+                .Where(a => a.CompanyId == currentCompanyId && a.MainAccount.AccountType.Class == GLAccountClass.Liability)
+                .ToListAsync();
+            
+            // Expense/Asset for Lines
+            expenseAccounts = await ctx.GLChartOfAccounts
+                .Include(a => a.MainAccount).ThenInclude(m => m.AccountType)
+                .Where(a => a.CompanyId == currentCompanyId && (a.MainAccount.AccountType.Class == GLAccountClass.Expenses || a.MainAccount.AccountType.Class == GLAccountClass.Asset))
+                .ToListAsync();
+            
+            CreateNew();
+        }
+    }
+
+    private void CreateNew() => currentBill = new VendorBill { CompanyId = currentCompanyId, BillDate = DateTime.Today, Lines = new List<VendorBillLine> { new VendorBillLine() } };
+    
+    private void AddLine() => currentBill.Lines.Add(new VendorBillLine());
+
+    // --- AUTOMATION: Import All PO Data ---
+    private void OnPoChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var poId))
+        {
+            currentBill.PurchaseOrderId = poId;
+            var po = openPOs.FirstOrDefault(p => p.Id == poId);
+            
+            if (po != null)
+            {
+                // 1. Import Invoice Number (Reference)
+                currentBill.ExternalInvoiceNumber = po.OrderNumber; 
+
+                // 2. Clear current lines
+                currentBill.Lines.Clear();
+                decimal total = 0;
+
+                // 3. Import Items, Quantities, and Costs
+                foreach (var poLine in po.Lines)
+                {
+                    var item = items.FirstOrDefault(i => i.Id == poLine.ItemId);
+                    
+                    // Auto-detect GL Account (Expense vs Inventory)
+                    Guid defaultGl = Guid.Empty;
+                    if(item != null)
+                    {
+                        defaultGl = item.IsService ? item.CostOfGoodsSoldAccountId : item.InventoryAssetAccountId;
+                    }
+
+                    var newLine = new VendorBillLine
+                    {
+                        ItemId = poLine.ItemId,
+                        QuantityBilled = poLine.QuantityOrdered, // Import Qty
+                        UnitCostBilled = poLine.UnitCost,       // Import Cost
+                        ExpenseGlAccountId = defaultGl
+                    };
+                    
+                    currentBill.Lines.Add(newLine);
+                    total += (newLine.QuantityBilled * newLine.UnitCostBilled);
+                }
+
+                // 4. Update Header Total (Rounded to 2 decimals)
+                currentBill.TotalAmount = Math.Round(total, 2);
+            }
+        }
+        else
+        {
+            // Reset if no PO selected
+            currentBill.PurchaseOrderId = null;
+        }
+    }
+
+    private void UpdateLineGl(VendorBillLine line)
+    {
+        var item = items.FirstOrDefault(i => i.Id == line.ItemId);
+        if (item != null)
+        {
+            line.ExpenseGlAccountId = item.IsService ? item.CostOfGoodsSoldAccountId : item.InventoryAssetAccountId;
+        }
+    }
+
+    private async Task PostBill()
+    {
+        if (currentBill.AccountsPayableGlId == Guid.Empty || currentBill.VendorId == Guid.Empty) 
+        { 
+            await JS.InvokeVoidAsync("alert", "Missing Vendor or AP Account."); 
+            return; 
+        }
+
+        // Calculate line total for validation/auto-fix
+        decimal calcTotal = Math.Round(currentBill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled), 2);
+        
+        // Auto-fix header total if 0
+        if (currentBill.TotalAmount == 0 && calcTotal > 0) currentBill.TotalAmount = calcTotal;
+
+        isBusy = true;
+        try
+        {
+            // 1. Save Bill to DB
+            var saveErr = await PurchService.SaveVendorBillAsync(currentBill);
+            if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
+
+            // 2. If PO linked, Validate Match
+            if (currentBill.PurchaseOrderId != null)
+            {
+                var matchRes = await PurchService.ValidateThreeWayMatch(currentBill.Id);
+                // "Variance" suggests blocking, empty string means OK.
+                // If service returns a variance message, we show it.
+                if (!string.IsNullOrEmpty(matchRes) && matchRes.Contains("Variance")) 
+                { 
+                    await JS.InvokeVoidAsync("alert", $"Bill Saved but BLOCKED.\n{matchRes}"); 
+                    isBusy = false; 
+                    return; 
+                }
+            }
+
+            // 3. Post to GL
+            var postErr = await PurchService.PostVendorBillAsync(currentBill.Id);
+            if (string.IsNullOrEmpty(postErr)) 
+            { 
+                await JS.InvokeVoidAsync("alert", "Bill Posted Successfully!"); 
+                CreateNew(); 
+            }
+            else 
+            { 
+                await JS.InvokeVoidAsync("alert", postErr); 
+            }
+        }
+        catch (Exception ex) 
+        { 
+            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message); 
+        }
+        finally 
+        { 
+            isBusy = false; 
+        }
+    }
+}

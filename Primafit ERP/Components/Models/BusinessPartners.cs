@@ -12,8 +12,6 @@ namespace Primafit_ERP.Components.Models
         public string? Email { get; set; }
         public string? Phone { get; set; }
         public string? TaxId { get; set; }
-
-        // Roles (A partner can be both!)
         public bool IsCustomer { get; set; }
         public bool IsVendor { get; set; }
         public Guid? ReceivablesAccountId { get; set; }

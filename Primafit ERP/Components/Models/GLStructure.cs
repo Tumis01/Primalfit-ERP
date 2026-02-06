@@ -101,6 +101,7 @@ namespace Primafit_ERP.Components.Models
         public decimal Credit { get; set; }
 
         public string? Reference { get; set; }
+       
     }
     public class GLTransaction
     {
@@ -139,6 +140,9 @@ namespace Primafit_ERP.Components.Models
         public Guid? BankReconciliationId { get; set; }
         public DateTime? ReconciledAt { get; set; }
         public string? ReconciledByUserId { get; set; }
+        public Guid? ProjectId { get; set; } // The User selection
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
     }
 
     public class TrialBalanceRow

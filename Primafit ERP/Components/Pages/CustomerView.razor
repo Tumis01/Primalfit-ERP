@@ -1,0 +1,198 @@
+﻿@page "/md/customers"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject MasterDataService MasterService
+@inject CurrencyService CurrencyService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Customers</h1>
+            <p class="text-sm text-slate-500">Manage client profiles and trading currencies.</p>
+        </div>
+        <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm">
+            + New Customer
+        </button>
+    </div>
+
+    @if (isEditing)
+    {
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-lg">
+            <h3 class="text-lg font-bold text-slate-800 mb-6">@(currentCustomer.Id == Guid.Empty ? "Create Customer" : "Edit Customer")</h3>
+
+            <EditForm Model="currentCustomer" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label class="label">Customer Name</label>
+                        <InputText @bind-Value="currentCustomer.Name" class="input-class" placeholder="Company or Person Name" />
+                    </div>
+
+                    <div>
+                        <label class="label">Trading Currency</label>
+                        <select @bind="currentCustomer.CurrencyId" class="input-class">
+                            <option value="@Guid.Empty">-- Select Currency --</option>
+                            @foreach (var c in availableCurrencies)
+                            {
+                                <option value="@c.Id">@c.CurrencyCode - @c.CurrencyName</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Currency used for invoicing this customer.</p>
+                    </div>
+
+                    <div>
+                        <label class="label">Email</label>
+                        <InputText @bind-Value="currentCustomer.Email" class="input-class" />
+                    </div>
+                    <div>
+                        <label class="label">Phone</label>
+                        <InputText @bind-Value="currentCustomer.Phone" class="input-class" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="label">Address</label>
+                        <InputTextArea @bind-Value="currentCustomer.Address" class="input-class h-24" />
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" @onclick="() => isEditing = false" class="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 shadow-md">Save Profile</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Contact</th>
+                        <th class="px-6 py-4">Currency</th>
+                        <th class="px-6 py-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var c in customers)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-900">@c.Name</td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-col">
+                                    <span>@c.Email</span>
+                                    <span class="text-xs text-slate-400">@c.Phone</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-bold text-slate-700">
+                                    @c.DefaultCurrency?.CurrencyCode
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:underline">Edit</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (!customers.Any())
+                    {
+                        <tr><td colspan="4" class="p-8 text-center text-slate-400">No customers found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+</style>
+
+@code {
+    private List<Customer> customers = new();
+    private List<Currency> availableCurrencies = new();
+    private Customer currentCustomer = new();
+    private bool isEditing = false;
+    private Guid selectedCompanyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId != null)
+        {
+            selectedCompanyId = user.CompanyDetailsId.Value;
+
+            // Load Data
+            availableCurrencies = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
+            await LoadCustomers();
+        }
+    }
+
+    private async Task LoadCustomers()
+    {
+        customers = await MasterService.GetCustomersAsync(selectedCompanyId);
+    }
+
+    private void CreateNew()
+    {
+        currentCustomer = new Customer { CompanyId = selectedCompanyId };
+
+        // Auto-select first currency if available
+        if (availableCurrencies.Any()) currentCustomer.CurrencyId = availableCurrencies.First().Id;
+
+        isEditing = true;
+    }
+
+    private void Edit(Customer c)
+    {
+        currentCustomer = c;
+        isEditing = true;
+    }
+
+    private async Task Save()
+    {
+        var err = await MasterService.SaveCustomerAsync(currentCustomer);
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadCustomers();
+            isEditing = false;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+}

@@ -26,5 +26,6 @@ namespace Primafit_ERP.Components.Models
         public Guid CostOfGoodsSoldAccountId { get; set; } // Dr COGS (Expense)
         public Guid SalesIncomeAccountId { get; set; }    // Cr Revenue (Income)
         public Guid AdjustmentExpenseAccountId { get; set; } // Dr Theft/Damage (Expense)
+        public virtual List<ItemCostHistory> CostHistory { get; set; } = new();
     }
 }

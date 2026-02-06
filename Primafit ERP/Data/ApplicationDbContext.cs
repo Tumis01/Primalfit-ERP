@@ -12,7 +12,6 @@ namespace PrimafitERP.Data
 
         // --- MASTER DATA ---
         public DbSet<CompanyDetails> CompanyDetails { get; set; }
-        public DbSet<BusinessPartner> BusinessPartners { get; set; }
         public DbSet<Currency> Currencies { get; set; }
         public DbSet<CurrencyManagement> CurrencyManagements { get; set; }
         public DbSet<Tax> Taxes { get; set; }
@@ -37,6 +36,26 @@ namespace PrimafitERP.Data
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
         public DbSet<SalesOrderLine> SalesOrderLines { get; set; }
+        public DbSet<CustomerPayment> CustomerPayments { get; set; }
+        public DbSet<PaymentApplication> PaymentApplications { get; set; }
+        public DbSet<VendorBill> VendorBills { get; set; }
+        public DbSet<VendorBillLine> VendorBillLines { get; set; }
+        public DbSet<Customer> Customers { get; set; }
+        public DbSet<Vendor> Vendors { get; set; }
+        public DbSet<PurchaseOrder> PurchaseOrders { get; set; }
+        public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
+        public DbSet<SalesInvoice> SalesInvoices { get; set; }
+        public DbSet<SalesInvoiceLine> SalesInvoiceLines { get; set; }
+        public DbSet<PurchaseOrderLine> PurchaseOrderLines { get; set; }
+        public DbSet<CashbookBatch> CashbookBatches { get; set; }
+        public DbSet<CashbookEntry> CashbookEntries { get; set; }
+        public DbSet<FinancialDashboardSnapshot> FinancialDashboardSnapshots { get; set; }
+        public DbSet<ItemCostHistory> ItemCostHistories { get; set; }
+        public DbSet<WaccHistory> WaccHistories { get; set; }
+        public DbSet<FixedAsset> FixedAssets { get; set; }
+        public DbSet<AssetDepreciationHistory> AssetDepreciationHistories { get; set; }
+        public DbSet<BudgetHeader> BudgetHeaders { get; set; }
+        public DbSet<BudgetLine> BudgetLines { get; set; }
 
         // --- SYSTEM ---
         public DbSet<AuditLog> AuditLogs { get; set; }

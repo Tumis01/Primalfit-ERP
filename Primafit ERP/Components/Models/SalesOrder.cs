@@ -15,11 +15,13 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public string OrderNumber { get; set; } = string.Empty; // e.g. SO-2026-0001
+        public Guid? TaxId { get; set; }
+
 
         [Required]
         public Guid CustomerId { get; set; }
         [ForeignKey(nameof(CustomerId))]
-        public BusinessPartner? Customer { get; set; }
+        public Customer? Customer { get; set; }
 
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
 
@@ -65,5 +67,31 @@ namespace Primafit_ERP.Components.Models
         // Computed helper
         [NotMapped]
         public decimal LineTotal => Quantity * UnitPrice;
+    }
+    public class SalesInvoice
+    {
+        public Guid Id { get; set; }
+        public Guid SalesOrderId { get; set; }
+        [Required]
+        public Guid CompanyId { get; set; }
+        public Guid CustomerId { get; set; }
+
+        // FLEXIBILITY: User selects "Accounts Receivable" account manually
+        // (e.g., user selects "1100 - Trade Debtors" or "1105 - Related Party Debtors")
+        public Guid ReceivablesGlAccountId { get; set; }
+
+        public List<SalesInvoiceLine> Lines { get; set; }
+    }
+
+    public class SalesInvoiceLine
+    {
+        public Guid Id { get; set; }
+        public Guid ItemId { get; set; }
+
+        // FLEXIBILITY: User selects "Sales Revenue" account manually
+        // (e.g., "4000 - Product Sales" vs "4100 - Service Revenue")
+        public Guid RevenueGlAccountId { get; set; }
+
+        public decimal Amount { get; set; }
     }
 }

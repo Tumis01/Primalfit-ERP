@@ -35,7 +35,7 @@ builder.Services.ConfigureApplicationCookie(options => {
 
 // --- 3. UI & FRAMEWORK SERVICES ---
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options => options.DetailedErrors = true); // Add this
 builder.Services.AddMudServices();
 builder.Services.AddControllersWithViews();
 builder.Services.AddSignalR(e => { e.MaximumReceiveMessageSize = 10 * 1024 * 1024; });
@@ -59,6 +59,13 @@ builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<WarehouseService>();
 builder.Services.AddScoped<MasterDataService>();
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<ProjectService>();
+builder.Services.AddScoped<PurchasingService>();
+builder.Services.AddScoped<AssetService>();
+builder.Services.AddScoped<BudgetService>();
+builder.Services.AddScoped<ICashbookService, CashbookService>();
 
 // Security (Optional helper)
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();

@@ -1,0 +1,240 @@
+﻿@page "/assets/register"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject AssetService AssetService
+@inject GLSetupService GLService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Fixed Asset Register</h1>
+            <p class="text-sm text-slate-500">Track acquisition, value, and depreciation.</p>
+        </div>
+        <div class="flex gap-2">
+            <button @onclick="() => showDeprModal = true" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50">
+                Run Depreciation
+            </button>
+            <button @onclick="CreateNew" class="px-4 py-2 bg-slate-900 text-white font-bold rounded-lg shadow-md hover:bg-slate-800">
+                + New Asset
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400">Loading Assets...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
+                    <tr>
+                        <th class="p-4">Asset Tag</th>
+                        <th class="p-4">Name</th>
+                        <th class="p-4">Purchased</th>
+                        <th class="p-4 text-right">Original Cost</th>
+                        <th class="p-4 text-right">Current Value</th>
+                        <th class="p-4 text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var asset in assets)
+                    {
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-4 font-mono text-slate-600 font-bold">@asset.AssetTag</td>
+                            <td class="p-4 font-medium text-slate-900">@asset.AssetName</td>
+                            <td class="p-4 text-slate-500">@asset.PurchaseDate.ToString("yyyy-MM-dd")</td>
+                            <td class="p-4 text-right">@asset.PurchaseCost.ToString("N2")</td>
+                            <td class="p-4 text-right font-bold text-emerald-600">@asset.CurrentBookValue.ToString("N2")</td>
+                            <td class="p-4 text-center">
+                                <span class="px-2 py-1 rounded text-[10px] font-bold @GetStatusColor(asset.Status)">
+                                    @asset.Status
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (showModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 h-[80vh] overflow-y-auto">
+                <h3 class="text-xl font-bold text-slate-900 mb-4">Add Fixed Asset</h3>
+
+                <EditForm Model="model" OnValidSubmit="SaveAsset">
+                    <DataAnnotationsValidator />
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label">Asset Name</label>
+                                <InputText @bind-Value="model.AssetName" class="input-class" />
+                            </div>
+                            <div>
+                                <label class="label">Tag / ID</label>
+                                <InputText @bind-Value="model.AssetTag" class="input-class" placeholder="FA-..." />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-4">
+                            <div>
+                                <label class="label">Purchase Cost</label>
+                                <InputNumber @bind-Value="model.PurchaseCost" class="input-class" />
+                            </div>
+                            <div>
+                                <label class="label">Salvage Value</label>
+                                <InputNumber @bind-Value="model.SalvageValue" class="input-class" />
+                            </div>
+                            <div>
+                                <label class="label">Life (Months)</label>
+                                <InputNumber @bind-Value="model.UsefulLifeMonths" class="input-class" />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label">Purchase Date</label>
+                                <InputDate @bind-Value="model.PurchaseDate" class="input-class" />
+                            </div>
+                            <div>
+                                <label class="label">Depreciation Start</label>
+                                <InputDate @bind-Value="model.DepreciationStartDate" class="input-class" />
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-100">
+                            <h4 class="text-xs font-bold text-slate-500 uppercase">GL Mapping</h4>
+
+                            <SearchableGlAccount Label="Asset Account (Debit)" Accounts="@assetAccounts" @bind-Value="model.FixedAssetAccountId" IsInvalid="@(model.FixedAssetAccountId == Guid.Empty)" />
+                            <SearchableGlAccount Label="Accum. Depr. Account (Credit)" Accounts="@liabilityAccounts" @bind-Value="model.AccumulatedDepreciationAccountId" IsInvalid="@(model.AccumulatedDepreciationAccountId == Guid.Empty)" />
+                            <SearchableGlAccount Label="Depreciation Expense (Debit)" Accounts="@expenseAccounts" @bind-Value="model.DepreciationExpenseAccountId" IsInvalid="@(model.DepreciationExpenseAccountId == Guid.Empty)" />
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 mt-6">
+                        <button type="button" @onclick="() => showModal = false" class="px-4 py-2 border rounded-lg">Cancel</button>
+                        <button type="submit" class="px-6 py-2 bg-slate-900 text-white rounded-lg font-bold">Save Asset</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+    @if (showDeprModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+                <div class="mx-auto w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900">Run Monthly Depreciation</h3>
+                <p class="text-sm text-slate-500 mb-4">This will generate GL journals for all eligible active assets.</p>
+
+                <input type="date" @bind="deprDate" class="input-class mb-6 text-center" />
+
+                <div class="flex gap-2 justify-center">
+                    <button @onclick="() => showDeprModal = false" class="px-4 py-2 border rounded-lg">Cancel</button>
+                    <button @onclick="RunDepreciation" disabled="@isBusy" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-md hover:bg-indigo-700 disabled:opacity-50">
+                        @(isBusy ? "Running..." : "Confirm Run")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.5rem;
+        font-size: 0.875rem;
+    }
+</style>
+
+@code {
+    private List<FixedAsset> assets = new();
+    private FixedAsset model = new();
+
+    // Dropdowns
+    private List<GLChartOfAccount> assetAccounts = new();
+    private List<GLChartOfAccount> liabilityAccounts = new();
+    private List<GLChartOfAccount> expenseAccounts = new();
+
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool showDeprModal = false;
+    private bool isBusy = false;
+    private Guid currentCompanyId;
+    private DateTime deprDate = DateTime.Today;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+
+            // Load GL Accounts
+            var allGl = await GLService.GetChartOfAccountsAsync(currentCompanyId);
+            assetAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList();
+            liabilityAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Liability || a.MainAccount.AccountType.Name.Contains("Accum")).ToList();
+            expenseAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Expenses).ToList();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData() => assets = await AssetService.GetAssetsAsync(currentCompanyId);
+
+    private void CreateNew() { model = new FixedAsset { CompanyId = currentCompanyId, PurchaseDate = DateTime.Today, DepreciationStartDate = DateTime.Today }; showModal = true; }
+
+    private async Task SaveAsset()
+    {
+        var err = await AssetService.CreateAssetAsync(model);
+        if (string.IsNullOrEmpty(err)) { showModal = false; await LoadData(); }
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task RunDepreciation()
+    {
+        isBusy = true;
+        var res = await AssetService.RunMonthlyDepreciationAsync(currentCompanyId, deprDate);
+        await JS.InvokeVoidAsync("alert", res);
+        showDeprModal = false;
+        await LoadData();
+        isBusy = false;
+    }
+
+    private string GetStatusColor(AssetStatus s) => s switch
+    {
+        AssetStatus.Active => "bg-emerald-100 text-emerald-700",
+        AssetStatus.FullyDepreciated => "bg-slate-100 text-slate-500",
+        AssetStatus.Sold => "bg-indigo-100 text-indigo-700",
+        _ => "bg-rose-100 text-rose-700"
+    };
+}

@@ -1,0 +1,152 @@
+﻿@page "/md/vendors"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject MasterDataService MasterService
+@inject CurrencyService CurrService
+@inject GLSetupService GLService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h1 class="text-2xl font-bold text-slate-900">Vendors</h1>
+        <button @onclick="CreateNew" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-slate-800">+ New Vendor</button>
+    </div>
+
+    @if (showForm)
+    {
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
+            <h3 class="font-bold text-lg mb-6">@(isEditing ? "Edit Vendor" : "New Vendor")</h3>
+            <EditForm Model="currentVendor" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div><label class="label">Name</label><InputText @bind-Value="currentVendor.Name" class="input-class" /></div>
+                    <div>
+                        <label class="label">Currency</label>
+                        <select @bind="currentVendor.CurrencyId" class="input-class">
+                            @foreach (var c in currencies)
+                            {
+                                <option value="@c.Id">@c.CurrencyCode</option>
+                            }
+                        </select>
+                    </div>
+                    <div><label class="label">Email</label><InputText @bind-Value="currentVendor.Email" class="input-class" /></div>
+                    <div><label class="label">Phone</label><InputText @bind-Value="currentVendor.Phone" class="input-class" /></div>
+                    <div class="md:col-span-2"><label class="label">Address</label><InputTextArea @bind-Value="currentVendor.Address" class="input-class h-20" /></div>
+
+                    <div class="md:col-span-2 border-t pt-4 mt-2">
+                        <label class="label text-slate-500">Payables Account (Override Default)</label>
+                        <select @bind="currentVendor.PayablesAccountId" class="input-class border-slate-300">
+                            <option value="">-- Use System Default --</option>
+                            @foreach (var a in glAccounts)
+                            {
+                                <option value="@a.Id">@a.AccountCode - @a.AccountName</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2.5 rounded-xl border font-bold text-slate-600">Cancel</button>
+                    <button type="submit" class="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-bold shadow-md">Save</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
+                <tr><th class="p-4">Name</th><th class="p-4">Contact</th><th class="p-4">Currency</th><th class="p-4 text-right">Actions</th></tr>
+            </thead>
+            <tbody class="divide-y">
+                @foreach (var v in vendors)
+                {
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-4 font-bold">@v.Name</td>
+                        <td class="p-4 text-slate-500">@v.Email <br /><span class="text-xs">@v.Phone</span></td>
+                        <td class="p-4"><span class="bg-slate-100 px-2 py-1 rounded text-xs font-bold border">@v.DefaultCurrency?.CurrencyCode</span></td>
+                        <td class="p-4 text-right">
+                            <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
+                            <button @onclick="() => Delete(v)" class="text-red-600 font-bold hover:underline">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+    }</style>
+
+@code {
+    private List<Vendor> vendors = new();
+    private List<Currency> currencies = new();
+    private List<GLChartOfAccount> glAccounts = new();
+    private Vendor currentVendor = new();
+    private bool showForm = false;
+    private bool isEditing = false;
+    private Guid currentCompanyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
+            glAccounts = (await GLService.GetChartOfAccountsAsync(currentCompanyId))
+                         .Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Liability).ToList(); // Filter for Liability (AP)
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData() => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+
+    private void CreateNew()
+    {
+        currentVendor = new Vendor { CompanyId = currentCompanyId, CurrencyId = currencies.FirstOrDefault()?.Id ?? Guid.Empty };
+        showForm = true; isEditing = false;
+    }
+
+    private void Edit(Vendor v)
+    {
+        currentVendor = new Vendor { Id = v.Id, CompanyId = v.CompanyId, Name = v.Name, Email = v.Email, Phone = v.Phone, Address = v.Address, CurrencyId = v.CurrencyId, PayablesAccountId = v.PayablesAccountId };
+        showForm = true; isEditing = true;
+    }
+
+    private async Task Delete(Vendor v)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete vendor '{v.Name}'?")) return;
+        var err = await MasterService.DeleteVendorAsync(v.Id);
+        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task Save()
+    {
+        var err = await MasterService.SaveVendorAsync(currentVendor);
+        if (string.IsNullOrEmpty(err)) { showForm = false; await LoadData(); } else await JS.InvokeVoidAsync("alert", err);
+    }
+}

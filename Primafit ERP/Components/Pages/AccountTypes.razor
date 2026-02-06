@@ -134,12 +134,12 @@
                                 @{
                                     var badgeColor = item.Class switch
                                     {
-                                        GLAccountClass.Asset => "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-                                        GLAccountClass.Liability => "bg-amber-50 text-amber-700 ring-amber-600/20",
-                                        GLAccountClass.Capital => "bg-purple-50 text-purple-700 ring-purple-600/20",
-                                        GLAccountClass.Revenue => "bg-blue-50 text-blue-700 ring-blue-600/20",
-                                        GLAccountClass.Expenses => "bg-rose-50 text-rose-700 ring-rose-600/20",
-                                        _ => "bg-slate-50 text-slate-700 ring-slate-600/20"
+                                        GLAccountClass.Asset => "text-slate-600",
+                                        GLAccountClass.Liability => "text-slate-600",
+                                        GLAccountClass.Capital => "text-slate-600",
+                                        GLAccountClass.Revenue => "text-slate-600",
+                                        GLAccountClass.Expenses => "text-slate-600",
+                                       
                                     };
                                 }
                                 <span class="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold ring-1 ring-inset @badgeColor">

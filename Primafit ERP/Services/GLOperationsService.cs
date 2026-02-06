@@ -18,12 +18,22 @@ namespace Primafit_ERP.Services
 
         private async Task<AccountingPeriod> ResolvePeriodOrThrow(AppDbContext ctx, Guid companyId, DateOnly txnDate)
         {
-            var period = await ctx.AccountingPeriods
+            // 1. Fetch all open periods for the company (Client-side evaluation is safer for DateOnly comparisons in some EF versions)
+            var periods = await ctx.AccountingPeriods
                 .AsNoTracking()
-                .FirstOrDefaultAsync(p => p.CompanyId == companyId && p.StartDate <= txnDate && p.EndDate >= txnDate);
+                .Where(p => p.CompanyId == companyId && !p.IsClosed)
+                .ToListAsync();
 
-            if (period == null) throw new InvalidOperationException($"No open accounting period found for {txnDate}.");
-            if (period.IsClosed) throw new InvalidOperationException("Accounting period is closed.");
+            // 2. Perform the check in memory to guarantee exact DateOnly matching
+            var period = periods.FirstOrDefault(p => p.StartDate <= txnDate && p.EndDate >= txnDate);
+
+            if (period == null)
+            {
+                // Debugging Aid: Show the user what dates were checked
+                var availableRanges = string.Join(", ", periods.Select(p => $"{p.StartDate:yyyy-MM-dd} to {p.EndDate:yyyy-MM-dd}"));
+                throw new InvalidOperationException($"No active accounting period found for {txnDate:yyyy-MM-dd}. Open periods are: [{availableRanges}]");
+            }
+
             return period;
         }
 
@@ -232,6 +242,47 @@ namespace Primafit_ERP.Services
 
             return await query.ToListAsync();
         }
+        public async Task<string> PostJournalAsync(GLJournalHeader journal)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // 1. Validation: Double-Entry Accounting Rule
+            // Total Debits MUST equal Total Credits
+            decimal totalDebit = journal.Lines.Sum(l => l.Debit);
+            decimal totalCredit = journal.Lines.Sum(l => l.Credit);
+
+            // Allow for tiny floating point differences if needed, but 'decimal' usually handles this exactly
+            if (totalDebit != totalCredit)
+            {
+                return $"Journal Posting Failed: Imbalance detected. Total Debit ({totalDebit:N2}) != Total Credit ({totalCredit:N2})";
+            }
+
+            // 2. Ensure IDs and Links are set
+            if (journal.Id == Guid.Empty) journal.Id = Guid.NewGuid();
+
+            foreach (var line in journal.Lines)
+            {
+                if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+
+                // Ensure foreign key link is established
+                // (Assuming your JournalLine model has a MasterJournalId property)
+                line.Id = journal.Id;
+            }
+
+            // 3. Commit to Database
+            try
+            {
+                ctx.GLJournalHeaders.Add(journal);
+                await ctx.SaveChangesAsync();
+                return string.Empty; // Success
+            }
+            catch (Exception ex)
+            {
+                // Capture inner exception for details like Foreign Key errors
+                var msg = ex.InnerException?.Message ?? ex.Message;
+                return $"GL Database Error: {msg}";
+            }
+        }
 
         // 6) Post (Atomic)
         public async Task<string> PostBatchAsync(Guid companyId, Guid batchId)
@@ -241,14 +292,38 @@ namespace Primafit_ERP.Services
 
             try
             {
-                var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines)
+                var batch = await ctx.GLBatches
+                    .Include(b => b.Journals)
+                    .ThenInclude(j => j.Lines)
                     .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
 
                 if (batch == null) return "Batch not found.";
-                if (batch.Status != BatchStatus.Ready) return "Batch must be Ready before posting.";
 
+                // --- FIX: AUTO-RELEASE IF DRAFT ---
+                if (batch.Status == BatchStatus.Draft)
+                {
+                    // 1. Check Balance before auto-releasing
+                    foreach (var j in batch.Journals)
+                    {
+                        if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced. Cannot auto-post.";
+                    }
+
+                    // 2. Promote to Ready automatically
+                    batch.Status = BatchStatus.Ready;
+                    batch.ReleasedByUserId = "SYSTEM_AUTO";
+                    batch.ReleasedAt = DateTime.UtcNow;
+
+                    // Save this state transition so if posting fails later, it's at least "Ready"
+                    await ctx.SaveChangesAsync();
+                }
+                // ----------------------------------
+
+                if (batch.Status != BatchStatus.Ready) return "Batch must be Ready (Released) before posting.";
+
+                // PROCEED WITH POSTING (Move to GLTransactions)
                 foreach (var journal in batch.Journals)
                 {
+                    // Double check balance (sanity check)
                     if (!IsBalanced(journal.Lines)) throw new InvalidOperationException($"Journal unbalanced.");
 
                     foreach (var line in journal.Lines)
@@ -263,19 +338,19 @@ namespace Primafit_ERP.Services
                             AccountId = line.AccountId,
                             Debit = line.Debit,
                             Credit = line.Credit,
-                            Narration = line.Reference ?? journal.Narration
+                            Narration = line.Reference ?? journal.Narration,
                         });
                     }
                     journal.Status = JournalStatus.Posted;
                 }
 
                 batch.Status = BatchStatus.Posted;
-                batch.PostedByUserId = "ANONYMOUS_USER";
+                batch.PostedByUserId = "SYSTEM_AUTO";
                 batch.PostedAt = DateTime.UtcNow;
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
-                return "Success";
+                return string.Empty; // Success
             }
             catch (Exception ex)
             {

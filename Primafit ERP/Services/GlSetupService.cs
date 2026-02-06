@@ -124,6 +124,16 @@ namespace Primafit_ERP.Services
                 .OrderBy(c => c.AccountCode)
                 .ToListAsync();
         }
+        public async Task<List<AccountingPeriod>> GetOpenPeriodsAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            return await ctx.AccountingPeriods
+                .AsNoTracking()
+                .Where(p => p.CompanyId == companyId && !p.IsClosed) // Only open periods
+                .OrderBy(p => p.StartDate)
+                .ToListAsync();
+        }
 
         public async Task<string> CreateChartOfAccountAsync(Guid companyId, GLChartOfAccount account)
         {

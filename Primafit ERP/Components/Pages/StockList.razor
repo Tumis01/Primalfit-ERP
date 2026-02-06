@@ -1,0 +1,174 @@
+﻿@page "/sc/stock-list"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Current Stock Inventory</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Real-time valuation and quantity across all warehouses.</p>
+        </div>
+        
+        <div class="flex gap-4">
+            <div class="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100 text-right">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Total Value</div>
+                <div class="text-lg font-mono font-bold text-emerald-600">@GrandTotalValue.ToString("C0")</div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400 animate-pulse">Loading Inventory...</div>
+    }
+    else if (!inventoryLines.Any())
+    {
+        <div class="p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400">
+            No stock found. Receive goods to see them here.
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
+                        <tr>
+                            <th class="p-4">Item Details</th>
+                            <th class="p-4">Warehouse</th>
+                            <th class="p-4 text-right">Quantity</th>
+                            <th class="p-4 text-right">WACC (Unit)</th>
+                            <th class="p-4 text-right">Total Value</th>
+                            <th class="p-4 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var line in inventoryLines)
+                        {
+                            <tr class="hover:bg-slate-50 transition-colors group">
+                                <td class="p-4">
+                                    <div class="font-bold text-slate-900">@line.ItemName</div>
+                                    <div class="text-xs text-slate-500 font-mono">@line.SKU</div>
+                                </td>
+                                <td class="p-4">
+                                    <span class="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-xs font-bold text-slate-600">
+                                        @line.WarehouseName
+                                    </span>
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold @(line.Quantity <= line.ReorderLevel ? "text-amber-600" : "text-slate-700")">
+                                    @line.Quantity.ToString("N2")
+                                </td>
+                                <td class="p-4 text-right font-mono text-slate-500">
+                                    @line.Wacc.ToString("N2")
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600">
+                                    @((line.Quantity * line.Wacc).ToString("N2"))
+                                </td>
+                                <td class="p-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <a href="sc/stock-entry" class="text-xs font-bold text-indigo-600 hover:underline">Adjust</a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private Guid currentCompanyId;
+    private string companyName = "";
+    private List<StockSummaryRow> inventoryLines = new();
+
+    private decimal GrandTotalValue => inventoryLines.Sum(x => x.Quantity * x.Wacc);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            var c = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            companyName = c?.CompanyName ?? "";
+            
+            await LoadInventory();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadInventory()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        // 1. Raw Ledger Data (Grouped by Item + Warehouse)
+        var rawData = await ctx.StockLedgers
+            .Where(s => s.CompanyId == currentCompanyId)
+            .GroupBy(s => new { s.ItemId, s.WarehouseId })
+            .Select(g => new 
+            { 
+                g.Key.ItemId, 
+                g.Key.WarehouseId, 
+                TotalQty = g.Sum(x => x.QuantityChanged) 
+            })
+            .Where(x => x.TotalQty != 0) // Hide zero stock
+            .ToListAsync();
+
+        // 2. Fetch Item Details (for Names and WACC)
+        var itemIds = rawData.Select(x => x.ItemId).Distinct().ToList();
+        var items = await ctx.Items
+            .Where(i => itemIds.Contains(i.Id))
+            .ToDictionaryAsync(i => i.Id);
+
+        // 3. Fetch Warehouse Names
+        var whIds = rawData.Select(x => x.WarehouseId).Distinct().ToList();
+        var warehouses = await ctx.Warehouses
+            .Where(w => whIds.Contains(w.Id))
+            .ToDictionaryAsync(w => w.Id, w => w.Name);
+
+        // 4. Merge
+        inventoryLines = rawData.Select(x => new StockSummaryRow
+        {
+            ItemId = x.ItemId,
+            ItemName = items.ContainsKey(x.ItemId) ? items[x.ItemId].Name : "Unknown",
+            SKU = items.ContainsKey(x.ItemId) ? items[x.ItemId].SKU : "-",
+            Wacc = items.ContainsKey(x.ItemId) ? items[x.ItemId].WeightedAverageCost : 0,
+            ReorderLevel = items.ContainsKey(x.ItemId) ? items[x.ItemId].ReorderLevel : 0,
+            WarehouseName = warehouses.ContainsKey(x.WarehouseId) ? warehouses[x.WarehouseId] : "Unknown",
+            Quantity = x.TotalQty
+        }).OrderBy(x => x.ItemName).ToList();
+    }
+
+    public class StockSummaryRow
+    {
+        public Guid ItemId { get; set; }
+        public string ItemName { get; set; }
+        public string SKU { get; set; }
+        public string WarehouseName { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal Wacc { get; set; }
+        public decimal ReorderLevel { get; set; }
+    }
+}

@@ -1,89 +1,100 @@
 ﻿@using Primafit_ERP.Components.Models
 
-<div class="relative w-full">
+<div class="relative">
     <label class="block text-xs font-bold text-slate-500 uppercase mb-1">@Label</label>
-    
-    <div class="relative">
-        <input type="text" 
-               class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all @(IsInvalid ? "border-red-300 bg-red-50" : "")"
-               placeholder="@Placeholder"
-               @bind="SearchTerm"
-               @bind:event="oninput"
-               @onfocus="OpenDropdown"
-               @onblur="CloseDropdown" 
-               autocomplete="off" />
 
-        <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-        </div>
-    </div>
-
-    @if (isOpen)
+    @if (SelectedAccount != null && !isSearching)
     {
-        <div class="absolute z-50 mt-1 w-full max-h-60 overflow-auto rounded-xl bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm animate-in fade-in slide-in-from-top-2 duration-200">
-            @if (FilteredAccounts.Any())
-            {
-                @foreach (var account in FilteredAccounts)
-                {
-                    <div class="cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-indigo-50 hover:text-indigo-900 text-slate-700"
-                         @onmousedown="() => Select(account)"> <span class="block truncate">
-                            <span class="font-mono font-bold text-slate-500 mr-2">@account.AccountCode</span>
-                            @account.AccountName
-                        </span>
-                    </div>
-                }
-            }
-            else
-            {
-                <div class="cursor-default select-none py-2 pl-3 pr-9 text-slate-400 italic">No accounts found.</div>
-            }
+        <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300"
+             @onclick="EnableSearch">
+            <div class="flex flex-col">
+                <span class="text-sm font-bold text-slate-900">@SelectedAccount.AccountCode</span>
+                <span class="text-xs text-slate-500 truncate w-48">@SelectedAccount.AccountName</span>
+            </div>
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
         </div>
+    }
+    else
+    {
+        <input @bind="searchTerm"
+               @bind:event="oninput"
+               @onfocus="() => showDropdown = true"
+               @onblur="OnBlur"
+               class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:border-slate-900 focus:outline-none @(IsInvalid ? "border-red-300 bg-red-50" : "")"
+               placeholder="@Placeholder" />
+
+        @if (showDropdown)
+        {
+            <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                @if (FilteredAccounts.Any())
+                {
+                    @foreach (var acc in FilteredAccounts)
+                    {
+                        <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                             @onmousedown="() => Select(acc)">
+                            <div class="font-bold text-sm text-slate-900">@acc.AccountCode</div>
+                            <div class="text-xs text-slate-500">@acc.AccountName</div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="p-3 text-xs text-slate-400 text-center">No accounts found.</div>
+                }
+            </div>
+        }
     }
 </div>
 
 @code {
-    [Parameter] public string Label { get; set; } = "Account";
-    [Parameter] public string Placeholder { get; set; } = "Search account...";
+    [Parameter] public string Label { get; set; } = "GL Account";
+    [Parameter] public string Placeholder { get; set; } = "Search Account...";
     [Parameter] public List<GLChartOfAccount> Accounts { get; set; } = new();
     [Parameter] public Guid Value { get; set; }
     [Parameter] public EventCallback<Guid> ValueChanged { get; set; }
-    
-    // Optional: Visual validation state
-    [Parameter] public bool IsInvalid { get; set; } 
+    [Parameter] public bool IsInvalid { get; set; }
 
-    private string SearchTerm { get; set; } = "";
-    private bool isOpen = false;
+    private string searchTerm = "";
+    private bool isSearching = false;
+    private bool showDropdown = false;
 
-    // Filter logic: Matches Code OR Name
-    private IEnumerable<GLChartOfAccount> FilteredAccounts => 
-        string.IsNullOrWhiteSpace(SearchTerm) 
-            ? Accounts 
-            : Accounts.Where(a => a.AccountName.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) 
-                               || a.AccountCode.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase));
+    private GLChartOfAccount? SelectedAccount => Accounts.FirstOrDefault(a => a.Id == Value);
+
+    private IEnumerable<GLChartOfAccount> FilteredAccounts =>
+        string.IsNullOrWhiteSpace(searchTerm)
+        ? Accounts.Take(20)
+        : Accounts.Where(a => a.AccountName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                           || a.AccountCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
 
     protected override void OnParametersSet()
     {
-        // If an ID is selected but SearchTerm is empty, pre-fill the name
-        if (Value != Guid.Empty && string.IsNullOrEmpty(SearchTerm))
+        // If we have a value but haven't started searching, ensure dropdown is closed
+        if (Value != Guid.Empty && string.IsNullOrEmpty(searchTerm))
         {
-            var selected = Accounts.FirstOrDefault(a => a.Id == Value);
-            if (selected != null)
-            {
-                SearchTerm = $"{selected.AccountCode} - {selected.AccountName}";
-            }
+            isSearching = false;
         }
     }
 
-    private void OpenDropdown() => isOpen = true;
-    
-    // Small delay to allow 'Select' to fire before closing
-    private async Task CloseDropdown() { await Task.Delay(200); isOpen = false; }
-
-    private async Task Select(GLChartOfAccount account)
+    private void EnableSearch()
     {
-        SearchTerm = $"{account.AccountCode} - {account.AccountName}";
-        Value = account.Id;
-        await ValueChanged.InvokeAsync(account.Id);
-        isOpen = false;
+        isSearching = true;
+        showDropdown = true;
+        searchTerm = ""; // Clear to show full list or let user type
+    }
+
+    private async Task Select(GLChartOfAccount acc)
+    {
+        searchTerm = "";
+        isSearching = false;
+        showDropdown = false;
+        await ValueChanged.InvokeAsync(acc.Id);
+    }
+
+    private async Task OnBlur()
+    {
+        // Small delay to allow click event to register
+        await Task.Delay(150);
+        showDropdown = false;
+        isSearching = false;
     }
 }

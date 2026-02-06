@@ -1,0 +1,321 @@
+﻿@page "/procurement/purchase-orders"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@* --- 1. INJECT NAVIGATION MANAGER --- *@
+@inject NavigationManager Nav
+@inject PurchasingService PurchService
+@inject MasterDataService MasterService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div>
+        <h1 class="text-2xl font-bold text-slate-900">Purchase Orders</h1>
+
+        @if (currentCompanyId == Guid.Empty)
+        {
+            <span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold border border-red-200">
+                ⚠️ CRITICAL: No Company ID Loaded. Orders will fail.
+            </span>
+        }
+        else
+        {
+            <span class="text-xs text-slate-400 font-mono">Company ID: @currentCompanyId</span>
+        }
+    </div>
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Purchase Orders</h1>
+            <p class="text-sm text-slate-500">Create commitments and track procurement.</p>
+        </div>
+        <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            <span>New Order</span>
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400 animate-pulse">Loading orders...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
+                    <tr>
+                        <th class="p-4">PO Number</th>
+                        <th class="p-4">Date</th>
+                        <th class="p-4">Vendor</th>
+                        <th class="p-4 text-right">Total Value</th>
+                        <th class="p-4 text-center">Status</th>
+                        <th class="p-4 text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var po in orders)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="p-4 font-mono font-bold text-slate-700">@po.OrderNumber</td>
+                            <td class="p-4 text-slate-500">@po.OrderDate.ToString("yyyy-MM-dd")</td>
+                            <td class="p-4 font-medium text-slate-900">
+                                @(vendors.FirstOrDefault(v => v.Id == po.VendorId)?.Name ?? "Unknown")
+                            </td>
+                            <td class="p-4 text-right font-mono font-bold text-slate-700">
+                                @(po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost).ToString("C2"))
+                            </td>
+                            <td class="p-4 text-center">
+                                <span class="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">Open</span>
+                            </td>
+
+                            @* --- 2. UPDATED ACTION COLUMN --- *@
+                            <td class="p-4 text-center flex justify-center gap-3">
+
+                                <button @onclick="() => EditOrder(po)" class="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors" title="Edit Order">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                    Edit
+                                </button>
+
+                                @* FIX: Use single quotes ' around the attribute so double quotes " work inside *@
+                                <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")'
+                                        class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1 transition-colors bg-emerald-50 px-2 py-1 rounded border border-emerald-100 hover:border-emerald-300"
+                                        title="Receive Goods">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                                    Receive
+                                </button>
+
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (showModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 my-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-bold text-slate-900">@((currentOrder.Id == Guid.Empty) ? "New Purchase Order" : "Edit Purchase Order")</h3>
+                    <button @onclick="() => showModal = false" class="text-slate-400 hover:text-slate-600">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div>
+                        <label class="label">Vendor</label>
+                        <select @bind="currentOrder.VendorId" class="input-class">
+                            <option value="@Guid.Empty">-- Select Vendor --</option>
+                            @foreach (var v in vendors)
+                            {
+                                <option value="@v.Id">@v.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label">Order Date</label>
+                        <input type="date" @bind="currentOrder.OrderDate" class="input-class" />
+                    </div>
+                    <div>
+                        <label class="label">Order Number</label>
+                        <input @bind="currentOrder.OrderNumber" class="input-class bg-slate-50 font-mono" readonly />
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-100 pt-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-bold text-slate-700">Order Lines</h4>
+                        <button @onclick="AddLine" class="text-xs font-bold text-indigo-600 border border-indigo-200 px-3 py-1 rounded hover:bg-indigo-50">
+                            + Add Item
+                        </button>
+                    </div>
+
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500">
+                            <tr>
+                                <th class="p-3 w-[40%]">Item</th>
+                                <th class="p-3 text-right w-[15%]">Qty</th>
+                                <th class="p-3 text-right w-[20%]">Unit Cost</th>
+                                <th class="p-3 text-right w-[20%]">Total</th>
+                                <th class="p-3 w-[5%]"></th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var line in currentOrder.Lines)
+                            {
+                                <tr>
+                                    <td class="p-2">
+                                        <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" />
+                                    </td>
+                                    <td class="p-2">
+                                        <input type="number" @bind="line.QuantityOrdered" class="input-class text-right font-bold" />
+                                    </td>
+                                    <td class="p-2">
+                                        <input type="number" @bind="line.UnitCost" class="input-class text-right font-mono" />
+                                    </td>
+                                    <td class="p-2 text-right font-bold text-slate-700">
+                                        @((line.QuantityOrdered * line.UnitCost).ToString("N2"))
+                                    </td>
+                                    <td class="p-2 text-center">
+                                        <button @onclick="() => currentOrder.Lines.Remove(line)" class="text-red-400 hover:text-red-600">×</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="bg-slate-50 border-t border-slate-200">
+                            <tr>
+                                <td colspan="3" class="p-3 text-right font-bold text-slate-600 uppercase text-xs">Grand Total</td>
+                                <td class="p-3 text-right font-bold text-lg text-slate-900">
+                                    @currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost).ToString("C2")
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                    <button @onclick="() => showModal = false" class="px-4 py-2 text-slate-500 font-bold hover:bg-slate-50 rounded-lg">Cancel</button>
+                    <button @onclick="SaveOrder" disabled="@isBusy" class="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg shadow-lg hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                            <span>Validating Budget...</span>
+                        }
+                        else
+                        {
+                            <span>Save Order</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.5rem;
+        font-size: 0.875rem;
+    }
+</style>
+
+@code {
+    private List<PurchaseOrder> orders = new();
+    private List<Vendor> vendors = new();
+    private List<Item> items = new();
+    private PurchaseOrder currentOrder = new();
+
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isBusy = false;
+    private Guid currentCompanyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        orders = await PurchService.GetOpenPOsAsync(currentCompanyId);
+        vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+        items = await MasterService.GetItemsAsync(currentCompanyId);
+    }
+
+    private void CreateNew()
+    {
+        currentOrder = new PurchaseOrder
+        {
+            CompanyId = currentCompanyId,
+            OrderNumber = $"PO-{DateTime.Now:yyMM}-{new Random().Next(1000, 9999)}",
+            Lines = new List<PurchaseOrderLine> { new() }
+        };
+        showModal = true;
+    }
+
+    private void EditOrder(PurchaseOrder po)
+    {
+        // Simple clone to prevent live edits
+        currentOrder = new PurchaseOrder
+        {
+            Id = po.Id,
+            CompanyId = po.CompanyId,
+            VendorId = po.VendorId,
+            OrderDate = po.OrderDate,
+            OrderNumber = po.OrderNumber,
+            Lines = po.Lines.Select(l => new PurchaseOrderLine
+            {
+                Id = l.Id,
+                ItemId = l.ItemId,
+                QuantityOrdered = l.QuantityOrdered,
+                UnitCost = l.UnitCost
+            }).ToList()
+        };
+        showModal = true;
+    }
+
+    private void AddLine() => currentOrder.Lines.Add(new PurchaseOrderLine());
+
+    // --- REPLACED SAVE METHOD WITH ERROR HANDLING ---
+    private async Task SaveOrder()
+    {
+        isBusy = true;
+        try
+        {
+            // Call the "Loud" Service
+            string result = await PurchService.SavePurchaseOrderAsync(currentOrder);
+
+            if (string.IsNullOrEmpty(result))
+            {
+                // SUCCESS
+                await JS.InvokeVoidAsync("alert", "✅ Order Saved Successfully!");
+                showModal = false;
+                await LoadData();
+            }
+            else
+            {
+                // FAILURE - DISPLAY THE EXACT ERROR FROM THE SERVICE
+                await JS.InvokeVoidAsync("alert", "❌ " + result);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Catch any UI-layer crashes
+            await JS.InvokeVoidAsync("alert", "UI Error: " + ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+}

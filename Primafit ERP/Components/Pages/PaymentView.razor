@@ -1,0 +1,194 @@
+﻿@page "/ar/payment-entry"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PaymentService PayService
+@inject MasterDataService MasterService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Receive Payment</h1>
+            <p class="text-sm text-slate-500">Record incoming money from customers.</p>
+        </div>
+        <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+            @if (isBusy)
+            {
+                <span class="animate-spin">↻</span> <span>Posting...</span>
+            }
+            else
+            {
+                <span>Post Receipt</span>
+            }
+        </button>
+    </div>
+
+    
+
+    @if (currentCompanyId != Guid.Empty)
+    {
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                <h3 class="font-bold border-b pb-2 text-slate-700">Transaction Details</h3>
+
+                <div>
+                    <label class="label">Date Received</label>
+                    <input type="date" @bind="payment.Date" class="input-class" />
+                </div>
+
+                <div>
+                    <label class="label">Customer</label>
+                    <select @bind="payment.CustomerId" class="input-class">
+                        <option value="@Guid.Empty">-- Select Customer --</option>
+                        @foreach (var c in customers)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label">Amount Received</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-2 text-slate-400 font-bold">$</span>
+                        <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-lg text-emerald-700" placeholder="0.00" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+                <h3 class="font-bold border-b pb-2 text-slate-700 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                    GL Account Mapping
+                </h3>
+
+                <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                    <SearchableGlAccount 
+                        Label="Deposit To (Debit)" 
+                        Placeholder="Search Bank / Cash..." 
+                        Accounts="@bankAccounts" 
+                        @bind-Value="payment.DepositToGlAccountId"
+                        IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
+                    
+                    <p class="text-[10px] text-emerald-600 mt-1 font-medium">Money enters this account (Asset increases).</p>
+                </div>
+
+                <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                    <SearchableGlAccount 
+                        Label="Credit Account" 
+                        Placeholder="Search Receivable / Income..." 
+                        Accounts="@receivableAccounts" 
+                        @bind-Value="payment.CreditGlAccountId"
+                        IsInvalid="@(payment.CreditGlAccountId == Guid.Empty)" />
+                    
+                    <p class="text-[10px] text-indigo-600 mt-1 font-medium">Usually 'Accounts Receivable' (Asset decreases).</p>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; }
+    .input-class:focus { border-color: #10b981; outline: none; ring: 2px; ring-color: #d1fae5; }
+</style>
+
+@code {
+    private CustomerPayment payment = new();
+    private List<Customer> customers = new();
+
+    // GL Lists
+    private List<GLChartOfAccount> bankAccounts = new();
+    private List<GLChartOfAccount> receivableAccounts = new();
+
+    private Guid currentCompanyId;
+    private bool isBusy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+
+            // 1. Load Customers
+            customers = await MasterService.GetCustomersAsync(currentCompanyId);
+
+            // 2. Load GL Accounts
+            using var ctx = await DbFactory.CreateDbContextAsync();
+
+            // Banks (Assets) - Typically Banks & Cash
+            bankAccounts = await ctx.GLChartOfAccounts
+                .Include(a => a.MainAccount.AccountType)
+                .Where(a => a.CompanyId == currentCompanyId && a.MainAccount.AccountType.Class == GLAccountClass.Asset)
+                .OrderBy(a => a.AccountCode)
+                .ToListAsync();
+
+            // Receivables (Assets) or Income (Revenue) - Flexible
+            receivableAccounts = await ctx.GLChartOfAccounts
+                .Include(a => a.MainAccount.AccountType)
+                .Where(a => a.CompanyId == currentCompanyId &&
+                       (a.MainAccount.AccountType.Class == GLAccountClass.Asset || a.MainAccount.AccountType.Class == GLAccountClass.Revenue))
+                .OrderBy(a => a.AccountCode)
+                .ToListAsync();
+
+            CreateNew();
+        }
+    }
+
+    private void CreateNew()
+    {
+        payment = new CustomerPayment { CompanyId = currentCompanyId, Date = DateTime.Today };
+    }
+
+    private async Task PostPayment()
+    {
+        // Validation
+        if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount must be greater than zero."); return; }
+        if (payment.DepositToGlAccountId == Guid.Empty || payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select both Deposit and Credit accounts."); return; }
+        if (payment.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
+
+        isBusy = true;
+        try
+        {
+            // 1. Save Transaction Record
+            var saveErr = await PayService.SavePaymentAsync(payment);
+            if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
+
+            // 2. Post to General Ledger
+            var postErr = await PayService.PostPaymentAsync(payment.Id);
+
+            if (string.IsNullOrEmpty(postErr))
+            {
+                await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!");
+                CreateNew(); // Reset Form
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", postErr);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}
