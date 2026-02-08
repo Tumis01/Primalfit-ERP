@@ -292,7 +292,7 @@
             
             vendors = await MasterService.GetVendorsAsync(currentCompanyId);
             items = await MasterService.GetItemsAsync(currentCompanyId);
-            openPOs = await PurchService.GetOpenPOsAsync(currentCompanyId);
+            openPOs = await PurchService.GetPOsReadyForInvoicingAsync(currentCompanyId);
 
             using var ctx = await DbFactory.CreateDbContextAsync();
             liabilityAccounts = await ctx.GLChartOfAccounts
@@ -459,10 +459,18 @@
                 await JS.InvokeVoidAsync("alert", "❌ " + postErr); 
             }
         }
-        catch (Exception ex) 
-        { 
-            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message); 
+        catch (Exception ex)
+        {
+            var msg = ex.Message;
+            var inner = ex.InnerException;
+            while (inner != null)
+            {
+                msg += " --> " + inner.Message;
+                inner = inner.InnerException;
+            }
+            await JS.InvokeVoidAsync("alert", "Error: " + msg);
         }
+
         finally 
         { 
             isBusy = false; 

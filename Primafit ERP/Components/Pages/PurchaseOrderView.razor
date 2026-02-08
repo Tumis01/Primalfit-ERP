@@ -19,10 +19,7 @@
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Purchase Orders</h1>
             <p class="text-sm text-slate-500">Create commitments and track procurement.</p>
-            @if (currentCompanyId != Guid.Empty)
-            {
-                <span class="text-[10px] text-slate-400 font-mono">Company ID: @currentCompanyId</span>
-            }
+            
         </div>
         <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -50,7 +47,7 @@
                         <th class="p-4">PO Number</th>
                         <th class="p-4">Date</th>
                         <th class="p-4">Vendor</th>
-                        <th class="p-4 text-right">Total Value</th>
+                        <th class="p-4 text-right">Total Value(Vendor's Currency) </th>
                         <th class="p-4 text-right">Base Value</th>
                         <th class="p-4 text-center">Status</th>
                         <th class="p-4 text-center">Action</th>
@@ -77,13 +74,9 @@
                             </td>
 
                             <td class="p-4 text-center">
-                                @if (po.Status == PurchaseOrderStatus.Closed)
+                                @if (po.IsInvoicePosted)
                                 {
-                                    <span class="px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">Received</span>
-                                }
-                                else if (po.Status == PurchaseOrderStatus.PartiallyReceived)
-                                {
-                                    <span class="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">Partial</span>
+                                    <span class="px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">Posted</span>
                                 }
                                 else
                                 {
@@ -91,29 +84,43 @@
                                 }
                             </td>
 
+
                             <td class="p-4 text-center flex justify-center gap-3">
 
-                                @if (po.Status == PurchaseOrderStatus.Open)
+                                @* 1) OPEN + NOT RECEIVED: can edit + receive *@
+                                @if (po.Status == PurchaseOrderStatus.Open && !po.HasReceipt)
                                 {
-                                    <button @onclick="() => EditOrder(po)" class="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                    <button @onclick="() => EditOrder(po)" class="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1">
                                         Edit
                                     </button>
 
-                                    <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")' class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1 transition-colors bg-emerald-50 px-2 py-1 rounded border border-emerald-100 hover:border-emerald-300">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                                    <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")'
+                                            class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
                                         Receive
                                     </button>
                                 }
+                                @* 2) OPEN + RECEIVED: disable receive, show post invoice *@
+                                else if (po.Status == PurchaseOrderStatus.Open && po.HasReceipt && !po.IsInvoicePosted)
+                                {
+                                    <span class="text-xs font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded border">
+                                        Received
+                                    </span>
+
+                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")'
+                                            class="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded border border-indigo-100">
+                                        Post Invoice
+                                    </button>
+                                }
+                                @* 3) INVOICE POSTED: still listed, no edit *@
                                 else
                                 {
-                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-1 transition-colors bg-indigo-50 px-2 py-1 rounded border border-indigo-100 hover:border-indigo-300 shadow-sm">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                        Process Invoice
-                                    </button>
+                                    <span class="text-xs font-bold bg-green-50 text-green-700 px-2 py-1 rounded border border-green-100">
+                                        Invoice Posted
+                                    </span>
                                 }
 
                             </td>
+
                         </tr>
                     }
                 </tbody>
@@ -216,7 +223,7 @@
                             </tr>
                             <tr>
                                 <td colspan="3" class="p-2 text-right font-bold text-emerald-600 uppercase text-[10px]">
-                                    Ledger Value (Base)
+                                    Total Amount (Base)
                                 </td>
                                 <td class="p-2 text-right font-mono font-bold text-emerald-700 text-sm">
                                     @BaseTotal.ToString("N2")
@@ -300,7 +307,7 @@
 
     private async Task LoadData()
     {
-        orders = await PurchService.GetOpenPOsAsync(currentCompanyId);
+        orders = await PurchService.GetPOsAsync(currentCompanyId);
         vendors = await MasterService.GetVendorsAsync(currentCompanyId);
         items = await MasterService.GetItemsAsync(currentCompanyId);
     }

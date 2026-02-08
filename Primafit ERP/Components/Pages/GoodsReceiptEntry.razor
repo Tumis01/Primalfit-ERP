@@ -216,7 +216,7 @@
 
             if (string.IsNullOrEmpty(result))
             {
-                await JS.InvokeVoidAsync("alert", "Goods Received Successfully! Stock Updated.");
+                await JS.InvokeVoidAsync("alert", "Goods Received Successfully! Post Invoice");
                 Nav.NavigateTo("/procurement/purchase-orders");
             }
             else

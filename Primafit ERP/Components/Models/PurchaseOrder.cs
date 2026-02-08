@@ -23,6 +23,8 @@ namespace Primafit_ERP.Components.Models
         public decimal ExchangeRate { get; set; }
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
+        public bool HasReceipt { get; set; } = false;  
+        public bool IsInvoicePosted { get; set; } = false;
 
     }
 
@@ -108,6 +110,10 @@ namespace Primafit_ERP.Components.Models
         public string MatchVarianceReason { get; set; } = "";
 
         public List<VendorBillLine> Lines { get; set; } = new();
+        public bool IsPosted { get; set; } = false;
+        public DateTime? PostedDate { get; set; }
+
+
     }
 
     public class VendorBillLine
