@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260208121136_reconciliation")]
+    partial class reconciliation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -126,29 +129,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
-                });
-
-            modelBuilder.Entity("ParsedStatementRow", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Reference")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ParsedStatementRows");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.AccountType1", b =>
@@ -386,8 +366,14 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("AccountingPeriodId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("ApprovedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("ApprovedByUserId")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("BankAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -411,9 +397,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<int>("Type")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.ToTable("BankReconciliations");
@@ -428,7 +411,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<Guid?>("BankReconciliationId")
+                    b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateOnly>("Date")
@@ -441,6 +424,12 @@ namespace Primafit_ERP.Migrations
                     b.Property<bool>("IsMatched")
                         .HasColumnType("bit");
 
+                    b.Property<DateTime?>("MatchedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("MatchedByUserId")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid?>("MatchedGLTransactionId")
                         .HasColumnType("uniqueidentifier");
 
@@ -452,7 +441,7 @@ namespace Primafit_ERP.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BankReconciliationId");
+                    b.HasIndex("ReconciliationId");
 
                     b.ToTable("BankStatementLines");
                 });
@@ -2038,9 +2027,13 @@ namespace Primafit_ERP.Migrations
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.BankStatementLine", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.BankReconciliation", null)
+                    b.HasOne("Primafit_ERP.Components.Models.BankReconciliation", "Reconciliation")
                         .WithMany("StatementLines")
-                        .HasForeignKey("BankReconciliationId");
+                        .HasForeignKey("ReconciliationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Reconciliation");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetLine", b =>

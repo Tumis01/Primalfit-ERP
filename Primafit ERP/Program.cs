@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
+using OfficeOpenXml;
 using Primafit_ERP.Components;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Services;
@@ -8,8 +9,10 @@ using PrimafitERP.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- 1. DATABASE CONFIGURATION ---
-// Standard Context for Controllers/Identity
+ExcelPackage.License.SetNonCommercialPersonal("Primafit");
+
+
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -68,7 +71,9 @@ builder.Services.AddScoped<BudgetService>();
 builder.Services.AddScoped<ICashbookService, CashbookService>();
 builder.Services.AddScoped<SegmentedAccountService>();
 builder.Services.AddScoped<SegmentedGLSeeder>();
-
+builder.Services.AddScoped<IStatementParser, CsvStatementParser>();
+builder.Services.AddScoped<IStatementParser, ExcelStatementParser>();
+builder.Services.AddScoped<StatementImportService>();
 // Security (Optional helper)
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 

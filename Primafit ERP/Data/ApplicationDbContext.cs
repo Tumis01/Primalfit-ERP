@@ -61,6 +61,7 @@ namespace PrimafitERP.Data
         public DbSet<MainAccount> MainAccounts { get; set; }
         public DbSet<SegmentedAccount> SegmentedAccounts { get; set; }
         public DbSet<AccountType1> AccountTypes1 { get; set; }
+        public DbSet<ParsedStatementRow> ParsedStatementRows { get; set; }
 
         // --- SYSTEM ---
         public DbSet<AuditLog> AuditLogs { get; set; }
