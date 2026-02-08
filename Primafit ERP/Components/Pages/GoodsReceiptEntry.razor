@@ -1,4 +1,5 @@
 ﻿@page "/procurement/goods-receipt/{poId:guid?}"
+
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -8,188 +9,228 @@
 
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
+@inject WarehouseService WarehouseService 
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserManager<ApplicationUser> UserManager
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @rendermode InteractiveServer
 
-<div class="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
-
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
+    
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">Receive Goods</h1>
-            <p class="text-sm text-slate-500">Process inbound stock from Vendor PO.</p>
+            <h1 class="text-2xl font-bold text-slate-900">Receive Goods (GRN)</h1>
+            <p class="text-sm text-slate-500">Acknowledge receipt of items from Purchase Orders.</p>
         </div>
-        <a href="procurement/purchase-orders" class="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200">Back to Orders</a>
+        <button @onclick="SaveReceipt" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+            @if(isBusy) 
+            { 
+                <span class="animate-spin">↻</span> <span>Processing...</span> 
+            } 
+            else 
+            { 
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                <span>Confirm Receipt</span> 
+            }
+        </button>
     </div>
 
-    @if (currentReceipt != null)
-    {
-        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-lg">
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div>
-                    <label class="label">GRN Reference</label>
-                    <input @bind="currentReceipt.GrnNumber" class="input-class font-mono uppercase" placeholder="GRN-..." />
-                </div>
-                <div>
-                    <label class="label">Date Received</label>
-                    <input type="date" @bind="currentReceipt.DateReceived" class="input-class" />
-                </div>
-                <div>
-                    <label class="label text-indigo-600">Receiving Warehouse</label>
-                    <select @bind="selectedWarehouseId" class="input-class border-indigo-200 bg-indigo-50/30 font-bold text-indigo-700">
-                        <option value="@Guid.Empty">-- Select Warehouse --</option>
-                        @foreach (var w in warehouses)
-                        {
-                            <option value="@w.Id">@w.Name</option>
-                        }
-                    </select>
-                </div>
-            </div>
-
-            <div class="border rounded-xl overflow-hidden">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500">
-                        <tr>
-                            <th class="p-3 pl-4">Item</th>
-                            <th class="p-3 text-right">Ordered</th>
-                            <th class="p-3 text-right">Cost (Unit)</th>
-                            <th class="p-3 text-right w-40">Received Now</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @foreach (var line in currentReceipt.Lines)
-                        {
-                            var poLine = poLines.FirstOrDefault(pl => pl.Id == line.PurchaseOrderLineId);
-                            var itemName = items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name;
-
-                            <tr class="hover:bg-slate-50 transition-colors">
-                                <td class="p-3 pl-4">
-                                    <div class="font-bold text-slate-700">@itemName</div>
-                                    <div class="text-xs text-slate-400">SKU: @items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.SKU</div>
-                                </td>
-                                <td class="p-3 text-right text-slate-400">@poLine?.QuantityOrdered.ToString("N0")</td>
-                                <td class="p-3 text-right text-slate-400">@poLine?.UnitCost.ToString("N2")</td>
-                                <td class="p-3">
-                                    <input type="number" @bind="line.QuantityReceived" class="input-class py-1 text-center font-bold text-emerald-600 border-emerald-200 focus:border-emerald-500 focus:ring-emerald-200" />
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="mt-6 flex justify-end items-center gap-4">
-                <div class="text-xs text-slate-400 max-w-xs text-right">
-                    Clicking confirm will increase stock levels and post a Journal Entry (Dr Inventory / Cr Accounts Payable).
-                </div>
-                <button @onclick="SaveReceipt" class="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-transform active:scale-95 flex items-center gap-2">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                    Confirm & Post
-                </button>
-            </div>
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+        
+        <div>
+            <label class="label">Receiving Warehouse</label>
+            <select @bind="selectedWarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/30 text-indigo-700">
+                <option value="@Guid.Empty">-- Select Warehouse --</option>
+                @foreach (var w in warehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+            </select>
         </div>
-    }
-    else
+
+        <div>
+            <label class="label">Vendor</label>
+            <select @bind="selectedVendorId" class="input-class">
+                <option value="@Guid.Empty">-- Select Vendor --</option>
+                @foreach (var v in vendors)
+                {
+                    <option value="@v.Id">@v.Name</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label class="label">Purchase Order</label>
+            <select @onchange="OnPoSelected" value="@(selectedPO?.Id.ToString() ?? "")" class="input-class font-mono" disabled="@(selectedVendorId == Guid.Empty)">
+                <option value="">-- Select PO to Receive --</option>
+                @foreach (var po in openPOs.Where(p => p.VendorId == selectedVendorId))
+                {
+                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("MM/dd"))</option>
+                }
+            </select>
+        </div>
+
+        @* --- ADDED: Date Received --- *@
+        <div>
+            <label class="label">Date Received</label>
+            <input type="date" @bind="currentGrn.DateReceived" class="input-class" />
+        </div>
+
+    </div>
+
+    @if (currentGrn.Lines.Any())
     {
-        <div class="p-12 text-center text-slate-400 animate-pulse">Loading Order Data...</div>
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                <h3 class="font-bold text-slate-700">Items to Receive</h3>
+                <span class="text-xs text-slate-400">Enter the quantity actually physically received.</span>
+            </div>
+            
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500">
+                    <tr>
+                        <th class="p-4">Item</th>
+                        <th class="p-4 text-right">Ordered Qty</th>
+                        <th class="p-4 text-right w-40">Received Now</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var line in currentGrn.Lines)
+                    {
+                        var poLine = selectedPO?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-4 font-medium text-slate-900">
+                                @(items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Unknown Item")
+                            </td>
+                            <td class="p-4 text-right text-slate-500">
+                                @(poLine?.QuantityOrdered.ToString("N0") ?? "0")
+                            </td>
+                            <td class="p-4">
+                                <input type="number" @bind="line.QuantityReceived" class="w-full text-right font-bold text-emerald-700 border rounded p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     }
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.25rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.5rem;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #4f46e5;
-            outline: none;
-            ring: 2px;
-            ring-color: #e0e7ff;
-        }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; }
 </style>
 
 @code {
-    [Parameter] public Guid? poId { get; set; }
+    [Parameter]
+    public Guid? poId { get; set; } 
 
-    private GoodsReceipt? currentReceipt;
-    private List<PurchaseOrderLine> poLines = new();
-    private List<Item> items = new();
+    private GoodsReceipt currentGrn = new();
+    private PurchaseOrder? selectedPO;
+    
+    private List<Vendor> vendors = new();
     private List<Warehouse> warehouses = new();
-    private Guid currentCompanyId;
+    private List<PurchaseOrder> openPOs = new();
+    private List<Item> items = new();
+
+    private Guid selectedVendorId;
     private Guid selectedWarehouseId;
+    private Guid currentCompanyId;
+    private bool isBusy = false;
 
     protected override async Task OnInitializedAsync()
     {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = await UserManager.GetUserAsync(authState.User);
-        if (user?.CompanyDetailsId != null && poId.HasValue)
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
+            currentGrn.CompanyId = currentCompanyId;
+            
+            vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            warehouses = await WarehouseService.GetWarehousesAsync(currentCompanyId);
+            openPOs = await PurchService.GetOpenPOsAsync(currentCompanyId);
             items = await MasterService.GetItemsAsync(currentCompanyId);
 
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            warehouses = await ctx.Warehouses.Where(w => w.CompanyId == currentCompanyId).ToListAsync();
-
-            // Load PO
-            var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == poId.Value);
-
-            if (po != null)
+            if (poId.HasValue && poId.Value != Guid.Empty)
             {
-                poLines = po.Lines;
-
-                // Initialize Receipt with ALL lines
-                currentReceipt = new GoodsReceipt
+                var targetPO = openPOs.FirstOrDefault(p => p.Id == poId.Value);
+                if (targetPO != null)
                 {
+                    selectedVendorId = targetPO.VendorId;
+                    var args = new ChangeEventArgs { Value = poId.Value.ToString() };
+                    OnPoSelected(args); 
+                }
+            }
+        }
+    }
+
+    private void OnPoSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out Guid parsedId))
+        {
+            selectedPO = openPOs.FirstOrDefault(p => p.Id == parsedId);
+            if (selectedPO != null)
+            {
+                currentGrn = new GoodsReceipt 
+                { 
                     CompanyId = currentCompanyId,
-                    PurchaseOrderId = po.Id,
-                    GrnNumber = $"GRN-{po.OrderNumber}-{DateTime.Now:HHmm}",
-                    DateReceived = DateTime.Today,
-                    Lines = po.Lines.Select(l => new GoodsReceiptLine
-                    {
-                        PurchaseOrderLineId = l.Id,
-                        QuantityReceived = l.QuantityOrdered // Default to full receipt
-                    }).ToList()
+                    PurchaseOrderId = selectedPO.Id,
+                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{new Random().Next(100,999)}",
+                    DateReceived = DateTime.Today // Default Date
                 };
+
+                // Auto-fill lines from PO
+                foreach (var line in selectedPO.Lines)
+                {
+                    currentGrn.Lines.Add(new GoodsReceiptLine
+                    {
+                        Id = Guid.NewGuid(),
+                        GoodsReceiptId = currentGrn.Id,
+                        PurchaseOrderLineId = line.Id,
+                        QuantityReceived = line.QuantityOrdered 
+                    });
+                }
             }
         }
     }
 
     private async Task SaveReceipt()
     {
-        if (currentReceipt == null) return;
-        if (selectedWarehouseId == Guid.Empty)
+        if (selectedWarehouseId == Guid.Empty) 
         {
-            await JS.InvokeVoidAsync("alert", "Please select a Warehouse to receive goods into.");
+            await JS.InvokeVoidAsync("alert", "Please select a Warehouse.");
+            return;
+        }
+        if (!currentGrn.Lines.Any(l => l.QuantityReceived > 0))
+        {
+            await JS.InvokeVoidAsync("alert", "Please receive at least one item.");
             return;
         }
 
-        var err = await PurchService.SaveGoodsReceiptAsync(currentReceipt, selectedWarehouseId);
+        isBusy = true;
+        try
+        {
+            string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId);
 
-        if (string.IsNullOrEmpty(err))
-        {
-            await JS.InvokeVoidAsync("alert", "Goods Received Successfully! Stock updated.");
-            // Optional: NavManager.NavigateTo("/procurement/purchase-orders");
+            if (string.IsNullOrEmpty(result))
+            {
+                await JS.InvokeVoidAsync("alert", "Goods Received Successfully! Stock Updated.");
+                Nav.NavigateTo("/procurement/purchase-orders");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Error: " + result);
+            }
         }
-        else
+        catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", err);
+             await JS.InvokeVoidAsync("alert", "System Error: " + ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
         }
     }
 }

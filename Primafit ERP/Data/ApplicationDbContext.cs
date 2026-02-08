@@ -56,6 +56,11 @@ namespace PrimafitERP.Data
         public DbSet<AssetDepreciationHistory> AssetDepreciationHistories { get; set; }
         public DbSet<BudgetHeader> BudgetHeaders { get; set; }
         public DbSet<BudgetLine> BudgetLines { get; set; }
+        public DbSet<SegmentDefinition> SegmentDefinitions { get; set; }
+        public DbSet<SegmentValue> SegmentValues { get; set; }
+        public DbSet<MainAccount> MainAccounts { get; set; }
+        public DbSet<SegmentedAccount> SegmentedAccounts { get; set; }
+        public DbSet<AccountType1> AccountTypes1 { get; set; }
 
         // --- SYSTEM ---
         public DbSet<AuditLog> AuditLogs { get; set; }
@@ -78,6 +83,9 @@ namespace PrimafitERP.Data
                     relationship.DeleteBehavior = DeleteBehavior.Restrict;
                 }
             }
+
+
+            
 
             // Specific GL Hierarchies
             builder.Entity<GLMainAccount>()
@@ -131,7 +139,7 @@ namespace PrimafitERP.Data
                 .HasForeignKey(l => l.ItemId)
                 .OnDelete(DeleteBehavior.Restrict); // Don't delete Item if it's on an order
 
-         
+
             // Ensure Sales Order Numbers are unique PER COMPANY
             builder.Entity<SalesOrder>()
                 .HasIndex(s => new { s.CompanyId, s.OrderNumber })
@@ -141,6 +149,30 @@ namespace PrimafitERP.Data
             builder.Entity<Item>()
                 .HasIndex(i => new { i.CompanyId, i.SKU })
                 .IsUnique();
+            builder.Entity<AccountType1>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.Id).ValueGeneratedNever(); // IMPORTANT: fixed IDs
+            });
+            builder.Entity<SegmentDefinition>()
+                .Property(s => s.SegmentNumber)
+                .ValueGeneratedNever();
+
+            // 2. Ensure MainAccount Code is Unique per Company
+            builder.Entity<MainAccount>()
+                .HasIndex(m => new { m.CompanyId, m.AccountCode })
+                .IsUnique();
+
+            // 3. Ensure Segment Value is Unique per Segment & Company
+            builder.Entity<SegmentValue>()
+                .HasIndex(v => new { v.CompanyId, v.SegmentNumber, v.Value })
+                .IsUnique();
+
+            // 4. Ensure the Full GL Code is Unique per Company
+            builder.Entity<SegmentedAccount>()
+                .HasIndex(a => new { a.CompanyId, a.AccountCodeString })
+                .IsUnique();
+
         }
 
         // 4. AUTOMATIC AUDITING (Populate AuditLogs)
@@ -153,7 +185,7 @@ namespace PrimafitERP.Data
 
             foreach (var entry in entries)
             {
-                
+
             }
 
             return await base.SaveChangesAsync(cancellationToken);

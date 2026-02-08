@@ -94,6 +94,11 @@ namespace Primafit_ERP.Services
                                                           && i.Id != item.Id);
             if (isDuplicate)
                 return ($"The SKU '{item.SKU}' is already in use by another item.");
+            bool isDuplicates = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId
+                                                          && i.Name == item.Name
+                                                          && i.Id != item.Id);
+            if (isDuplicates)
+                return ($"The '{item.Name}' is already in use by another item.");
 
             // 4. Save Logic (Insert vs Update)
             if (item.Id == Guid.Empty || !await ctx.Items.AnyAsync(x => x.Id == item.Id))

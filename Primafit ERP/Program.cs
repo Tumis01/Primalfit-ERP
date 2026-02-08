@@ -66,6 +66,8 @@ builder.Services.AddScoped<PurchasingService>();
 builder.Services.AddScoped<AssetService>();
 builder.Services.AddScoped<BudgetService>();
 builder.Services.AddScoped<ICashbookService, CashbookService>();
+builder.Services.AddScoped<SegmentedAccountService>();
+builder.Services.AddScoped<SegmentedGLSeeder>();
 
 // Security (Optional helper)
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();

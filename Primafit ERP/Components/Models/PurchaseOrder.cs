@@ -16,7 +16,14 @@ namespace Primafit_ERP.Components.Models
         public string OrderNumber { get; set; }
         public DateTime OrderDate { get; set; } = DateTime.Today;
         public Guid? LinkedSalesOrderId { get; set; }
+        [Required]
+        public Guid CurrencyId { get; set; } // The Vendor's Currency
+
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal ExchangeRate { get; set; }
         public List<PurchaseOrderLine> Lines { get; set; } = new();
+        public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
+
     }
 
     public class PurchaseOrderLine
@@ -83,14 +90,17 @@ namespace Primafit_ERP.Components.Models
         public Guid VendorId { get; set; }
         [Required]
         public Guid CompanyId { get; set; }
-        public Guid? PurchaseOrderId { get; set; } // Optional: Can be direct expense
-
-        // FLEXIBILITY: User selects the exact AP Account (Liability)
-        // Default might come from Vendor, but User can change it here.
+        public Guid? PurchaseOrderId { get; set; } 
         public Guid AccountsPayableGlId { get; set; }
 
-        public string ExternalInvoiceNumber { get; set; }
+        public string ExternalInvoiceNumber { get; set; } = "";
         public DateTime BillDate { get; set; }
+        public Guid CurrencyId { get; set; } 
+
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal ExchangeRate { get; set; } = 1; 
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal TotalAmountForeign { get; set; }
         public decimal TotalAmount { get; set; }
 
         // 3-WAY MATCH STATUS
@@ -145,5 +155,12 @@ namespace Primafit_ERP.Components.Models
         Matched,
         Variance,
         NoPoLinked
+    }
+    public enum PurchaseOrderStatus
+    {
+        Open,
+        PartiallyReceived,
+        Closed,
+        Cancelled
     }
 }

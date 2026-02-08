@@ -19,42 +19,43 @@ namespace Primafit_ERP.Services
         public async Task<string> ReceiveStockAsync(Guid companyId, Guid itemId, Guid warehouseId, decimal qty, decimal totalLandedCost, Guid vendorId, string reference)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // 1. Fetch Item & Vendor
             var item = await ctx.Items.FindAsync(itemId);
             if (item == null) return "Item not found.";
 
             var vendor = await ctx.Vendors.FindAsync(vendorId);
             if (vendor?.PayablesAccountId == null) return "Vendor Payables Account missing.";
 
-            // --- A. SERVICE ITEM LOGIC (Expense Immediately) ---
+            // --- A. SERVICE ITEM LOGIC ---
             if (item.IsService)
             {
-                var serviceGlLines = new List<GLJournalLine>
-                {
-                    new() { AccountId = item.CostOfGoodsSoldAccountId, Debit = totalLandedCost, Credit = 0, Reference = $"Service Exp: {item.Name}" },
-                    new() { AccountId = vendor.PayablesAccountId.Value, Debit = 0, Credit = totalLandedCost, Reference = $"Bill: {vendor.Name}" }
-                };
-
-                await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Service Bill", $"Bill for {item.Name}", serviceGlLines);
-                await ctx.SaveChangesAsync();
+                // ... (Keep your existing Service logic here) ...
                 return string.Empty;
             }
 
-            // --- B. PHYSICAL GOODS LOGIC (WACC Engine) ---
-            decimal currentTotalQty = await ctx.StockLedgers.Where(s => s.ItemId == itemId).SumAsync(s => s.QuantityChanged);
+            // --- B. PHYSICAL GOODS LOGIC ---
+
+            // 1. Get Current Quantity (Summing the Ledger, just like your View does)
+            decimal currentTotalQty = await ctx.StockLedgers
+                .Where(s => s.ItemId == itemId)
+                .SumAsync(s => s.QuantityChanged);
+
+            // Prevent negative history from breaking WACC (optional safety)
             if (currentTotalQty < 0) currentTotalQty = 0;
 
+            // 2. Calculate New WACC
             decimal oldWacc = item.WeightedAverageCost;
-
-            // Formula: ((OldQty * OldCost) + (NewQty * NewCost)) / (OldQty + NewQty)
             decimal oldValuation = currentTotalQty * oldWacc;
             decimal newValuation = oldValuation + totalLandedCost;
             decimal newTotalQty = currentTotalQty + qty;
 
+            // 3. Update Item WACC (This is the only field we change on Item)
             if (newTotalQty > 0)
             {
                 item.WeightedAverageCost = newValuation / newTotalQty;
 
-                // Log History
+                // Log WACC History
                 ctx.ItemCostHistories.Add(new ItemCostHistory
                 {
                     ItemId = itemId,
@@ -68,31 +69,35 @@ namespace Primafit_ERP.Services
                 });
             }
 
-            // Physical Ledger
-            ctx.StockLedgers.Add(new StockLedger
+            
+            var ledgerEntry = new StockLedger
             {
+                Id = Guid.NewGuid(), // Ensure ID is generated
                 CompanyId = companyId,
                 ItemId = itemId,
                 WarehouseId = warehouseId,
-                QuantityChanged = qty,
+                QuantityChanged = qty, // +Quantity
                 Type = StockMovementType.Purchase,
                 CostAtTime = item.WeightedAverageCost,
-                Reference = reference
-            });
-
-            // Financial Posting
-            var glLines = new List<GLJournalLine>
-            {
-                new() { AccountId = item.InventoryAssetAccountId, Debit = totalLandedCost, Credit = 0, Reference = $"Stock In: {item.Name}" },
-                new() { AccountId = vendor.PayablesAccountId.Value, Debit = 0, Credit = totalLandedCost, Reference = $"Bill: {vendor.Name}" }
+                Reference = reference,
+                Date = DateTime.UtcNow
             };
+
+            ctx.StockLedgers.Add(ledgerEntry);
+
+            // 5. Financial Posting (GL)
+            var glLines = new List<GLJournalLine>
+    {
+        new() { AccountId = item.InventoryAssetAccountId, Debit = totalLandedCost, Credit = 0, Reference = $"Stock In: {item.Name}" },
+        new() { AccountId = vendor.PayablesAccountId.Value, Debit = 0, Credit = totalLandedCost, Reference = $"Bill: {vendor.Name}" }
+    };
 
             await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines);
 
+            // 6. Save Everything
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-
         // 2. ISSUE TO PROJECT (New Phase 2 Logic)
         public async Task<string> IssueToProjectAsync(Guid companyId, Guid itemId, Guid warehouseId, Guid projectId, decimal qty, string note)
         {

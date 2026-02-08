@@ -5,7 +5,6 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-@* --- 1. INJECT NAVIGATION MANAGER --- *@
 @inject NavigationManager Nav
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
@@ -15,31 +14,28 @@
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
-    <div>
-        <h1 class="text-2xl font-bold text-slate-900">Purchase Orders</h1>
-
-        @if (currentCompanyId == Guid.Empty)
-        {
-            <span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold border border-red-200">
-                ⚠️ CRITICAL: No Company ID Loaded. Orders will fail.
-            </span>
-        }
-        else
-        {
-            <span class="text-xs text-slate-400 font-mono">Company ID: @currentCompanyId</span>
-        }
-    </div>
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Purchase Orders</h1>
             <p class="text-sm text-slate-500">Create commitments and track procurement.</p>
+            @if (currentCompanyId != Guid.Empty)
+            {
+                <span class="text-[10px] text-slate-400 font-mono">Company ID: @currentCompanyId</span>
+            }
         </div>
         <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
             <span>New Order</span>
         </button>
     </div>
+
+    @if (currentCompanyId == Guid.Empty)
+    {
+        <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r">
+            <p class="text-sm text-red-700 font-bold">⚠️ CRITICAL: No Company ID Loaded. Orders cannot be processed.</p>
+        </div>
+    }
 
     @if (isLoading)
     {
@@ -55,6 +51,7 @@
                         <th class="p-4">Date</th>
                         <th class="p-4">Vendor</th>
                         <th class="p-4 text-right">Total Value</th>
+                        <th class="p-4 text-right">Base Value</th>
                         <th class="p-4 text-center">Status</th>
                         <th class="p-4 text-center">Action</th>
                     </tr>
@@ -68,28 +65,53 @@
                             <td class="p-4 font-medium text-slate-900">
                                 @(vendors.FirstOrDefault(v => v.Id == po.VendorId)?.Name ?? "Unknown")
                             </td>
+
+                            @* Foreign Total *@
                             <td class="p-4 text-right font-mono font-bold text-slate-700">
-                                @(po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost).ToString("C2"))
-                            </td>
-                            <td class="p-4 text-center">
-                                <span class="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">Open</span>
+                                @(po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost).ToString("N2"))
                             </td>
 
-                            @* --- 2. UPDATED ACTION COLUMN --- *@
+                            @* Base Total (Calculated) *@
+                            <td class="p-4 text-right font-mono text-emerald-600 text-xs">
+                                @((po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate).ToString("N2"))
+                            </td>
+
+                            <td class="p-4 text-center">
+                                @if (po.Status == PurchaseOrderStatus.Closed)
+                                {
+                                    <span class="px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">Received</span>
+                                }
+                                else if (po.Status == PurchaseOrderStatus.PartiallyReceived)
+                                {
+                                    <span class="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">Partial</span>
+                                }
+                                else
+                                {
+                                    <span class="px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">Open</span>
+                                }
+                            </td>
+
                             <td class="p-4 text-center flex justify-center gap-3">
 
-                                <button @onclick="() => EditOrder(po)" class="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors" title="Edit Order">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                    Edit
-                                </button>
+                                @if (po.Status == PurchaseOrderStatus.Open)
+                                {
+                                    <button @onclick="() => EditOrder(po)" class="text-slate-400 hover:text-indigo-600 font-bold text-xs flex items-center gap-1 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                        Edit
+                                    </button>
 
-                                @* FIX: Use single quotes ' around the attribute so double quotes " work inside *@
-                                <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")'
-                                        class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1 transition-colors bg-emerald-50 px-2 py-1 rounded border border-emerald-100 hover:border-emerald-300"
-                                        title="Receive Goods">
-                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                                    Receive
-                                </button>
+                                    <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")' class="text-emerald-600 hover:text-emerald-800 font-bold text-xs flex items-center gap-1 transition-colors bg-emerald-50 px-2 py-1 rounded border border-emerald-100 hover:border-emerald-300">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                                        Receive
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-1 transition-colors bg-indigo-50 px-2 py-1 rounded border border-indigo-100 hover:border-indigo-300 shadow-sm">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                        Process Invoice
+                                    </button>
+                                }
 
                             </td>
                         </tr>
@@ -102,9 +124,20 @@
     @if (showModal)
     {
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 my-8">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6 my-8 animate-in zoom-in-95 duration-200">
+
                 <div class="flex justify-between items-center mb-6">
-                    <h3 class="text-xl font-bold text-slate-900">@((currentOrder.Id == Guid.Empty) ? "New Purchase Order" : "Edit Purchase Order")</h3>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-900">@((currentOrder.Id == Guid.Empty) ? "New Purchase Order" : "Edit Purchase Order")</h3>
+                        @if (!string.IsNullOrEmpty(selectedCurrencyCode))
+                        {
+                            <div class="text-xs text-indigo-600 font-bold mt-1 flex items-center gap-1">
+                                <span>Currency: @selectedCurrencyCode</span>
+                                <span class="text-slate-400">|</span>
+                                <span class="text-slate-500 font-normal">Rate Locked: @currentOrder.ExchangeRate.ToString("N4")</span>
+                            </div>
+                        }
+                    </div>
                     <button @onclick="() => showModal = false" class="text-slate-400 hover:text-slate-600">
                         <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
@@ -113,7 +146,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                     <div>
                         <label class="label">Vendor</label>
-                        <select @bind="currentOrder.VendorId" class="input-class">
+                        <select value="@currentOrder.VendorId" @onchange="OnVendorChanged" class="input-class">
                             <option value="@Guid.Empty">-- Select Vendor --</option>
                             @foreach (var v in vendors)
                             {
@@ -166,16 +199,27 @@
                                         @((line.QuantityOrdered * line.UnitCost).ToString("N2"))
                                     </td>
                                     <td class="p-2 text-center">
-                                        <button @onclick="() => currentOrder.Lines.Remove(line)" class="text-red-400 hover:text-red-600">×</button>
+                                        <button @onclick="() => currentOrder.Lines.Remove(line)" class="text-red-400 hover:text-red-600 font-bold text-lg">×</button>
                                     </td>
                                 </tr>
                             }
                         </tbody>
                         <tfoot class="bg-slate-50 border-t border-slate-200">
                             <tr>
-                                <td colspan="3" class="p-3 text-right font-bold text-slate-600 uppercase text-xs">Grand Total</td>
+                                <td colspan="3" class="p-3 text-right font-bold text-slate-500 uppercase text-xs">
+                                    Total (@(string.IsNullOrEmpty(selectedCurrencyCode) ? "N/A" : selectedCurrencyCode))
+                                </td>
                                 <td class="p-3 text-right font-bold text-lg text-slate-900">
-                                    @currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost).ToString("C2")
+                                    @VendorTotal.ToString("N2")
+                                </td>
+                                <td></td>
+                            </tr>
+                            <tr>
+                                <td colspan="3" class="p-2 text-right font-bold text-emerald-600 uppercase text-[10px]">
+                                    Ledger Value (Base)
+                                </td>
+                                <td class="p-2 text-right font-mono font-bold text-emerald-700 text-sm">
+                                    @BaseTotal.ToString("N2")
                                 </td>
                                 <td></td>
                             </tr>
@@ -189,7 +233,7 @@
                         @if (isBusy)
                         {
                             <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                            <span>Validating Budget...</span>
+                            <span>Saving...</span>
                         }
                         else
                         {
@@ -200,7 +244,6 @@
             </div>
         </div>
     }
-
 </div>
 
 <style>
@@ -219,7 +262,14 @@
         border: 1px solid #cbd5e1;
         padding: 0.5rem;
         font-size: 0.875rem;
+        outline: none;
+        transition: border-color 0.2s;
     }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+        }
 </style>
 
 @code {
@@ -232,6 +282,10 @@
     private bool showModal = false;
     private bool isBusy = false;
     private Guid currentCompanyId;
+    private string selectedCurrencyCode = "";
+
+    private decimal VendorTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+    private decimal BaseTotal => VendorTotal * currentOrder.ExchangeRate;
 
     protected override async Task OnInitializedAsync()
     {
@@ -257,14 +311,31 @@
         {
             CompanyId = currentCompanyId,
             OrderNumber = $"PO-{DateTime.Now:yyMM}-{new Random().Next(1000, 9999)}",
-            Lines = new List<PurchaseOrderLine> { new() }
+            Lines = new List<PurchaseOrderLine> { new() },
+            ExchangeRate = 1
         };
+        selectedCurrencyCode = "";
         showModal = true;
     }
 
-    private void EditOrder(PurchaseOrder po)
+    private async Task OnVendorChanged(ChangeEventArgs e)
     {
-        // Simple clone to prevent live edits
+        if (Guid.TryParse(e.Value?.ToString(), out Guid vendorId))
+        {
+            currentOrder.VendorId = vendorId;
+            var result = await PurchService.GetVendorCurrencyDataAsync(vendorId, currentCompanyId);
+
+            currentOrder.CurrencyId = result.CurrencyId;
+            currentOrder.ExchangeRate = result.Rate;
+            selectedCurrencyCode = result.CurrencyCode;
+        }
+    }
+
+    private async Task EditOrder(PurchaseOrder po)
+    {
+        var result = await PurchService.GetVendorCurrencyDataAsync(po.VendorId, currentCompanyId);
+        selectedCurrencyCode = result.CurrencyCode;
+
         currentOrder = new PurchaseOrder
         {
             Id = po.Id,
@@ -272,6 +343,9 @@
             VendorId = po.VendorId,
             OrderDate = po.OrderDate,
             OrderNumber = po.OrderNumber,
+            Status = po.Status,
+            CurrencyId = po.CurrencyId,
+            ExchangeRate = po.ExchangeRate,
             Lines = po.Lines.Select(l => new PurchaseOrderLine
             {
                 Id = l.Id,
@@ -285,31 +359,33 @@
 
     private void AddLine() => currentOrder.Lines.Add(new PurchaseOrderLine());
 
-    // --- REPLACED SAVE METHOD WITH ERROR HANDLING ---
     private async Task SaveOrder()
     {
         isBusy = true;
         try
         {
-            // Call the "Loud" Service
-            string result = await PurchService.SavePurchaseOrderAsync(currentOrder);
-
-            if (string.IsNullOrEmpty(result))
+            if (currentOrder.CurrencyId == Guid.Empty && currentOrder.VendorId != Guid.Empty)
             {
-                // SUCCESS
+                var result = await PurchService.GetVendorCurrencyDataAsync(currentOrder.VendorId, currentCompanyId);
+                currentOrder.CurrencyId = result.CurrencyId;
+                currentOrder.ExchangeRate = result.Rate;
+            }
+
+            string resultStr = await PurchService.SavePurchaseOrderAsync(currentOrder);
+
+            if (string.IsNullOrEmpty(resultStr))
+            {
                 await JS.InvokeVoidAsync("alert", "✅ Order Saved Successfully!");
                 showModal = false;
                 await LoadData();
             }
             else
             {
-                // FAILURE - DISPLAY THE EXACT ERROR FROM THE SERVICE
-                await JS.InvokeVoidAsync("alert", "❌ " + result);
+                await JS.InvokeVoidAsync("alert", "❌ " + resultStr);
             }
         }
         catch (Exception ex)
         {
-            // Catch any UI-layer crashes
             await JS.InvokeVoidAsync("alert", "UI Error: " + ex.Message);
         }
         finally
@@ -317,5 +393,4 @@
             isBusy = false;
         }
     }
-
 }

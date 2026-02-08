@@ -1,0 +1,659 @@
+﻿@page "/finance/segmented-gl"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SegmentedAccountService GlService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-6">
+
+    <!-- Header -->
+    <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div class="space-y-1">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                        <span class="text-lg font-extrabold">GL</span>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Segmented GL Configuration</h1>
+                        <p class="text-sm text-slate-500">Configure segments, define values, manage main accounts, and build full account strings.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                @if (!string.IsNullOrWhiteSpace(msg))
+                {
+                    <div class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                        <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
+                        <span>@msg</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="border-t border-slate-200 bg-slate-50 px-3 py-2">
+            <div class="flex flex-wrap gap-2">
+                <button @onclick="() => tab = 1"
+                        class="@TabClass(1)">
+                    <span class="@TabDotClass(1)"></span>
+                    <span>Structure</span>
+                </button>
+
+                <button @onclick="() => tab = 2"
+                        class="@TabClass(2)">
+                    <span class="@TabDotClass(2)"></span>
+                    <span>Sub-Segments</span>
+                </button>
+
+                <button @onclick="() => tab = 3"
+                        class="@TabClass(3)">
+                    <span class="@TabDotClass(3)"></span>
+                    <span>Main Accounts</span>
+                </button>
+
+                <button @onclick="() => tab = 4"
+                        class="@TabClass(4)">
+                    <span class="@TabDotClass(4)"></span>
+                    <span>Segmented COA</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        @if (definitions == null || definitions.Count == 0)
+        {
+            <div class="mx-auto max-w-xl py-10 text-center">
+                <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-700">
+                    <span class="text-xl font-black">!</span>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900">No Structure Found</h3>
+                <p class="mt-1 text-sm text-slate-500">The database appears to be empty. You can initialize the default segmented structure.</p>
+
+                <div class="mt-6">
+                    <button @onclick="ForceInitialize"
+                            class="inline-flex items-center justify-center rounded-xl bg-rose-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-rose-700 focus:outline-none focus:ring-4 focus:ring-rose-200">
+                        Initialize Default Structure
+                    </button>
+                </div>
+            </div>
+        }
+        else
+        {
+            @* TAB 1 *@
+            @if (tab == 1)
+            {
+                <div class="grid gap-5">
+                    <div class="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                        <p class="text-sm text-indigo-800">
+                            Segment 1 is the <span class="font-bold">Main Account</span> and cannot be renamed or disabled.
+                            Configure your sub-segments (2–6) below.
+                        </p>
+                    </div>
+
+                    <div class="grid gap-3">
+                        @foreach (var def in definitions)
+                        {
+                            <div class="group rounded-2xl border border-slate-200 bg-white p-4 transition hover:shadow-sm @(def.IsActive ? "" : "opacity-70")">
+                                <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+                                    <div class="flex items-center gap-3">
+                                        <div class="flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-sm @(def.IsActive ? "bg-indigo-600" : "bg-slate-400")">
+                                            <span class="text-sm font-extrabold">@def.SegmentNumber</span>
+                                        </div>
+
+                                        <div class="text-sm">
+                                            <div class="font-semibold text-slate-900">Segment @def.SegmentNumber</div>
+                                            <div class="text-xs text-slate-500">
+                                                @(def.SegmentNumber == 1 ? "Locked: Natural account segment" : "Configurable sub-segment")
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex-1 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
+                                        <div class="sm:col-span-2">
+                                            <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Name</label>
+                                            <input @bind="def.SegmentName"
+                                                   disabled="@(def.SegmentNumber == 1)"
+                                                   class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-500" />
+                                        </div>
+
+                                        <div>
+                                            <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Length</label>
+                                            <input type="number"
+                                                   @bind="def.Length"
+                                                   min="1" max="10"
+                                                   class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
+                                        </div>
+                                    </div>
+
+                                    <div class="sm:pl-2">
+                                        <label class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                                            <input type="checkbox"
+                                                   @bind="def.IsActive"
+                                                   disabled="@(def.SegmentNumber == 1)"
+                                                   class="h-5 w-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-200 disabled:opacity-60" />
+                                            <span>Active</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="flex items-center justify-end gap-3 pt-2">
+                        <button @onclick="SaveStructure"
+                                class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-200">
+                            Save Changes
+                        </button>
+                    </div>
+                </div>
+            }
+
+            @* TAB 2 *@
+            @if (tab == 2)
+            {
+                <div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                    <div class="lg:col-span-4">
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div class="mb-3">
+                                <h3 class="text-sm font-bold text-slate-900">Sub-Segment Values</h3>
+                                <p class="text-xs text-slate-500">Choose a segment, then add or review available values.</p>
+                            </div>
+
+                            <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Select Segment</label>
+                            <select @bind="selectedSeg"
+                                    class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100">
+                                @foreach (var d in definitions.Where(x => x.SegmentNumber > 1 && x.IsActive))
+                                {
+                                    <option value="@d.SegmentNumber">@d.SegmentName</option>
+                                }
+                            </select>
+
+                            <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                <div class="mb-3 flex items-center justify-between">
+                                    <h4 class="text-sm font-bold text-slate-900">Add New Value</h4>
+                                    <span class="text-[11px] font-semibold text-slate-500">Segment @selectedSeg</span>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Code</label>
+                                        <input @bind="newValCode"
+                                               placeholder="e.g. 100"
+                                               class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Description</label>
+                                        <input @bind="newValDesc"
+                                               placeholder="e.g. Finance"
+                                               class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
+                                    </div>
+
+                                    <button @onclick="AddVal"
+                                            class="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-200">
+                                        Add Value
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-8">
+                        <div class="rounded-2xl border border-slate-200 bg-white">
+                            <div class="flex items-center justify-between border-b border-slate-200 p-4">
+                                <div>
+                                    <h4 class="text-sm font-bold text-slate-900">Existing Values</h4>
+                                    <p class="text-xs text-slate-500">Values available for the selected segment.</p>
+                                </div>
+                                <button @onclick="LoadVals"
+                                        class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-100">
+                                    Refresh
+                                </button>
+                            </div>
+
+                            <div class="overflow-hidden rounded-b-2xl">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                        <tr>
+                                            <th class="p-3">Code</th>
+                                            <th class="p-3">Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach (var v in currentVals)
+                                        {
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="p-3">
+                                                    <span class="inline-flex items-center rounded-lg bg-indigo-50 px-2 py-1 font-mono text-xs font-bold text-indigo-700">
+                                                        @v.Value
+                                                    </span>
+                                                </td>
+                                                <td class="p-3 text-slate-800">@v.Description</td>
+                                            </tr>
+                                        }
+                                        @if (currentVals.Count == 0)
+                                        {
+                                            <tr>
+                                                <td colspan="2" class="p-6 text-center text-sm text-slate-400 italic">No values found for this segment.</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* TAB 3 *@
+            @if (tab == 3)
+            {
+                <div class="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                    <div class="lg:col-span-4">
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                            <div class="mb-3">
+                                <h4 class="text-sm font-bold text-slate-900">New Main Account</h4>
+                                <p class="text-xs text-slate-500">Create a natural account (segment 1).</p>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Account Type</label>
+                                    <select @bind="newMain.AccountType1Id"
+                                            class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100">
+                                        <option value="0">-- Select Type --</option>
+                                        @foreach (var t in accountTypes)
+                                        {
+                                            <option value="@t.Id">@t.Name (@(t.IsBalanceSheet ? "BS" : "PL"))</option>
+                                        }
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Account Code</label>
+                                    <input @bind="newMain.AccountCode"
+                                           placeholder="e.g. 4000"
+                                           class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
+                                </div>
+
+                                <div>
+                                    <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Account Name</label>
+                                    <input @bind="newMain.AccountName"
+                                           placeholder="e.g. Sales Revenue"
+                                           class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100" />
+                                </div>
+
+                                <button @onclick="AddMain"
+                                        class="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-200">
+                                    Create Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-8">
+                        <div class="rounded-2xl border border-slate-200 bg-white">
+                            <div class="flex items-center justify-between border-b border-slate-200 p-4">
+                                <div>
+                                    <h4 class="text-sm font-bold text-slate-900">Main Accounts</h4>
+                                    <p class="text-xs text-slate-500">Natural accounts available for account building.</p>
+                                </div>
+                            </div>
+
+                            <div class="overflow-hidden rounded-b-2xl">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                        <tr>
+                                            <th class="p-3">Code</th>
+                                            <th class="p-3">Name</th>
+                                            <th class="p-3">Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach (var m in mainAccounts)
+                                        {
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="p-3 font-mono font-bold text-slate-800">@m.AccountCode</td>
+                                                <td class="p-3 font-medium text-slate-900">@m.AccountName</td>
+                                                <td class="p-3 text-xs font-semibold text-slate-500">@m.AccountType?.Name</td>
+                                            </tr>
+                                        }
+                                        @if (mainAccounts.Count == 0)
+                                        {
+                                            <tr>
+                                                <td colspan="3" class="p-6 text-center text-sm text-slate-400 italic">No main accounts yet.</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* TAB 4 *@
+            @if (tab == 4)
+            {
+                <div class="space-y-6">
+
+                    <!-- Builder -->
+                    <div class="rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-900 to-slate-950 p-5 text-white shadow-sm">
+                        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h3 class="text-sm font-extrabold tracking-wide text-emerald-300">Account Builder</h3>
+                                <p class="text-xs text-slate-300">Select a natural account and optional segment values, then build.</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+                            <div class="md:col-span-4">
+                                <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-300">Main Account</label>
+                                <select @bind="buildMainId"
+                                        class="mt-1 w-full rounded-xl border border-slate-600 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-200/10">
+                                    <option value="@Guid.Empty">Select...</option>
+                                    @foreach (var m in mainAccounts)
+                                    {
+                                        <option value="@m.Id">@m.AccountCode - @m.AccountName</option>
+                                    }
+                                </select>
+                            </div>
+
+                            @for (int i = 2; i <= 6; i++)
+                            {
+                                var def = definitions.FirstOrDefault(d => d.SegmentNumber == i);
+                                if (def?.IsActive == true)
+                                {
+                                    int x = i;
+                                    <div class="md:col-span-2">
+                                        <label class="block text-[11px] font-bold uppercase tracking-wide text-slate-300">@def.SegmentName</label>
+                                        <select @onchange="(e) => buildSel[x] = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null"
+                                                class="mt-1 w-full rounded-xl border border-slate-600 bg-slate-900/50 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-200/10">
+                                            <option value="">Default (000)</option>
+                                            @if (buildOpts.ContainsKey(x))
+                                            {
+                                                foreach (var o in buildOpts[x])
+                                                {
+                                                    <option value="@o.Id">@o.Value - @o.Description</option>
+                                                }
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                            }
+
+                            <div class="md:col-span-2">
+                                <button @onclick="Build"
+                                        class="mt-1 w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-200/20">
+                                    Create Account
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results -->
+                    <div class="rounded-2xl border border-slate-200 bg-white">
+                        <div class="border-b border-slate-200 p-4">
+                            <h4 class="text-sm font-bold text-slate-900">Segmented Accounts</h4>
+                            <p class="text-xs text-slate-500">Built accounts with segment breakdown.</p>
+                        </div>
+
+                        <div class="overflow-hidden rounded-b-2xl">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Full Account Code</th>
+                                        <th class="p-3">Account Name</th>
+                                        <th class="p-3">Account Type</th>
+                                        <th class="p-3">Segments</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach (var a in segmentedAccounts)
+                                    {
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="p-3">
+                                                <span class="inline-flex items-center rounded-xl bg-indigo-50 px-3 py-1 font-mono text-sm font-extrabold text-indigo-700">
+                                                    @a.AccountCodeString
+                                                </span>
+                                            </td>
+
+                                            <td class="p-3">
+                                                <div class="font-semibold text-slate-900">@a.MainAccount?.AccountName</div>
+                                                <div class="text-xs font-semibold text-slate-500 font-mono">@a.MainAccount?.AccountCode</div>
+                                            </td>
+
+                                            <td class="p-3">
+                                                <span class="inline-flex items-center rounded-xl bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+                                                    @(a.MainAccount?.AccountType?.Name ?? "—")
+                                                </span>
+                                            </td>
+
+                                            <td class="p-3">
+                                                <div class="flex flex-wrap gap-2 text-xs">
+                                                    @if (a.Segment2 != null)
+                                                    {
+                                                        <span class="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                                                            Seg2: @a.Segment2.Value <span class="text-slate-500">(@a.Segment2.Description)</span>
+                                                        </span>
+                                                    }
+                                                    @if (a.Segment3 != null)
+                                                    {
+                                                        <span class="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                                                            Seg3: @a.Segment3.Value <span class="text-slate-500">(@a.Segment3.Description)</span>
+                                                        </span>
+                                                    }
+                                                    @if (a.Segment4 != null)
+                                                    {
+                                                        <span class="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                                                            Seg4: @a.Segment4.Value <span class="text-slate-500">(@a.Segment4.Description)</span>
+                                                        </span>
+                                                    }
+                                                    @if (a.Segment5 != null)
+                                                    {
+                                                        <span class="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                                                            Seg5: @a.Segment5.Value <span class="text-slate-500">(@a.Segment5.Description)</span>
+                                                        </span>
+                                                    }
+                                                    @if (a.Segment6 != null)
+                                                    {
+                                                        <span class="rounded-lg bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+                                                            Seg6: @a.Segment6.Value <span class="text-slate-500">(@a.Segment6.Description)</span>
+                                                        </span>
+                                                    }
+
+                                                    @if (a.Segment2 == null && a.Segment3 == null && a.Segment4 == null && a.Segment5 == null && a.Segment6 == null)
+                                                    {
+                                                        <span class="text-slate-400 italic">No sub-segments selected (all defaults).</span>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+
+                                    @if (segmentedAccounts.Count == 0)
+                                    {
+                                        <tr>
+                                            <td colspan="4" class="p-6 text-center text-sm text-slate-400 italic">No segmented accounts built yet.</td>
+                                        </tr>
+                                    }
+                                </tbody>
+
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    int tab = 1;
+    string msg = "";
+    Guid coId;
+
+    List<SegmentDefinition> definitions = new();
+    List<AccountType1> accountTypes = new();
+    List<MainAccount> mainAccounts = new();
+    List<SegmentedAccount> segmentedAccounts = new();
+
+    // Tab 2
+    int selectedSeg;
+    List<SegmentValue> currentVals = new();
+    string newValCode = "", newValDesc = "";
+
+    // Tab 3
+    MainAccount newMain = new();
+
+    // Tab 4
+    Guid buildMainId;
+    Dictionary<int, List<SegmentValue>> buildOpts = new();
+    Guid?[] buildSel = new Guid?[7];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var u = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (u?.CompanyDetailsId != null)
+        {
+            coId = u.CompanyDetailsId.Value;
+            await Load();
+        }
+    }
+
+    async Task Load()
+    {
+        definitions = await GlService.GetDefinitionsAsync();
+        accountTypes = await GlService.GetAccountTypesAsync();
+        mainAccounts = await GlService.GetMainAccountsAsync(coId);
+        segmentedAccounts = await GlService.GetSegmentedAccountsAsync(coId);
+
+        buildOpts.Clear();
+        foreach (var d in definitions.Where(x => x.SegmentNumber > 1 && x.IsActive))
+            buildOpts[d.SegmentNumber] = await GlService.GetSegmentValuesAsync(coId, d.SegmentNumber);
+
+        // Auto-select first active segment for Tab 2
+        if (selectedSeg == 0 && definitions.Any(d => d.SegmentNumber > 1))
+        {
+            selectedSeg = definitions.First(d => d.SegmentNumber > 1).SegmentNumber;
+            await LoadVals();
+        }
+        else if (selectedSeg > 0)
+        {
+            await LoadVals();
+        }
+
+        // If tab 4 main account isn't set, reset it to empty so dropdown remains consistent
+        if (buildMainId == Guid.Empty && mainAccounts.Count > 0)
+        {
+            // keep as empty - user must choose
+        }
+    }
+
+    async Task ForceInitialize()
+    {
+        await GlService.InitializeDefaultsAsync();
+        msg = "Structure Initialized Successfully!";
+        await Load();
+    }
+
+    async Task SaveStructure()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        foreach (var ui in definitions)
+        {
+            var db = await ctx.SegmentDefinitions.FindAsync(ui.SegmentNumber);
+            if (db != null)
+            {
+                db.SegmentName = ui.SegmentName;
+                db.Length = ui.Length;
+                db.IsActive = ui.IsActive;
+            }
+        }
+        await ctx.SaveChangesAsync();
+        msg = "Structure Saved!";
+        await Load();
+    }
+
+    async Task LoadVals() => currentVals = await GlService.GetSegmentValuesAsync(coId, selectedSeg);
+
+    async Task AddVal()
+    {
+        if (string.IsNullOrWhiteSpace(newValCode)) return;
+
+        var err = await GlService.CreateSegmentValueAsync(new SegmentValue
+        {
+            CompanyId = coId,
+            SegmentNumber = selectedSeg,
+            Value = newValCode,
+            Description = newValDesc
+        });
+
+        if (err == "")
+        {
+            newValCode = "";
+            newValDesc = "";
+            await LoadVals();
+            await Load();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    async Task AddMain()
+    {
+        newMain.CompanyId = coId;
+        var err = await GlService.CreateMainAccountAsync(newMain);
+
+        if (err == "")
+        {
+            newMain = new MainAccount();
+            await Load();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    async Task Build()
+    {
+        var err = await GlService.BuildSegmentedAccountAsync(coId, buildMainId, buildSel[2], buildSel[3], buildSel[4], buildSel[5], buildSel[6]);
+        if (err == "")
+        {
+            msg = "Account Created!";
+            await Load();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    string TabClass(int t) =>
+        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition focus:outline-none focus:ring-4 " +
+        (tab == t
+            ? "bg-white text-indigo-700 shadow-sm ring-indigo-100"
+            : "bg-transparent text-slate-600 hover:bg-white/70 hover:text-slate-900 ring-transparent");
+
+    string TabDotClass(int t) =>
+        "h-2 w-2 rounded-full " + (tab == t ? "bg-indigo-600" : "bg-slate-300");
+}

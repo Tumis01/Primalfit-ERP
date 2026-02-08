@@ -193,7 +193,7 @@
                                 <tr class="hover:bg-slate-50 group transition-colors">
                                     <td class="px-6 py-4 font-mono text-slate-600">@item.Date.ToString("yyyy-MM-dd")</td>
                                     <td class="px-6 py-4 font-bold text-slate-900">@item.Currency?.CurrencyCode</td>
-                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@item.Rate.ToString("N4")</td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@item.Rate.ToString("N2")</td>
                                     <td class="px-6 py-4 text-right">
                                         <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
                                             <button @onclick="() => EditRate(item)" class="text-slate-600 hover:text-indigo-600 font-bold text-xs">Edit</button>

@@ -12,8 +12,8 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260204144026_sales_update")]
-    partial class sales_update
+    [Migration("20260207185754_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -129,6 +129,26 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.AccountType1", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsBalanceSheet")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDebit")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AccountTypes1");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.AccountingPeriod", b =>
@@ -282,6 +302,29 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.AssetDepreciationHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("FixedAssetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("GlBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AssetDepreciationHistories");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -323,9 +366,6 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("AccountingPeriodId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime?>("ApprovedAt")
                         .HasColumnType("datetime2");
 
@@ -334,6 +374,9 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid>("BankAccountId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("BookBalanceAtDate")
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
@@ -354,9 +397,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<int>("Type")
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.ToTable("BankReconciliations");
@@ -371,17 +411,11 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Amount")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("date");
-
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<bool>("IsMatched")
+                    b.Property<bool>("IsCleared")
                         .HasColumnType("bit");
 
                     b.Property<Guid?>("MatchedGLTransactionId")
@@ -393,6 +427,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<string>("Reference")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateOnly>("TransactionDate")
+                        .HasColumnType("date");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ReconciliationId");
@@ -400,47 +437,134 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("BankStatementLines");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BusinessPartner", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetHeader", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("CompanyId")
+                    b.Property<Guid>("AccountingPeriodId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Email")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsCustomer")
-                        .HasColumnType("bit");
-
-                    b.Property<bool>("IsVendor")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
+                    b.Property<string>("BudgetName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("PayablesAccountId")
+                    b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Phone")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid?>("ReceivablesAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("TaxId")
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PayablesAccountId");
+                    b.ToTable("BudgetHeaders");
+                });
 
-                    b.HasIndex("ReceivablesAccountId");
+            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
 
-                    b.ToTable("BusinessPartners");
+                    b.Property<Guid>("BudgetHeaderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("GlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("LimitAmount")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BudgetHeaderId");
+
+                    b.ToTable("BudgetLines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("BankAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BatchReference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("OpeningBalance")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid?>("PostedGLBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalCredits")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("TotalDebits")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CashbookBatches");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CashbookBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Credit")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("Debit")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("OffsetAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("TransactionDate")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CashbookBatchId");
+
+                    b.ToTable("CashbookEntries");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyDetails", b =>
@@ -563,54 +687,180 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("CurrencyManagements");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Customer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("ReceivablesAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
+
+                    b.ToTable("Customers");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerPayment", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("BankGlAccountId")
+                    b.Property<decimal>("AmountReceived")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("CompanyDetailsId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CurrencyId")
+                    b.Property<Guid>("CreditGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CustomerId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("DepositToGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<DateTime>("PaymentDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("PostedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("PostedByUserId")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<byte[]>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("rowversion");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmountReceived")
                         .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BankGlAccountId");
-
-                    b.HasIndex("CustomerId");
-
                     b.ToTable("CustomerPayments");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.FinancialDashboardSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CashOnHand")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CurrentRatio")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("DaysSalesOutstanding")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("GrossProfitMargin")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("InventoryTurnover")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<DateTime>("LastRefresh")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("LowStockItemsCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("NetProfitMTD")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("NetProfitMargin")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<int>("OverdueInvoicesCount")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("QuickRatio")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("RevenueMTD")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FinancialDashboardSnapshots");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.FixedAsset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AccumulatedDepreciationAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssetName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("AssetTag")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CurrentBookValue")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("DepreciationExpenseAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DepreciationStartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("FixedAssetAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("LastDepreciationDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("PurchaseCost")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<DateTime>("PurchaseDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("SalvageValue")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<string>("SerialNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UsefulLifeMonths")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FixedAssets");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLAccountType", b =>
@@ -868,6 +1118,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<DateOnly>("PostingDate")
                         .HasColumnType("date");
 
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("ReconciledAt")
                         .HasColumnType("datetime2");
 
@@ -876,7 +1129,58 @@ namespace Primafit_ERP.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ProjectId");
+
                     b.ToTable("GLTransactions");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DateReceived")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("GrnNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("InventoryGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GoodsReceipts");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceiptLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("GoodsReceiptId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PurchaseOrderLineId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("QuantityReceived")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GoodsReceiptId");
+
+                    b.ToTable("GoodsReceiptLine");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Item", b =>
@@ -932,6 +1236,75 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("Items");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemCostHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DateChanged")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("NewCostIn")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("NewQtyIn")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("OldQty")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("OldWacc")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("ResultingWacc")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.ToTable("ItemCostHistories");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.MainAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AccountCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("AccountName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("AccountType1Id")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountType1Id");
+
+                    b.HasIndex("CompanyId", "AccountCode")
+                        .IsUnique();
+
+                    b.ToTable("MainAccounts");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.PaymentApplication", b =>
                 {
                     b.Property<Guid>("Id")
@@ -952,8 +1325,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CustomerPaymentId");
-
                     b.ToTable("PaymentApplications");
                 });
 
@@ -963,25 +1334,149 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                    b.Property<decimal>("BudgetedCost")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("BudgetedRevenue")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<decimal>("ProjectBudget")
-                        .HasColumnType("decimal(18, 6)");
+                    b.Property<string>("ProjectCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
-                    b.Property<bool>("Status")
-                        .HasColumnType("bit");
+                    b.Property<DateTime>("StartDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
                     b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("ExchangeRate")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid?>("LinkedSalesOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OrderDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("OrderNumber")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PurchaseOrders");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrderLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.ToTable("PurchaseOrderLines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ReceivablesGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SalesOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SalesInvoices");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevenueGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("SalesInvoiceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SalesInvoiceId");
+
+                    b.ToTable("SalesInvoiceLines");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrder", b =>
@@ -1018,6 +1513,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("TaxId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
@@ -1045,9 +1543,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Quantity")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<Guid?>("TaxId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<decimal>("UnitPrice")
                         .HasColumnType("decimal(18, 6)");
 
@@ -1058,6 +1553,109 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("ItemId");
 
                     b.ToTable("SalesOrderLines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SegmentDefinition", b =>
+                {
+                    b.Property<int>("SegmentNumber")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Length")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SegmentName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("SegmentNumber");
+
+                    b.ToTable("SegmentDefinitions");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SegmentValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SegmentNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "SegmentNumber", "Value")
+                        .IsUnique();
+
+                    b.ToTable("SegmentValues");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SegmentedAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AccountCodeString")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MainAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Segment2ValueId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Segment3ValueId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Segment4ValueId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Segment5ValueId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("Segment6ValueId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MainAccountId");
+
+                    b.HasIndex("Segment2ValueId");
+
+                    b.HasIndex("Segment3ValueId");
+
+                    b.HasIndex("Segment4ValueId");
+
+                    b.HasIndex("Segment5ValueId");
+
+                    b.HasIndex("Segment6ValueId");
+
+                    b.HasIndex("CompanyId", "AccountCodeString")
+                        .IsUnique();
+
+                    b.ToTable("SegmentedAccounts");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.StockLedger", b =>
@@ -1150,33 +1748,69 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("StockTransfers");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Vendor", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("PayablesAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Phone")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
+
+                    b.ToTable("Vendors");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorBill", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("AccountsPayableGlId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("BillDate")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid>("CompanyDetailsId")
+                    b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CurrencyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("DueDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("ExternalInvoiceNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<int>("Status")
+                    b.Property<int>("MatchStatus")
                         .HasColumnType("int");
+
+                    b.Property<string>("MatchVarianceReason")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("PurchaseOrderId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 6)");
@@ -1185,8 +1819,6 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("VendorId");
 
                     b.ToTable("VendorBills");
                 });
@@ -1197,17 +1829,16 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<Guid>("ExpenseGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("Quantity")
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("QuantityBilled")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<decimal>("UnitCost")
+                    b.Property<decimal>("UnitCostBilled")
                         .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("VendorBillId")
@@ -1215,11 +1846,45 @@ namespace Primafit_ERP.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ExpenseGlAccountId");
-
                     b.HasIndex("VendorBillId");
 
                     b.ToTable("VendorBillLines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.WaccHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("DateChanged")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("IncomingCost")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("IncomingQty")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("NewWacc")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("OldQty")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("OldWacc")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("WaccHistories");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Warehouse", b =>
@@ -1341,19 +2006,22 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Reconciliation");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BusinessPartner", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetLine", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.GLChartOfAccount", "PayablesAccount")
-                        .WithMany()
-                        .HasForeignKey("PayablesAccountId");
+                    b.HasOne("Primafit_ERP.Components.Models.BudgetHeader", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("BudgetHeaderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
 
-                    b.HasOne("Primafit_ERP.Components.Models.GLChartOfAccount", "ReceivablesAccount")
-                        .WithMany()
-                        .HasForeignKey("ReceivablesAccountId");
-
-                    b.Navigation("PayablesAccount");
-
-                    b.Navigation("ReceivablesAccount");
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookEntry", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CashbookBatch", null)
+                        .WithMany("Entries")
+                        .HasForeignKey("CashbookBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyDetails", b =>
@@ -1376,23 +2044,15 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Currency");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerPayment", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Customer", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.GLChartOfAccount", "BankAccount")
+                    b.HasOne("Primafit_ERP.Components.Models.Currency", "DefaultCurrency")
                         .WithMany()
-                        .HasForeignKey("BankGlAccountId")
+                        .HasForeignKey("CurrencyId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.BusinessPartner", "Customer")
-                        .WithMany()
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("BankAccount");
-
-                    b.Navigation("Customer");
+                    b.Navigation("DefaultCurrency");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLAccountType", b =>
@@ -1485,13 +2145,58 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Company");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PaymentApplication", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GLTransaction", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.CustomerPayment", null)
-                        .WithMany("Applications")
-                        .HasForeignKey("CustomerPaymentId")
+                    b.HasOne("Primafit_ERP.Components.Models.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceiptLine", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceipt", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("GoodsReceiptId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemCostHistory", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Item", null)
+                        .WithMany("CostHistory")
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.MainAccount", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.AccountType1", "AccountType")
+                        .WithMany()
+                        .HasForeignKey("AccountType1Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AccountType");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrderLine", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseOrder", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoiceLine", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("SalesInvoiceId");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrder", b =>
@@ -1502,7 +2207,7 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.BusinessPartner", "Customer")
+                    b.HasOne("Primafit_ERP.Components.Models.Customer", "Customer")
                         .WithMany()
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -1532,6 +2237,47 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Item");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SegmentedAccount", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.MainAccount", "MainAccount")
+                        .WithMany()
+                        .HasForeignKey("MainAccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegmentValue", "Segment2")
+                        .WithMany()
+                        .HasForeignKey("Segment2ValueId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegmentValue", "Segment3")
+                        .WithMany()
+                        .HasForeignKey("Segment3ValueId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegmentValue", "Segment4")
+                        .WithMany()
+                        .HasForeignKey("Segment4ValueId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegmentValue", "Segment5")
+                        .WithMany()
+                        .HasForeignKey("Segment5ValueId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegmentValue", "Segment6")
+                        .WithMany()
+                        .HasForeignKey("Segment6ValueId");
+
+                    b.Navigation("MainAccount");
+
+                    b.Navigation("Segment2");
+
+                    b.Navigation("Segment3");
+
+                    b.Navigation("Segment4");
+
+                    b.Navigation("Segment5");
+
+                    b.Navigation("Segment6");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.StockTransfer", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.Warehouse", "FromWarehouse")
@@ -1559,32 +2305,24 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("ToWarehouse");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorBill", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Vendor", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.BusinessPartner", "Vendor")
+                    b.HasOne("Primafit_ERP.Components.Models.Currency", "DefaultCurrency")
                         .WithMany()
-                        .HasForeignKey("VendorId")
+                        .HasForeignKey("CurrencyId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Vendor");
+                    b.Navigation("DefaultCurrency");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorBillLine", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.GLChartOfAccount", "ExpenseAccount")
-                        .WithMany()
-                        .HasForeignKey("ExpenseGlAccountId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("Primafit_ERP.Components.Models.VendorBill", null)
                         .WithMany("Lines")
                         .HasForeignKey("VendorBillId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("ExpenseAccount");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.BankReconciliation", b =>
@@ -1592,9 +2330,14 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("StatementLines");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerPayment", b =>
+            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetHeader", b =>
                 {
-                    b.Navigation("Applications");
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookBatch", b =>
+                {
+                    b.Navigation("Entries");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLBatch", b =>
@@ -1603,6 +2346,26 @@ namespace Primafit_ERP.Migrations
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLJournalHeader", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceipt", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Item", b =>
+                {
+                    b.Navigation("CostHistory");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrder", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoice", b =>
                 {
                     b.Navigation("Lines");
                 });

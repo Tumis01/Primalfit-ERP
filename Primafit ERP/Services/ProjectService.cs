@@ -34,20 +34,36 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            // 1. Validate
+            if (string.IsNullOrWhiteSpace(project.Name)) return "Project Name is required.";
+            if (project.CompanyId == Guid.Empty) return "Company ID is missing.";
+
+            // 2. CHECK DATABASE: Does this ID actually exist?
+            // We do not trust 'project.Id' alone because it might be a new GUID generated in memory.
+            var existing = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == project.Id);
+
             try
             {
-                if (project.Id == Guid.Empty)
+                if (existing == null)
                 {
-                    project.Id = Guid.NewGuid();
+                    // --- CASE A: CREATE NEW ---
+                    if (project.Id == Guid.Empty) project.Id = Guid.NewGuid();
+
                     ctx.Projects.Add(project);
                 }
                 else
                 {
-                    ctx.Projects.Update(project);
+                    // --- CASE B: UPDATE EXISTING ---
+                    // Preserve the CompanyId to prevent accidental overwrites
+                    project.CompanyId = existing.CompanyId;
+
+                    // Update the values
+                    ctx.Entry(existing).CurrentValues.SetValues(project);
                 }
 
+                // 3. Save Changes
                 await ctx.SaveChangesAsync();
-                return string.Empty; // Success
+                return string.Empty;
             }
             catch (Exception ex)
             {

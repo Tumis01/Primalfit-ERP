@@ -97,20 +97,22 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SaveRateAsync(Guid companyId, CurrencyManagement rate, string baseCurrency)
         {
-            using var context = _dbFactory.CreateDbContext();
+            using var context = await _dbFactory.CreateDbContextAsync(); // Use Async version
 
             if (companyId == Guid.Empty) return "Select a company first.";
             if (rate.CurrencyId == Guid.Empty) return "Select a Currency.";
             if (rate.Rate <= 0) return "Rate must be greater than 0.";
             if (string.IsNullOrWhiteSpace(baseCurrency)) return "Company Base Currency is not set.";
 
-            // 1. Sanitize Date (Strip time)
-            rate.Date = rate.Date.Date.ToUniversalTime();
+            // --- THE FIX ---
+            // 1. Strip time to ensure 00:00:00
+            // 2. Specify Kind as UTC directly. DO NOT use ToUniversalTime() which shifts the hour.
+            rate.Date = DateTime.SpecifyKind(rate.Date.Date, DateTimeKind.Utc);
 
-            // 2. Ensure Base Currency matches Company
+            // Ensure Base Currency matches Company
             rate.ExchangeCurrency = baseCurrency.Trim().ToUpperInvariant();
 
-            // 3. Check for Duplicate Rate on same day
+            // Check for Duplicate Rate on same day
             bool exists = await context.CurrencyManagements.AnyAsync(r =>
                 r.CompanyId == companyId &&
                 r.CurrencyId == rate.CurrencyId &&
@@ -123,7 +125,7 @@ namespace Primafit_ERP.Services
             {
                 rate.Id = Guid.NewGuid();
                 rate.CompanyId = companyId;
-                context.CurrencyManagements.Add(rate);
+                context.CurrencyManagements.Add(rate); // This line had a syntax error in your snippet (missing context)
             }
             else
             {
@@ -133,7 +135,7 @@ namespace Primafit_ERP.Services
                 existing.CurrencyId = rate.CurrencyId;
                 existing.Rate = rate.Rate;
                 existing.Date = rate.Date;
-                existing.ExchangeCurrency = rate.ExchangeCurrency; // Ensure base stays correct
+                existing.ExchangeCurrency = rate.ExchangeCurrency;
             }
 
             await context.SaveChangesAsync();

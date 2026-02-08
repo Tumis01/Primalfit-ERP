@@ -30,16 +30,19 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SaveVendorBillAsync(VendorBill bill)
         {
-            if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = string.Empty;
+            // FIX 1: Prevent Null Crashes
+            if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = "";
+            if (bill.ExternalInvoiceNumber == null) bill.ExternalInvoiceNumber = "";
+            // FIX 2: Validate Company ID (The most common cause of "Entity Save" errors)
+            if (bill.CompanyId == Guid.Empty)
+                return "System Error: Bill has no Company ID. Please log out and log in again.";
 
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             // 1. Basic Validation
             if (bill.Lines.Count == 0) return "Bill must have at least one line.";
             if (bill.VendorId == Guid.Empty) return "Vendor is required.";
-            if (bill.AccountsPayableGlId == Guid.Empty) return "AP Account is required.";
 
-            // 2. CHECK DATABASE (The Fix)
             var existing = await ctx.VendorBills
                 .Include(b => b.Lines)
                 .FirstOrDefaultAsync(b => b.Id == bill.Id);
@@ -51,25 +54,20 @@ namespace Primafit_ERP.Services
                     // --- NEW BILL ---
                     if (bill.Id == Guid.Empty) bill.Id = Guid.NewGuid();
 
-                    // Link lines
                     foreach (var line in bill.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.VendorBillId = bill.Id;
                         ctx.VendorBillLines.Add(line);
                     }
-
                     ctx.VendorBills.Add(bill);
                 }
                 else
                 {
                     // --- UPDATE EXISTING ---
-                    // Preserve CompanyId
-                    bill.CompanyId = existing.CompanyId;
-
+                    bill.CompanyId = existing.CompanyId; // Preserve Company ID
                     ctx.Entry(existing).CurrentValues.SetValues(bill);
 
-                    // Replace lines
                     ctx.VendorBillLines.RemoveRange(existing.Lines);
                     foreach (var line in bill.Lines)
                     {
@@ -81,23 +79,19 @@ namespace Primafit_ERP.Services
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
-            catch (DbUpdateException dbEx)
-            {
-                // UNWRAP THE INNER EXCEPTION
-                var errorMsg = dbEx.InnerException?.Message ?? dbEx.Message;
-
-                // Check for specific common errors
-                if (errorMsg.Contains("FOREIGN KEY constraint"))
-                {
-                    if (errorMsg.Contains("Vendors")) return "Database Error: Invalid Vendor ID.";
-                    if (errorMsg.Contains("GLAccounts")) return "Database Error: One of the GL Accounts (AP or Expense) is missing or invalid.";
-                }
-
-                return $"Database Validation Error: {errorMsg}";
-            }
+            // FIX 3: USE RECURSIVE ERROR LOGGING (To find the real reason)
             catch (Exception ex)
             {
-                return $"System Error: {ex.Message}";
+                var msg = ex.Message;
+                var inner = ex.InnerException;
+                while (inner != null)
+                {
+                    msg += " --> " + inner.Message;
+                    inner = inner.InnerException;
+                }
+
+                // This will now print "Foreign Key Constraint FK_VendorBills_Companies" instead of just "Error saving"
+                return $"DATABASE ERROR: {msg}";
             }
         }
 
@@ -231,67 +225,105 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Validate inputs
-            if (grn.Lines.All(l => l.QuantityReceived <= 0)) return "No quantity received.";
-            if (warehouseId == Guid.Empty) return "Warehouse is required.";
+            // ... [Keep your existing Validation and Inventory Logic here] ... 
+            // ... (Steps 1, 2, 3, and 4 from your existing code) ...
 
-            // 2. Fetch Parent PO to get Costs and Vendor (Required for WACC & Journal)
+            // --- NEW LOGIC: UPDATE PO STATUS ---
+
+            // 1. Get the PO and all its existing receipts (including this new one)
             var po = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
 
-            if (po == null) return "Parent Purchase Order not found.";
+            var allReceipts = await ctx.GoodsReceipts
+                .Include(g => g.Lines)
+                .Where(g => g.PurchaseOrderId == po.Id)
+                .ToListAsync();
 
-            // 3. Process the Receipt Header
-            if (grn.Id == Guid.Empty) grn.Id = Guid.NewGuid();
-            ctx.GoodsReceipts.Add(grn);
+            // 2. Calculate Totals
+            bool allItemsReceived = true;
+            bool anyItemsReceived = false;
 
-            // Save GRN first so we have an ID (optional, but good for data integrity)
-            await ctx.SaveChangesAsync();
-
-            // 4. LOOP LINES -> TRIGGER INVENTORY SERVICE
-            foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
+            foreach (var poLine in po.Lines)
             {
-                var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
-                if (poLine == null) continue;
+                // Sum received quantity for this specific line across all GRNs
+                decimal receivedQty = allReceipts
+                    .SelectMany(g => g.Lines)
+                    .Where(l => l.PurchaseOrderLineId == poLine.Id)
+                    .Sum(l => l.QuantityReceived);
 
-                // Calculate Value of this specific receipt batch for WACC
-                decimal landedCost = grnLine.QuantityReceived * poLine.UnitCost;
+                if (receivedQty > 0) anyItemsReceived = true;
 
-                // CALL THE INVENTORY ENGINE
-                // This updates WACC, Stock Ledger, and Posts the Journal
-                var err = await _inventoryService.ReceiveStockAsync(
-                    grn.CompanyId,
-                    poLine.ItemId,
-                    warehouseId,
-                    grnLine.QuantityReceived,
-                    landedCost,
-                    po.VendorId,
-                    grn.GrnNumber // Reference string for Audit Trail
-                );
-
-                if (!string.IsNullOrEmpty(err))
+                // If we haven't received enough of THIS line, the PO isn't closed.
+                if (receivedQty < poLine.QuantityOrdered)
                 {
-                    // If one line fails, we should probably stop and report it
-                    return $"Error receiving Item {poLine.ItemId}: {err}";
+                    allItemsReceived = false;
                 }
             }
 
+            // 3. Set Status
+            if (allItemsReceived)
+            {
+                po.Status = PurchaseOrderStatus.Closed;
+            }
+            else if (anyItemsReceived)
+            {
+                po.Status = PurchaseOrderStatus.PartiallyReceived;
+            }
+            else
+            {
+                po.Status = PurchaseOrderStatus.Open;
+            }
+
+            await ctx.SaveChangesAsync();
             return string.Empty;
         }
-
         public async Task<List<PurchaseOrder>> GetOpenPOsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Fetches all POs for the company. 
-            // In a future phase, you might filter this by p.Status != POStatus.Closed
             return await ctx.PurchaseOrders
-                .AsNoTracking() // Performance optimization for read-only lists
+                .AsNoTracking()
                 .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId)
+                .Where(p => p.CompanyId == companyId && p.Status != PurchaseOrderStatus.Closed) // <--- FILTER ADDED
                 .OrderByDescending(p => p.OrderDate)
                 .ToListAsync();
+        }
+        public async Task<(Guid CurrencyId, string CurrencyCode, decimal Rate)> GetVendorCurrencyDataAsync(Guid vendorId, Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            //  Get Vendor and their Currency
+            var vendor = await ctx.Vendors
+                .Include(v => v.DefaultCurrency) // Ensure you have a navigation property or Join manually
+                .FirstOrDefaultAsync(v => v.Id == vendorId);
+
+            if (vendor == null) return (Guid.Empty, "", 1);
+
+            //  vendor has no specific currency, assume Company Base Currency (Rate 1)
+            if (vendor.CurrencyId == Guid.Empty) return (Guid.Empty, "BASE", 1);
+
+            //  Get Company Base Currency Code (for logic check)
+            var company = await ctx.CompanyDetails.FindAsync(companyId);
+            if (company == null) return (Guid.Empty, "", 1);
+
+            //  Get Latest Exchange Rate
+            // Logic: Find the most recent rate for this Currency linked to this Company
+            var latestRateEntry = await ctx.CurrencyManagements
+                .Where(c => c.CompanyId == companyId && c.CurrencyId == vendor.CurrencyId)
+                .OrderByDescending(c => c.Date)
+                .FirstOrDefaultAsync();
+
+            decimal rate = latestRateEntry?.Rate ?? 1.0m; // Default to 1 if no rate found
+
+           
+
+            return (vendor.CurrencyId, vendor.DefaultCurrency?.CurrencyCode ?? "???", rate);
+        }
+        public async Task<bool> CheckIfPoHasReceipts(Guid poId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.GoodsReceipts.AnyAsync(g => g.PurchaseOrderId == poId);
         }
         public async Task<string> PostVendorBillAsync(Guid billId)
         {
@@ -338,11 +370,42 @@ namespace Primafit_ERP.Services
             if (period.IsClosed)
                 return $"STOP: The Accounting Period for {postDate} is Closed.";
 
+            if (bill.TotalAmount == 0 && bill.TotalAmountForeign > 0 && bill.ExchangeRate > 0)
+            {
+                bill.TotalAmount = bill.TotalAmountForeign * bill.ExchangeRate;
+            }
 
-            // --- 3. EXECUTE POSTING (If we get here, data is valid) ---
+            // --- 3. PREPARE GL LINES (IN BASE CURRENCY) ---
             var glLines = new List<GLJournalLine>();
             var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
             string vendorName = vendor?.Name ?? "Unknown";
+
+            // Debits (Expenses/Assets) - Converted to Base
+            foreach (var line in bill.Lines)
+            {
+                // Calculate Line Total in Base Currency
+                // Formula: (Qty * UnitCostForeign) * ExchangeRate
+                decimal lineTotalBase = (line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate;
+
+                glLines.Add(new GLJournalLine
+                {
+                    AccountId = line.ExpenseGlAccountId,
+                    Debit = lineTotalBase, // <--- POSTING BASE AMOUNT
+                    Credit = 0,
+                    Reference = $"Bill: {bill.ExternalInvoiceNumber}"
+                });
+            }
+
+            // Credit (Accounts Payable) - Converted to Base
+            glLines.Add(new GLJournalLine
+            {
+                AccountId = bill.AccountsPayableGlId,
+                Debit = 0,
+                Credit = bill.TotalAmount, // <--- POSTING BASE AMOUNT
+                Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
+            });
+
+            
 
             // Debits
             foreach (var line in bill.Lines)
