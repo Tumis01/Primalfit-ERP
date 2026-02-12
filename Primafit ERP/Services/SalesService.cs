@@ -17,14 +17,14 @@ namespace Primafit_ERP.Services
             _invService = invService;
         }
 
-       
+        // 1. GET ORDERS
         public async Task<List<SalesOrder>> GetOrdersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.SalesOrders
                 .Include(o => o.Customer)
                 .Include(o => o.Currency)
-                .Include(o => o.Lines) // <--- ADD THIS LINE (CRITICAL)
+                .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId)
                 .OrderByDescending(o => o.Date)
                 .AsNoTracking()
@@ -42,21 +42,31 @@ namespace Primafit_ERP.Services
         }
 
         // 3. CREATE / UPDATE ORDER
-        // 3. CREATE / UPDATE ORDER
         public async Task<string> SaveOrderAsync(SalesOrder order)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (order.CompanyId == Guid.Empty) return "System Error: Company ID missing.";
             if (order.CustomerId == Guid.Empty) return "Customer is required.";
-            if (order.WarehouseId == Guid.Empty) return "Fulfillment Warehouse is required.";
             if (!order.Lines.Any()) return "Order must have at least one line.";
 
-            // INVENTORY RESERVATION CHECK
+            // --- FIX: SMART WAREHOUSE VALIDATION ---
+            // Only require a warehouse if there are PHYSICAL items in the cart.
+            // We need to fetch items to check their type.
+            var lineItemIds = order.Lines.Select(l => l.ItemId).Distinct().ToList();
+            var itemsMap = await ctx.Items.Where(i => lineItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
+
+            bool hasPhysicalItems = order.Lines.Any(l => itemsMap.ContainsKey(l.ItemId) && !itemsMap[l.ItemId].IsService);
+
+            if (hasPhysicalItems && order.WarehouseId == Guid.Empty)
+            {
+                return "Fulfillment Warehouse is required for physical items.";
+            }
+
+            // --- INVENTORY RESERVATION CHECK (Physical Only) ---
             foreach (var line in order.Lines)
             {
-                var item = await ctx.Items.FindAsync(line.ItemId);
-                if (item != null && !item.IsService)
+                if (itemsMap.TryGetValue(line.ItemId, out var item) && !item.IsService)
                 {
                     decimal availableToPromise = await _invService.GetAvailableToPromiseAsync(
                         order.CompanyId, line.ItemId, order.WarehouseId, order.Id);
@@ -71,9 +81,7 @@ namespace Primafit_ERP.Services
             {
                 order.Id = Guid.NewGuid();
                 order.OrderNumber = $"SO-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
-
-                // FIX: Automatically Confirm new orders so they are ready for invoicing
-                order.Status = OrderStatus.Confirmed;
+                order.Status = OrderStatus.Confirmed; // Auto-confirm
 
                 foreach (var line in order.Lines)
                 {
@@ -88,8 +96,6 @@ namespace Primafit_ERP.Services
             {
                 var existing = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == order.Id);
                 if (existing == null) return "Order not found.";
-
-                // FIX: Allow editing anytime UNTIL it is invoiced
                 if (existing.Status == OrderStatus.Invoiced) return "Cannot edit an order that has already been invoiced.";
 
                 existing.CustomerId = order.CustomerId;
@@ -119,7 +125,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // 4. SHIP ORDER (Unchanged)
+        // 4. SHIP ORDER (Physical Stock Deduction)
         public async Task<string> ShipOrderAsync(Guid orderId, Guid warehouseId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -128,15 +134,15 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
-            if (order.Status != OrderStatus.Confirmed) return "Order must be confirmed before shipping.";
 
             var glLines = new List<GLJournalLine>();
 
             foreach (var line in order.Lines)
             {
+                // FIX: Skip services completely for shipping/stock deduction
                 if (line.Item == null || line.Item.IsService) continue;
 
-                // 1. Check Physical Stock (Since we reserved it, this should generally pass, but it's a final safety net)
+                // 1. Check Physical Stock
                 decimal currentStock = await _invService.GetStockLevel(line.ItemId, warehouseId);
                 if (currentStock < line.Quantity)
                     return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Need: {line.Quantity}";
@@ -150,12 +156,12 @@ namespace Primafit_ERP.Services
                     WarehouseId = warehouseId,
                     QuantityChanged = -line.Quantity, // Deduct
                     Type = StockMovementType.Sale,
-                    CostAtTime = line.Item.WeightedAverageCost, // WACC is ALWAYS in Base Currency
+                    CostAtTime = line.Item.WeightedAverageCost,
                     Reference = order.OrderNumber,
                     Date = DateTime.UtcNow
                 });
 
-                // 3. Prepare COGS Journal (In Base Currency)
+                // 3. COGS Journal (Base Currency)
                 decimal cogsValueBase = line.Quantity * line.Item.WeightedAverageCost;
                 if (cogsValueBase > 0)
                 {
@@ -164,15 +170,13 @@ namespace Primafit_ERP.Services
                 }
             }
 
-            // 4. Post Shipment Journal
+            // 4. Post Shipment Journal (Only if physical items existed)
             if (glLines.Any())
             {
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment", $"Ship {order.OrderNumber}", glLines);
                 if (!string.IsNullOrEmpty(err)) return err;
 
-                // Auto-post the COGS batch
                 if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value);
-
                 order.ShipmentBatchId = batchId;
             }
 
@@ -181,106 +185,41 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<string> PostSalesInvoiceAsync(Guid invoiceId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            // Fetch Invoice with lines
-            var inv = await ctx.SalesInvoices
-                .Include(i => i.Lines)
-                .FirstOrDefaultAsync(i => i.Id == invoiceId);
-
-            if (inv == null) return "Invoice not found";
-
-            var glLines = new List<GLJournalLine>();
-            decimal totalInvoice = inv.Lines.Sum(x => x.Amount);
-
-            // 1. DEBIT RECEIVABLE (Asset) - User Selected Account
-            glLines.Add(new GLJournalLine
-            {
-                AccountId = inv.ReceivablesGlAccountId,
-                Debit = totalInvoice,
-                Credit = 0,
-                Reference = "Invoice Revenue"
-            });
-
-            // 2. CREDIT REVENUE (Income) - User Selected Account per line
-            foreach (var line in inv.Lines)
-            {
-                glLines.Add(new GLJournalLine
-                {
-                    AccountId = line.RevenueGlAccountId,
-                    Debit = 0,
-                    Credit = line.Amount,
-                    Reference = "Sales Revenue"
-                });
-            }
-
-            // 3. SEND TO GL ENGINE
-            var (err, batchId) = await _glOps.CreateJournalEntryAsync(
-                inv.CompanyId,
-                DateOnly.FromDateTime(DateTime.Today), // Or Invoice Date
-                "Sales Invoice",
-                $"Inv {inv.Id.ToString().Substring(0, 8)}",
-                glLines
-            );
-
-            return err;
-        }
-        // Add this inside SalesService.cs
-        public async Task<string> TerminateOrderAsync(Guid orderId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            var order = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId);
-
-            if (order == null) return "Order not found.";
-            if (order.Status == OrderStatus.Invoiced) return "Cannot terminate an order that has already been invoiced.";
-
-            // Remove the lines and the order completely
-            ctx.SalesOrderLines.RemoveRange(order.Lines);
-            ctx.SalesOrders.Remove(order);
-
-            await ctx.SaveChangesAsync();
-            return string.Empty;
-        }
+        // 5. INVOICE ORDER (Financial Posting + Auto Ship)
         public async Task<string> InvoiceOrderAsync(Guid orderId, Guid? warehouseId = null)
         {
-           using var ctx = await _dbFactory.CreateDbContextAsync();
-    using var transaction = await ctx.Database.BeginTransactionAsync(); 
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var transaction = await ctx.Database.BeginTransactionAsync();
 
-    try
-    {
-        var order = await ctx.SalesOrders
-            .Include(o => o.Customer)
-            .Include(o => o.Lines).ThenInclude(l => l.Item)
-            .FirstOrDefaultAsync(o => o.Id == orderId);
+            try
+            {
+                var order = await ctx.SalesOrders
+                    .Include(o => o.Customer)
+                    .Include(o => o.Lines).ThenInclude(l => l.Item)
+                    .FirstOrDefaultAsync(o => o.Id == orderId);
 
-        if (order == null) return "Order not found.";
-        
-        // FIX: Removed the "Draft" block. 
-        // Only block it if it has ALREADY been invoiced.
-        if (order.Status == OrderStatus.Invoiced) return "Order is already invoiced.";
+                if (order == null) return "Order not found.";
+                if (order.Status == OrderStatus.Invoiced) return "Order is already invoiced.";
 
-        var glLines = new List<GLJournalLine>();
+                var glLines = new List<GLJournalLine>();
 
-        // --- STEP 1: AUTO-SHIP ---
-        // Changed to run Auto-Ship for ANY status prior to Invoiced (Draft or Confirmed)
-        bool hasPhysicalItems = order.Lines.Any(l => l.Item != null && !l.Item.IsService);
-        if (hasPhysicalItems)
-        {
-            if (warehouseId == null || warehouseId == Guid.Empty)
-                return "Select a warehouse to fulfill physical items.";
+                // --- STEP 1: AUTO-SHIP (Physical Items Only) ---
+                bool hasPhysicalItems = order.Lines.Any(l => l.Item != null && !l.Item.IsService);
 
-            string shipErr = await ShipOrderAsync(order.Id, warehouseId ?? Guid.Empty);
-            if (!string.IsNullOrEmpty(shipErr)) return shipErr;
-        }
+                if (hasPhysicalItems)
+                {
+                    if (warehouseId == null || warehouseId == Guid.Empty)
+                        return "Select a warehouse to fulfill physical items.";
 
-                // --- STEP 2: CALCULATE FINANCIALS (Foreign -> Base Conversion) ---
+                    string shipErr = await ShipOrderAsync(order.Id, warehouseId ?? Guid.Empty);
+                    if (!string.IsNullOrEmpty(shipErr)) return shipErr;
+                }
 
+                // --- STEP 2: CALCULATE FINANCIALS (All Items) ---
                 decimal rate = order.ExchangeRate > 0 ? order.ExchangeRate : 1;
-                decimal totalCreditsBase = 0; // We will use this to GUARANTEE Debits = Credits
+                decimal totalCreditsBase = 0;
 
-                // 1. Credit Sales Revenue (Income increases)
+                // 1. Credit Sales Revenue
                 foreach (var line in order.Lines)
                 {
                     if (line.Item == null || line.Quantity == 0) continue;
@@ -299,48 +238,20 @@ namespace Primafit_ERP.Services
                         Reference = $"Rev {line.Item.Name}"
                     });
 
-                    totalCreditsBase += lineRevBase; // Add to our exact credit sum
+                    totalCreditsBase += lineRevBase;
                 }
 
-                // 2. Credit Tax Liability (If Applicable)
-                if (order.TaxId.HasValue)
-                {
-                    var tax = await ctx.Taxes.FindAsync(order.TaxId.Value);
-                    if (tax != null && tax.Per > 0)
-                    {
-                        decimal subTotalForeign = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                        decimal taxAmountForeign = subTotalForeign * (tax.Per / 100);
-                        decimal taxAmountBase = Math.Round(taxAmountForeign * rate, 2);
+                // 2. Tax Logic (Placeholder for future implementation)
+                /* if (order.TaxId.HasValue) { ... } 
+                */
 
-                        // IMPORTANT FIX: If you apply a tax, you MUST post it to a Tax GL Account.
-                        // Assuming your Tax.cs model has a property like 'GLAccountId':
-                        /*
-                        if (tax.GLAccountId == Guid.Empty) return "Tax GL Account is missing.";
-                        glLines.Add(new GLJournalLine 
-                        { 
-                            AccountId = tax.GLAccountId, 
-                            Debit = 0, 
-                            Credit = taxAmountBase,
-                            Reference = $"Tax {tax.TaxName}"
-                        });
-                        totalCreditsBase += taxAmountBase;
-                        */
-
-                        // TEMPORARY BLOCK: Until you map a GL account in your Tax model, 
-                        // we must block invoices with tax so the ledger doesn't crash.
-                        return "You applied Tax to this order, but the Tax GL Account is not mapped in the backend. Please test without tax for now, or map the account in SalesService.cs.";
-                    }
-                }
-
-                // 3. Debit Accounts Receivable (Asset increases)
+                // 3. Debit Accounts Receivable
                 if (order.Customer?.ReceivablesAccountId == null)
                     return "Customer AR Account is missing. Please configure it in Master Data.";
 
                 glLines.Add(new GLJournalLine
                 {
                     AccountId = order.Customer.ReceivablesAccountId.Value,
-                    // We use totalCreditsBase instead of recalculating the grand total. 
-                    // This perfectly eliminates 1-cent rounding errors!
                     Debit = totalCreditsBase,
                     Credit = 0,
                     Reference = $"Inv {order.OrderNumber}"
@@ -356,11 +267,9 @@ namespace Primafit_ERP.Services
                         $"Inv {order.OrderNumber}",
                         glLines);
 
-                    if (!string.IsNullOrEmpty(err)) throw new Exception(err); // Triggers Rollback
+                    if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
-                    // Auto-post the Revenue batch
                     if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value);
-
                     order.InvoiceBatchId = batchId;
                 }
 
@@ -375,6 +284,22 @@ namespace Primafit_ERP.Services
                 await transaction.RollbackAsync();
                 return $"Invoice Error: {ex.Message}";
             }
+        }
+
+        // 6. TERMINATE ORDER
+        public async Task<string> TerminateOrderAsync(Guid orderId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var order = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order == null) return "Order not found.";
+            if (order.Status == OrderStatus.Invoiced) return "Cannot terminate an order that has already been invoiced.";
+
+            ctx.SalesOrderLines.RemoveRange(order.Lines);
+            ctx.SalesOrders.Remove(order);
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
         }
     }
 }

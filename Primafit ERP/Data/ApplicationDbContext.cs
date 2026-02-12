@@ -6,7 +6,6 @@ using System.Reflection.Emit;
 
 namespace PrimafitERP.Data
 {
-    // Ensure the generic types match your ApplicationUser/Role definitions (default is string for Identity)
     public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -27,7 +26,7 @@ namespace PrimafitERP.Data
         public DbSet<GLBatch> GLBatches { get; set; }
         public DbSet<GLJournalHeader> GLJournalHeaders { get; set; }
         public DbSet<GLJournalLine> GLJournalLines { get; set; }
-        public DbSet<GLTransaction> GLTransactions { get; set; } // If you use a flattened view
+        public DbSet<GLTransaction> GLTransactions { get; set; }
         public DbSet<BankReconciliation> BankReconciliations { get; set; }
         public DbSet<BankStatementLine> BankStatementLines { get; set; }
 
@@ -66,6 +65,11 @@ namespace PrimafitERP.Data
         public DbSet<Segment5> Segment5s { get; set; }
         public DbSet<PurchaseReturn> PurchaseReturns { get; set; }
         public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
+
+        // --- CREDIT NOTES (New) ---
+        public DbSet<CreditNote> CreditNotes { get; set; }
+        public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
+
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
@@ -89,21 +93,55 @@ namespace PrimafitERP.Data
                 }
             }
 
+            // ... inside OnModelCreating ...
+
+            // --- CREDIT NOTE SAFE CONFIGURATION ---
+            // We explicitly disable cascading deletes here to prevent SQL Server Error 1785
+
+            builder.Entity<CreditNote>(entity =>
+            {
+                
+                entity.HasOne(c => c.Customer)
+                      .WithMany()
+                      .HasForeignKey(c => c.CustomerId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(c => c.SalesOrder)
+                      .WithMany()
+                      .HasForeignKey(c => c.SalesOrderId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(c => c.Warehouse)
+                      .WithMany()
+                      .HasForeignKey(c => c.WarehouseId)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // 4. Ensure Unique Number per Company
+                entity.HasIndex(c => new { c.CompanyId, c.CreditNoteNumber })
+                      .IsUnique();
+            });
+
+            // Credit Note Lines can cascade (if header dies, lines die)
+            builder.Entity<CreditNoteLine>()
+                   .HasOne(l => l.Header)
+                   .WithMany(h => h.Lines)
+                   .HasForeignKey(l => l.HeaderId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+            // ... rest of your code ...
+
             builder.Entity<PurchaseReturnLine>()
                 .HasOne(l => l.VendorBillLine)
                 .WithMany()
                 .HasForeignKey(l => l.VendorBillLineId)
-                .OnDelete(DeleteBehavior.NoAction); // <--- CRITICAL FIX
+                .OnDelete(DeleteBehavior.NoAction);
 
-            // Optional: Ensure the link to the parent Return header is handled cleanly
             builder.Entity<PurchaseReturnLine>()
                 .HasOne(l => l.PurchaseReturn)
                 .WithMany(r => r.Lines)
                 .HasForeignKey(l => l.PurchaseReturnId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            // Specific GL Hierarchies
             builder.Entity<GLMainAccount>()
                 .HasOne(m => m.AccountType)
                 .WithMany()
@@ -116,7 +154,6 @@ namespace PrimafitERP.Data
                 .HasForeignKey(c => c.MainAccountId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // GL Entries (Header -> Lines is safe to Cascade, but Batch -> Header might not be)
             builder.Entity<GLJournalHeader>()
                 .HasOne(h => h.Batch)
                 .WithMany(b => b.Journals)
@@ -129,7 +166,6 @@ namespace PrimafitERP.Data
                 .HasForeignKey(l => l.HeaderId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Warehousing (Prevent Circular Paths)
             builder.Entity<StockTransfer>()
                 .HasOne(t => t.FromWarehouse)
                 .WithMany()
@@ -142,26 +178,21 @@ namespace PrimafitERP.Data
                 .HasForeignKey(t => t.ToWarehouseId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Sales (Protect History)
             builder.Entity<SalesOrder>()
                 .HasOne(s => s.Customer)
                 .WithMany()
                 .HasForeignKey(s => s.CustomerId)
-                .OnDelete(DeleteBehavior.Restrict); // Don't delete customer if they have orders
+                .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<SalesOrderLine>()
                 .HasOne(l => l.Item)
                 .WithMany()
                 .HasForeignKey(l => l.ItemId)
-                .OnDelete(DeleteBehavior.Restrict); // Don't delete Item if it's on an order
+                .OnDelete(DeleteBehavior.Restrict);
 
-
-            // Ensure Sales Order Numbers are unique PER COMPANY
             builder.Entity<SalesOrder>()
                 .HasIndex(s => new { s.CompanyId, s.OrderNumber })
                 .IsUnique();
-
-            base.OnModelCreating(builder);
 
             builder.ApplyConfiguration(new SegAccountTypeSeed());
             builder.Entity<SegChartOfAccount>()
@@ -172,45 +203,27 @@ namespace PrimafitERP.Data
                 .HasIndex(x => x.CompanyId)
                 .IsUnique();
 
-            // (Optional) ensure segment code unique per company per segment table
             builder.Entity<Segment0>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment1>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment2>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment3>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment4>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment5>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
-
-            builder.Entity<PurchaseReturnLine>()
-                .HasOne(l => l.VendorBillLine)
-                .WithMany() // or .WithMany(x => x.ReturnLines) if you added a collection
-                .HasForeignKey(l => l.VendorBillLineId)
-                .OnDelete(DeleteBehavior.NoAction); // This stops the cycle
-
-            // Also recommended for the link to the Header if you still see errors
-            builder.Entity<PurchaseReturnLine>()
-                .HasOne(l => l.PurchaseReturn)
-                .WithMany(r => r.Lines)
-                .HasForeignKey(l => l.PurchaseReturnId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-
         }
 
-        // 4. AUTOMATIC AUDITING (Populate AuditLogs)
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            // Get modified entries
             var entries = ChangeTracker.Entries()
                 .Where(e => e.Entity is not AuditLog && (e.State == EntityState.Added || e.State == EntityState.Modified || e.State == EntityState.Deleted));
 
-
             foreach (var entry in entries)
             {
-
+                // Auditing logic placeholder
             }
 
             return await base.SaveChangesAsync(cancellationToken);
         }
+
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
             BlockSegAccountTypeChanges();

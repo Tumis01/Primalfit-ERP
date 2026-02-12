@@ -77,7 +77,7 @@ builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 builder.Services.AddScoped<SegCoaService>();
 builder.Services.AddScoped<SegmentsSetupService>();
 builder.Services.AddScoped<PurchaseReturnService>();
-
+builder.Services.AddScoped<CreditNoteService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---

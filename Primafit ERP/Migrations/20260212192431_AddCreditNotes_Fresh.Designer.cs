@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260212192431_AddCreditNotes_Fresh")]
+    partial class AddCreditNotes_Fresh
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -683,7 +686,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<bool>("ReturnToStock")
                         .HasColumnType("bit");
 
-                    b.Property<Guid>("SalesOrderId")
+                    b.Property<Guid>("SalesInvoiceId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Status")
@@ -701,7 +704,7 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("CustomerId");
 
-                    b.HasIndex("SalesOrderId");
+                    b.HasIndex("SalesInvoiceId");
 
                     b.HasIndex("WarehouseId");
 
@@ -726,7 +729,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Quantity")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<Guid>("SalesOrderLineId")
+                    b.Property<Guid>("SalesInvoiceLineId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("UnitPrice")
@@ -2685,9 +2688,9 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", "SalesOrder")
+                    b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", "SalesInvoice")
                         .WithMany()
-                        .HasForeignKey("SalesOrderId")
+                        .HasForeignKey("SalesInvoiceId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
@@ -2700,7 +2703,7 @@ namespace Primafit_ERP.Migrations
 
                     b.Navigation("Customer");
 
-                    b.Navigation("SalesOrder");
+                    b.Navigation("SalesInvoice");
 
                     b.Navigation("Warehouse");
                 });

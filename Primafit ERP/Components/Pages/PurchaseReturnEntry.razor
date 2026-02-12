@@ -26,18 +26,29 @@
             </p>
         </div>
         <div class="flex gap-3">
-            <button @onclick='() => Nav.NavigateTo("/purchases/returns")' class="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">Back</button>
+            <button @onclick='() => Nav.NavigateTo("/purchases/returns")'
+                    class="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">
+                Back
+            </button>
 
             @if (!IsPosted && !IsNew)
             {
-                <button @onclick="TerminateReturn" class="px-4 py-2 border border-rose-200 text-rose-600 rounded-lg font-bold hover:bg-rose-50 transition-colors">
+                <button @onclick="TerminateReturn"
+                        class="px-4 py-2 border border-rose-200 text-rose-600 rounded-lg font-bold hover:bg-rose-50 transition-colors">
                     Terminate
                 </button>
 
-                <button @onclick="SaveDraft" class="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg font-bold hover:bg-indigo-100">Save Draft</button>
+                <button @onclick="SaveDraft"
+                        class="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg font-bold hover:bg-indigo-100">
+                    Save Draft
+                </button>
 
-                <button @onclick="PostReturn" class="px-6 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-md flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <button @onclick="PostReturn"
+                        class="px-6 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-md flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                     Post Return
                 </button>
             }
@@ -52,7 +63,9 @@
             <div class="space-y-6">
                 <div>
                     <label class="label">Vendor</label>
-                    <select @onchange="OnVendorSelected" class="input-class">
+
+                    <!-- Keep @onchange here because we're NOT using @bind on vendor -->
+                    <select @onchange="OnVendorSelected" class="input-class" disabled="@_busy">
                         <option value="">-- Select Vendor --</option>
                         @foreach (var v in vendors)
                         {
@@ -63,13 +76,19 @@
 
                 <div>
                     <label class="label">Source Vendor Bill</label>
-                    <select @bind="selectedBillId" class="input-class" disabled="@(!bills.Any())">
+
+                    <!-- FIX: use @bind + @bind:after (NO @onchange) -->
+                    <select @bind="selectedBillId"
+                            @bind:after="OnBillSelected"
+                            class="input-class"
+                            disabled="@(_busy || !bills.Any())">
                         <option value="">-- Select Bill to Return --</option>
                         @foreach (var b in bills)
                         {
                             <option value="@b.Id">Inv #@b.ExternalInvoiceNumber (@b.BillDate.ToShortDateString()) - Total: @b.TotalAmount.ToString("N2")</option>
                         }
                     </select>
+
                     @if (!bills.Any() && selectedVendorId != Guid.Empty)
                     {
                         <p class="text-xs text-rose-500 mt-1">No posted bills found for this vendor.</p>
@@ -78,7 +97,9 @@
 
                 <div>
                     <label class="label">Return from Warehouse</label>
-                    <select @bind="selectedWarehouseId" class="input-class">
+
+                    <!-- Optional: if you want auto-init only when BOTH bill+warehouse are chosen, we can also use @bind:after here -->
+                    <select @bind="selectedWarehouseId" class="input-class" disabled="@_busy">
                         <option value="">-- Select Source Warehouse --</option>
                         @foreach (var w in warehouses)
                         {
@@ -88,11 +109,19 @@
                 </div>
 
                 <div class="pt-4">
-                    <button @onclick="InitializeReturn" disabled="@(selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
+                    <button @onclick="InitializeReturn"
+                            disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
                             class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                        Load Items & Create Draft
+                        @(_busy ? "Loading..." : "Load Items & Create Draft")
                     </button>
                 </div>
+
+                @if (!string.IsNullOrWhiteSpace(_errMsg))
+                {
+                    <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">
+                        @_errMsg
+                    </div>
+                }
             </div>
         </div>
     }
@@ -123,6 +152,10 @@
                             <div class="font-bold text-slate-800">@(warehouses.FirstOrDefault(w => w.Id == currentRtv.WarehouseId)?.Name)</div>
                         </div>
                         <div>
+                            <span class="block text-slate-500 text-xs">Exchange Rate</span>
+                            <div class="font-mono text-slate-700 font-bold">@currentRtv.ExchangeRate.ToString("N4")</div>
+                        </div>
+                        <div>
                             <span class="block text-slate-500 text-xs">Reason</span>
                             <InputTextArea @bind-Value="currentRtv.Reason" class="input-class h-24" placeholder="Why are we returning this?" disabled="@IsPosted" />
                         </div>
@@ -134,15 +167,15 @@
                 <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
                     <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
                         <h3 class="font-bold text-slate-700">Returnable Items</h3>
-                        <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">@currencyCode</span>
+                        <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Currency: @currencyCode</span>
                     </div>
 
                     <table class="w-full text-left text-sm">
                         <thead class="text-xs uppercase font-bold text-slate-500 border-b border-slate-200 bg-white">
                             <tr>
-                                <th class="p-3">Item</th>
+                                <th class="p-3">Item Details</th>
                                 <th class="p-3 text-right">Billed</th>
-                                <th class="p-3 text-right">Prev Returned</th>
+                                <th class="p-3 text-right">Total Returned</th>
                                 <th class="p-3 text-right w-40">Return Qty</th>
                                 <th class="p-3 text-right">Unit Cost</th>
                                 <th class="p-3 text-right">Total</th>
@@ -155,9 +188,15 @@
                                 decimal prev = GetPrevReturnedQty(line.VendorBillLineId);
                                 decimal max = billed - prev;
 
+                                decimal whStock = stockLevels.ContainsKey(line.ItemId) ? stockLevels[line.ItemId] : 0;
+
                                 <tr class="hover:bg-slate-50">
                                     <td class="p-3 font-medium text-slate-800">
                                         @line.ItemName
+                                        <div class="text-[10px] text-slate-500 font-normal">
+                                            (In Warehouse:
+                                            <span class="@(whStock < line.QtyReturning ? "text-rose-600 font-bold" : "text-slate-700")">@whStock.ToString("G29")</span>)
+                                        </div>
                                         @if (max <= 0)
                                         {
                                             <span class="ml-2 text-[10px] text-rose-500 font-bold uppercase">(Fully Returned)</span>
@@ -190,16 +229,29 @@
                                         }
                                     </td>
 
-                                    <td class="p-3 text-right font-mono text-slate-500">@line.UnitCost.ToString("N2")</td>
-                                    <td class="p-3 text-right font-mono font-bold text-rose-600">@line.LineTotal.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono text-slate-500">
+                                        @line.UnitCost.ToString("N2") <span class="text-[9px]">@currencyCode</span>
+                                    </td>
+                                    <td class="p-3 text-right font-mono font-bold text-rose-600">
+                                        @line.LineTotal.ToString("N2")
+                                    </td>
                                 </tr>
                             }
                         </tbody>
                         <tfoot class="bg-slate-50 border-t border-slate-200">
                             <tr>
-                                <td colspan="5" class="p-3 text-right font-bold text-slate-600 uppercase text-xs">Total Refund Value:</td>
-                                <td class="p-3 text-right font-mono font-bold text-lg text-slate-900">
-                                    @currentRtv.Lines.Sum(l => l.LineTotal).ToString("N2")
+                                <td colspan="5" class="p-3 text-right font-bold text-slate-600 uppercase text-xs align-top pt-4">Total Refund Value:</td>
+                                <td class="p-3 text-right">
+                                    <div class="font-mono font-bold text-lg text-slate-900">
+                                        @currentRtv.Lines.Sum(l => l.LineTotal).ToString("N2") <span class="text-sm text-slate-500">@currencyCode</span>
+                                    </div>
+
+                                    @{
+                                        decimal baseTotal = currentRtv.Lines.Sum(l => l.LineTotal) * currentRtv.ExchangeRate;
+                                    }
+                                    <div class="text-xs text-slate-400 font-mono mt-1 border-t border-slate-200 pt-1">
+                                        @baseTotal.ToString("N2") <span class="text-[9px] font-bold uppercase">BASE</span>
+                                    </div>
                                 </td>
                             </tr>
                         </tfoot>
@@ -252,13 +304,19 @@
     private List<Vendor> vendors = new();
     private List<VendorBill> bills = new();
     private List<Warehouse> warehouses = new();
+
     private Guid selectedVendorId;
     private Guid selectedBillId;
     private Guid selectedWarehouseId;
 
     private List<VendorBillLine> sourceLines = new();
     private List<PurchaseReturnLine> historyLines = new();
+    private Dictionary<Guid, decimal> stockLevels = new();
     private string currencyCode = "";
+
+    // NEW: busy + message (prevents double calls)
+    private bool _busy = false;
+    private string _errMsg = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -271,9 +329,6 @@
         }
         else
         {
-            // --- OPTIMIZED LOAD (Edit Mode) ---
-
-            // 1. Load the Return Header & Lines
             currentRtv = await ctx.PurchaseReturns
                 .Include(r => r.Lines)
                 .AsNoTracking()
@@ -281,31 +336,16 @@
 
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
-            // 2. Load ONLY the specific Original Bill (Fast Lookup)
-            originalBill = await ctx.VendorBills
-                .AsNoTracking()
-                .FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId);
+            originalBill = await ctx.VendorBills.FindAsync(currentRtv.VendorBillId);
 
-            // 3. Load Validation Context (Lines)
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
-            // 4. Fetch ONLY the specific Vendor & Warehouse Names needed for display
-            // (Instead of fetching the entire list of 1000s of vendors)
-            var vendorName = await ctx.Vendors
-                .Where(v => v.Id == currentRtv.VendorId)
-                .Select(v => v.Name)
-                .FirstOrDefaultAsync() ?? "Unknown";
+            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId).Select(v => v.Name).FirstOrDefaultAsync();
+            vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vName ?? "Unknown" } };
 
-            var warehouseName = await ctx.Warehouses
-                .Where(w => w.Id == currentRtv.WarehouseId)
-                .Select(w => w.Name)
-                .FirstOrDefaultAsync() ?? "Unknown";
+            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId).Select(w => w.Name).FirstOrDefaultAsync();
+            warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = wName ?? "Unknown" } };
 
-            // Populate the list with just ONE item to satisfy the view's binding
-            vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vendorName } };
-            warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = warehouseName } };
-
-            // 5. Currency
             var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
             currencyCode = currency?.CurrencyCode ?? "";
         }
@@ -313,19 +353,66 @@
 
     private async Task OnVendorSelected(ChangeEventArgs e)
     {
+        _errMsg = string.Empty;
+
+        if (_busy) return;
+
         if (Guid.TryParse(e.Value?.ToString(), out var vid))
         {
             selectedVendorId = vid;
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            bills = await ctx.VendorBills
-                .Where(b => b.VendorId == vid && b.IsPosted)
-                .OrderByDescending(b => b.BillDate)
-                .ToListAsync();
+            selectedBillId = Guid.Empty;
+
+            _busy = true;
+            StateHasChanged();
+
+            try
+            {
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                bills = await ctx.VendorBills
+                    .Where(b => b.VendorId == vid && b.IsPosted)
+                    .OrderByDescending(b => b.BillDate)
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _errMsg = "Failed to load bills: " + ex.Message;
+            }
+            finally
+            {
+                _busy = false;
+                StateHasChanged();
+            }
         }
         else
         {
+            selectedVendorId = Guid.Empty;
             bills.Clear();
             selectedBillId = Guid.Empty;
+        }
+    }
+
+    // OPTION A (auto-run after bill selection): @bind:after requires NO parameters
+    private async Task OnBillSelected()
+    {
+        _errMsg = string.Empty;
+
+        if (_busy) return;
+        if (selectedBillId == Guid.Empty) return;
+
+        // If you want it to auto-create ONLY when warehouse is already selected:
+        if (selectedWarehouseId == Guid.Empty) return;
+
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            await InitializeReturn();
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
         }
     }
 
@@ -334,22 +421,48 @@
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
-        if (user == null) { await JS.InvokeVoidAsync("alert", "User not authenticated"); return; }
+        if (user == null)
+        {
+            _errMsg = "User not authenticated.";
+            await JS.InvokeVoidAsync("alert", _errMsg);
+            return;
+        }
 
-        currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
+        try
+        {
+            currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
 
-        var err = await RtvService.SaveDraftAsync(currentRtv);
-        if (string.IsNullOrEmpty(err)) Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
-        else await JS.InvokeVoidAsync("alert", err);
+            var err = await RtvService.SaveDraftAsync(currentRtv);
+            if (string.IsNullOrEmpty(err)) Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
+            else
+            {
+                _errMsg = err;
+                await JS.InvokeVoidAsync("alert", err);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errMsg = "Error: " + ex.Message;
+            await JS.InvokeVoidAsync("alert", _errMsg);
+        }
     }
 
     private async Task LoadValidationContext(AppDbContext ctx, Guid billId)
     {
         sourceLines = await ctx.VendorBillLines.Where(l => l.VendorBillId == billId).ToListAsync();
+
         historyLines = await ctx.PurchaseReturnLines
             .Include(l => l.PurchaseReturn)
             .Where(l => l.VendorBillLine.VendorBillId == billId && l.PurchaseReturn.Status == ReturnStatus.Posted)
             .ToListAsync();
+
+        var itemIds = sourceLines.Select(l => l.ItemId).Distinct().ToList();
+
+        stockLevels = await ctx.StockLedgers
+            .Where(s => itemIds.Contains(s.ItemId) && s.WarehouseId == currentRtv.WarehouseId)
+            .GroupBy(s => s.ItemId)
+            .Select(g => new { ItemId = g.Key, Qty = g.Sum(x => x.QuantityChanged) })
+            .ToDictionaryAsync(k => k.ItemId, v => v.Qty);
     }
 
     private decimal GetBilledQty(Guid billLineId) => sourceLines.FirstOrDefault(l => l.Id == billLineId)?.QuantityBilled ?? 0;
@@ -370,10 +483,9 @@
         else await JS.InvokeVoidAsync("alert", err);
     }
 
-    // --- NEW TERMINATE METHOD ---
     private async Task TerminateReturn()
     {
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this return? This action cannot be undone.");
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this return? This cannot be undone.");
         if (!confirm) return;
 
         var err = await RtvService.TerminateReturnAsync(currentRtv.Id);
@@ -382,37 +494,27 @@
             await JS.InvokeVoidAsync("alert", "Return Terminated.");
             Nav.NavigateTo("/purchases/returns");
         }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", err);
-        }
+        else await JS.InvokeVoidAsync("alert", err);
     }
 
     private async Task PostReturn()
     {
-        // 1. Client-side Check
         if (!currentRtv.Lines.Any(l => l.QtyReturning > 0))
         {
-            await JS.InvokeVoidAsync("alert", "Please enter a return quantity > 0 for at least one item.");
+            await JS.InvokeVoidAsync("alert", "Please enter a return quantity > 0.");
             return;
         }
 
-        // 2. Save the quantities to the DB immediately
         var saveErr = await RtvService.SaveDraftAsync(currentRtv);
-        if (!string.IsNullOrEmpty(saveErr))
-        {
-            await JS.InvokeVoidAsync("alert", "Error saving draft: " + saveErr);
-            return;
-        }
+        if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", "Error saving: " + saveErr); return; }
 
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Confirm posting this return? This will deduct stock.");
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Confirm posting? This will deduct stock.");
         if (!confirm) return;
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
         if (user == null) return;
 
-        // 3. Post
         var err = await RtvService.PostReturnAsync(currentRtv.Id, Guid.Parse(user.Id));
 
         if (string.IsNullOrEmpty(err))
@@ -422,9 +524,6 @@
             currentRtv = await ctx.PurchaseReturns.Include(r => r.Lines).FirstAsync(r => r.Id == currentRtv.Id);
             StateHasChanged();
         }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", err);
-        }
+        else await JS.InvokeVoidAsync("alert", err);
     }
 }

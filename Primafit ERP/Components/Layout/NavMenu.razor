@@ -143,6 +143,10 @@
                             <NavLink href="ar/payment-entry" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Customer Receipt
                             </NavLink>
+                            @* --- NEW: CREDIT NOTES --- *@
+                            <NavLink href="sales/credit-notes" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Credit Notes
+                            </NavLink>
                         </div>
                     </div>
                 }
@@ -172,7 +176,6 @@
                             <NavLink href="ap/bill-entry" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Vendor Bills
                             </NavLink>
-                            @* --- NEW: RETURNS MODULE --- *@
                             <NavLink href="purchases/returns" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Returns to Vendor
                             </NavLink>
@@ -422,7 +425,8 @@
             && !path.Contains("bank-reconciliation")
             && !path.Contains("budget");
 
-        _salesMenuOpen = path.StartsWith("sc/sales") || path.StartsWith("ar/");
+        // Updated logic to include 'sales/' path for Credit Notes
+        _salesMenuOpen = path.StartsWith("sc/sales") || path.StartsWith("ar/") || path.StartsWith("sales/");
 
         _purchasingMenuOpen = path.StartsWith("procurement/") || path.StartsWith("ap/") || path.StartsWith("purchases/");
 
