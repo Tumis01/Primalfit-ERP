@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
+using PrimafitERP.Data.Seed;
 using System.Reflection.Emit;
 
 namespace PrimafitERP.Data
@@ -56,14 +57,17 @@ namespace PrimafitERP.Data
         public DbSet<AssetDepreciationHistory> AssetDepreciationHistories { get; set; }
         public DbSet<BudgetHeader> BudgetHeaders { get; set; }
         public DbSet<BudgetLine> BudgetLines { get; set; }
-        public DbSet<SegmentDefinition> SegmentDefinitions { get; set; }
-        public DbSet<SegmentValue> SegmentValues { get; set; }
-        public DbSet<MainAccount> MainAccounts { get; set; }
-        public DbSet<SegmentedAccount> SegmentedAccounts { get; set; }
-        public DbSet<AccountType1> AccountTypes1 { get; set; }
         public DbSet<ParsedStatementRow> ParsedStatementRows { get; set; }
-
-        // --- SYSTEM ---
+        public DbSet<Segment0> Segment0s { get; set; }
+        public DbSet<Segment1> Segment1s { get; set; }
+        public DbSet<Segment2> Segment2s { get; set; }
+        public DbSet<Segment3> Segment3s { get; set; }
+        public DbSet<Segment4> Segment4s { get; set; }
+        public DbSet<Segment5> Segment5s { get; set; }
+        public DbSet<PurchaseReturn> PurchaseReturns { get; set; }
+        public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
+        public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
+        public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
@@ -85,8 +89,19 @@ namespace PrimafitERP.Data
                 }
             }
 
+            builder.Entity<PurchaseReturnLine>()
+                .HasOne(l => l.VendorBillLine)
+                .WithMany()
+                .HasForeignKey(l => l.VendorBillLineId)
+                .OnDelete(DeleteBehavior.NoAction); // <--- CRITICAL FIX
 
-            
+            // Optional: Ensure the link to the parent Return header is handled cleanly
+            builder.Entity<PurchaseReturnLine>()
+                .HasOne(l => l.PurchaseReturn)
+                .WithMany(r => r.Lines)
+                .HasForeignKey(l => l.PurchaseReturnId)
+                .OnDelete(DeleteBehavior.Cascade);
+
 
             // Specific GL Hierarchies
             builder.Entity<GLMainAccount>()
@@ -146,33 +161,38 @@ namespace PrimafitERP.Data
                 .HasIndex(s => new { s.CompanyId, s.OrderNumber })
                 .IsUnique();
 
-            // Ensure SKU is unique PER COMPANY
-            builder.Entity<Item>()
-                .HasIndex(i => new { i.CompanyId, i.SKU })
-                .IsUnique();
-            builder.Entity<AccountType1>(e =>
-            {
-                e.HasKey(x => x.Id);
-                e.Property(x => x.Id).ValueGeneratedNever(); // IMPORTANT: fixed IDs
-            });
-            builder.Entity<SegmentDefinition>()
-                .Property(s => s.SegmentNumber)
-                .ValueGeneratedNever();
+            base.OnModelCreating(builder);
 
-            // 2. Ensure MainAccount Code is Unique per Company
-            builder.Entity<MainAccount>()
-                .HasIndex(m => new { m.CompanyId, m.AccountCode })
+            builder.ApplyConfiguration(new SegAccountTypeSeed());
+            builder.Entity<SegChartOfAccount>()
+                .HasIndex(x => new { x.CompanyId, x.AccountCode })
                 .IsUnique();
 
-            // 3. Ensure Segment Value is Unique per Segment & Company
-            builder.Entity<SegmentValue>()
-                .HasIndex(v => new { v.CompanyId, v.SegmentNumber, v.Value })
+            builder.Entity<SegCoaConfig>()
+                .HasIndex(x => x.CompanyId)
                 .IsUnique();
 
-            // 4. Ensure the Full GL Code is Unique per Company
-            builder.Entity<SegmentedAccount>()
-                .HasIndex(a => new { a.CompanyId, a.AccountCodeString })
-                .IsUnique();
+            // (Optional) ensure segment code unique per company per segment table
+            builder.Entity<Segment0>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Segment1>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Segment2>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Segment3>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Segment4>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Segment5>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+
+            builder.Entity<PurchaseReturnLine>()
+                .HasOne(l => l.VendorBillLine)
+                .WithMany() // or .WithMany(x => x.ReturnLines) if you added a collection
+                .HasForeignKey(l => l.VendorBillLineId)
+                .OnDelete(DeleteBehavior.NoAction); // This stops the cycle
+
+            // Also recommended for the link to the Header if you still see errors
+            builder.Entity<PurchaseReturnLine>()
+                .HasOne(l => l.PurchaseReturn)
+                .WithMany(r => r.Lines)
+                .HasForeignKey(l => l.PurchaseReturnId)
+                .OnDelete(DeleteBehavior.Cascade);
+
 
         }
 
@@ -190,6 +210,27 @@ namespace PrimafitERP.Data
             }
 
             return await base.SaveChangesAsync(cancellationToken);
+        }
+        public override int SaveChanges(bool acceptAllChangesOnSuccess)
+        {
+            BlockSegAccountTypeChanges();
+            return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+
+        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        {
+            BlockSegAccountTypeChanges();
+            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+
+        private void BlockSegAccountTypeChanges()
+        {
+            var blocked = ChangeTracker.Entries<SegAccountType>()
+                .Where(e => e.State == EntityState.Modified || e.State == EntityState.Deleted || e.State == EntityState.Added)
+                .ToList();
+
+            if (blocked.Any())
+                throw new InvalidOperationException("SegAccountTypes is fixed lookup data and cannot be added/edited/deleted.");
         }
     }
 }

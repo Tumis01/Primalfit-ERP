@@ -39,6 +39,8 @@ namespace Primafit_ERP.Components.Models
         // --- LINKS ---
         public Guid? ShipmentBatchId { get; set; } // Link to GL Batch
         public Guid? InvoiceBatchId { get; set; }  // Link to GL Batch
+        [Required]
+        public Guid WarehouseId { get; set; }
 
         public List<SalesOrderLine> Lines { get; set; } = new();
     }

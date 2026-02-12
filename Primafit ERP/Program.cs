@@ -69,13 +69,14 @@ builder.Services.AddScoped<PurchasingService>();
 builder.Services.AddScoped<AssetService>();
 builder.Services.AddScoped<BudgetService>();
 builder.Services.AddScoped<ICashbookService, CashbookService>();
-builder.Services.AddScoped<SegmentedAccountService>();
-builder.Services.AddScoped<SegmentedGLSeeder>();
 builder.Services.AddScoped<IStatementParser, CsvStatementParser>();
 builder.Services.AddScoped<IStatementParser, ExcelStatementParser>();
 builder.Services.AddScoped<StatementImportService>();
-// Security (Optional helper)
+builder.Services.AddScoped<SegAccountTypeService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
+builder.Services.AddScoped<SegCoaService>();
+builder.Services.AddScoped<SegmentsSetupService>();
+builder.Services.AddScoped<PurchaseReturnService>();
 
 var app = builder.Build();
 

@@ -26,11 +26,12 @@ namespace Primafit_ERP.Services
         }
 
         // 2. ACQUIRE ASSET (Create)
+        // 2. ACQUIRE ASSET (Create or Update)
         public async Task<string> CreateAssetAsync(FixedAsset asset)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Validate Accounts
+            // 1. Validate Accounts
             if (asset.FixedAssetAccountId == Guid.Empty ||
                 asset.AccumulatedDepreciationAccountId == Guid.Empty ||
                 asset.DepreciationExpenseAccountId == Guid.Empty)
@@ -38,20 +39,37 @@ namespace Primafit_ERP.Services
                 return "Please map all GL accounts (Asset, Accum. Depr, Expense).";
             }
 
-            if (asset.Id == Guid.Empty)
+            // 2. FIX: Check if it exists in the DB (Don't just trust Guid.Empty)
+            bool exists = await ctx.FixedAssets.AnyAsync(a => a.Id == asset.Id);
+
+            if (!exists)
             {
-                asset.Id = Guid.NewGuid();
-                // Initial Book Value = Purchase Cost
+                // --- NEW ASSET ---
+                if (asset.Id == Guid.Empty) asset.Id = Guid.NewGuid();
+
+                // Set Initial Book Value
                 asset.CurrentBookValue = asset.PurchaseCost;
+
                 ctx.FixedAssets.Add(asset);
             }
             else
             {
+                // --- UPDATE EXISTING ---
+                // Optional: Ensure Book Value isn't accidentally reset if you don't want it editable
+                // asset.CurrentBookValue = asset.PurchaseCost; // Only if you allow correcting cost
+
                 ctx.FixedAssets.Update(asset);
             }
 
-            await ctx.SaveChangesAsync();
-            return string.Empty;
+            try
+            {
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                return $"Error saving asset: {ex.Message}";
+            }
         }
 
         // 3. RUN DEPRECIATION (The Core Engine)

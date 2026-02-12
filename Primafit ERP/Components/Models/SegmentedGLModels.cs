@@ -3,97 +3,146 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    // 1. Account Type (Fixed ID to match Excel)
-    public class AccountType1
+    // Fixed lookup data (seeded) - should not be edited/deleted.
+    public class SegAccountType
     {
-        // "None" stops the DB from auto-generating IDs, preventing the "Identity Insert" error
-        [Key, DatabaseGenerated(DatabaseGeneratedOption.None)]
+        [Key]
+        [DatabaseGenerated(DatabaseGeneratedOption.None)] // IMPORTANT: we seed fixed IDs
         public int Id { get; set; }
 
-        [Required]
-        public string Name { get; set; } = string.Empty;
-
-        // Fields from your Excel logic
-        public bool IsBalanceSheet { get; set; } // True = BS, False = P&L
-        public bool IsDebit { get; set; }        // True = Debit Normal, False = Credit Normal
-    }
-
-    // 2. Segment Structure (Definitions)
-    public class SegmentDefinition
-    {
-        [Key, DatabaseGenerated(DatabaseGeneratedOption.None)]
-        public int SegmentNumber { get; set; } // 1 to 6
-
-        [Required]
-        public string SegmentName { get; set; } = string.Empty;
-
-        public int Length { get; set; } = 3;
-        public bool IsActive { get; set; } = true;
-    }
-
-    // 3. Segment Values (The actual data, e.g., "100 - Sales Dept")
-    public class SegmentValue
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid CompanyId { get; set; }
-
-        public int SegmentNumber { get; set; } // Links to Definition (2-6)
-
-        [Required, MaxLength(20)]
-        public string Value { get; set; } = string.Empty;
-
-        [Required]
+        [Required, MaxLength(150)]
         public string Description { get; set; } = string.Empty;
+
+        public bool IsBalanceSheet { get; set; }   // true = Balance Sheet, false = Income Statement
+        public bool IsDebit { get; set; }          // true = Normal balance is Debit, false = Credit
     }
 
-    // 4. Main Account (The Header / Segment 1)
-    public class MainAccount
+    public class Segment0
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid Id { get; set; }
         public Guid CompanyId { get; set; }
 
-        [Required, MaxLength(20)]
-        public string AccountCode { get; set; } = string.Empty;
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
 
-        [Required]
-        public string AccountName { get; set; } = string.Empty;
-
-        public int AccountType1Id { get; set; }
-        [ForeignKey("AccountType1Id")]
-        public virtual AccountType1? AccountType { get; set; }
     }
-
-    // 5. The Final Combined GL Account
-    public class SegmentedAccount
+    public class Segment1
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid Id { get; set; }
         public Guid CompanyId { get; set; }
 
-        // Segment 1 is the Main Account
-        public Guid MainAccountId { get; set; }
-        [ForeignKey("MainAccountId")]
-        public virtual MainAccount? MainAccount { get; set; }
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
 
-        // Optional Sub-Segments
-        public Guid? Segment2ValueId { get; set; }
-        [ForeignKey("Segment2ValueId")] public virtual SegmentValue? Segment2 { get; set; }
-
-        public Guid? Segment3ValueId { get; set; }
-        [ForeignKey("Segment3ValueId")] public virtual SegmentValue? Segment3 { get; set; }
-
-        public Guid? Segment4ValueId { get; set; }
-        [ForeignKey("Segment4ValueId")] public virtual SegmentValue? Segment4 { get; set; }
-
-        public Guid? Segment5ValueId { get; set; }
-        [ForeignKey("Segment5ValueId")] public virtual SegmentValue? Segment5 { get; set; }
-
-        public Guid? Segment6ValueId { get; set; }
-        [ForeignKey("Segment6ValueId")] public virtual SegmentValue? Segment6 { get; set; }
-
-        // The Generated String (e.g. 4000-100-01)
-        [Required]
-        public string AccountCodeString { get; set; } = string.Empty;
-
-        public bool IsActive { get; set; } = true;
     }
+    public class Segment2
+    {
+        public Guid Id { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
+
+    }
+    public class Segment3
+    {
+        public Guid Id { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
+
+    }
+    public class Segment4
+    {
+        public Guid Id { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
+
+    }
+    public class Segment5
+    {
+        public Guid Id { get; set; }
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
+
+    }
+
+    public class SegChartOfAccount
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+
+        // Selected segment row IDs (Segment0 required; others optional depending on config)
+        [Required]
+        public Guid Segment0Id { get; set; }
+
+        public Guid? Segment1Id { get; set; }
+        public Guid? Segment2Id { get; set; }
+        public Guid? Segment3Id { get; set; }
+        public Guid? Segment4Id { get; set; }
+        public Guid? Segment5Id { get; set; }
+
+        [Required, MaxLength(100)]
+        public string AccountCode { get; set; } = string.Empty; // computed read-only in UI
+
+        [Required, MaxLength(250)]
+        public string Description { get; set; } = string.Empty; // computed initial but editable
+
+        // FK to your seeded fixed table SegAccountTypes (int)
+        [Required]
+        public int SegAccountTypeId { get; set; }
+
+        public bool AllowJournal { get; set; } = true;
+    }
+    public class SegCoaConfig
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid CompanyId { get; set; }
+
+        [ForeignKey(nameof(CompanyId))]
+        public CompanyDetails? Company { get; set; }
+
+        // Segment0 always active and required for COA
+        [Required, MaxLength(50)]
+        public string Segment0Name { get; set; } = "Segment 0";
+
+        [MaxLength(50)] public string Segment1Name { get; set; } = "Segment 1";
+        [MaxLength(50)] public string Segment2Name { get; set; } = "Segment 2";
+        [MaxLength(50)] public string Segment3Name { get; set; } = "Segment 3";
+        [MaxLength(50)] public string Segment4Name { get; set; } = "Segment 4";
+        [MaxLength(50)] public string Segment5Name { get; set; } = "Segment 5";
+
+        public bool Segment1Active { get; set; }
+        public bool Segment2Active { get; set; }
+        public bool Segment3Active { get; set; }
+        public bool Segment4Active { get; set; }
+        public bool Segment5Active { get; set; }
+    }
+
 }

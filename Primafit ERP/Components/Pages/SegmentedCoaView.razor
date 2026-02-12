@@ -1,0 +1,420 @@
+﻿@page "/finance/segmented-coa"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SegCoaService Service
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Segmented Chart of Accounts</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">
+                Build COA accounts by selecting segment values. Account code is computed; description is auto-built but editable.
+            </p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+            <button @onclick="ToggleAccountBuilder"
+                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Build Account
+            </button>
+
+            
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading setup...
+        </div>
+    }
+    else if (!HasCompany)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500">
+            No company context found for this user.
+        </div>
+    }
+    else
+    {
+        <!-- ACCOUNT BUILDER (minimizable) -->
+        @if (showBuilder)
+        {
+            <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Build Account</h3>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Segment0 is required. If any other segment is active, you must select values for all active segments.
+                        </p>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button @onclick="CancelAccountBuilder"
+                                class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
+                            Cancel
+                        </button>
+
+                        <button @onclick="CreateCoa"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95">
+                            Save Account
+                        </button>
+                    </div>
+                </div>
+
+                <div class="p-6 space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Segment selections -->
+                        <div class="space-y-1.5">
+                            <label class="label">@cfg.Segment0Name (Required)</label>
+                            <select class="@InputClass" @onchange="OnSeg0Changed">
+                                <option value="">-- select --</option>
+                                @foreach (var r in seg0)
+                                {
+                                    <option value="@r.Id">@r.Code - @r.Description</option>
+                                }
+                            </select>
+                        </div>
+
+                        @if (cfg.Segment1Active)
+                        {
+                            <div class="space-y-1.5">
+                                <label class="label">@cfg.Segment1Name</label>
+                                <select class="@InputClass" @onchange="OnSeg1Changed">
+                                    <option value="">-- select --</option>
+                                    @foreach (var r in seg1)
+                                    {
+                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (cfg.Segment2Active)
+                        {
+                            <div class="space-y-1.5">
+                                <label class="label">@cfg.Segment2Name</label>
+                                <select class="@InputClass" @onchange="OnSeg2Changed">
+                                    <option value="">-- select --</option>
+                                    @foreach (var r in seg2)
+                                    {
+                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (cfg.Segment3Active)
+                        {
+                            <div class="space-y-1.5">
+                                <label class="label">@cfg.Segment3Name</label>
+                                <select class="@InputClass" @onchange="OnSeg3Changed">
+                                    <option value="">-- select --</option>
+                                    @foreach (var r in seg3)
+                                    {
+                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (cfg.Segment4Active)
+                        {
+                            <div class="space-y-1.5">
+                                <label class="label">@cfg.Segment4Name</label>
+                                <select class="@InputClass" @onchange="OnSeg4Changed">
+                                    <option value="">-- select --</option>
+                                    @foreach (var r in seg4)
+                                    {
+                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (cfg.Segment5Active)
+                        {
+                            <div class="space-y-1.5">
+                                <label class="label">@cfg.Segment5Name</label>
+                                <select class="@InputClass" @onchange="OnSeg5Changed">
+                                    <option value="">-- select --</option>
+                                    @foreach (var r in seg5)
+                                    {
+                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="label">Account Code </label>
+                            <input class="@InputClass" value="@draftCode" readonly />
+                        </div>
+
+                        <div class="space-y-1.5 md:col-span-2">
+                            <label class="label">Description </label>
+                            <InputText @bind-Value="draft.Description" class="@InputClass" />
+                            <div class="text-xs text-slate-500 font-medium">
+                                Auto-built by joining segment descriptions with " - ". You can edit it.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div class="space-y-1.5">
+                            <label class="label">Account Type</label>
+                            <select class="@InputClass" @bind="draft.SegAccountTypeId">
+                                <option value="0">-- select --</option>
+                                @foreach (var t in types)
+                                {
+                                    <option value="@t.Id">@t.Description</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="flex items-center gap-2 mt-6">
+                            <input type="checkbox" class="h-4 w-4" @bind="draft.AllowJournal" />
+                            <span class="text-sm font-bold text-slate-700">Allow Journal</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- COA LIST (table remains) -->
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="px-6 py-4">Account Code</th>
+                        <th class="px-6 py-4">Description</th>
+                        <th class="px-6 py-4">Account Type</th>
+                        <th class="px-6 py-4">Allow Journal</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var a in coa)
+                    {
+                        <tr class="group hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold">@a.AccountCode</td>
+                            <td class="px-6 py-4 text-slate-600 font-medium">@a.Description</td>
+                            <td class="px-6 py-4">
+                                @types.FirstOrDefault(x => x.Id == a.SegAccountTypeId)?.Description
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                    @(a.AllowJournal ? "Yes" : "No")
+                                </span>
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!coa.Any())
+                    {
+                        <tr>
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-400">
+                                No accounts created yet.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+</style>
+
+@code {
+    private const string InputClass =
+        "block w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 shadow-sm " +
+        "focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400";
+
+    private Guid selectedCompanyId;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    private SegCoaConfig cfg = new();
+
+    private List<Segment0> seg0 = new();
+    private List<Segment1> seg1 = new();
+    private List<Segment2> seg2 = new();
+    private List<Segment3> seg3 = new();
+    private List<Segment4> seg4 = new();
+    private List<Segment5> seg5 = new();
+
+    private List<SegAccountType> types = new();
+    private List<SegChartOfAccount> coa = new();
+
+    private SegCoaService.SegCoaDraft draft = new();
+    private string draftCode = "";
+
+    // minimizable builder
+    private bool showBuilder = false;
+
+    // track if user edited description; if not edited, keep auto-updating it as selections change
+    private bool descTouched = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                cfg = await Service.GetOrCreateConfigAsync(selectedCompanyId);
+
+                draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true };
+                await LoadAll();
+            }
+        }
+
+        isLoading = false;
+    }
+
+    private async Task LoadAll()
+    {
+        types = await Service.GetAccountTypesAsync();
+
+        seg0 = await Service.GetSegment0Async(selectedCompanyId);
+        seg1 = await Service.GetSegment1Async(selectedCompanyId);
+        seg2 = await Service.GetSegment2Async(selectedCompanyId);
+        seg3 = await Service.GetSegment3Async(selectedCompanyId);
+        seg4 = await Service.GetSegment4Async(selectedCompanyId);
+        seg5 = await Service.GetSegment5Async(selectedCompanyId);
+
+        coa = await Service.GetCoaAsync(selectedCompanyId);
+    }
+
+    // -----------------------------
+    // Minimize/Cancel logic
+    // -----------------------------
+    private void ToggleAccountBuilder()
+    {
+        showBuilder = !showBuilder;
+        if (showBuilder)
+            ResetDraft(); // open clean form each time
+    }
+
+    private void CancelAccountBuilder()
+    {
+        ResetDraft();
+        showBuilder = false;
+    }
+
+    private void ResetDraft()
+    {
+        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true };
+        draftCode = "";
+        descTouched = false;
+    }
+
+    // -----------------------------
+    // Selection changes -> rebuild computed fields
+    // Description must be cumulation of selected segment descriptions,
+    // but user can edit. If user edits, we stop auto-overwriting.
+    // -----------------------------
+    private Task RebuildDraft()
+    {
+        var codes = new List<string>();
+        var descs = new List<string>();
+
+        var s0 = seg0.FirstOrDefault(x => x.Id == draft.Segment0Id);
+        if (s0 != null) { codes.Add(s0.Code); descs.Add(s0.Description); }
+
+        if (draft.Segment1Id != null) { var x = seg1.FirstOrDefault(a => a.Id == draft.Segment1Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment2Id != null) { var x = seg2.FirstOrDefault(a => a.Id == draft.Segment2Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment3Id != null) { var x = seg3.FirstOrDefault(a => a.Id == draft.Segment3Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment4Id != null) { var x = seg4.FirstOrDefault(a => a.Id == draft.Segment4Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment5Id != null) { var x = seg5.FirstOrDefault(a => a.Id == draft.Segment5Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+
+        draftCode = string.Join("/", codes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+
+        var computedDesc = string.Join(" - ", descs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+        if (!descTouched)
+            draft.Description = computedDesc;
+
+        return Task.CompletedTask;
+    }
+
+    private async Task OnSeg0Changed(ChangeEventArgs e)
+    {
+        draft.Segment0Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : Guid.Empty;
+        await RebuildDraft();
+    }
+    private async Task OnSeg1Changed(ChangeEventArgs e) { draft.Segment1Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+    private async Task OnSeg2Changed(ChangeEventArgs e) { draft.Segment2Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+    private async Task OnSeg3Changed(ChangeEventArgs e) { draft.Segment3Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+    private async Task OnSeg4Changed(ChangeEventArgs e) { draft.Segment4Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+    private async Task OnSeg5Changed(ChangeEventArgs e) { draft.Segment5Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+
+    // -----------------------------
+    // Save COA
+    // -----------------------------
+    private async Task CreateCoa()
+    {
+        draft.CompanyId = selectedCompanyId;
+
+        var (err, created) = await Service.CreateCoaAsync(draft);
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+            return;
+        }
+
+        await LoadAll();
+        CancelAccountBuilder(); // collapse after save
+    }
+    private Task OnDescriptionChanged(string value)
+    {
+        descTouched = true;
+        draft.Description = value;
+        return Task.CompletedTask;
+    }
+
+}

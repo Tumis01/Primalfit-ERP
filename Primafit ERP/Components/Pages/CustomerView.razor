@@ -18,7 +18,7 @@
     <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Customers</h1>
-            <p class="text-sm text-slate-500">Manage client profiles and trading currencies.</p>
+            <p class="text-sm text-slate-500">Manage client profiles, currencies, and GL mapping.</p>
         </div>
         <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm">
             + New Customer
@@ -33,22 +33,11 @@
             <EditForm Model="currentCustomer" OnValidSubmit="Save">
                 <DataAnnotationsValidator />
 
+                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1">Profile Details</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
-                        <label class="label">Customer Name</label>
+                        <label class="label">Customer Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentCustomer.Name" class="input-class" placeholder="Company or Person Name" />
-                    </div>
-
-                    <div>
-                        <label class="label">Trading Currency</label>
-                        <select @bind="currentCustomer.CurrencyId" class="input-class">
-                            <option value="@Guid.Empty">-- Select Currency --</option>
-                            @foreach (var c in availableCurrencies)
-                            {
-                                <option value="@c.Id">@c.CurrencyCode - @c.CurrencyName</option>
-                            }
-                        </select>
-                        <p class="text-xs text-slate-400 mt-1">Currency used for invoicing this customer.</p>
                     </div>
 
                     <div>
@@ -63,6 +52,32 @@
                         <label class="label">Address</label>
                         <InputTextArea @bind-Value="currentCustomer.Address" class="input-class h-24" />
                     </div>
+                </div>
+
+                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1 mt-8">Accounting Setup</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+
+                    <div>
+                        <label class="label">Trading Currency <span class="text-rose-500">*</span></label>
+                        <select @bind="currentCustomer.CurrencyId" class="input-class bg-white">
+                            <option value="@Guid.Empty">-- Select Currency --</option>
+                            @foreach (var c in availableCurrencies)
+                            {
+                                <option value="@c.Id">@c.CurrencyCode - @c.CurrencyName</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Default currency for Sales Orders and Invoices.</p>
+                    </div>
+
+                    <div>
+                        <SearchableGlAccount Label="Accounts Receivable GL Account"
+                                             Placeholder="Search A/R accounts..."
+                                             Accounts="@arAccounts"
+                                             @bind-Value="ReceivablesAccountIdWrapper"
+                                             IsInvalid="@(ReceivablesAccountIdWrapper == Guid.Empty)" />
+                        <p class="text-[10px] text-rose-500 font-bold mt-1 tracking-wide uppercase">Required for Invoicing.</p>
+                    </div>
+
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -81,6 +96,7 @@
                         <th class="px-6 py-4">Name</th>
                         <th class="px-6 py-4">Contact</th>
                         <th class="px-6 py-4">Currency</th>
+                        <th class="px-6 py-4">A/R Setup</th>
                         <th class="px-6 py-4 text-right">Action</th>
                     </tr>
                 </thead>
@@ -100,6 +116,22 @@
                                     @c.DefaultCurrency?.CurrencyCode
                                 </span>
                             </td>
+                            <td class="px-6 py-4">
+                                @if (c.ReceivablesAccountId.HasValue && c.ReceivablesAccountId != Guid.Empty)
+                                {
+                                    <span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        Configured
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-200">
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                        Missing
+                                    </span>
+                                }
+                            </td>
                             <td class="px-6 py-4 text-right">
                                 <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:underline">Edit</button>
                             </td>
@@ -107,7 +139,7 @@
                     }
                     @if (!customers.Any())
                     {
-                        <tr><td colspan="4" class="p-8 text-center text-slate-400">No customers found.</td></tr>
+                        <tr><td colspan="5" class="p-8 text-center text-slate-400">No customers found.</td></tr>
                     }
                 </tbody>
             </table>
@@ -131,11 +163,12 @@
         border: 1px solid #cbd5e1;
         padding: 0.6rem;
         font-size: 0.875rem;
+        transition: border-color 0.2s;
+        outline: none;
     }
 
         .input-class:focus {
             border-color: #4f46e5;
-            outline: none;
             box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         }
 </style>
@@ -143,9 +176,20 @@
 @code {
     private List<Customer> customers = new();
     private List<Currency> availableCurrencies = new();
+
+    // NEW: List to hold A/R Accounts
+    private List<GLChartOfAccount> arAccounts = new();
+
     private Customer currentCustomer = new();
     private bool isEditing = false;
     private Guid selectedCompanyId;
+
+    // Helper property to map Guid? to Guid for the SearchableGlAccount component
+    private Guid ReceivablesAccountIdWrapper
+    {
+        get => currentCustomer.ReceivablesAccountId ?? Guid.Empty;
+        set => currentCustomer.ReceivablesAccountId = value == Guid.Empty ? null : value;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -158,6 +202,7 @@
             // Load Data
             availableCurrencies = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
             await LoadCustomers();
+            await LoadGlAccounts();
         }
     }
 
@@ -166,13 +211,24 @@
         customers = await MasterService.GetCustomersAsync(selectedCompanyId);
     }
 
+    // NEW: Fetch GL Accounts (Specifically Assets for A/R)
+    private async Task LoadGlAccounts()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        arAccounts = await ctx.GLChartOfAccounts
+            .Include(a => a.MainAccount.AccountType)
+            .Where(a => a.CompanyId == selectedCompanyId
+                     && a.MainAccount.AccountType.Class == GLAccountClass.Asset)
+            .OrderBy(a => a.AccountCode)
+            .ToListAsync();
+    }
+
     private void CreateNew()
     {
         currentCustomer = new Customer { CompanyId = selectedCompanyId };
-
         // Auto-select first currency if available
         if (availableCurrencies.Any()) currentCustomer.CurrencyId = availableCurrencies.First().Id;
-
         isEditing = true;
     }
 
@@ -184,6 +240,13 @@
 
     private async Task Save()
     {
+        // Validation for A/R Account
+        if (currentCustomer.ReceivablesAccountId == null || currentCustomer.ReceivablesAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Accounts Receivable GL Account is required to process invoices for this customer.");
+            return;
+        }
+
         var err = await MasterService.SaveCustomerAsync(currentCustomer);
         if (string.IsNullOrEmpty(err))
         {

@@ -27,21 +27,45 @@ namespace Primafit_ERP.Services
             var vendor = await ctx.Vendors.FindAsync(vendorId);
             if (vendor?.PayablesAccountId == null) return "Vendor Payables Account missing.";
 
-            // --- A. SERVICE ITEM LOGIC ---
+            var glLines = new List<GLJournalLine>();
+
+            // --- A. SERVICE ITEM LOGIC (Financial Only, No Physical Stock) ---
             if (item.IsService)
             {
-                // ... (Keep your existing Service logic here) ...
-                return string.Empty;
+                // We do NOT write to StockLedger for services as they are not "stocked" in a warehouse.
+                // We only record the expense financially.
+
+                // Debit: Expense / COGS (Immediate expense)
+                glLines.Add(new GLJournalLine
+                {
+                    AccountId = item.CostOfGoodsSoldAccountId, // Or ExpenseAccountId if you have one
+                    Debit = totalLandedCost,
+                    Credit = 0,
+                    Reference = $"Service Exp: {item.Name}"
+                });
+
+                // Credit: Accounts Payable
+                glLines.Add(new GLJournalLine
+                {
+                    AccountId = vendor.PayablesAccountId.Value,
+                    Debit = 0,
+                    Credit = totalLandedCost,
+                    Reference = $"Bill: {vendor.Name}"
+                });
+
+                // Post GL
+                await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase (Service)", reference, glLines);
+
+                return string.Empty; // Done for Service
             }
 
-            // --- B. PHYSICAL GOODS LOGIC ---
+            // --- B. PHYSICAL GOODS LOGIC (Stock Ledger + WACC) ---
 
-            // 1. Get Current Quantity (Summing the Ledger, just like your View does)
+            // 1. Get Current Quantity
             decimal currentTotalQty = await ctx.StockLedgers
                 .Where(s => s.ItemId == itemId)
                 .SumAsync(s => s.QuantityChanged);
 
-            // Prevent negative history from breaking WACC (optional safety)
             if (currentTotalQty < 0) currentTotalQty = 0;
 
             // 2. Calculate New WACC
@@ -50,12 +74,11 @@ namespace Primafit_ERP.Services
             decimal newValuation = oldValuation + totalLandedCost;
             decimal newTotalQty = currentTotalQty + qty;
 
-            // 3. Update Item WACC (This is the only field we change on Item)
+            // 3. Update Item WACC
             if (newTotalQty > 0)
             {
                 item.WeightedAverageCost = newValuation / newTotalQty;
 
-                // Log WACC History
                 ctx.ItemCostHistories.Add(new ItemCostHistory
                 {
                     ItemId = itemId,
@@ -69,14 +92,14 @@ namespace Primafit_ERP.Services
                 });
             }
 
-            
+            // 4. Update Stock Ledger (Physical)
             var ledgerEntry = new StockLedger
             {
-                Id = Guid.NewGuid(), // Ensure ID is generated
+                Id = Guid.NewGuid(),
                 CompanyId = companyId,
                 ItemId = itemId,
-                WarehouseId = warehouseId,
-                QuantityChanged = qty, // +Quantity
+                WarehouseId = warehouseId, // Required for Physical
+                QuantityChanged = qty,
                 Type = StockMovementType.Purchase,
                 CostAtTime = item.WeightedAverageCost,
                 Reference = reference,
@@ -85,12 +108,22 @@ namespace Primafit_ERP.Services
 
             ctx.StockLedgers.Add(ledgerEntry);
 
-            // 5. Financial Posting (GL)
-            var glLines = new List<GLJournalLine>
-    {
-        new() { AccountId = item.InventoryAssetAccountId, Debit = totalLandedCost, Credit = 0, Reference = $"Stock In: {item.Name}" },
-        new() { AccountId = vendor.PayablesAccountId.Value, Debit = 0, Credit = totalLandedCost, Reference = $"Bill: {vendor.Name}" }
-    };
+            // 5. Financial Posting (GL) - Asset vs Liability
+            glLines.Add(new GLJournalLine
+            {
+                AccountId = item.InventoryAssetAccountId,
+                Debit = totalLandedCost,
+                Credit = 0,
+                Reference = $"Stock In: {item.Name}"
+            });
+
+            glLines.Add(new GLJournalLine
+            {
+                AccountId = vendor.PayablesAccountId.Value,
+                Debit = 0,
+                Credit = totalLandedCost,
+                Reference = $"Bill: {vendor.Name}"
+            });
 
             await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines);
 
@@ -245,6 +278,36 @@ namespace Primafit_ERP.Services
             return await ctx.StockLedgers
                 .Where(s => s.ItemId == itemId && s.WarehouseId == warehouseId)
                 .SumAsync(s => s.QuantityChanged);
+        }
+        
+
+        public async Task<decimal> GetAvailableToPromiseAsync(Guid companyId, Guid itemId, Guid warehouseId, Guid? excludeOrderId = null)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // 1. Get Total Physical Stock currently in the warehouse
+            decimal physicalStock = await ctx.StockLedgers
+                .Where(s => s.ItemId == itemId && s.WarehouseId == warehouseId)
+                .SumAsync(s => s.QuantityChanged);
+
+            // 2. Get Reserved Stock (Quantities on Draft or Confirmed orders that haven't shipped yet)
+            var reservedQuery = ctx.SalesOrderLines
+                .Include(l => l.Header)
+                .Where(l => l.ItemId == itemId
+                         && l.Header.WarehouseId == warehouseId
+                         && l.Header.CompanyId == companyId
+                         && (l.Header.Status == OrderStatus.Draft || l.Header.Status == OrderStatus.Confirmed));
+
+            // If we are editing an existing order, don't count its own lines against itself
+            if (excludeOrderId.HasValue && excludeOrderId.Value != Guid.Empty)
+            {
+                reservedQuery = reservedQuery.Where(l => l.HeaderId != excludeOrderId.Value);
+            }
+
+            decimal reservedStock = await reservedQuery.SumAsync(l => l.Quantity);
+
+            // 3. The true available stock for a new customer
+            return physicalStock - reservedStock;
         }
     }
 }

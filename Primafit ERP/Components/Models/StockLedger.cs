@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    public enum StockMovementType { Purchase, Sale, TransferIn, TransferOut, Adjustment }
+    public enum StockMovementType { Purchase, Sale, TransferIn, TransferOut, Adjustment, PurchaseReturn }
 
     public class StockLedger
     {

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260211141625_payment")]
+    partial class payment
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1424,97 +1427,6 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("PurchaseOrderLines");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturn", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CurrencyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<DateTime?>("PostedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("PostedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("ReturnDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ReturnNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("VendorBillId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("VendorId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("WarehouseId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("VendorBillId");
-
-                    b.ToTable("PurchaseReturns");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturnLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ItemName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("PurchaseReturnId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("QtyReturning")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<decimal>("UnitCost")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("VendorBillLineId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PurchaseReturnId");
-
-                    b.HasIndex("VendorBillLineId");
-
-                    b.ToTable("PurchaseReturnLines");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoice", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2723,36 +2635,6 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturn", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.VendorBill", "VendorBill")
-                        .WithMany()
-                        .HasForeignKey("VendorBillId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("VendorBill");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturnLine", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.PurchaseReturn", "PurchaseReturn")
-                        .WithMany("Lines")
-                        .HasForeignKey("PurchaseReturnId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.VendorBillLine", "VendorBillLine")
-                        .WithMany()
-                        .HasForeignKey("VendorBillLineId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.Navigation("PurchaseReturn");
-
-                    b.Navigation("VendorBillLine");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoiceLine", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", null)
@@ -2974,11 +2856,6 @@ namespace Primafit_ERP.Migrations
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrder", b =>
-                {
-                    b.Navigation("Lines");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturn", b =>
                 {
                     b.Navigation("Lines");
                 });

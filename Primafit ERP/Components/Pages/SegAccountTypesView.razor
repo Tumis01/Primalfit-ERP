@@ -1,0 +1,116 @@
+﻿@page "/seg-account-types"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+
+@inject SegAccountTypeService Service
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Account Types</h1>
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                    Fixed Data
+                </span>
+            </div>
+            <p class="text-sm text-slate-500 mt-1">
+                This is a system lookup table. Entries are seeded and cannot be edited or deleted.
+            </p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading account types...
+        </div>
+    }
+    else
+    {
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="px-6 py-4">Code</th>
+                        <th class="px-6 py-4">Account Type</th>
+                        <th class="px-6 py-4">Statement</th>
+                        <th class="px-6 py-4">Normal Balance</th>
+                    </tr>
+                </thead>
+
+                <tbody class="divide-y divide-slate-100">
+                    @if (items.Any())
+                    {
+                        @foreach (var x in items)
+                        {
+                            <tr class="group hover:bg-slate-50 transition-colors">
+                                <td class="px-6 py-4">
+                                    <span class="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
+                                        @x.Id
+                                    </span>
+                                </td>
+
+                                <td class="px-6 py-4 text-slate-900 font-bold">
+                                    @x.Description
+                                </td>
+
+                                <td class="px-6 py-4">
+                                    @if (x.IsBalanceSheet)
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                            Balance Sheet
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                            Income Statement
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="px-6 py-4">
+                                    @if (x.IsDebit)
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                            Debit
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700">
+                                            Credit
+                                        </span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-400">
+                                No account types found.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<SegAccountType> items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        items = await Service.GetAllAsync();
+        isLoading = false;
+    }
+}

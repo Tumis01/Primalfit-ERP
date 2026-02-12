@@ -1,0 +1,103 @@
+﻿@page "/purchases/returns"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Purchase Returns</h1>
+            <p class="text-sm text-slate-500">Manage returns to vendors and inventory reversals.</p>
+        </div>
+        <button @onclick='() => Nav.NavigateTo("/purchases/returns/entry")' class="px-4 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-sm flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            New Return
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400">Loading returns...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="p-4">Return #</th>
+                        <th class="p-4">Date</th>
+                        <th class="p-4">Vendor</th>
+                        <th class="p-4">Reference Bill</th>
+                        <th class="p-4">Status</th>
+                        <th class="p-4 text-right">Total</th>
+                        <th class="p-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var r in returns)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="p-4 font-mono font-bold text-rose-700">@r.ReturnNumber</td>
+                            <td class="p-4 text-slate-500">@r.ReturnDate.ToShortDateString()</td>
+                            <td class="p-4 font-bold">
+                                @(vendors.FirstOrDefault(v => v.Id == r.VendorId)?.Name ?? "Unknown")
+                            </td>
+                            <td class="p-4 text-xs font-mono bg-slate-50 rounded">
+                                @(bills.FirstOrDefault(b => b.Id == r.VendorBillId)?.ExternalInvoiceNumber ?? "N/A")
+                            </td>
+                            <td class="p-4">
+                                <span class="px-2 py-1 rounded text-xs font-bold border
+                                            @(r.Status == ReturnStatus.Posted ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200")">
+                                    @r.Status
+                                </span>
+                            </td>
+                            <td class="p-4 text-right font-mono font-bold">
+                                @r.TotalAmount.ToString("N2")
+                            </td>
+                            <td class="p-4 text-right">
+                                <a href="/purchases/returns/entry/@r.Id" class="text-indigo-600 font-bold hover:underline">
+                                    @(r.Status == ReturnStatus.Posted ? "View" : "Manage")
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!returns.Any())
+            {
+                <div class="p-12 text-center text-slate-400">No returns found.</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<PurchaseReturn> returns = new();
+
+    // Cache for display names
+    private List<Vendor> vendors = new();
+    private List<VendorBill> bills = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        // Load data
+        returns = await ctx.PurchaseReturns.OrderByDescending(r => r.ReturnDate).ToListAsync();
+
+        // Optimization: Fetch only relevant vendors/bills to avoid massive joins
+        var vendorIds = returns.Select(r => r.VendorId).Distinct().ToList();
+        vendors = await ctx.Vendors.Where(v => vendorIds.Contains(v.Id)).ToListAsync();
+
+        var billIds = returns.Select(r => r.VendorBillId).Distinct().ToList();
+        bills = await ctx.VendorBills.Where(b => billIds.Contains(b.Id)).ToListAsync();
+
+        isLoading = false;
+    }
+}

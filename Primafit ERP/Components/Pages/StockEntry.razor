@@ -24,12 +24,11 @@
                 @if (!string.IsNullOrEmpty(companyName))
                 {
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
-                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                         @companyName
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Record direct inventory receipts (e.g. Opening Stock) without a PO.</p>
+            <p class="text-sm text-slate-500 mt-1">Record direct inventory receipts or service expenses.</p>
         </div>
     </div>
 
@@ -62,8 +61,10 @@
 
                         <div>
                             <label class="label">Receiving Warehouse</label>
-                            <select @bind="selectedWarehouseId" class="input-class">
-                                <option value="@Guid.Empty">-- Select Warehouse --</option>
+                            <select @bind="selectedWarehouseId" class="input-class disabled:opacity-50 disabled:cursor-not-allowed" disabled="@IsServiceItem">
+                                <option value="@Guid.Empty">
+                                    @(IsServiceItem ? "-- Not Applicable for Services --" : "-- Select Warehouse --")
+                                </option>
                                 @foreach (var w in warehouses)
                                 {
                                     <option value="@w.Id">@w.Name</option>
@@ -82,9 +83,11 @@
 
                         @if (IsServiceItem)
                         {
-                            <div class="flex items-center gap-2 mt-2 text-xs font-bold text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-100 animate-in fade-in slide-in-from-top-1">
-                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                Service Item (Expensed immediately, No Stock Qty)
+                            <div class="flex items-center gap-2 mt-2 text-xs font-bold text-indigo-600 bg-indigo-50 p-3 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-top-1">
+                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Service Item Selected: No Warehouse required. Quantity fixed at 1.</span>
                             </div>
                         }
 
@@ -97,12 +100,14 @@
                         }
 
                         <div>
-                            <label class="label">Total Value (Cost)</label>
+                            <label class="label">Total Cost</label>
                             <div class="relative">
                                 <span class="absolute left-3 top-2.5 text-slate-400 font-bold text-xs">$</span>
                                 <InputNumber @bind-Value="totalCost" class="input-class pl-7 font-bold text-slate-900" placeholder="0.00" />
                             </div>
-                            <p class="text-[10px] text-slate-400 mt-1">This updates the Weighted Average Cost (WACC).</p>
+                            <p class="text-[10px] text-slate-400 mt-1">
+                                @(IsServiceItem ? "Expensed immediately to P&L." : "Updates Weighted Average Cost (WACC).")
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -112,13 +117,11 @@
                             class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
                         @if (isBusy)
                         {
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span>Processing...</span>
                         }
                         else
                         {
-                            <svg class="h-5 w-5 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            <span>Post Receipt</span>
+                            <span>Post Entry</span>
                         }
                     </button>
                 </div>
@@ -201,29 +204,47 @@
 
     private void OnItemChanged()
     {
-        if (IsServiceItem) qty = 0;
+        if (IsServiceItem)
+        {
+            qty = 1; // Force 1 for Service
+            selectedWarehouseId = Guid.Empty; // Reset Warehouse
+        }
+        else
+        {
+            qty = 0;
+        }
     }
 
     private async Task ProcessReceipt()
     {
+        // Validation Logic
+        bool isVendorInvalid = selectedVendorId == Guid.Empty;
+        bool isItemInvalid = selectedItemId == Guid.Empty;
+        bool isCostInvalid = totalCost <= 0;
+
+        // Warehouse is only required if NOT a service
+        bool isWarehouseInvalid = !IsServiceItem && selectedWarehouseId == Guid.Empty;
+
+        // Quantity is only checked if NOT a service (Service is auto 1)
         bool isQtyInvalid = !IsServiceItem && qty <= 0;
 
-        if (selectedVendorId == Guid.Empty || selectedWarehouseId == Guid.Empty || selectedItemId == Guid.Empty || isQtyInvalid || totalCost <= 0)
+        if (isVendorInvalid || isItemInvalid || isWarehouseInvalid || isQtyInvalid || isCostInvalid)
         {
-            await JS.InvokeVoidAsync("alert", "Please fill all fields correctly.");
+            await JS.InvokeVoidAsync("alert", "Please fill all required fields.");
             return;
         }
 
         isBusy = true;
         try
         {
+            // For Service, we pass Qty 1 and Empty Warehouse
             decimal finalQty = IsServiceItem ? 1 : qty;
+            Guid finalWarehouseId = IsServiceItem ? Guid.Empty : selectedWarehouseId;
 
-            // --- FIX APPLIED HERE: Added "Direct Stock Entry" as the reference string ---
             var err = await InvService.ReceiveStockAsync(
                 selectedCompanyId,
                 selectedItemId,
-                selectedWarehouseId,
+                finalWarehouseId, // Pass Empty Guid if service
                 finalQty,
                 totalCost,
                 selectedVendorId,
@@ -232,8 +253,8 @@
 
             if (string.IsNullOrEmpty(err))
             {
-                await JS.InvokeVoidAsync("alert", "Stock Receipt Posted Successfully.");
-                qty = 0; totalCost = 0; selectedItemId = Guid.Empty; // Reset
+                await JS.InvokeVoidAsync("alert", "Entry Posted Successfully.");
+                qty = 0; totalCost = 0; selectedItemId = Guid.Empty;
             }
             else
             {

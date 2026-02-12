@@ -8,91 +8,180 @@
 
 @inject PaymentService PayService
 @inject MasterDataService MasterService
+@inject CurrencyService CurrService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Receive Payment</h1>
-            <p class="text-sm text-slate-500">Record incoming money from customers.</p>
+            <p class="text-sm text-slate-500">Record incoming money against a specific sales order invoice.</p>
         </div>
-        <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
-            @if (isBusy)
-            {
-                <span class="animate-spin">↻</span> <span>Posting...</span>
-            }
-            else
-            {
-                <span>Post Receipt</span>
-            }
-        </button>
+        <div class="flex items-center gap-4">
+            <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
+                @if (isBusy)
+                {
+                    <span class="animate-spin">↻</span> <span>Processing...</span>
+                }
+                else
+                {
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                    <span>Post Payment</span>
+                }
+            </button>
+        </div>
     </div>
-
-    
 
     @if (currentCompanyId != Guid.Empty)
     {
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-                <h3 class="font-bold border-b pb-2 text-slate-700">Transaction Details</h3>
+            <div class="lg:col-span-4 space-y-6">
+                
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider">Transaction Details</h3>
 
-                <div>
-                    <label class="label">Date Received</label>
-                    <input type="date" @bind="payment.Date" class="input-class" />
-                </div>
+                    <div>
+                        <label class="label">Date Received</label>
+                        <input type="date" @bind="payment.Date" class="input-class" />
+                    </div>
 
-                <div>
-                    <label class="label">Customer</label>
-                    <select @bind="payment.CustomerId" class="input-class">
-                        <option value="@Guid.Empty">-- Select Customer --</option>
-                        @foreach (var c in customers)
+                    <div>
+                        <label class="label">Customer</label>
+                        <select value="@payment.CustomerId" @onchange="OnCustomerChanged" class="input-class font-bold text-slate-900 border-indigo-200 bg-indigo-50/30">
+                            <option value="@Guid.Empty">-- Select Customer --</option>
+                            @foreach (var c in customers)
+                            {
+                                <option value="@c.Id">@c.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="label text-indigo-600">Sales Order Invoice Number</label>
+                        <select value="@selectedInvoiceId" @onchange="OnInvoiceChanged" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@(payment.CustomerId == Guid.Empty)">
+                            <option value="@Guid.Empty">-- Select Order --</option>
+                            @foreach (var inv in openInvoices)
+                            {
+                                <option value="@inv.InvoiceId">@inv.OrderNumber (Due: @inv.BalanceDue.ToString("N2"))</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="label">Currency</label>
+                            <select value="@payment.CurrencyId" class="input-class @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" disabled="@HasInvoiceSelected">
+                                <option value="@Guid.Empty">N/A</option>
+                                @foreach (var c in currencies)
+                                {
+                                    <option value="@c.Id">@c.CurrencyCode</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label">Exchange Rate</label>
+                            <input type="number" step="0.0001" @bind="payment.ExchangeRate" class="input-class font-mono text-right @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" readonly="@HasInvoiceSelected" />
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
+                        <div class="relative">
+                            
+                            <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 @(HasInvoiceSelected ? "cursor-not-allowed opacity-80" : "")" placeholder="0.00" readonly="@HasInvoiceSelected" />
+                        </div>
+                        
+                        @if (HasInvoiceSelected)
                         {
-                            <option value="@c.Id">@c.Name</option>
+                            <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
+                                <span class="font-bold text-slate-400 uppercase">Ledger Value (Base)</span>
+                                <div class="font-mono font-bold text-emerald-600">
+                                    @((payment.AmountReceived * payment.ExchangeRate).ToString("N2"))
+                                </div>
+                            </div>
                         }
-                    </select>
-                </div>
-
-                <div>
-                    <label class="label">Amount Received</label>
-                    <div class="relative">
-                        <span class="absolute left-3 top-2 text-slate-400 font-bold">$</span>
-                        <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-lg text-emerald-700" placeholder="0.00" />
                     </div>
                 </div>
-            </div>
 
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
-                <h3 class="font-bold border-b pb-2 text-slate-700 flex items-center gap-2">
-                    <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                    GL Account Mapping
-                </h3>
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                    <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
+                        GL Mapping
+                        <span class="text-[10px] text-slate-400 font-normal normal-case">Required</span>
+                    </h3>
 
-                <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                    <SearchableGlAccount 
-                        Label="Deposit To (Debit)" 
-                        Placeholder="Search Bank / Cash..." 
-                        Accounts="@bankAccounts" 
-                        @bind-Value="payment.DepositToGlAccountId"
-                        IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
-                    
-                    <p class="text-[10px] text-emerald-600 mt-1 font-medium">Money enters this account (Asset increases).</p>
+                    <div class="space-y-3">
+                        <div>
+                            <SearchableGlAccount Label="Deposit To (Bank)" Placeholder="Search Bank Asset..." Accounts="@bankAccounts" @bind-Value="payment.DepositToGlAccountId" IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
+                        </div>
+                        
+                        <div>
+                            <label class="label">Crediting Account (A/R)</label>
+                            <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 flex items-center justify-between cursor-not-allowed">
+                                <span class="font-bold">@CustomerArAccountName</span>
+                                <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1">This account was debited during invoicing.</p>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                    <SearchableGlAccount 
-                        Label="Credit Account" 
-                        Placeholder="Search Receivable / Income..." 
-                        Accounts="@receivableAccounts" 
-                        @bind-Value="payment.CreditGlAccountId"
-                        IsInvalid="@(payment.CreditGlAccountId == Guid.Empty)" />
+            </div>
+
+            <div class="lg:col-span-8">
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full min-h-[600px]">
+                    <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                            @(SelectedInvoice != null ? $"Order Items: {SelectedInvoice.OrderNumber}" : "Order Items")
+                        </h3>
+                    </div>
+
+                    <div class="overflow-x-auto flex-1 p-4">
+                        @if (SelectedInvoice != null)
+                        {
+                            <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="text-xs uppercase font-bold text-slate-500 bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th class="px-4 py-3">Item</th>
+                                        <th class="px-4 py-3 text-center">Qty</th>
+                                        <th class="px-4 py-3 text-right">Unit Price</th>
+                                        <th class="px-4 py-3 text-right">Total (@currencySymbol)</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach (var line in SelectedInvoice.Lines)
+                                    {
+                                        <tr class="hover:bg-slate-50 transition-colors">
+                                            <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Unknown Item")</td>
+                                            <td class="px-4 py-3 text-center font-mono font-bold">@line.Quantity</td>
+                                            <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="px-4 py-3 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <div class="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
+                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                Please select a Customer and an Order to view items.
+                            </div>
+                        }
+                    </div>
                     
-                    <p class="text-[10px] text-indigo-600 mt-1 font-medium">Usually 'Accounts Receivable' (Asset decreases).</p>
+                    @if (SelectedInvoice != null)
+                    {
+                        <div class="border-t border-slate-200 bg-slate-50 p-4 grid grid-cols-12 gap-4 items-center mt-auto rounded-b-2xl">
+                            <div class="col-span-8 text-right text-xs font-bold text-slate-500 uppercase">Total Payment Applied:</div>
+                            <div class="col-span-4 text-right font-mono font-bold text-emerald-700 text-lg">@currencySymbol@payment.AmountReceived.ToString("N2")</div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -100,21 +189,44 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; }
-    .input-class:focus { border-color: #10b981; outline: none; ring: 2px; ring-color: #d1fae5; }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: border-color 0.2s; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1); }
+    .input-class:disabled, .input-class[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
 </style>
 
 @code {
     private CustomerPayment payment = new();
     private List<Customer> customers = new();
-
+    private List<Currency> currencies = new();
+    
     // GL Lists
+    private List<GLChartOfAccount> allAccounts = new();
     private List<GLChartOfAccount> bankAccounts = new();
-    private List<GLChartOfAccount> receivableAccounts = new();
-
+    
     private Guid currentCompanyId;
     private bool isBusy = false;
+    private string currencySymbol = "";
+    private string CustomerArAccountName = "Select Customer First";
+
+    // Invoice Selection State
+    private Guid selectedInvoiceId = Guid.Empty;
+    private bool HasInvoiceSelected => selectedInvoiceId != Guid.Empty;
+    private InvoiceRow? SelectedInvoice => openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
+
+    public class InvoiceRow
+    {
+        public Guid InvoiceId { get; set; }
+        public string OrderNumber { get; set; } = "";
+        public DateTime Date { get; set; }
+        public decimal OriginalTotal { get; set; }
+        public decimal BalanceDue { get; set; }
+        public decimal OriginalRate { get; set; }
+        public Guid CurrencyId { get; set; }
+        public List<SalesOrderLine> Lines { get; set; } = new();
+    }
+
+    private List<InvoiceRow> openInvoices = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -124,27 +236,13 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-
-            // 1. Load Customers
+            
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
+            currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
 
-            // 2. Load GL Accounts
             using var ctx = await DbFactory.CreateDbContextAsync();
-
-            // Banks (Assets) - Typically Banks & Cash
-            bankAccounts = await ctx.GLChartOfAccounts
-                .Include(a => a.MainAccount.AccountType)
-                .Where(a => a.CompanyId == currentCompanyId && a.MainAccount.AccountType.Class == GLAccountClass.Asset)
-                .OrderBy(a => a.AccountCode)
-                .ToListAsync();
-
-            // Receivables (Assets) or Income (Revenue) - Flexible
-            receivableAccounts = await ctx.GLChartOfAccounts
-                .Include(a => a.MainAccount.AccountType)
-                .Where(a => a.CompanyId == currentCompanyId &&
-                       (a.MainAccount.AccountType.Class == GLAccountClass.Asset || a.MainAccount.AccountType.Class == GLAccountClass.Revenue))
-                .OrderBy(a => a.AccountCode)
-                .ToListAsync();
+            allAccounts = await ctx.GLChartOfAccounts.Include(a => a.MainAccount.AccountType).Where(a => a.CompanyId == currentCompanyId).ToListAsync();
+            bankAccounts = allAccounts.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList();
 
             CreateNew();
         }
@@ -152,30 +250,170 @@
 
     private void CreateNew()
     {
-        payment = new CustomerPayment { CompanyId = currentCompanyId, Date = DateTime.Today };
+        payment = new CustomerPayment { CompanyId = currentCompanyId, Date = DateTime.Today, ExchangeRate = 1 };
+        openInvoices.Clear();
+        selectedInvoiceId = Guid.Empty;
+        
+        if (currencies.Any())
+        {
+            var def = currencies.First();
+            payment.CurrencyId = def.Id;
+            currencySymbol = def.CurrencyCode;
+        }
+    }
+
+    private async Task OnCurrencyChanged(ChangeEventArgs e)
+    {
+        if (!HasInvoiceSelected && Guid.TryParse(e.Value?.ToString(), out var currId))
+        {
+            payment.CurrencyId = currId;
+            var c = currencies.FirstOrDefault(x => x.Id == currId);
+            currencySymbol = c?.CurrencyCode ?? "";
+            payment.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(currentCompanyId, currId);
+        }
+    }
+
+    private async Task OnCustomerChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var custId))
+        {
+            payment.CustomerId = custId;
+            
+            // Auto-fetch Customer AR Account
+            var customer = customers.FirstOrDefault(c => c.Id == custId);
+            if (customer != null && customer.ReceivablesAccountId.HasValue)
+            {
+                payment.CreditGlAccountId = customer.ReceivablesAccountId.Value;
+                var arAcc = allAccounts.FirstOrDefault(a => a.Id == payment.CreditGlAccountId);
+                CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.AccountName}" : "Unknown Account";
+            }
+            else
+            {
+                payment.CreditGlAccountId = Guid.Empty;
+                CustomerArAccountName = "⚠️ Customer Missing AR Account!";
+            }
+
+            await LoadCustomerInvoices(custId);
+            selectedInvoiceId = Guid.Empty;
+            payment.AmountReceived = 0;
+            payment.Reference = "";
+        }
+        else
+        {
+            payment.CustomerId = Guid.Empty;
+            payment.CreditGlAccountId = Guid.Empty;
+            CustomerArAccountName = "Select Customer First";
+            openInvoices.Clear();
+            selectedInvoiceId = Guid.Empty;
+        }
+    }
+
+    private async Task LoadCustomerInvoices(Guid customerId)
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        
+        var invoices = await ctx.SalesOrders
+            .Include(o => o.Lines).ThenInclude(l => l.Item)
+            .Where(o => o.CompanyId == currentCompanyId && o.CustomerId == customerId && o.Status == OrderStatus.Invoiced)
+            .ToListAsync();
+
+        openInvoices.Clear();
+        foreach (var inv in invoices)
+        {
+            decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
+            decimal taxAmount = 0;
+            if (inv.TaxId.HasValue)
+            {
+                var tax = await ctx.Taxes.FindAsync(inv.TaxId.Value);
+                if (tax != null) taxAmount = subTotal * (tax.Per / 100);
+            }
+            decimal grandTotal = subTotal + taxAmount;
+
+            decimal paidAmount = await ctx.PaymentApplications
+                .Where(a => a.InvoiceId == inv.Id)
+                .SumAsync(a => a.AppliedAmount + a.CashDiscountTaken);
+
+            decimal balanceDue = grandTotal - paidAmount;
+
+            if (balanceDue > 0)
+            {
+                openInvoices.Add(new InvoiceRow
+                {
+                    InvoiceId = inv.Id,
+                    OrderNumber = inv.OrderNumber,
+                    Date = inv.Date.ToDateTime(TimeOnly.MinValue),
+                    OriginalTotal = grandTotal,
+                    BalanceDue = balanceDue,
+                    OriginalRate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1,
+                    CurrencyId = inv.CurrencyId,
+                    Lines = inv.Lines.ToList()
+                });
+            }
+        }
+        
+        openInvoices = openInvoices.OrderBy(i => i.Date).ToList();
+    }
+
+    private void OnInvoiceChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var invId))
+        {
+            selectedInvoiceId = invId;
+            var inv = SelectedInvoice;
+            
+            if (inv != null)
+            {
+                payment.AmountReceived = inv.BalanceDue;
+                payment.ExchangeRate = inv.OriginalRate; 
+                payment.CurrencyId = inv.CurrencyId;
+                payment.Reference = inv.OrderNumber; 
+                
+                var c = currencies.FirstOrDefault(x => x.Id == payment.CurrencyId);
+                currencySymbol = c?.CurrencyCode ?? "";
+            }
+        }
+        else
+        {
+            selectedInvoiceId = Guid.Empty;
+            payment.AmountReceived = 0;
+            payment.Reference = "";
+        }
     }
 
     private async Task PostPayment()
     {
-        // Validation
-        if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount must be greater than zero."); return; }
-        if (payment.DepositToGlAccountId == Guid.Empty || payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select both Deposit and Credit accounts."); return; }
-        if (payment.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
+        if (!HasInvoiceSelected) { await JS.InvokeVoidAsync("alert", "Please select a Sales Order Invoice."); return; }
+        if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount received must be greater than zero."); return; }
+        if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
+        if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Customer does not have a configured AR Account."); return; }
+
+        payment.Applications.Clear();
+        if (SelectedInvoice != null)
+        {
+            payment.Applications.Add(new PaymentApplication
+            {
+                InvoiceId = SelectedInvoice.InvoiceId,
+                AppliedAmount = payment.AmountReceived,
+                CashDiscountTaken = 0
+            });
+        }
 
         isBusy = true;
         try
         {
-            // 1. Save Transaction Record
             var saveErr = await PayService.SavePaymentAsync(payment);
             if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
 
-            // 2. Post to General Ledger
             var postErr = await PayService.PostPaymentAsync(payment.Id);
 
             if (string.IsNullOrEmpty(postErr))
             {
                 await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!");
-                CreateNew(); // Reset Form
+                payment.CustomerId = Guid.Empty;
+                openInvoices.Clear();
+                selectedInvoiceId = Guid.Empty;
+                payment.AmountReceived = 0;
+                payment.Reference = "";
             }
             else
             {

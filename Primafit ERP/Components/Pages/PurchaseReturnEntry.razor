@@ -1,0 +1,430 @@
+﻿@page "/purchases/returns/entry/{Id:guid?}"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchaseReturnService RtvService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">
+                @(IsNew ? "New Purchase Return" : $"{currentRtv.ReturnNumber}")
+            </h1>
+            <p class="text-sm text-slate-500">
+                @(IsPosted ? "Posted Return Document" : "Draft Return - Pending Post")
+            </p>
+        </div>
+        <div class="flex gap-3">
+            <button @onclick='() => Nav.NavigateTo("/purchases/returns")' class="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">Back</button>
+
+            @if (!IsPosted && !IsNew)
+            {
+                <button @onclick="TerminateReturn" class="px-4 py-2 border border-rose-200 text-rose-600 rounded-lg font-bold hover:bg-rose-50 transition-colors">
+                    Terminate
+                </button>
+
+                <button @onclick="SaveDraft" class="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg font-bold hover:bg-indigo-100">Save Draft</button>
+
+                <button @onclick="PostReturn" class="px-6 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-md flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    Post Return
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (IsNew)
+    {
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
+            <h3 class="text-lg font-bold text-slate-800 mb-6 border-b border-slate-100 pb-2">Step 1: Select Source</h3>
+
+            <div class="space-y-6">
+                <div>
+                    <label class="label">Vendor</label>
+                    <select @onchange="OnVendorSelected" class="input-class">
+                        <option value="">-- Select Vendor --</option>
+                        @foreach (var v in vendors)
+                        {
+                            <option value="@v.Id">@v.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div>
+                    <label class="label">Source Vendor Bill</label>
+                    <select @bind="selectedBillId" class="input-class" disabled="@(!bills.Any())">
+                        <option value="">-- Select Bill to Return --</option>
+                        @foreach (var b in bills)
+                        {
+                            <option value="@b.Id">Inv #@b.ExternalInvoiceNumber (@b.BillDate.ToShortDateString()) - Total: @b.TotalAmount.ToString("N2")</option>
+                        }
+                    </select>
+                    @if (!bills.Any() && selectedVendorId != Guid.Empty)
+                    {
+                        <p class="text-xs text-rose-500 mt-1">No posted bills found for this vendor.</p>
+                    }
+                </div>
+
+                <div>
+                    <label class="label">Return from Warehouse</label>
+                    <select @bind="selectedWarehouseId" class="input-class">
+                        <option value="">-- Select Source Warehouse --</option>
+                        @foreach (var w in warehouses)
+                        {
+                            <option value="@w.Id">@w.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="pt-4">
+                    <button @onclick="InitializeReturn" disabled="@(selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
+                            class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                        Load Items & Create Draft
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <div class="space-y-6">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-xs text-slate-400 uppercase tracking-wider mb-4">Reference Info</h3>
+                    <div class="space-y-4 text-sm">
+                        <div>
+                            <span class="block text-slate-500 text-xs">Return Date</span>
+                            <InputDate @bind-Value="currentRtv.ReturnDate" class="input-class" disabled="@IsPosted" />
+                        </div>
+                        <div>
+                            <span class="block text-slate-500 text-xs">Vendor</span>
+                            <div class="font-bold text-slate-800">@(vendors.FirstOrDefault(v => v.Id == currentRtv.VendorId)?.Name)</div>
+                        </div>
+                        <div>
+                            <span class="block text-slate-500 text-xs">Original Bill</span>
+                            <div class="font-mono bg-slate-50 p-2 rounded border border-slate-200 text-xs">
+                                @(originalBill?.ExternalInvoiceNumber ?? "Loading...")
+                            </div>
+                        </div>
+                        <div>
+                            <span class="block text-slate-500 text-xs">Warehouse</span>
+                            <div class="font-bold text-slate-800">@(warehouses.FirstOrDefault(w => w.Id == currentRtv.WarehouseId)?.Name)</div>
+                        </div>
+                        <div>
+                            <span class="block text-slate-500 text-xs">Reason</span>
+                            <InputTextArea @bind-Value="currentRtv.Reason" class="input-class h-24" placeholder="Why are we returning this?" disabled="@IsPosted" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2">
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                        <h3 class="font-bold text-slate-700">Returnable Items</h3>
+                        <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">@currencyCode</span>
+                    </div>
+
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-xs uppercase font-bold text-slate-500 border-b border-slate-200 bg-white">
+                            <tr>
+                                <th class="p-3">Item</th>
+                                <th class="p-3 text-right">Billed</th>
+                                <th class="p-3 text-right">Prev Returned</th>
+                                <th class="p-3 text-right w-40">Return Qty</th>
+                                <th class="p-3 text-right">Unit Cost</th>
+                                <th class="p-3 text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var line in currentRtv.Lines)
+                            {
+                                decimal billed = GetBilledQty(line.VendorBillLineId);
+                                decimal prev = GetPrevReturnedQty(line.VendorBillLineId);
+                                decimal max = billed - prev;
+
+                                <tr class="hover:bg-slate-50">
+                                    <td class="p-3 font-medium text-slate-800">
+                                        @line.ItemName
+                                        @if (max <= 0)
+                                        {
+                                            <span class="ml-2 text-[10px] text-rose-500 font-bold uppercase">(Fully Returned)</span>
+                                        }
+                                    </td>
+                                    <td class="p-3 text-right text-slate-500">@billed.ToString("G29")</td>
+                                    <td class="p-3 text-right text-slate-500">@prev.ToString("G29")</td>
+
+                                    <td class="p-3 text-right">
+                                        @if (IsPosted || max <= 0)
+                                        {
+                                            <span class="font-bold">@line.QtyReturning.ToString("G29")</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="flex items-center gap-1 justify-end">
+                                                <input type="number"
+                                                       value="@line.QtyReturning"
+                                                       @onchange="@(e => UpdateQty(line, e.Value, max))"
+                                                       class="w-20 text-right border border-slate-300 rounded px-2 py-1 font-bold focus:border-rose-500 focus:outline-none"
+                                                       min="0" max="@max" step="1" />
+
+                                                <button @onclick="() => { line.QtyReturning = max; }"
+                                                        class="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-1 rounded hover:bg-slate-200 text-slate-600 font-bold"
+                                                        title="Return Max Available">
+                                                    MAX
+                                                </button>
+                                            </div>
+                                            <div class="text-[9px] text-slate-400 mt-0.5 text-right pr-1">Max: @max</div>
+                                        }
+                                    </td>
+
+                                    <td class="p-3 text-right font-mono text-slate-500">@line.UnitCost.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono font-bold text-rose-600">@line.LineTotal.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="bg-slate-50 border-t border-slate-200">
+                            <tr>
+                                <td colspan="5" class="p-3 text-right font-bold text-slate-600 uppercase text-xs">Total Refund Value:</td>
+                                <td class="p-3 text-right font-mono font-bold text-lg text-slate-900">
+                                    @currentRtv.Lines.Sum(l => l.LineTotal).ToString("N2")
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        outline: none;
+    }
+
+        .input-class:focus {
+            border-color: #e11d48;
+            box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.1);
+        }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+        }
+</style>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private bool IsNew => Id == null;
+    private bool IsPosted => currentRtv.Status == ReturnStatus.Posted;
+
+    private PurchaseReturn currentRtv = new();
+    private VendorBill? originalBill;
+
+    private List<Vendor> vendors = new();
+    private List<VendorBill> bills = new();
+    private List<Warehouse> warehouses = new();
+    private Guid selectedVendorId;
+    private Guid selectedBillId;
+    private Guid selectedWarehouseId;
+
+    private List<VendorBillLine> sourceLines = new();
+    private List<PurchaseReturnLine> historyLines = new();
+    private string currencyCode = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        if (IsNew)
+        {
+            vendors = await ctx.Vendors.OrderBy(v => v.Name).ToListAsync();
+            warehouses = await ctx.Warehouses.ToListAsync();
+        }
+        else
+        {
+            // --- OPTIMIZED LOAD (Edit Mode) ---
+
+            // 1. Load the Return Header & Lines
+            currentRtv = await ctx.PurchaseReturns
+                .Include(r => r.Lines)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(r => r.Id == Id);
+
+            if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
+
+            // 2. Load ONLY the specific Original Bill (Fast Lookup)
+            originalBill = await ctx.VendorBills
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId);
+
+            // 3. Load Validation Context (Lines)
+            await LoadValidationContext(ctx, currentRtv.VendorBillId);
+
+            // 4. Fetch ONLY the specific Vendor & Warehouse Names needed for display
+            // (Instead of fetching the entire list of 1000s of vendors)
+            var vendorName = await ctx.Vendors
+                .Where(v => v.Id == currentRtv.VendorId)
+                .Select(v => v.Name)
+                .FirstOrDefaultAsync() ?? "Unknown";
+
+            var warehouseName = await ctx.Warehouses
+                .Where(w => w.Id == currentRtv.WarehouseId)
+                .Select(w => w.Name)
+                .FirstOrDefaultAsync() ?? "Unknown";
+
+            // Populate the list with just ONE item to satisfy the view's binding
+            vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vendorName } };
+            warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = warehouseName } };
+
+            // 5. Currency
+            var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
+            currencyCode = currency?.CurrencyCode ?? "";
+        }
+    }
+
+    private async Task OnVendorSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var vid))
+        {
+            selectedVendorId = vid;
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            bills = await ctx.VendorBills
+                .Where(b => b.VendorId == vid && b.IsPosted)
+                .OrderByDescending(b => b.BillDate)
+                .ToListAsync();
+        }
+        else
+        {
+            bills.Clear();
+            selectedBillId = Guid.Empty;
+        }
+    }
+
+    private async Task InitializeReturn()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user == null) { await JS.InvokeVoidAsync("alert", "User not authenticated"); return; }
+
+        currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
+
+        var err = await RtvService.SaveDraftAsync(currentRtv);
+        if (string.IsNullOrEmpty(err)) Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task LoadValidationContext(AppDbContext ctx, Guid billId)
+    {
+        sourceLines = await ctx.VendorBillLines.Where(l => l.VendorBillId == billId).ToListAsync();
+        historyLines = await ctx.PurchaseReturnLines
+            .Include(l => l.PurchaseReturn)
+            .Where(l => l.VendorBillLine.VendorBillId == billId && l.PurchaseReturn.Status == ReturnStatus.Posted)
+            .ToListAsync();
+    }
+
+    private decimal GetBilledQty(Guid billLineId) => sourceLines.FirstOrDefault(l => l.Id == billLineId)?.QuantityBilled ?? 0;
+    private decimal GetPrevReturnedQty(Guid billLineId) => historyLines.Where(l => l.VendorBillLineId == billLineId).Sum(l => l.QtyReturning);
+
+    private void UpdateQty(PurchaseReturnLine line, object? value, decimal max)
+    {
+        if (decimal.TryParse(value?.ToString(), out var val))
+        {
+            line.QtyReturning = (val > max) ? max : (val < 0 ? 0 : val);
+        }
+    }
+
+    private async Task SaveDraft()
+    {
+        var err = await RtvService.SaveDraftAsync(currentRtv);
+        if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved.");
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    // --- NEW TERMINATE METHOD ---
+    private async Task TerminateReturn()
+    {
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this return? This action cannot be undone.");
+        if (!confirm) return;
+
+        var err = await RtvService.TerminateReturnAsync(currentRtv.Id);
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Return Terminated.");
+            Nav.NavigateTo("/purchases/returns");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task PostReturn()
+    {
+        // 1. Client-side Check
+        if (!currentRtv.Lines.Any(l => l.QtyReturning > 0))
+        {
+            await JS.InvokeVoidAsync("alert", "Please enter a return quantity > 0 for at least one item.");
+            return;
+        }
+
+        // 2. Save the quantities to the DB immediately
+        var saveErr = await RtvService.SaveDraftAsync(currentRtv);
+        if (!string.IsNullOrEmpty(saveErr))
+        {
+            await JS.InvokeVoidAsync("alert", "Error saving draft: " + saveErr);
+            return;
+        }
+
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Confirm posting this return? This will deduct stock.");
+        if (!confirm) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user == null) return;
+
+        // 3. Post
+        var err = await RtvService.PostReturnAsync(currentRtv.Id, Guid.Parse(user.Id));
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Return Posted Successfully.");
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            currentRtv = await ctx.PurchaseReturns.Include(r => r.Lines).FirstAsync(r => r.Id == currentRtv.Id);
+            StateHasChanged();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+}
