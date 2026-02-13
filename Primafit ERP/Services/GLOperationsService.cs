@@ -284,6 +284,32 @@ namespace Primafit_ERP.Services
             }
         }
 
+
+        public async Task<List<LedgerReportRow>> GetLedgerReportAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var query = from t in ctx.GLTransactions.AsNoTracking()
+                        join a in ctx.GLChartOfAccounts.AsNoTracking() on t.AccountId equals a.Id
+                        join j in ctx.GLJournalHeaders.AsNoTracking() on t.JournalId equals j.Id
+                        where t.CompanyId == companyId
+                              && t.PostingDate >= startDate
+                              && t.PostingDate <= endDate
+                        orderby a.AccountCode, t.PostingDate
+                        select new LedgerReportRow
+                        {
+                            AccountId = t.AccountId,
+                            AccountCode = a.AccountCode,
+                            AccountName = a.AccountName,
+                            PostingDate = t.PostingDate,
+                            JournalNumber = j.JournalNumber,
+                            Narration = t.Narration,
+                            Debit = t.Debit,
+                            Credit = t.Credit
+                        };
+
+            return await query.ToListAsync();
+        }
         // 6) Post (Atomic)
         public async Task<string> PostBatchAsync(Guid companyId, Guid batchId)
         {
@@ -299,31 +325,41 @@ namespace Primafit_ERP.Services
 
                 if (batch == null) return "Batch not found.";
 
-                // --- FIX: AUTO-RELEASE IF DRAFT ---
+                // --- 1. HANDLE ALREADY POSTED ---
+                if (batch.Status == BatchStatus.Posted)
+                {
+                    // Optionally return success if you want to be idempotent, 
+                    // or just a clear message so the user knows.
+                    return "Batch is already posted.";
+                }
+
+                // --- 2. AUTO-RELEASE IF DRAFT ---
                 if (batch.Status == BatchStatus.Draft)
                 {
-                    // 1. Check Balance before auto-releasing
+                    // Check Balance before auto-releasing
                     foreach (var j in batch.Journals)
                     {
                         if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced. Cannot auto-post.";
                     }
 
-                    // 2. Promote to Ready automatically
+                    // Promote to Ready automatically
                     batch.Status = BatchStatus.Ready;
                     batch.ReleasedByUserId = "SYSTEM_AUTO";
                     batch.ReleasedAt = DateTime.UtcNow;
 
-                    // Save this state transition so if posting fails later, it's at least "Ready"
                     await ctx.SaveChangesAsync();
                 }
-                // ----------------------------------
 
-                if (batch.Status != BatchStatus.Ready) return "Batch must be Ready (Released) before posting.";
+                // --- 3. FINAL STATUS CHECK ---
+                // Now we check if it is Ready. If it was Rejected or Void, this will catch it.
+                if (batch.Status != BatchStatus.Ready)
+                {
+                    return $"Batch cannot be posted. Current Status: {batch.Status}";
+                }
 
-                // PROCEED WITH POSTING (Move to GLTransactions)
+                // --- 4. PROCEED WITH POSTING ---
                 foreach (var journal in batch.Journals)
                 {
-                    // Double check balance (sanity check)
                     if (!IsBalanced(journal.Lines)) throw new InvalidOperationException($"Journal unbalanced.");
 
                     foreach (var line in journal.Lines)

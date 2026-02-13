@@ -16,7 +16,7 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public string OrderNumber { get; set; } = string.Empty; // e.g. SO-2026-0001
         public Guid? TaxId { get; set; }
-
+        public Guid? TaxGLAccountId { get; set; }
 
         [Required]
         public Guid CustomerId { get; set; }
@@ -95,5 +95,6 @@ namespace Primafit_ERP.Components.Models
         public Guid RevenueGlAccountId { get; set; }
 
         public decimal Amount { get; set; }
+
     }
 }

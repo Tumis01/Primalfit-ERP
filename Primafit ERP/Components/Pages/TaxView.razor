@@ -2,12 +2,15 @@
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+
 @inject TaxService Service
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -25,7 +28,7 @@
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Manage tax rates and codes.</p>
+            <p class="text-sm text-slate-500 mt-1">Manage tax rates and their GL mapping.</p>
         </div>
 
         <div class="flex gap-2">
@@ -83,6 +86,18 @@
                             </div>
                         </div>
                     </div>
+
+                    <div class="md:col-span-12 border-t border-slate-100 pt-4 mt-2">
+                        <label class="label text-indigo-600">Mapped GL Account (Liability)</label>
+                        <select @bind="currentTax.GLAccountId" class="input-class border-indigo-200 bg-indigo-50/30">
+                            <option value="">-- Select GL Account --</option>
+                            @foreach (var acc in coaList)
+                            {
+                                <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">This account will be credited when sales invoice is posted.</p>
+                    </div>
                 </div>
 
                 <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
@@ -104,6 +119,7 @@
                     <th class="px-6 py-4">Tax Code</th>
                     <th class="px-6 py-4">Description</th>
                     <th class="px-6 py-4">Rate</th>
+                    <th class="px-6 py-4">Mapped GL Account</th>
                     <th class="px-6 py-4 text-right">Actions</th>
                 </tr>
             </thead>
@@ -112,6 +128,7 @@
                 {
                     @foreach (var item in taxes)
                     {
+                        var mappedAccount = coaList.FirstOrDefault(c => c.Id == item.GLAccountId);
                         <tr class="group hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4 font-mono font-bold text-slate-900">@item.TaxCode</td>
                             <td class="px-6 py-4 font-medium text-slate-700">@item.TaxName</td>
@@ -119,6 +136,18 @@
                                 <span class="inline-flex items-center rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-900">
                                     @item.Per.ToString("0.##")%
                                 </span>
+                            </td>
+                            <td class="px-6 py-4 text-xs font-mono text-slate-600">
+                                @if (mappedAccount != null)
+                                {
+                                    <span class="text-indigo-600 font-bold">@mappedAccount.AccountCode</span>
+                                    <span class="text-slate-400 mx-1">-</span>
+                                    <span>@mappedAccount.AccountName</span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 italic">Not Mapped</span>
+                                }
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <div class="flex items-center justify-end gap-3 opacity-100">
@@ -132,7 +161,7 @@
                 else
                 {
                     <tr>
-                        <td colspan="4" class="px-6 py-12 text-center text-slate-400">
+                        <td colspan="5" class="px-6 py-12 text-center text-slate-400">
                             No tax rates configured for this company.
                         </td>
                     </tr>
@@ -180,6 +209,7 @@
 
     // --- Data ---
     private List<Tax> taxes = new();
+    private List<GLChartOfAccount> coaList = new();
     private Tax currentTax = new();
     private bool isEditing = false;
     private bool showForm = false;
@@ -201,6 +231,7 @@
                 if (company != null) companyName = company.CompanyName;
 
                 await LoadData();
+                await LoadCoa();
             }
         }
         isLoading = false;
@@ -210,6 +241,17 @@
     {
         if (!HasCompany) { taxes = new(); return; }
         taxes = await Service.GetTaxesAsync(selectedCompanyId);
+    }
+
+    private async Task LoadCoa()
+    {
+        if (!HasCompany) { coaList = new(); return; }
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        coaList = await ctx.GLChartOfAccounts
+            .AsNoTracking()
+            .Where(x => x.CompanyId == selectedCompanyId)
+            .OrderBy(x => x.AccountCode)
+            .ToListAsync();
     }
 
     private void ShowAddForm()
@@ -241,7 +283,8 @@
             Id = item.Id,
             TaxCode = item.TaxCode,
             TaxName = item.TaxName,
-            Per = item.Per
+            Per = item.Per,
+            GLAccountId = item.GLAccountId
         };
 
         isEditing = true;

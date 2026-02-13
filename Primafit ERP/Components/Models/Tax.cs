@@ -17,4 +17,5 @@ public class Tax
 
     [Column(TypeName = "decimal(9,4)")]
     public decimal Per { get; set; }
+    public Guid? GLAccountId { get; set; }
 }

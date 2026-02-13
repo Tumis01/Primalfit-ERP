@@ -11,8 +11,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 ExcelPackage.License.SetNonCommercialPersonal("Primafit");
 
-
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 

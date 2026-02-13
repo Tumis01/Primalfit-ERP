@@ -161,11 +161,24 @@
 
                         <div>
                             <label class="label">Tax / VAT</label>
-                            <select @bind="currentOrder.TaxId" class="input-class" disabled="@IsLocked">
+                            <select value="@currentOrder.TaxId" @onchange="OnTaxChanged" class="input-class" disabled="@IsLocked">
                                 <option value="">No Tax</option>
                                 @foreach (var t in taxes)
                                 {
                                     <option value="@t.Id">@t.TaxName (@t.Per%)</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="label text-slate-600">Tax GL Account</label>
+                            <select @bind="currentOrder.TaxGLAccountId"
+                                    class="input-class @(currentOrder.TaxId == null ? "bg-slate-50 text-slate-400" : "bg-white text-slate-900 border-indigo-200")"
+                                    disabled="@(IsLocked || currentOrder.TaxId == null)">
+                                <option value="">-- Default from Tax --</option>
+                                @foreach (var acc in coaList)
+                                {
+                                    <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
                                 }
                             </select>
                         </div>
@@ -351,7 +364,6 @@
 </style>
 
 @code {
-    // ... [Variables kept same as before] ...
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
@@ -366,6 +378,7 @@
     private List<Item> items = new();
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
+    private List<GLChartOfAccount> coaList = new(); // NEW: Chart of Accounts
 
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.Quantity * l.UnitPrice);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
@@ -398,6 +411,13 @@
         items = await MasterService.GetItemsAsync(selectedCompanyId);
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
+
+        // Load COA for Tax mapping
+        coaList = await ctx.GLChartOfAccounts
+            .AsNoTracking()
+            .Where(a => a.CompanyId == selectedCompanyId)
+            .OrderBy(a => a.AccountCode)
+            .ToListAsync();
     }
 
     private void CreateNew()
@@ -446,9 +466,29 @@
         else currentOrder.CustomerId = Guid.Empty;
     }
 
+    // NEW: Handle Tax Change
+    private void OnTaxChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var taxId))
+        {
+            currentOrder.TaxId = taxId;
+            var selectedTax = taxes.FirstOrDefault(t => t.Id == taxId);
+
+            // Auto-select the mapped GL Account for convenience
+            if (selectedTax != null)
+            {
+                currentOrder.TaxGLAccountId = selectedTax.GLAccountId;
+            }
+        }
+        else
+        {
+            currentOrder.TaxId = null;
+            currentOrder.TaxGLAccountId = null;
+        }
+    }
+
     private void AddLine() => currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
 
-    // UPDATED: Handle Item Change logic
     private void UpdateLineItem(SalesOrderLine line)
     {
         var item = items.FirstOrDefault(x => x.Id == line.ItemId);
@@ -457,7 +497,6 @@
             decimal rate = currentOrder.ExchangeRate > 0 ? currentOrder.ExchangeRate : 1;
             line.UnitPrice = item.SellingPrice / rate;
 
-            // Logic: Services forced to Qty 1
             if (item.IsService)
             {
                 line.Quantity = 1;
@@ -479,7 +518,6 @@
     {
         if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return; }
 
-        // Logic: Bypass Warehouse check if ONLY services exist
         bool hasPhysicalItems = currentOrder.Lines.Any(l =>
         {
             var i = items.FirstOrDefault(x => x.Id == l.ItemId);
@@ -502,7 +540,6 @@
 
     private async Task InvoiceOrderFromList(SalesOrder o)
     {
-        // Validation for physical items
         bool hasPhysical = o.Lines.Any(l =>
         {
             var i = items.FirstOrDefault(x => x.Id == l.ItemId);
@@ -518,7 +555,6 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", $"Generate Invoice for {o.OrderNumber}?");
         if (!confirm) return;
 
-        // If service-only, pass Empty Guid for warehouse if not selected
         Guid whId = o.WarehouseId == Guid.Empty ? Guid.Empty : o.WarehouseId;
 
         var err = await SalesService.InvoiceOrderAsync(o.Id, whId);

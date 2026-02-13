@@ -155,4 +155,15 @@ namespace Primafit_ERP.Components.Models
         public decimal TotalCredit { get; set; }
         public decimal NetBalance => TotalDebit - TotalCredit;
     }
+    public class LedgerReportRow
+    {
+        public Guid AccountId { get; set; }
+        public string AccountCode { get; set; } = "";
+        public string AccountName { get; set; } = "";
+        public DateOnly PostingDate { get; set; }
+        public string JournalNumber { get; set; } = "";
+        public string? Narration { get; set; }
+        public decimal Debit { get; set; }
+        public decimal Credit { get; set; }
+    }
 }

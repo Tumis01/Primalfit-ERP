@@ -62,4 +62,5 @@ namespace Primafit_ERP.Components.Models
         public BankReconciliation Reconciliation { get; set; } = new();
         public List<GLTransaction> CandidateGLTransactions { get; set; } = new();
     }
+    
 }

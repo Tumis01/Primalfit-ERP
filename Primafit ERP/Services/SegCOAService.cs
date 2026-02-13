@@ -182,15 +182,45 @@ namespace Primafit_ERP.Services
 
                 var cfg = await GetOrCreateConfigAsync(draft.CompanyId);
 
+                // 1. Base Requirement: Segment 0 is always mandatory
                 if (draft.Segment0Id == Guid.Empty)
                     return ("Segment0 is required.", null);
 
-                // Validate active segments: if active => must have selection
-                if (cfg.Segment1Active && (draft.Segment1Id == null || draft.Segment1Id == Guid.Empty)) return ($"{cfg.Segment1Name} is active, select a value.", null);
-                if (cfg.Segment2Active && (draft.Segment2Id == null || draft.Segment2Id == Guid.Empty)) return ($"{cfg.Segment2Name} is active, select a value.", null);
-                if (cfg.Segment3Active && (draft.Segment3Id == null || draft.Segment3Id == Guid.Empty)) return ($"{cfg.Segment3Name} is active, select a value.", null);
-                if (cfg.Segment4Active && (draft.Segment4Id == null || draft.Segment4Id == Guid.Empty)) return ($"{cfg.Segment4Name} is active, select a value.", null);
-                if (cfg.Segment5Active && (draft.Segment5Id == null || draft.Segment5Id == Guid.Empty)) return ($"{cfg.Segment5Name} is active, select a value.", null);
+                // 2. Logic Check: Are we trying to use segmentation?
+                // Check if any of the optional segments have a value selected
+                bool isSegmented =
+                    (draft.Segment1Id != null && draft.Segment1Id != Guid.Empty) ||
+                    (draft.Segment2Id != null && draft.Segment2Id != Guid.Empty) ||
+                    (draft.Segment3Id != null && draft.Segment3Id != Guid.Empty) ||
+                    (draft.Segment4Id != null && draft.Segment4Id != Guid.Empty) ||
+                    (draft.Segment5Id != null && draft.Segment5Id != Guid.Empty);
+
+                // 3. Validation Rules
+                if (isSegmented)
+                {
+                    // Rule: If using segments, ALL ACTIVE segments must have a value.
+                    // You cannot have "Segment 0 + Segment 1" if Segment 2 is also active.
+
+                    if (cfg.Segment1Active && (draft.Segment1Id == null || draft.Segment1Id == Guid.Empty))
+                        return ($"{cfg.Segment1Name} is active and must be selected for a segmented account.", null);
+
+                    if (cfg.Segment2Active && (draft.Segment2Id == null || draft.Segment2Id == Guid.Empty))
+                        return ($"{cfg.Segment2Name} is active and must be selected for a segmented account.", null);
+
+                    if (cfg.Segment3Active && (draft.Segment3Id == null || draft.Segment3Id == Guid.Empty))
+                        return ($"{cfg.Segment3Name} is active and must be selected for a segmented account.", null);
+
+                    if (cfg.Segment4Active && (draft.Segment4Id == null || draft.Segment4Id == Guid.Empty))
+                        return ($"{cfg.Segment4Name} is active and must be selected for a segmented account.", null);
+
+                    if (cfg.Segment5Active && (draft.Segment5Id == null || draft.Segment5Id == Guid.Empty))
+                        return ($"{cfg.Segment5Name} is active and must be selected for a segmented account.", null);
+                }
+                else
+                {
+                    // Rule: Pure Segment 0 account. 
+                    // This is allowed per requirements. We proceed without checking active flags for 1-5.
+                }
 
                 // Compute code + default description from selected segment rows
                 var (accountCode, computedDesc, err) = await BuildCodeAndDescriptionAsync(ctx, draft.CompanyId,

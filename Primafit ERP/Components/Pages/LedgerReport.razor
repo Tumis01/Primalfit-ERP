@@ -1,0 +1,210 @@
+﻿@page "/gl/general-ledger"
+@using Microsoft.EntityFrameworkCore
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject GLOperationsService GLOps
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex-1">
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">General Ledger</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Detailed transaction history filtered by date range.</p>
+        </div>
+
+        <div class="flex items-end gap-3 w-full md:w-auto">
+            <div class="w-full md:w-40">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
+                <input type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all"
+                       @bind="startDate" />
+            </div>
+
+            <div class="w-full md:w-40">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">End Date</label>
+                <input type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all"
+                       @bind="endDate" />
+            </div>
+
+            <button class="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+                    disabled="@(busy || !HasCompany)"
+                    @onclick="LoadLedger">
+                @(busy ? "Loading..." : "View Ledger")
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 font-medium">
+            @error
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading context...
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
+                <div class="text-sm font-bold text-slate-900">Report Output</div>
+                <div class="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                    Transactions: @rows.Count
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                        <tr>
+                            <th class="p-4 pl-6">Date</th>
+                            <th class="p-4">Journal #</th>
+                            <th class="p-4 w-1/3">Narration</th>
+                            <th class="p-4 text-right w-32">Debit</th>
+                            <th class="p-4 text-right w-32 pr-6">Credit</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @if (rows.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="p-12 text-center text-slate-400">
+                                    No transactions found for the selected date range.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var group in rows.GroupBy(r => new { r.AccountCode, r.AccountName }))
+                            {
+                                <tr class="bg-slate-100/50 border-y border-slate-200">
+                                    <td colspan="5" class="p-3 pl-6 font-bold text-slate-800">
+                                        @group.Key.AccountCode - @group.Key.AccountName
+                                    </td>
+                                </tr>
+
+                                @foreach (var r in group)
+                                {
+                                    <tr class="hover:bg-slate-50 transition-colors">
+                                        <td class="p-3 pl-6 font-mono text-slate-500 text-xs">@r.PostingDate.ToString("yyyy-MM-dd")</td>
+                                        <td class="p-3 font-mono text-xs text-indigo-600 font-bold">@r.JournalNumber</td>
+                                        <td class="p-3 text-slate-700">@r.Narration</td>
+                                        <td class="p-3 text-right font-mono text-slate-600">
+                                            @(r.Debit > 0 ? r.Debit.ToString("N2") : "-")
+                                        </td>
+                                        <td class="p-3 pr-6 text-right font-mono text-slate-600">
+                                            @(r.Credit > 0 ? r.Credit.ToString("N2") : "-")
+                                        </td>
+                                    </tr>
+                                }
+
+                                <tr class="bg-white border-b-2 border-slate-100">
+                                    <td colspan="3" class="p-2 pr-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Subtotal (@group.Key.AccountCode)
+                                    </td>
+                                    <td class="p-2 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
+                                        @group.Sum(x => x.Debit).ToString("N2")
+                                    </td>
+                                    <td class="p-2 pr-6 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
+                                        @group.Sum(x => x.Credit).ToString("N2")
+                                    </td>
+                                </tr>
+                            }
+
+                            <tr class="bg-slate-50 border-t-2 border-slate-300">
+                                <td colspan="3" class="p-4 pl-6 font-bold text-slate-900 uppercase text-xs tracking-wider text-right">
+                                    Grand Total
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold text-slate-900 text-sm">
+                                    @rows.Sum(x => x.Debit).ToString("N2")
+                                </td>
+                                <td class="p-4 pr-6 text-right font-mono font-bold text-slate-900 text-sm">
+                                    @rows.Sum(x => x.Credit).ToString("N2")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // Report Parameters
+    private DateOnly startDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
+    private DateOnly endDate = DateOnly.FromDateTime(DateTime.Today);
+
+    private List<LedgerReportRow> rows = new();
+    private bool busy;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            selectedCompanyId = user.CompanyDetailsId.Value;
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+            if (company != null) companyName = company.CompanyName;
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadLedger()
+    {
+        if (!HasCompany) return;
+        if (startDate > endDate)
+        {
+            await JS.InvokeVoidAsync("alert", "Start Date cannot be after End Date.");
+            return;
+        }
+
+        busy = true;
+        error = null;
+        rows.Clear();
+
+        try
+        {
+            // Call the new service method
+            rows = await GLOps.GetLedgerReportAsync(selectedCompanyId, startDate, endDate);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

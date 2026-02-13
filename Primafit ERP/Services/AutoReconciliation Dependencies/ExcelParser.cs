@@ -1,10 +1,5 @@
 ﻿using OfficeOpenXml;
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Threading.Tasks;
-using System.IO;
 
 public sealed class ExcelStatementParser : IStatementParser
 {
@@ -13,8 +8,7 @@ public sealed class ExcelStatementParser : IStatementParser
 
     public async Task<List<ParsedStatementRow>> ParseAsync(Stream stream)
     {
-        // EPPlus license must be set at startup (Program.cs).
-        // Do NOT set ExcelPackage.LicenseContext here (obsolete in EPPlus 8+).
+        
 
         using var package = new ExcelPackage();
         await package.LoadAsync(stream);
@@ -22,65 +16,117 @@ public sealed class ExcelStatementParser : IStatementParser
         var ws = package.Workbook.Worksheets.FirstOrDefault();
         if (ws == null || ws.Dimension == null) return new();
 
-        // Assume header row = 1
+        int startRow = ws.Dimension.Start.Row;
+        int endRow = ws.Dimension.End.Row;
+        int startCol = ws.Dimension.Start.Column;
+        int endCol = ws.Dimension.End.Column;
+
+        // 1) Read header row (assume first row is header)
         var headerMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int c = 1; c <= ws.Dimension.End.Column; c++)
+
+        for (int c = startCol; c <= endCol; c++)
         {
-            var h = ws.Cells[1, c].Text?.Trim();
-            if (!string.IsNullOrWhiteSpace(h))
-                headerMap[h] = c;
+            var header = ws.Cells[startRow, c].Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(header) && !headerMap.ContainsKey(header))
+                headerMap[header] = c;
         }
 
-        // ✅ FIXED: Returns -1 if none of the names exist
-        int Col(params string[] names)
-            => names.Select(n => headerMap.TryGetValue(n, out var idx) ? idx : -1)
-                    .Where(x => x != -1)
-                    .DefaultIfEmpty(-1)
-                    .First();
+        // 2) Helper to find any header name
+        int? FindCol(params string[] names)
+        {
+            foreach (var n in names)
+                if (headerMap.TryGetValue(n, out var col))
+                    return col;
+            return null;
+        }
 
-        var dateCol = Col("Date", "TxnDate", "TransactionDate");
-        var amtCol = Col("Amount", "Net", "Value");
-        var refCol = Col("Reference", "Ref");
-        var descCol = Col("Description", "Narration", "Details");
+        var colDate = FindCol("Date", "TxnDate", "TransactionDate", "ValueDate", "PostingDate");
+        var colAmount = FindCol("Amount", "Net", "Value", "Debit/Credit", "Withdrawal", "Deposit", "Credit", "Debit");
+        var colRef = FindCol("Reference", "Ref", "Transaction Ref", "TransactionRef");
+        var colDesc = FindCol("Description", "Narration", "Details", "Remark", "Remarks");
 
-        // ✅ Now this works correctly
-        if (dateCol == -1 || amtCol == -1) return new();
+        // If essential columns are missing, bail with empty list (service will return "No valid transactions found")
+        if (colDate == null || colAmount == null)
+            return new();
 
         var rows = new List<ParsedStatementRow>();
 
-        for (int r = 2; r <= ws.Dimension.End.Row; r++)
+        // 3) Parse data rows
+        for (int r = startRow + 1; r <= endRow; r++)
         {
-            var dateText = ws.Cells[r, dateCol].Text?.Trim();
-            var amtText = ws.Cells[r, amtCol].Text?.Trim();
+            var dateCell = ws.Cells[r, colDate.Value].Value;
+            DateOnly date;
 
-            if (string.IsNullOrWhiteSpace(dateText) || string.IsNullOrWhiteSpace(amtText))
-                continue;
 
-            var reference = refCol != -1 ? ws.Cells[r, refCol].Text?.Trim() : null;
-            var desc = descCol != -1 ? ws.Cells[r, descCol].Text?.Trim() : null;
+            var amountText = ws.Cells[r, colAmount.Value].Text?.Trim();
 
-            if (!DateTime.TryParse(dateText, out var dt))
-                continue;
+            var reference = colRef != null ? ws.Cells[r, colRef.Value].Text?.Trim() : null;
+            var desc = colDesc != null ? ws.Cells[r, colDesc.Value].Text?.Trim() : null;
 
-            var cleaned = amtText.Replace(",", "").Replace(" ", "");
-            var negParen = cleaned.StartsWith("(") && cleaned.EndsWith(")");
-            if (negParen) cleaned = cleaned.Trim('(', ')');
+            if (dateCell is DateTime dt)
+            {
+                date = DateOnly.FromDateTime(dt);
+            }
+            else if (dateCell is double oa) // Excel serial date
+            {
+                date = DateOnly.FromDateTime(DateTime.FromOADate(oa));
+            }
+            else
+            {
+                var dateText = ws.Cells[r, colDate.Value].Text?.Trim();
+                if (!TryDate(dateText, out date)) continue;
+            }
+            if (!TryAmount(amountText, out var amount)) continue;
 
-            if (!decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out var amt) &&
-                !decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.CurrentCulture, out amt))
-                continue;
-
-            if (negParen) amt *= -1;
+            // If no Description column, fall back to Reference (matches your test file)
+            var description = !string.IsNullOrWhiteSpace(desc) ? desc
+                            : !string.IsNullOrWhiteSpace(reference) ? reference
+                            : "Imported";
 
             rows.Add(new ParsedStatementRow
             {
-                Date = DateOnly.FromDateTime(dt),
+                Date = date,
                 Reference = reference,
-                Description = string.IsNullOrWhiteSpace(desc) ? reference : desc,
-                Amount = amt
+                Description = description,
+                Amount = amount
             });
         }
 
         return rows;
+    }
+
+    private static bool TryDate(string? s, out DateOnly d)
+    {
+        d = default;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+
+        // EPPlus sometimes gives numeric dates as text depending on formatting, so try robust parsing
+        if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) ||
+            DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None, out dt))
+        {
+            d = DateOnly.FromDateTime(dt);
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryAmount(string? s, out decimal amt)
+    {
+        amt = 0;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+
+        var cleaned = s.Trim().Replace(",", "").Replace(" ", "");
+
+        var negParen = cleaned.StartsWith("(") && cleaned.EndsWith(")");
+        if (negParen) cleaned = cleaned.Trim('(', ')');
+
+        if (decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out amt) ||
+            decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.CurrentCulture, out amt))
+        {
+            if (negParen) amt *= -1;
+            return true;
+        }
+
+        return false;
     }
 }

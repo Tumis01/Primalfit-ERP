@@ -186,6 +186,9 @@ namespace Primafit_ERP.Services
         }
 
         // 5. INVOICE ORDER (Financial Posting + Auto Ship)
+        // Update InvoiceOrderAsync method
+
+        // 5. INVOICE ORDER (Financial Posting + Auto Ship)
         public async Task<string> InvoiceOrderAsync(Guid orderId, Guid? warehouseId = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -193,6 +196,7 @@ namespace Primafit_ERP.Services
 
             try
             {
+                // 1. Fetch Order with necessary relationships
                 var order = await ctx.SalesOrders
                     .Include(o => o.Customer)
                     .Include(o => o.Lines).ThenInclude(l => l.Item)
@@ -201,7 +205,9 @@ namespace Primafit_ERP.Services
                 if (order == null) return "Order not found.";
                 if (order.Status == OrderStatus.Invoiced) return "Order is already invoiced.";
 
+                // --- DEFINITION ADDED HERE ---
                 var glLines = new List<GLJournalLine>();
+                // -----------------------------
 
                 // --- STEP 1: AUTO-SHIP (Physical Items Only) ---
                 bool hasPhysicalItems = order.Lines.Any(l => l.Item != null && !l.Item.IsService);
@@ -217,47 +223,77 @@ namespace Primafit_ERP.Services
 
                 // --- STEP 2: CALCULATE FINANCIALS (All Items) ---
                 decimal rate = order.ExchangeRate > 0 ? order.ExchangeRate : 1;
-                decimal totalCreditsBase = 0;
+                decimal totalRevenueBase = 0;
 
-                // 1. Credit Sales Revenue
+                // A. Credit Revenue Accounts (Line Items)
                 foreach (var line in order.Lines)
                 {
                     if (line.Item == null || line.Quantity == 0) continue;
 
-                    decimal lineRevForeign = line.Quantity * line.UnitPrice;
-                    decimal lineRevBase = Math.Round(lineRevForeign * rate, 2);
+                    // Calculate Line Total in Base Currency
+                    decimal lineTotalForeign = line.Quantity * line.UnitPrice;
+                    decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
 
                     if (line.Item.SalesIncomeAccountId == Guid.Empty)
                         return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
 
+                    // Credit Revenue
                     glLines.Add(new GLJournalLine
                     {
                         AccountId = line.Item.SalesIncomeAccountId,
                         Debit = 0,
-                        Credit = lineRevBase,
+                        Credit = lineTotalBase,
                         Reference = $"Rev {line.Item.Name}"
                     });
 
-                    totalCreditsBase += lineRevBase;
+                    totalRevenueBase += lineTotalBase;
                 }
 
-                // 2. Tax Logic (Placeholder for future implementation)
-                /* if (order.TaxId.HasValue) { ... } 
-                */
+                // B. Handle Tax (Liability)
+                decimal totalTaxBase = 0;
+                if (order.TaxId.HasValue)
+                {
+                    var taxDef = await ctx.Taxes.FindAsync(order.TaxId);
+                    if (taxDef != null && taxDef.Per > 0)
+                    {
+                        // Calculate Tax Amount (Revenue * %)
+                        decimal taxAmountBase = totalRevenueBase * (taxDef.Per / 100);
+                        totalTaxBase = Math.Round(taxAmountBase, 2);
 
-                // 3. Debit Accounts Receivable
+                        // Determine which GL Account to use
+                        // PRIORITY: Use the one saved on Order. Fallback to Tax Master.
+                        Guid targetGlId = order.TaxGLAccountId ?? taxDef.GLAccountId ?? Guid.Empty;
+
+                        if (targetGlId == Guid.Empty)
+                            return $"Tax '{taxDef.TaxName}' is selected but no GL Account is mapped (neither on the Tax setup nor the Order).";
+
+                        // Credit Tax Liability
+                        glLines.Add(new GLJournalLine
+                        {
+                            AccountId = targetGlId,
+                            Debit = 0,
+                            Credit = totalTaxBase,
+                            Reference = $"{taxDef.TaxCode} on {order.OrderNumber}"
+                        });
+                    }
+                }
+
+                // C. Debit Accounts Receivable (Total Revenue + Total Tax)
+                decimal grandTotalBase = totalRevenueBase + totalTaxBase;
+
                 if (order.Customer?.ReceivablesAccountId == null)
                     return "Customer AR Account is missing. Please configure it in Master Data.";
 
+                // Debit AR
                 glLines.Add(new GLJournalLine
                 {
                     AccountId = order.Customer.ReceivablesAccountId.Value,
-                    Debit = totalCreditsBase,
+                    Debit = grandTotalBase,
                     Credit = 0,
                     Reference = $"Inv {order.OrderNumber}"
                 });
 
-                // --- STEP 4: POST GL BATCH ---
+                // --- STEP 3: POST GL BATCH ---
                 if (glLines.Any())
                 {
                     var (err, batchId) = await _glOps.CreateJournalEntryAsync(
@@ -269,10 +305,12 @@ namespace Primafit_ERP.Services
 
                     if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
+                    // Auto-post the batch so it hits the Ledger immediately
                     if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value);
                     order.InvoiceBatchId = batchId;
                 }
 
+                // --- STEP 4: UPDATE STATUS ---
                 order.Status = OrderStatus.Invoiced;
                 await ctx.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -285,7 +323,6 @@ namespace Primafit_ERP.Services
                 return $"Invoice Error: {ex.Message}";
             }
         }
-
         // 6. TERMINATE ORDER
         public async Task<string> TerminateOrderAsync(Guid orderId)
         {
