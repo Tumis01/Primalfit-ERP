@@ -30,16 +30,12 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SaveVendorBillAsync(VendorBill bill)
         {
-            // FIX 1: Prevent Null Crashes
             if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = "";
             if (bill.ExternalInvoiceNumber == null) bill.ExternalInvoiceNumber = "";
-            // FIX 2: Validate Company ID (The most common cause of "Entity Save" errors)
-            if (bill.CompanyId == Guid.Empty)
-                return "System Error: Bill has no Company ID. Please log out and log in again.";
+            if (bill.CompanyId == Guid.Empty) return "System Error: Bill has no Company ID.";
 
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Basic Validation
             if (bill.Lines.Count == 0) return "Bill must have at least one line.";
             if (bill.VendorId == Guid.Empty) return "Vendor is required.";
 
@@ -52,22 +48,18 @@ namespace Primafit_ERP.Services
                 if (existing == null)
                 {
                     if (bill.Id == Guid.Empty) bill.Id = Guid.NewGuid();
-
                     foreach (var line in bill.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.VendorBillId = bill.Id;
                     }
-                    ctx.VendorBills.Add(bill);     // add header first
-                    ctx.VendorBillLines.AddRange(bill.Lines); // then lines
-
+                    ctx.VendorBills.Add(bill);
+                    ctx.VendorBillLines.AddRange(bill.Lines);
                 }
                 else
                 {
-                    // --- UPDATE EXISTING ---
-                    bill.CompanyId = existing.CompanyId; // Preserve Company ID
+                    bill.CompanyId = existing.CompanyId;
                     ctx.Entry(existing).CurrentValues.SetValues(bill);
-
                     ctx.VendorBillLines.RemoveRange(existing.Lines);
                     foreach (var line in bill.Lines)
                     {
@@ -75,31 +67,16 @@ namespace Primafit_ERP.Services
                         ctx.VendorBillLines.Add(line);
                     }
                 }
-                if (!await ctx.CompanyDetails.AnyAsync(c => c.CompanyDetailsId == bill.CompanyId))
-                    return "STOP: Company does not exist.";
 
-                if (!await ctx.Vendors.AnyAsync(v => v.Id == bill.VendorId))
-                    return "STOP: Vendor does not exist.";
-
-                if (bill.PurchaseOrderId.HasValue && !await ctx.PurchaseOrders.AnyAsync(p => p.Id == bill.PurchaseOrderId.Value))
-                    return "STOP: Linked PO does not exist.";
+                // Integrity Checks
+                if (!await ctx.Vendors.AnyAsync(v => v.Id == bill.VendorId)) return "STOP: Vendor does not exist.";
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
-            // FIX 3: USE RECURSIVE ERROR LOGGING (To find the real reason)
             catch (Exception ex)
             {
-                var msg = ex.Message;
-                var inner = ex.InnerException;
-                while (inner != null)
-                {
-                    msg += " --> " + inner.Message;
-                    inner = inner.InnerException;
-                }
-
-                // This will now print "Foreign Key Constraint FK_VendorBills_Companies" instead of just "Error saving"
-                return $"DATABASE ERROR: {msg}";
+                return $"DATABASE ERROR: {ex.Message}";
             }
         }
 
@@ -326,7 +303,6 @@ namespace Primafit_ERP.Services
         public async Task<List<PurchaseOrder>> GetPOsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-
             return await ctx.PurchaseOrders
                 .AsNoTracking()
                 .Include(p => p.Lines)
@@ -389,169 +365,85 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Load the Bill
             var bill = await ctx.VendorBills
                 .Include(b => b.Lines)
                 .FirstOrDefaultAsync(b => b.Id == billId);
 
             if (bill == null) return "Bill not found.";
+            if (bill.IsPosted) return "STOP: This bill has already been posted.";
+            if (bill.AccountsPayableGlId == Guid.Empty) return "STOP: The AP Account is not set.";
 
-            // --- CHECK 1: VALIDATE ACCOUNTS (The most common cause) ---
-            // Check AP Account
-            if (bill.AccountsPayableGlId == Guid.Empty)
-                return "STOP: The AP Account is not set on the Bill.";
-            if (bill.IsPosted)
-                return "STOP: This bill has already been posted.";
+            // 1. Validate Accounts in SegCOA
+            bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId && a.CompanyId == bill.CompanyId);
+            if (!apExists) return "STOP: Invalid AP Account ID.";
 
-            var apAccountExists = await ctx.GLChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId);
-            if (!apAccountExists)
-                return "STOP: The AP Account ID exists but the Account itself is deleted or missing from the Chart of Accounts.";
-
-            // Check Expense Accounts
             foreach (var line in bill.Lines)
             {
-                if (line.ExpenseGlAccountId == Guid.Empty)
-                    return $"STOP: Line item '' has no Expense Account.";
-
-                var expAccountExists = await ctx.GLChartOfAccounts.AnyAsync(a => a.Id == line.ExpenseGlAccountId);
-                if (!expAccountExists)
-                    return $"STOP: The Expense Account for '' is invalid/deleted.";
+                if (line.ExpenseGlAccountId == Guid.Empty) return "STOP: Line missing Expense Account.";
+                bool expExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == line.ExpenseGlAccountId && a.CompanyId == bill.CompanyId);
+                if (!expExists) return "STOP: Invalid Expense Account ID.";
             }
 
-            // --- CHECK 2: VALIDATE PERIOD (The second most common cause) ---
-            // The GL Engine needs an open period for the Bill Date.
+            // 2. Validate Period
             DateOnly postDate = DateOnly.FromDateTime(bill.BillDate);
             var period = await ctx.AccountingPeriods
-                .FirstOrDefaultAsync(p => p.CompanyId == bill.CompanyId
-                                       && p.StartDate <= postDate
-                                       && p.EndDate >= postDate);
+                .FirstOrDefaultAsync(p => p.CompanyId == bill.CompanyId && p.StartDate <= postDate && p.EndDate >= postDate);
 
-            if (period == null)
-                return $"STOP: No Accounting Period exists for {postDate}. Go to Configuration > Fiscal Periods and create it.";
+            if (period == null || period.IsClosed) return $"STOP: No Open Period for {postDate}.";
 
-            if (period.IsClosed)
-                return $"STOP: The Accounting Period for {postDate} is Closed.";
-
-            if (bill.TotalAmount == 0 && bill.TotalAmountForeign > 0 && bill.ExchangeRate > 0)
-            {
-                bill.TotalAmount = bill.TotalAmountForeign * bill.ExchangeRate;
-            }
-
-            // --- 3. PREPARE GL LINES (IN BASE CURRENCY) ---
+            // 3. Prepare GL Lines
             var glLines = new List<GLJournalLine>();
-            var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
-            string vendorName = vendor?.Name ?? "Unknown";
+            var vendorName = (await ctx.Vendors.FindAsync(bill.VendorId))?.Name ?? "Unknown";
 
-            // Debits (Expenses/Assets) - Converted to Base
+            // DEBITS (Expense/Asset)
             foreach (var line in bill.Lines)
             {
-                // Calculate Line Total in Base Currency
-                // Formula: (Qty * UnitCostForeign) * ExchangeRate
                 decimal lineTotalBase = (line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate;
-
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = line.ExpenseGlAccountId,
-                    Debit = lineTotalBase, // <--- POSTING BASE AMOUNT
+                    SegCoaId = line.ExpenseGlAccountId,
+                    Debit = lineTotalBase,
                     Credit = 0,
                     Reference = $"Bill: {bill.ExternalInvoiceNumber}"
                 });
             }
 
-            // Credit (Accounts Payable) - Converted to Base
+            // CREDIT (AP Liability)
             glLines.Add(new GLJournalLine
             {
-                AccountId = bill.AccountsPayableGlId,
+                SegCoaId = bill.AccountsPayableGlId,
                 Debit = 0,
-                Credit = bill.TotalAmount, // <--- POSTING BASE AMOUNT
+                Credit = bill.TotalAmount,
                 Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
             });
 
-            
+            // 4. Post to GL
+            var (err, batchId) = await _glOps.CreateJournalEntryAsync(
+                bill.CompanyId, postDate, "Vendor Bill",
+                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines
+            );
 
-            // Debits
-            //foreach (var line in bill.Lines)
-            //{
-            //    glLines.Add(new GLJournalLine
-            //    {
-            //        AccountId = line.ExpenseGlAccountId,
-            //        Debit = line.LineTotal,
-            //        Credit = 0,
-            //        Reference = $"Bill: "
-            //    });
-            //}
+            if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
 
-            //// Credit
-            //glLines.Add(new GLJournalLine
-            //{
-            //    AccountId = bill.AccountsPayableGlId,
-            //    Debit = 0,
-            //    Credit = bill.TotalAmount,
-            //    Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
-            //});
+            if (batchId.HasValue) await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
 
-            try
+            // 5. Update Status
+            bill.IsPosted = true;
+            bill.PostedDate = DateTime.Now;
+
+            // Update PO Status if linked
+            if (bill.PurchaseOrderId.HasValue)
             {
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(
-                    bill.CompanyId,
-                    postDate,
-                    "Vendor Bill",
-                    $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}",
-                    glLines
-                );
-
-                if (!string.IsNullOrEmpty(err)) return $"GL ENGINE ERROR: {err}";
-
-                if (batchId.HasValue)
+                var po = await ctx.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
+                if (po != null)
                 {
-                    await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
+                    po.IsInvoicePosted = true;
+                    po.Status = PurchaseOrderStatus.Closed;
                 }
-
-                // Final Save
-                if (bill.ExternalInvoiceNumber == null) bill.ExternalInvoiceNumber = "N/A";
-                if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = "";
-                if (bill.PurchaseOrderId != null)
-                {
-                    var po = await ctx.PurchaseOrders
-                        .FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value && p.CompanyId == bill.CompanyId);
-
-                    if (po != null)
-                    {
-                        po.IsInvoicePosted = true;
-                        po.Status = PurchaseOrderStatus.Closed; // or Posted, depending on your enum naming
-                    }
-                }
-                bill.IsPosted = true;
-                bill.PostedDate = DateTime.Now;
-
-                if (bill.PurchaseOrderId.HasValue)
-                {
-                    var po = await ctx.PurchaseOrders
-                        .FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value && p.CompanyId == bill.CompanyId);
-
-                    if (po != null)
-                    {
-                        po.IsInvoicePosted = true;           // from our redesign
-                        po.Status = PurchaseOrderStatus.Closed; // or Posted
-                    }
-                }
-
-                await ctx.SaveChangesAsync();
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                // Recursive Error Unwrapper
-                var msg = ex.Message;
-                var inner = ex.InnerException;
-                while (inner != null)
-                {
-                    msg += " --> " + inner.Message;
-                    inner = inner.InnerException;
-                }
-                return $"CRITICAL DB ERROR: {msg}";
             }
 
+            await ctx.SaveChangesAsync();
+            return string.Empty;
         }
     }
 }

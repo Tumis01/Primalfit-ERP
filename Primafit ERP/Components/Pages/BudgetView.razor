@@ -7,7 +7,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject BudgetService BudgetService
-@inject GLSetupService GLService
+@inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -120,7 +120,11 @@
 
 @code {
     private BudgetHeader budget = new() { Lines = new List<BudgetLine> { new() } };
-    private List<GLChartOfAccount> glAccounts = new();
+
+    // CHANGED: Use SegChartOfAccount
+    private List<SegChartOfAccount> glAccounts = new();
+    private List<SegAccountType> accountTypes = new();
+
     private Guid currentCompanyId;
 
     protected override async Task OnInitializedAsync()
@@ -130,11 +134,21 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
 
-            // Load GL Accounts (We allow Expenses AND Assets because you might budget for Laptop purchases i.e. Assets)
-            glAccounts = await GLService.GetChartOfAccountsAsync(currentCompanyId);
-            glAccounts = glAccounts.Where(a =>
-                a.MainAccount.AccountType.Class == GLAccountClass.Expenses ||
-                a.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList();
+            // 1. Get Types for flags
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+            // 2. Get All COA
+            var allCoa = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            // 3. Filter for Budgetable accounts (Expenses & Assets = Debit Accounts)
+            glAccounts = allCoa
+                .Where(a =>
+                {
+                    var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                    return type != null && type.IsDebit == true;
+                })
+                .OrderBy(x => x.AccountCode)
+                .ToList();
         }
     }
 

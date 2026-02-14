@@ -5,7 +5,7 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-@inject GLSetupService SetupService
+@inject SegCoaService SetupService
 @inject GLOperationsService GlOps
 @inject ProjectService ProjectService
 @inject CompanyApiService CompanyService
@@ -96,8 +96,8 @@
                                     <SearchableGlAccount Label=""
                                                          Placeholder="Search Account..."
                                                          Accounts="@coaList"
-                                                         @bind-Value="line.AccountId"
-                                                         IsInvalid="@(line.AccountId == Guid.Empty)" />
+                                                         @bind-Value="line.SegCoaId"
+                                                         IsInvalid="@(line.SegCoaId == Guid.Empty)" />
                                 </div>
 
                                 <div class="col-span-2 pt-1">
@@ -166,7 +166,8 @@
     private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all";
 
     // --- Data ---
-    private List<GLChartOfAccount> coaList = new();
+    private List<SegChartOfAccount> coaList = new();
+
     private List<Project> projects = new();
     private List<GLJournalLine> lines = new();
 
@@ -186,7 +187,8 @@
     private decimal TotalCredits => lines.Sum(l => l.Credit);
 
     private bool IsBalanced => TotalDebits > 0 && TotalDebits == TotalCredits;
-    private bool CanPost => IsBalanced && lines.Any() && lines.All(l => l.AccountId != Guid.Empty);
+    private bool CanPost => IsBalanced && lines.Any() && lines.All(l => l.SegCoaId != Guid.Empty);
+
 
     protected override async Task OnInitializedAsync()
     {
@@ -214,7 +216,9 @@
         isLoading = true;
         if (selectedCompanyId != Guid.Empty)
         {
-            coaList = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
+            coaList = await SetupService.GetCoaAsync(selectedCompanyId);  // uses your SegCoaService
+            coaList = coaList.Where(x => x.AllowJournal).OrderBy(x => x.AccountCode).ToList();
+
             projects = await ProjectService.GetProjectsAsync(selectedCompanyId);
         }
 

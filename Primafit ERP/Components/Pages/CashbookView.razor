@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject ICashbookService CashService
+@inject SegCoaService SegCoaService
 @inject GLSetupService GLService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -49,7 +50,7 @@
                             </div>
 
                             <div class="font-bold text-slate-900 text-sm mb-1 truncate">
-                                @(GetAccountName(batch.BankAccountId))
+                                @(GetAccountName(batch.BankSegCoaId))
                             </div>
 
                             <div class="flex justify-between items-end mt-3 border-t border-slate-100 pt-2">
@@ -125,8 +126,8 @@
                                         <SearchableGlAccount Label="Offset Account"
                                                              Placeholder="Search Account..."
                                                              Accounts="@allAccounts"
-                                                             @bind-Value="entryForm.OffsetAccountId"
-                                                             IsInvalid="@(entryForm.OffsetAccountId == Guid.Empty)" />
+                                                             @bind-Value="entryForm.OffsetSegCoaId"
+                                                             IsInvalid="@(entryForm.OffsetSegCoaId == Guid.Empty)" />
                                     </div>
 
                                     <div class="md:col-span-2">
@@ -184,29 +185,15 @@
                                     @foreach (var entry in selectedBatch.Entries.OrderByDescending(e => e.TransactionDate))
                                     {
                                         <tr class="hover:bg-slate-50 transition-colors @(entry.Id == entryForm.Id ? "bg-indigo-50/50" : "")">
-
                                             <td class="p-4 text-slate-500 text-xs font-mono">@entry.TransactionDate.ToString("MM/dd")</td>
-
-                                            <td class="p-4 text-xs text-slate-600 font-medium">
-                                                @GetAccountName(entry.OffsetAccountId)
-                                            </td>
-
+                                            <td class="p-4 text-xs text-slate-600 font-medium">@GetAccountName(entry.OffsetSegCoaId)</td>
                                             <td class="p-4 text-center">
                                                 <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">GL</span>
                                             </td>
-
                                             <td class="p-4 text-xs font-mono text-slate-700">@entry.Reference</td>
-
                                             <td class="p-4 text-slate-900">@entry.Description</td>
-
-                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold">
-                                                @(entry.Debit > 0 ? entry.Debit.ToString("N2") : "-")
-                                            </td>
-
-                                            <td class="p-4 text-right font-mono text-rose-600 font-bold">
-                                                @(entry.Credit > 0 ? entry.Credit.ToString("N2") : "-")
-                                            </td>
-
+                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold">@(entry.Debit > 0 ? entry.Debit.ToString("N2") : "-")</td>
+                                            <td class="p-4 text-right font-mono text-rose-600 font-bold">@(entry.Credit > 0 ? entry.Credit.ToString("N2") : "-")</td>
                                             <td class="p-4 text-center">
                                                 @if (selectedBatch.Status == BatchStatus.Draft)
                                                 {
@@ -224,9 +211,7 @@
                                     }
                                     <tr class="bg-slate-50 border-t border-slate-200">
                                         <td colspan="5" class="p-4 text-right font-bold text-slate-600 text-xs uppercase">Closing Balance</td>
-                                        <td colspan="2" class="p-4 text-right font-mono font-bold text-slate-900 text-lg">
-                                            @selectedBatch.ClosingBalance.ToString("N2")
-                                        </td>
+                                        <td colspan="2" class="p-4 text-right font-mono font-bold text-slate-900 text-lg">@selectedBatch.ClosingBalance.ToString("N2")</td>
                                         <td></td>
                                     </tr>
                                 </tbody>
@@ -252,9 +237,9 @@
                 <h3 class="text-lg font-bold text-slate-900 mb-4">Start New Cashbook Batch</h3>
 
                 <div class="space-y-4">
-                    <SearchableGlAccount Label="Select Batch Account"
-                                         Placeholder="Search any account..."
-                                         Accounts="@allAccounts"
+                    <SearchableGlAccount Label="Select Bank/Cash Account (Asset)"
+                                         Placeholder="Search bank accounts..."
+                                         Accounts="@bankAccounts"
                                          @bind-Value="newBatchAccountId"
                                          IsInvalid="@(newBatchAccountId == Guid.Empty)" />
 
@@ -310,7 +295,9 @@
 
     // --- Data Sources ---
     private List<CashbookBatch> activeBatches = new();
-    private List<GLChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> bankAccounts = new(); // Filtered list
+    private List<SegAccountType> accountTypes = new();
     private List<AccountingPeriod> openPeriods = new();
 
     // --- Models ---
@@ -328,13 +315,19 @@
             currentCompanyId = user.CompanyDetailsId.Value;
             currentUserId = user.Id;
 
-            // 1. Load Financial Data
-            allAccounts = await GLService.GetChartOfAccountsAsync(currentCompanyId);
+            // 1. Fetch Types & COA
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            // 2. Load Open Fiscal Periods (For Validation)
+            // 2. Filter Bank Accounts (Assets: IsBalanceSheet=True, IsDebit=True)
+            bankAccounts = allAccounts.Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+            }).OrderBy(x => x.AccountCode).ToList();
+
+            // 3. Load Context Data
             openPeriods = await GLService.GetOpenPeriodsAsync(currentCompanyId);
-
-            // 3. Load Operational Data
             activeBatches = await CashService.GetActiveBatchesAsync(currentCompanyId);
         }
         isLoading = false;
@@ -353,7 +346,6 @@
     }
 
     // --- BATCH ACTIONS ---
-
     private void CreateBatch() => showCreateModal = true;
 
     private async Task ConfirmCreateBatch()
@@ -397,50 +389,19 @@
     }
 
     // --- ENTRY ACTIONS ---
-
     private async Task SaveEntry()
     {
-        // 1. Mandatory Validations
-        if (entryForm.OffsetAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Please select an offset account.");
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(entryForm.Reference))
-        {
-            await JS.InvokeVoidAsync("alert", "Reference is required.");
-            return;
-        }
+        if (entryForm.OffsetSegCoaId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select an offset account."); return; }
+        if (string.IsNullOrWhiteSpace(entryForm.Reference)) { await JS.InvokeVoidAsync("alert", "Reference is required."); return; }
 
-        // 2. Date Validation (Must fall inside an Open Fiscal Period)
         var dateDateOnly = DateOnly.FromDateTime(entryForm.TransactionDate);
         bool isPeriodOpen = openPeriods.Any(p => p.StartDate <= dateDateOnly && p.EndDate >= dateDateOnly);
+        if (!isPeriodOpen) { await JS.InvokeVoidAsync("alert", $"Cannot save. Date ({dateDateOnly}) is not in an OPEN fiscal period."); return; }
 
-        if (!isPeriodOpen)
-        {
-            await JS.InvokeVoidAsync("alert", $"Cannot save. Today's date ({dateDateOnly}) is not in any OPEN fiscal period. Check Fiscal Period settings.");
-            return;
-        }
+        string err = isEditing ? await CashService.UpdateEntryAsync(entryForm) : await CashService.AddEntryAsync(entryForm);
 
-        string err;
-        if (isEditing)
-        {
-            err = await CashService.UpdateEntryAsync(entryForm);
-        }
-        else
-        {
-            err = await CashService.AddEntryAsync(entryForm);
-        }
-
-        if (string.IsNullOrEmpty(err))
-        {
-            await LoadBatches();
-            ResetForm();
-        }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", err);
-        }
+        if (string.IsNullOrEmpty(err)) { await LoadBatches(); ResetForm(); }
+        else { await JS.InvokeVoidAsync("alert", err); }
     }
 
     private void EditEntry(CashbookEntry entry)
@@ -453,8 +414,8 @@
             Description = entry.Description,
             Debit = entry.Debit,
             Credit = entry.Credit,
-            OffsetAccountId = entry.OffsetAccountId,
-            Reference = entry.Reference // Compulsory Field
+            OffsetSegCoaId = entry.OffsetSegCoaId,
+            Reference = entry.Reference
         };
         isEditing = true;
     }
@@ -471,7 +432,6 @@
     private void ResetForm()
     {
         isEditing = false;
-        // Forces Date to Today automatically
         entryForm = new CashbookEntry
         {
             CashbookBatchId = selectedBatch?.Id ?? Guid.Empty,
@@ -479,9 +439,7 @@
         };
     }
 
-    // --- HELPERS ---
-
-    private string GetAccountName(Guid id) => allAccounts.FirstOrDefault(a => a.Id == id)?.AccountName ?? "Unknown";
+    private string GetAccountName(Guid id) => allAccounts.FirstOrDefault(a => a.Id == id)?.Description ?? "Unknown";
 
     private string GetStatusColor(BatchStatus status) => status switch
     {

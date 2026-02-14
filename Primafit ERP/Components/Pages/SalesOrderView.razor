@@ -11,6 +11,7 @@
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
 @inject WarehouseService WhService
+@inject SegCoaService SegCoaService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -176,9 +177,9 @@
                                     class="input-class @(currentOrder.TaxId == null ? "bg-slate-50 text-slate-400" : "bg-white text-slate-900 border-indigo-200")"
                                     disabled="@(IsLocked || currentOrder.TaxId == null)">
                                 <option value="">-- Default from Tax --</option>
-                                @foreach (var acc in coaList)
+                                @foreach (var acc in liabilityAccounts)
                                 {
-                                    <option value="@acc.Id">@acc.AccountCode - @acc.AccountName</option>
+                                    <option value="@acc.Id">@acc.AccountCode - @acc.Description</option>
                                 }
                             </select>
                         </div>
@@ -351,16 +352,16 @@
         transition: border-color 0.2s;
     }
 
-        .input-class:focus {
-            border-color: #0f172a;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
-        }
+    .input-class:focus {
+        border-color: #0f172a;
+        box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+    }
 
-        .input-class:disabled, .input-class[readonly] {
-            background-color: #f8fafc;
-            color: #94a3b8;
-            cursor: not-allowed;
-        }
+    .input-class:disabled, .input-class[readonly] {
+        background-color: #f8fafc;
+        color: #94a3b8;
+        cursor: not-allowed;
+    }
 </style>
 
 @code {
@@ -378,7 +379,11 @@
     private List<Item> items = new();
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
-    private List<GLChartOfAccount> coaList = new(); // NEW: Chart of Accounts
+
+    // Data Sources for COA (Corrected Types)
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> liabilityAccounts = new(); // Filtered for Tax
+    private List<SegAccountType> accountTypes = new();
 
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.Quantity * l.UnitPrice);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
@@ -412,12 +417,18 @@
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
 
-        // Load COA for Tax mapping
-        coaList = await ctx.GLChartOfAccounts
-            .AsNoTracking()
-            .Where(a => a.CompanyId == selectedCompanyId)
-            .OrderBy(a => a.AccountCode)
-            .ToListAsync();
+        // 1. Fetch Types
+        accountTypes = await SegCoaService.GetAccountTypesAsync();
+        
+        // 2. Fetch COA
+        allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
+
+        // 3. Filter Liabilities (Balance Sheet = TRUE, Debit = FALSE)
+        // This is used for the Tax Payable dropdown
+        liabilityAccounts = allAccounts.Where(a => {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
+        }).OrderBy(x => x.AccountCode).ToList();
     }
 
     private void CreateNew()
@@ -466,7 +477,6 @@
         else currentOrder.CustomerId = Guid.Empty;
     }
 
-    // NEW: Handle Tax Change
     private void OnTaxChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var taxId))
@@ -474,9 +484,15 @@
             currentOrder.TaxId = taxId;
             var selectedTax = taxes.FirstOrDefault(t => t.Id == taxId);
 
-            // Auto-select the mapped GL Account for convenience
+            // Auto-select the mapped GL Account from the Tax definition (if available)
             if (selectedTax != null)
             {
+                // Note: Ensure your Tax model uses SegCoaId now as per architecture
+                // If it was nullable Guid? GLAccountId in legacy, map it here
+                // Assuming Tax model was updated to `public Guid? SegCoaId { get; set; }` in previous steps
+                // or if it still uses GLAccountId, ensure it holds a SegCoaId value.
+                // Based on previous step, Tax was updated to `public Guid? SegCoaId { get; set; }`.
+                
                 currentOrder.TaxGLAccountId = selectedTax.GLAccountId;
             }
         }

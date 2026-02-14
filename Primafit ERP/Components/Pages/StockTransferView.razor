@@ -9,7 +9,7 @@
 @inject MasterDataService MasterService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
-@inject GLSetupService GLService
+@inject SegCoaService GLService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -24,7 +24,10 @@
                 @if (!string.IsNullOrEmpty(companyName))
                 {
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
-                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
                         @companyName
                     </span>
                 }
@@ -72,7 +75,7 @@
                                 <label class="label text-rose-700 flex items-center gap-2">
                                     <span class="w-2 h-2 rounded-full bg-rose-500"></span> Source Warehouse
                                 </label>
-                                <select @bind="fromWhId" class="input-class mt-1" @bind:after="CheckStock">
+                                <select class="input-class mt-1" value="@fromWhId" @onchange="OnFromWarehouseChanged">
                                     <option value="@Guid.Empty">-- Select Origin --</option>
                                     @foreach (var w in warehouses)
                                     {
@@ -118,13 +121,12 @@
 
                         <div class="relative z-20">
                             <SearchableGlAccount Label="Transit GL Account"
-                                                 Placeholder="Search Account (e.g. 1050)"
-                                                 Accounts="@glAccounts"
-                                                 @bind-Value="transitAccountId"
-                                                 IsInvalid="@(transitAccountId == Guid.Empty)" />
-
-                            <div class="text-[10px] text-slate-400 mt-1">Temporary asset account for value in transit.</div>
-                        </div>
+                                Placeholder="Search Account (e.g. 1050)"
+                                Accounts="transitAccounts"
+                                @bind-Value="transitSegCoaId"
+                                IsInvalid="@(transitSegCoaId == Guid.Empty)" />
+    <div class="text-[10px] text-slate-400 mt-1">Temporary asset account for value in transit.</div>
+</div>
 
                         <div class="relative z-10">
                             <label class="label">Reference / Note</label>
@@ -138,12 +140,18 @@
                                 class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
                             @if (isBusy)
                             {
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
                                 <span>Processing...</span>
                             }
                             else
                             {
-                                <svg class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                                <svg class="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                </svg>
                                 <span>Ship Transfer</span>
                             }
                         </button>
@@ -175,7 +183,9 @@
                                     <td class="p-4">
                                         <div class="flex items-center gap-2 font-medium">
                                             <span class="text-rose-600">@t.FromWarehouse?.Name</span>
-                                            <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                                            <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                                            </svg>
                                             <span class="text-emerald-600">@t.ToWarehouse?.Name</span>
                                         </div>
                                     </td>
@@ -185,14 +195,16 @@
                                     <td class="p-4 text-right">
                                         <input type="number"
                                                value="@GetReceiveQty(t.Id, t.Quantity)"
-                                               @onchange="@(e => UpdateReceiveQty(t.Id, e.Value))"
+                                               @onchange="(e => UpdateReceiveQty(t.Id, e))"
                                                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 focus:ring-slate-900 focus:border-slate-900 text-sm" />
                                     </td>
 
                                     <td class="p-4 text-right">
                                         <button @onclick="() => ReceiveTransfer(t)"
                                                 class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors">
-                                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                            <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                            </svg>
                                             Receive
                                         </button>
                                     </td>
@@ -232,11 +244,11 @@
         transition: all 0.2s;
     }
 
-        .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
-        }
+    .input-class:focus {
+        border-color: #0f172a;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+    }
 </style>
 
 @code {
@@ -249,7 +261,9 @@
     // --- Data ---
     private List<Warehouse> warehouses = new();
     private List<Item> items = new();
-    private List<GLChartOfAccount> glAccounts = new();
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> transitAccounts = new();
+
     private List<StockTransfer> pendingTransfers = new();
 
     // --- State ---
@@ -257,7 +271,7 @@
     private Guid fromWhId;
     private Guid toWhId;
     private Guid selectedItemId;
-    private Guid transitAccountId;
+    private Guid transitSegCoaId;
     private decimal qty;
     private string reference = "";
     private decimal currentStockLevel = 0;
@@ -288,10 +302,33 @@
 
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
         items = await MasterService.GetItemsAsync(selectedCompanyId);
-        glAccounts = await GLService.GetChartOfAccountsAsync(selectedCompanyId);
+
+        allAccounts = await GLService.GetSegmentedChartOfAccountsAsync(selectedCompanyId);
+
+        // Transit should be an Asset account typically
+        var types = await GLService.GetAccountTypesAsync();
+        var assetTypeIds = types.Where(t => t.IsBalanceSheet).Select(t => t.Id).ToHashSet();
+
+        transitAccounts = allAccounts
+            .Where(a => a.AllowJournal && assetTypeIds.Contains(a.SegAccountTypeId))
+            .OrderBy(a => a.AccountCode)
+            .ToList();
+
+
+
         pendingTransfers = await InvService.GetPendingTransfersAsync(selectedCompanyId);
 
         receiveQtyMap.Clear();
+    }
+
+    private async Task OnFromWarehouseChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id))
+        {
+            fromWhId = id;
+            if (toWhId == fromWhId) toWhId = Guid.Empty;
+            await CheckStock();
+        }
     }
 
     private async Task CheckStock()
@@ -304,22 +341,31 @@
 
     private async Task ProcessShipment()
     {
-        if (fromWhId == Guid.Empty || toWhId == Guid.Empty || selectedItemId == Guid.Empty || qty <= 0 || transitAccountId == Guid.Empty)
+        if (fromWhId == Guid.Empty || toWhId == Guid.Empty || selectedItemId == Guid.Empty || qty <= 0 || transitSegCoaId == Guid.Empty)
         {
-            await JS.InvokeVoidAsync("alert", "Please complete all fields."); return;
+            await JS.InvokeVoidAsync("alert", "Please complete all fields.");
+            return;
         }
 
         isBusy = true;
         try
         {
-            var err = await InvService.ShipTransferAsync(selectedCompanyId, selectedItemId, fromWhId, toWhId, qty, transitAccountId, reference);
+            // Pass SegCoaId as transit account
+            var err = await InvService.ShipTransferAsync(
+                selectedCompanyId,
+                selectedItemId,
+                fromWhId,
+                toWhId,
+                qty,
+                transitSegCoaId,
+                reference);
 
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Transfer Shipped. Stock is now 'In Transit'.");
                 qty = 0; reference = "";
                 await LoadData();
-                activeTab = 2; // Auto-switch to Incoming
+                activeTab = 2;
             }
             else
             {
@@ -332,26 +378,26 @@
     // --- RECEIVE LOGIC ---
 
     private decimal GetReceiveQty(Guid id, decimal defaultQty)
-    {
-        if (receiveQtyMap.ContainsKey(id)) return receiveQtyMap[id];
-        return defaultQty;
-    }
+        => receiveQtyMap.TryGetValue(id, out var v) ? v : defaultQty;
 
-    private void UpdateReceiveQty(Guid id, object? val)
+    private void UpdateReceiveQty(Guid id, ChangeEventArgs e)
     {
-        if (decimal.TryParse(val?.ToString(), out var v))
-        {
+        if (decimal.TryParse(e.Value?.ToString(), out var v))
             receiveQtyMap[id] = v;
-        }
     }
 
     private async Task ReceiveTransfer(StockTransfer t)
     {
         decimal actualQty = GetReceiveQty(t.Id, t.Quantity);
 
-        if (actualQty > t.Quantity) { await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!"); return; }
+        if (actualQty > t.Quantity)
+        {
+            await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!");
+            return;
+        }
 
-        if (!await JS.InvokeAsync<bool>("confirm", $"Confirm receipt of {actualQty:N2} (Shipped: {t.Quantity:N2})?")) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Confirm receipt of {actualQty:N2} (Shipped: {t.Quantity:N2})?"))
+            return;
 
         var err = await InvService.ReceiveTransferAsync(t.Id, actualQty);
         if (string.IsNullOrEmpty(err))

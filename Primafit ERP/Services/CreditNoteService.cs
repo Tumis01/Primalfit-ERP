@@ -148,7 +148,7 @@ namespace Primafit_ERP.Services
 
                     glLines.Add(new GLJournalLine
                     {
-                        AccountId = line.Item.SalesIncomeAccountId, // Use Item's Income Account
+                        SegCoaId = line.Item.SalesIncomeAccountId, // Use Item's Income Account
                         Debit = lineTotalBase,
                         Credit = 0,
                         Reference = $"CN Reversal: {line.Item.Name}"
@@ -162,7 +162,7 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = cn.Customer.ReceivablesAccountId.Value,
+                    SegCoaId = cn.Customer.ReceivablesAccountId.Value,
                     Debit = 0,
                     Credit = totalCreditsBase,
                     Reference = $"CN {cn.CreditNoteNumber} for {cn.Customer.Name}"
@@ -203,8 +203,8 @@ namespace Primafit_ERP.Services
                         decimal cogsValue = line.Quantity * line.Item.WeightedAverageCost;
                         if (cogsValue > 0)
                         {
-                            cogsGlLines.Add(new GLJournalLine { AccountId = line.Item.InventoryAssetAccountId, Debit = cogsValue, Credit = 0, Reference = $"Stock Return: {line.Item.Name}" });
-                            cogsGlLines.Add(new GLJournalLine { AccountId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = cogsValue, Reference = $"COGS Reversal: {line.Item.Name}" });
+                            cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = cogsValue, Credit = 0, Reference = $"Stock Return: {line.Item.Name}" });
+                            cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = cogsValue, Reference = $"COGS Reversal: {line.Item.Name}" });
                         }
                     }
 

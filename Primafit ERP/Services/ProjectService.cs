@@ -19,6 +19,7 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Projects
+                .AsNoTracking()
                 .Where(p => p.CompanyId == companyId)
                 .OrderByDescending(p => p.StartDate)
                 .ToListAsync();
@@ -34,34 +35,24 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Validate
             if (string.IsNullOrWhiteSpace(project.Name)) return "Project Name is required.";
             if (project.CompanyId == Guid.Empty) return "Company ID is missing.";
 
-            // 2. CHECK DATABASE: Does this ID actually exist?
-            // We do not trust 'project.Id' alone because it might be a new GUID generated in memory.
             var existing = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == project.Id);
 
             try
             {
                 if (existing == null)
                 {
-                    // --- CASE A: CREATE NEW ---
                     if (project.Id == Guid.Empty) project.Id = Guid.NewGuid();
-
                     ctx.Projects.Add(project);
                 }
                 else
                 {
-                    // --- CASE B: UPDATE EXISTING ---
-                    // Preserve the CompanyId to prevent accidental overwrites
-                    project.CompanyId = existing.CompanyId;
-
-                    // Update the values
+                    project.CompanyId = existing.CompanyId; // Protect Data
                     ctx.Entry(existing).CurrentValues.SetValues(project);
                 }
 
-                // 3. Save Changes
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
@@ -71,18 +62,19 @@ namespace Primafit_ERP.Services
             }
         }
 
-        // --- REPORTING: PROJECT P&L (The ROI Engine) ---
         public async Task<List<GLTransaction>> GetProjectTransactionsAsync(Guid projectId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             return await ctx.GLTransactions
-                .AsNoTracking() // Read-only for performance
+                .AsNoTracking()
                 .Where(t => t.ProjectId == projectId)
-                .OrderByDescending(t => t.PostingDate) // Newest first
-                .Take(100) // Limit to last 100 entries to keep UI fast
+                .OrderByDescending(t => t.PostingDate)
+                .Take(100)
                 .ToListAsync();
         }
+
+        // --- REPORTING: PROJECT P&L (Corrected for Segmented COA) ---
         public async Task<ProjectPLViewModel> GetProjectPLAsync(Guid projectId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -96,33 +88,41 @@ namespace Primafit_ERP.Services
             if (!txns.Any()) return new ProjectPLViewModel { ProjectId = projectId };
 
             // 2. Identify Account Types (Revenue vs Expense)
-            // We need to look up the Account Class for every transaction found.
-            var accountIds = txns.Select(t => t.AccountId).Distinct().ToList();
+            // Use SegCoaId to find the Account, then the AccountType
+            var accountIds = txns.Select(t => t.SegCoaId).Distinct().ToList();
 
-            var accountTypes = await ctx.GLChartOfAccounts
-                .Include(a => a.MainAccount.AccountType)
+            var accounts = await ctx.SegChartOfAccounts
+                .AsNoTracking()
                 .Where(a => accountIds.Contains(a.Id))
-                .ToDictionaryAsync(a => a.Id, a => a.MainAccount.AccountType.Class);
+                .ToListAsync();
 
-            // 3. Aggregate Data
+            // 3. Get Account Type Definitions (to check IsBalanceSheet/IsDebit)
+            var types = await ctx.Set<SegAccountType>().AsNoTracking().ToListAsync();
+
+            // 4. Aggregate Data
             var model = new ProjectPLViewModel { ProjectId = projectId };
 
             foreach (var t in txns)
             {
-                if (accountTypes.TryGetValue(t.AccountId, out var type))
-                {
-                    // Logic: Project P&L only cares about Income and Expenses
+                var acct = accounts.FirstOrDefault(a => a.Id == t.SegCoaId);
+                if (acct == null) continue;
 
-                    if (type == GLAccountClass.Revenue)
+                var type = types.FirstOrDefault(x => x.Id == acct.SegAccountTypeId);
+                if (type == null) continue;
+
+                // LOGIC: Project P&L only cares about Income Statement items (IsBalanceSheet = false)
+                if (type.IsBalanceSheet == false)
+                {
+                    if (type.IsDebit == false)
                     {
-                        // Revenue is normally Credit. 
-                        // Net Impact = Credit - Debit (e.g., Sales - Returns)
+                        // INCOME ACCOUNTS (Credit Normal)
+                        // Net Impact = Credit - Debit
                         model.ActualRevenue += (t.Credit - t.Debit);
                     }
-                    else if (type == GLAccountClass.Expenses)
+                    else
                     {
-                        // Expense is normally Debit.
-                        // Net Impact = Debit - Credit (e.g., Cost - Refunds)
+                        // EXPENSE ACCOUNTS (Debit Normal)
+                        // Net Impact = Debit - Credit
                         model.ActualCost += (t.Debit - t.Credit);
                     }
                 }
@@ -132,17 +132,12 @@ namespace Primafit_ERP.Services
         }
     }
 
-    // ViewModel for the Report
     public class ProjectPLViewModel
     {
         public Guid ProjectId { get; set; }
         public decimal ActualRevenue { get; set; }
         public decimal ActualCost { get; set; }
-
         public decimal Margin => ActualRevenue - ActualCost;
-
-        public decimal MarginPercent => ActualRevenue != 0
-            ? (Margin / ActualRevenue) * 100
-            : 0;
+        public decimal MarginPercent => ActualRevenue != 0 ? (Margin / ActualRevenue) * 100 : 0;
     }
 }

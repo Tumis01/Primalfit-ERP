@@ -20,12 +20,12 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.FixedAssets
+                .AsNoTracking()
                 .Where(a => a.CompanyId == companyId)
                 .OrderBy(a => a.AssetTag)
                 .ToListAsync();
         }
 
-        // 2. ACQUIRE ASSET (Create)
         // 2. ACQUIRE ASSET (Create or Update)
         public async Task<string> CreateAssetAsync(FixedAsset asset)
         {
@@ -39,25 +39,20 @@ namespace Primafit_ERP.Services
                 return "Please map all GL accounts (Asset, Accum. Depr, Expense).";
             }
 
-            // 2. FIX: Check if it exists in the DB (Don't just trust Guid.Empty)
+            // 2. Check Database for existence
             bool exists = await ctx.FixedAssets.AnyAsync(a => a.Id == asset.Id);
 
             if (!exists)
             {
                 // --- NEW ASSET ---
                 if (asset.Id == Guid.Empty) asset.Id = Guid.NewGuid();
-
                 // Set Initial Book Value
                 asset.CurrentBookValue = asset.PurchaseCost;
-
                 ctx.FixedAssets.Add(asset);
             }
             else
             {
                 // --- UPDATE EXISTING ---
-                // Optional: Ensure Book Value isn't accidentally reset if you don't want it editable
-                // asset.CurrentBookValue = asset.PurchaseCost; // Only if you allow correcting cost
-
                 ctx.FixedAssets.Update(asset);
             }
 
@@ -78,7 +73,6 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             // A. Find Assets eligible for depreciation
-            // Must be Active, StartDate passed, and not fully depreciated
             var assets = await ctx.FixedAssets
                 .Where(a => a.CompanyId == companyId
                             && a.Status == AssetStatus.Active
@@ -89,7 +83,6 @@ namespace Primafit_ERP.Services
             if (!assets.Any()) return "No eligible assets found for depreciation.";
 
             // Filter out assets already depreciated this month
-            // (Assuming LastDepreciationDate stores the date of the last run)
             var eligibleAssets = assets.Where(a =>
                 a.LastDepreciationDate == null ||
                 (a.LastDepreciationDate.Value.Month != periodDate.Month || a.LastDepreciationDate.Value.Year != periodDate.Year)
@@ -103,9 +96,9 @@ namespace Primafit_ERP.Services
             // B. Calculate for each asset
             foreach (var asset in eligibleAssets)
             {
-                // Straight Line: (Cost - Salvage) / Life
                 if (asset.UsefulLifeMonths <= 0) continue;
 
+                // Straight Line: (Cost - Salvage) / Life
                 decimal monthlyAmount = (asset.PurchaseCost - asset.SalvageValue) / asset.UsefulLifeMonths;
 
                 // Cap check: Don't depreciate below salvage
@@ -136,7 +129,7 @@ namespace Primafit_ERP.Services
                 // Dr Depreciation Expense
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = asset.DepreciationExpenseAccountId,
+                    SegCoaId = asset.DepreciationExpenseAccountId, // CHANGED: AccountId -> SegCoaId
                     Debit = monthlyAmount,
                     Credit = 0,
                     Reference = $"Depr: {asset.AssetTag}"
@@ -145,7 +138,7 @@ namespace Primafit_ERP.Services
                 // Cr Accumulated Depreciation
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = asset.AccumulatedDepreciationAccountId,
+                    SegCoaId = asset.AccumulatedDepreciationAccountId, // CHANGED: AccountId -> SegCoaId
                     Debit = 0,
                     Credit = monthlyAmount,
                     Reference = $"Accum Depr: {asset.AssetTag}"
@@ -167,7 +160,6 @@ namespace Primafit_ERP.Services
 
                 if (!string.IsNullOrEmpty(err)) return $"GL Error: {err}";
 
-                // Auto Post
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
             }
 

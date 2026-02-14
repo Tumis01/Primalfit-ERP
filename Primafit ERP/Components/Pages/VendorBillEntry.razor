@@ -8,7 +8,7 @@
 
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
-@inject IDbContextFactory<AppDbContext> DbFactory
+@inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -44,7 +44,7 @@
             <div class="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-fit">
                 <h3 class="font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider">Bill Header</h3>
 
-                @* 1. AP Account Selection *@
+                @* 1. AP Account Selection (Filtered: BS=True, Dr=False) *@
                 <div class="bg-rose-50 p-3 rounded-lg border border-rose-100">
                     <SearchableGlAccount 
                         Label="Credit Liability (AP)" 
@@ -82,7 +82,7 @@
                     </div>
                 }
 
-                @* 4. PO Link (Always Editable to allow unlinking) *@
+                @* 4. PO Link *@
                 <div>
                     <label class="label">Link to PO (Import)</label>
                     <select value="@(currentBill.PurchaseOrderId?.ToString() ?? "")" @onchange="OnPoChanged" class="input-class border-indigo-200 font-medium text-indigo-700 bg-indigo-50/30" disabled="@(currentBill.VendorId == Guid.Empty)">
@@ -94,11 +94,11 @@
                     </select>
                 </div>
 
-                @* 5. Invoice Details (Locked if imported) *@
+                @* 5. Invoice Details *@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="label">Invoice #</label>
-                        <input @bind="currentBill.ExternalInvoiceNumber" class="input-class font-mono uppercase @(IsLocked ? "bg-slate-100 text-slate-500" : "")" placeholder="INV-..." readonly="@IsLocked" />
+                        <input @bind="currentBill.ExternalInvoiceNumber" class="input-class font-mono uppercase" placeholder="INV-..." />
                     </div>
                     <div>
                         <label class="label">Bill Date</label>
@@ -106,7 +106,7 @@
                     </div>
                 </div>
 
-                @* 6. Totals (Locked if imported) *@
+                @* 6. Totals *@
                 <div class="pt-4 border-t border-slate-100">
                     <label class="label text-slate-600">Total Amount (@(currencyCode ?? "Base"))</label>
                     <div class="relative">
@@ -117,7 +117,6 @@
                                readonly="@IsLocked" />
                     </div>
                     
-                    @* Ledger Value Calculation *@
                     <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
                         <span class="font-bold text-slate-400 uppercase">Total Amount (Base Currency)</span>
                         <div class="font-mono font-bold text-emerald-600">
@@ -165,7 +164,6 @@
                             {
                                 <tr class="group hover:bg-slate-50 transition-colors">
                                     <td class="px-2 py-2 align-top">
-                                        @* Disable search wrapper using pointer-events-none if locked *@
                                         <div class="@(IsLocked ? "pointer-events-none opacity-60" : "")">
                                             <SearchableGlAccount 
                                                 Label="" 
@@ -193,13 +191,7 @@
                                     </td>
                                     
                                     <td class="px-2 py-2 align-top pt-3">
-                                        <input type="text" 
-                                               inputmode="decimal"
-                                               value="@line.UnitCostBilled.ToString("F2")"
-                                               @onchange="@(e => { 
-                                                   if (decimal.TryParse(e.Value?.ToString(), out var result)) 
-                                                       line.UnitCostBilled = result; 
-                                               })"
+                                        <input type="number" step="0.01" @bind="line.UnitCostBilled" 
                                                class="input-class py-2 text-right text-xs font-mono @(IsLocked ? "bg-slate-100 text-slate-500" : "")" 
                                                placeholder="0.00"
                                                readonly="@IsLocked" />
@@ -228,13 +220,6 @@
                                 </td>
                                 <td></td>
                             </tr>
-                            <tr>
-                                <td colspan="4" class="px-4 py-3 text-right font-bold text-slate-500 text-xs uppercase">Total (Base Currency)</td>
-                                <td class="px-2 py-3 text-right font-mono font-bold text-lg text-slate-900">
-                                    @((currentBill.TotalAmountForeign * currentBill.ExchangeRate).ToString("N2"))
-                                </td>
-                                <td></td>
-                            </tr>
                         </tfoot>
                     </table>
                 </div>
@@ -254,7 +239,6 @@
     .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: all 0.2s; background-color: #fff; }
     .input-class:focus { border-color: #4f46e5; outline: none; ring: 2px; ring-color: #e0e7ff; }
     
-    /* Specific styles for Locked Inputs */
     .input-class[readonly], .input-class[disabled] {
         background-color: #f1f5f9; /* slate-100 */
         color: #64748b; /* slate-500 */
@@ -268,8 +252,12 @@
     private List<Vendor> vendors = new();
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
-    private List<GLChartOfAccount> liabilityAccounts = new();
-    private List<GLChartOfAccount> expenseAccounts = new();
+    
+    // CHANGED: Use Segmented COA
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> liabilityAccounts = new();
+    private List<SegChartOfAccount> expenseAccounts = new();
+    private List<SegAccountType> accountTypes = new();
     
     private Guid currentCompanyId;
     private bool isBusy = false;
@@ -279,7 +267,6 @@
     [SupplyParameterFromQuery]
     public Guid? PoId { get; set; }
 
-    // --- PROPERTY TO CHECK IF DATA IS IMPORTED/LOCKED ---
     private bool IsLocked => currentBill.PurchaseOrderId.HasValue && currentBill.PurchaseOrderId != Guid.Empty;
 
     protected override async Task OnInitializedAsync()
@@ -294,16 +281,23 @@
             items = await MasterService.GetItemsAsync(currentCompanyId);
             openPOs = await PurchService.GetPOsReadyForInvoicingAsync(currentCompanyId);
 
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            liabilityAccounts = await ctx.GLChartOfAccounts
-                .Include(a => a.MainAccount).ThenInclude(m => m.AccountType)
-                .Where(a => a.CompanyId == currentCompanyId && a.MainAccount.AccountType.Class == GLAccountClass.Liability)
-                .ToListAsync();
-            
-            expenseAccounts = await ctx.GLChartOfAccounts
-                .Include(a => a.MainAccount).ThenInclude(m => m.AccountType)
-                .Where(a => a.CompanyId == currentCompanyId && (a.MainAccount.AccountType.Class == GLAccountClass.Expenses || a.MainAccount.AccountType.Class == GLAccountClass.Asset))
-                .ToListAsync();
+            // CHANGED: Use SegCoaService
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            // Filter AP Accounts: BS = True, Dr = False (Liabilities)
+            liabilityAccounts = allAccounts.Where(a => 
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
+            }).OrderBy(x => x.AccountCode).ToList();
+
+            // Filter Expense/Line Accounts: Dr = True (Expenses & Assets)
+            expenseAccounts = allAccounts.Where(a => 
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsDebit == true;
+            }).OrderBy(x => x.AccountCode).ToList();
             
             CreateNew();
 
@@ -313,7 +307,6 @@
                 if (targetPO != null)
                 {
                     currentBill.VendorId = targetPO.VendorId;
-                    
                     var data = await PurchService.GetVendorCurrencyDataAsync(targetPO.VendorId, currentCompanyId);
                     currentBill.CurrencyId = data.CurrencyId;
                     currencyCode = data.CurrencyCode;

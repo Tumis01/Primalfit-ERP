@@ -7,7 +7,7 @@
 
 @inject MasterDataService MasterService
 @inject CurrencyService CurrService
-@inject GLSetupService GLService
+@inject SegCoaService GLService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -44,9 +44,9 @@
                         <label class="label text-slate-500">Payables Account (Override Default)</label>
                         <select @bind="currentVendor.PayablesAccountId" class="input-class border-slate-300">
                             <option value="">-- Use System Default --</option>
-                            @foreach (var a in glAccounts)
+                            @foreach (var a in apAccounts)
                             {
-                                <option value="@a.Id">@a.AccountCode - @a.AccountName</option>
+                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
                             }
                         </select>
                     </div>
@@ -62,7 +62,13 @@
     <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <table class="w-full text-left text-sm">
             <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
-                <tr><th class="p-4">Name</th><th class="p-4">Contact</th><th class="p-4">Currency</th><th class="p-4 text-right">Actions</th></tr>
+                <tr>
+                    <th class="p-4">Name</th>
+                    <th class="p-4">Contact</th>
+                    <th class="p-4">Currency</th>
+                    <th class="p-4">A/P Setup</th>
+                    <th class="p-4 text-right">Actions</th>
+                </tr>
             </thead>
             <tbody class="divide-y">
                 @foreach (var v in vendors)
@@ -70,7 +76,25 @@
                     <tr class="hover:bg-slate-50">
                         <td class="p-4 font-bold">@v.Name</td>
                         <td class="p-4 text-slate-500">@v.Email <br /><span class="text-xs">@v.Phone</span></td>
-                        <td class="p-4"><span class="bg-slate-100 px-2 py-1 rounded text-xs font-bold border">@v.DefaultCurrency?.CurrencyCode</span></td>
+                        <td class="p-4">
+                            <span class="bg-slate-100 px-2 py-1 rounded text-xs font-bold border">
+                                @v.DefaultCurrency?.CurrencyCode
+                            </span>
+                        </td>
+                        <td class="p-4">
+                            @if (v.PayablesAccountId.HasValue && v.PayablesAccountId != Guid.Empty)
+                            {
+                                <span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                                    Configured
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-200">
+                                    Missing
+                                </span>
+                            }
+                        </td>
                         <td class="p-4 text-right">
                             <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
                             <button @onclick="() => Delete(v)" class="text-red-600 font-bold hover:underline">Delete</button>
@@ -98,55 +122,96 @@
         border: 1px solid #e2e8f0;
         padding: 0.6rem;
         font-size: 0.875rem;
-    }</style>
+    }
+</style>
 
 @code {
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
-    private List<GLChartOfAccount> glAccounts = new();
+
+    // Segmented COA (A/P accounts)
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> apAccounts = new();
+
     private Vendor currentVendor = new();
     private bool showForm = false;
     private bool isEditing = false;
     private Guid currentCompanyId;
 
+    // NOTE: update these IDs to match your SegAccountType seeded IDs
+    private const int TYPE_ASSET = 1;
+    private const int TYPE_LIABILITY = 2;
+    private const int TYPE_REVENUE = 3;
+    private const int TYPE_EXPENSE = 4;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
+
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
+
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
-            glAccounts = (await GLService.GetChartOfAccountsAsync(currentCompanyId))
-                         .Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Liability).ToList(); // Filter for Liability (AP)
+
+            allAccounts = await GLService.GetCoaAsync(currentCompanyId);
+            apAccounts = allAccounts.Where(a => a.SegAccountTypeId == TYPE_LIABILITY).ToList();
+
             await LoadData();
         }
     }
 
-    private async Task LoadData() => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+    private async Task LoadData()
+        => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
 
     private void CreateNew()
     {
-        currentVendor = new Vendor { CompanyId = currentCompanyId, CurrencyId = currencies.FirstOrDefault()?.Id ?? Guid.Empty };
-        showForm = true; isEditing = false;
+        currentVendor = new Vendor
+        {
+            CompanyId = currentCompanyId,
+            CurrencyId = currencies.FirstOrDefault()?.Id ?? Guid.Empty
+        };
+        showForm = true;
+        isEditing = false;
     }
 
     private void Edit(Vendor v)
     {
-        currentVendor = new Vendor { Id = v.Id, CompanyId = v.CompanyId, Name = v.Name, Email = v.Email, Phone = v.Phone, Address = v.Address, CurrencyId = v.CurrencyId, PayablesAccountId = v.PayablesAccountId };
-        showForm = true; isEditing = true;
+        currentVendor = new Vendor
+        {
+            Id = v.Id,
+            CompanyId = v.CompanyId,
+            Name = v.Name,
+            Email = v.Email,
+            Phone = v.Phone,
+            Address = v.Address,
+            CurrencyId = v.CurrencyId,
+            PayablesAccountId = v.PayablesAccountId
+        };
+        showForm = true;
+        isEditing = true;
     }
 
     private async Task Delete(Vendor v)
     {
         if (!await JS.InvokeAsync<bool>("confirm", $"Delete vendor '{v.Name}'?")) return;
         var err = await MasterService.DeleteVendorAsync(v.Id);
-        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+        if (string.IsNullOrEmpty(err)) await LoadData();
+        else await JS.InvokeVoidAsync("alert", err);
     }
 
     private async Task Save()
     {
         var err = await MasterService.SaveVendorAsync(currentVendor);
-        if (string.IsNullOrEmpty(err)) { showForm = false; await LoadData(); } else await JS.InvokeVoidAsync("alert", err);
+        if (string.IsNullOrEmpty(err))
+        {
+            showForm = false;
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
     }
 }

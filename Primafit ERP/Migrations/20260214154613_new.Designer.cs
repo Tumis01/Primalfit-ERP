@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260214154613_new")]
+    partial class @new
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -489,7 +492,7 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("BankSegCoaId")
+                    b.Property<Guid>("BankAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("BatchReference")
@@ -546,7 +549,7 @@ namespace Primafit_ERP.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid>("OffsetSegCoaId")
+                    b.Property<Guid>("OffsetAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("ProjectId")
@@ -1149,6 +1152,9 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("Credit")
                         .HasColumnType("decimal(18, 6)");
 
@@ -1161,14 +1167,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<string>("Reference")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid>("SegCoaId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("HeaderId");
-
-                    b.HasIndex("SegCoaId");
 
                     b.ToTable("GLJournalLines");
                 });
@@ -1206,6 +1207,9 @@ namespace Primafit_ERP.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("AccountingPeriodId")
@@ -1250,14 +1254,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<string>("ReconciledByUserId")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid>("SegCoaId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
-
-                    b.HasIndex("SegCoaId");
 
                     b.ToTable("GLTransactions");
                 });
@@ -2824,15 +2823,7 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "SegCoa")
-                        .WithMany()
-                        .HasForeignKey("SegCoaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Header");
-
-                    b.Navigation("SegCoa");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLMainAccount", b =>
@@ -2860,15 +2851,7 @@ namespace Primafit_ERP.Migrations
                         .WithMany()
                         .HasForeignKey("ProjectId");
 
-                    b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "SegCoa")
-                        .WithMany()
-                        .HasForeignKey("SegCoaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Project");
-
-                    b.Navigation("SegCoa");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceiptLine", b =>

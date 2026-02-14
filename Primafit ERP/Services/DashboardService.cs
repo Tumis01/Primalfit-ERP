@@ -25,7 +25,7 @@ namespace Primafit_ERP.Services
             // Note: In a real production app, you would query a 'TrialBalance' materialized view for speed.
             var accountBalances = await ctx.GLTransactions
                 .Where(t => t.CompanyId == companyId)
-                .GroupBy(t => t.AccountId)
+                .GroupBy(t => t.SegCoaId)
                 .Select(g => new { AccountId = g.Key, Balance = g.Sum(t => t.Debit - t.Credit) })
                 .ToListAsync();
 
@@ -66,9 +66,9 @@ namespace Primafit_ERP.Services
             var expenseIds = accounts.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Expenses).Select(a => a.Id).ToList();
 
             // Revenue is Credit (-), so we flip sign for display if needed, or stick to absolute logic
-            decimal revenue = Math.Abs(mtdTxns.Where(t => revenueIds.Contains(t.AccountId)).Sum(t => t.Credit - t.Debit));
-            decimal cogs = mtdTxns.Where(t => cogsIds.Contains(t.AccountId)).Sum(t => t.Debit - t.Credit);
-            decimal totalExpenses = mtdTxns.Where(t => expenseIds.Contains(t.AccountId)).Sum(t => t.Debit - t.Credit);
+            decimal revenue = Math.Abs(mtdTxns.Where(t => revenueIds.Contains(t.SegCoaId)).Sum(t => t.Credit - t.Debit));
+            decimal cogs = mtdTxns.Where(t => cogsIds.Contains(t.SegCoaId)).Sum(t => t.Debit - t.Credit);
+            decimal totalExpenses = mtdTxns.Where(t => expenseIds.Contains(t.SegCoaId)).Sum(t => t.Debit - t.Credit);
 
             snapshot.RevenueMTD = revenue;
             snapshot.NetProfitMTD = revenue - totalExpenses; // Simplified Net Profit

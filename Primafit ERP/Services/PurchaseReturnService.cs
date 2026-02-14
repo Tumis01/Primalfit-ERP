@@ -246,7 +246,7 @@ namespace Primafit_ERP.Services
                 // 1. DEBIT ACCOUNTS PAYABLE (We owe less)
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = originalBill.AccountsPayableGlId,
+                    SegCoaId = originalBill.AccountsPayableGlId,
                     Debit = totalReturnBase,
                     Credit = 0,
                     Reference = $"RTV: {rtv.ReturnNumber}"
@@ -263,7 +263,7 @@ namespace Primafit_ERP.Services
 
                     glLines.Add(new GLJournalLine
                     {
-                        AccountId = originalBillLine.ExpenseGlAccountId, // Reverses the specific Asset/Expense account used
+                        SegCoaId = originalBillLine.ExpenseGlAccountId, // Reverses the specific Asset/Expense account used
                         Debit = 0,
                         Credit = lineTotalBase,
                         Reference = $"Return: {line.ItemName} x{line.QtyReturning}"

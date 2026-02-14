@@ -20,8 +20,9 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (pay.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
-            if (pay.DepositToGlAccountId == Guid.Empty || pay.CreditGlAccountId == Guid.Empty)
-                return "Please ensure Customer AR and Bank accounts are mapped.";
+            if (pay.DepositToGlAccountId == Guid.Empty) return "Please select a Bank (Deposit) Account.";
+            // Note: CreditGlAccountId (AR) might be empty if customer config is missing, catch in UI or here.
+            if (pay.CreditGlAccountId == Guid.Empty) return "Customer AR Account is missing.";
 
             if (pay.Id == Guid.Empty || !await ctx.CustomerPayments.AnyAsync(x => x.Id == pay.Id))
             {
@@ -58,15 +59,27 @@ namespace Primafit_ERP.Services
                 if (pay == null) return "Payment not found.";
                 if (pay.Status != PaymentStatus.Draft) return "Only draft payments can be posted.";
 
+                // Validate Seg COA existence
+                bool bankExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.DepositToGlAccountId && a.CompanyId == pay.CompanyId);
+                if (!bankExists) return "Deposit Bank Account is invalid (not in Seg COA).";
+
+                bool arExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.CreditGlAccountId && a.CompanyId == pay.CompanyId);
+                if (!arExists) return "Customer AR Account is invalid (not in Seg COA).";
+
                 var glLines = new List<GLJournalLine>();
-                
+
                 // 1. DEBIT BANK (Asset Increases)
-                // Using current exchange rate for Cash Value
                 decimal totalBankBase = Math.Round(pay.AmountReceived * pay.ExchangeRate, 2);
-                glLines.Add(new GLJournalLine { AccountId = pay.DepositToGlAccountId, Debit = totalBankBase, Credit = 0, Reference = $"Rcpt {pay.Reference}" });
+
+                glLines.Add(new GLJournalLine
+                {
+                    SegCoaId = pay.DepositToGlAccountId, // CORRECTED PROPERTY
+                    Debit = totalBankBase,
+                    Credit = 0,
+                    Reference = $"Rcpt {pay.Reference}"
+                });
 
                 // 2. CREDIT ACCOUNTS RECEIVABLE (Asset Decreases)
-                // Use the ORIGINAL Invoice Rate to ensure the debt is cleared perfectly
                 decimal totalArCredit = 0;
 
                 foreach (var app in pay.Applications)
@@ -75,43 +88,35 @@ namespace Primafit_ERP.Services
                     if (invoice == null) continue;
 
                     decimal invoiceRate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
-                    
+
                     // The AR amount we are clearing in BASE currency
                     decimal arClearedBase = Math.Round(app.AppliedAmount * invoiceRate, 2);
                     totalArCredit += arClearedBase;
 
-                    // 3. FX GAIN/LOSS (Difference between Cash received vs Debt cleared)
-                    // Cash Value - Debt Value = Difference
-                    decimal cashValueForThisInvoice = Math.Round(app.AppliedAmount * pay.ExchangeRate, 2);
-                    decimal fxDiff = cashValueForThisInvoice - arClearedBase;
-
-                    if (fxDiff != 0)
-                    {
-                        // Note: You need to map FX Account in Settings or similar. 
-                        // For now, assuming strict match or ignoring small diffs, 
-                        // but normally you credit/debit FX Gain/Loss here.
-                        // To keep it simple per your request: We absorb pennies or require exact match.
-                        // If exact match required, ensure Rate matches. 
-                    }
+                    // FX Logic (Simplified placeholder)
+                    // decimal cashValueForThisInvoice = Math.Round(app.AppliedAmount * pay.ExchangeRate, 2);
+                    // decimal fxDiff = cashValueForThisInvoice - arClearedBase;
                 }
 
                 // Credit the AR Account
-                glLines.Add(new GLJournalLine { AccountId = pay.CreditGlAccountId, Debit = 0, Credit = totalArCredit, Reference = $"Pay Inv {pay.Reference}" });
+                glLines.Add(new GLJournalLine
+                {
+                    SegCoaId = pay.CreditGlAccountId, // CORRECTED PROPERTY
+                    Debit = 0,
+                    Credit = totalArCredit,
+                    Reference = $"Pay Inv {pay.Reference}"
+                });
 
-                // Check Balance (Simple check)
+                // Simple Imbalance Check (FX variances need a dedicated line in a real scenario)
                 decimal totalDebits = glLines.Sum(x => x.Debit);
                 decimal totalCredits = glLines.Sum(x => x.Credit);
-                
+
                 if (totalDebits != totalCredits)
                 {
-                    // Basic FX Handler if rate changed
-                    decimal diff = totalDebits - totalCredits;
-                    // If you haven't mapped an FX account, we can't post.
-                    // For now, let's assume rates match or add a rounding line if < 0.10
-                    // ideally, return error: "Exchange Rate variance detected. Configure FX Account."
+                    return $"Balance Error: Debits ({totalDebits}) do not equal Credits ({totalCredits}). FX Variance handling required.";
                 }
 
-                // POST
+                // POST using GL Service
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                     pay.CompanyId,
                     DateOnly.FromDateTime(pay.Date),

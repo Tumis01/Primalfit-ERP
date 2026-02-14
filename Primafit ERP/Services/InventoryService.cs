@@ -38,7 +38,7 @@ namespace Primafit_ERP.Services
                 // Debit: Expense / COGS (Immediate expense)
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = item.CostOfGoodsSoldAccountId, // Or ExpenseAccountId if you have one
+                    SegCoaId = item.CostOfGoodsSoldAccountId, // Or ExpenseAccountId if you have one
                     Debit = totalLandedCost,
                     Credit = 0,
                     Reference = $"Service Exp: {item.Name}"
@@ -47,7 +47,7 @@ namespace Primafit_ERP.Services
                 // Credit: Accounts Payable
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = vendor.PayablesAccountId.Value,
+                    SegCoaId = vendor.PayablesAccountId.Value,
                     Debit = 0,
                     Credit = totalLandedCost,
                     Reference = $"Bill: {vendor.Name}"
@@ -111,7 +111,7 @@ namespace Primafit_ERP.Services
             // 5. Financial Posting (GL) - Asset vs Liability
             glLines.Add(new GLJournalLine
             {
-                AccountId = item.InventoryAssetAccountId,
+                SegCoaId = item.InventoryAssetAccountId,
                 Debit = totalLandedCost,
                 Credit = 0,
                 Reference = $"Stock In: {item.Name}"
@@ -119,7 +119,7 @@ namespace Primafit_ERP.Services
 
             glLines.Add(new GLJournalLine
             {
-                AccountId = vendor.PayablesAccountId.Value,
+                SegCoaId = vendor.PayablesAccountId.Value,
                 Debit = 0,
                 Credit = totalLandedCost,
                 Reference = $"Bill: {vendor.Name}"
@@ -156,8 +156,8 @@ namespace Primafit_ERP.Services
 
             var glLines = new List<GLJournalLine>
             {
-                new() { AccountId = item.CostOfGoodsSoldAccountId, Debit = issueValue, Credit = 0, Reference = $"Project Use: {item.Name}",  },
-                new() { AccountId = item.InventoryAssetAccountId, Debit = 0, Credit = issueValue, Reference = $"Issued from {warehouseId}" }
+                new() { SegCoaId  = item.CostOfGoodsSoldAccountId, Debit = issueValue, Credit = 0, Reference = $"Project Use: {item.Name}",  },
+                new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = issueValue, Reference = $"Issued from {warehouseId}" }
             };
 
             await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines);
@@ -203,8 +203,8 @@ namespace Primafit_ERP.Services
 
             var glLines = new List<GLJournalLine>
             {
-                new() { AccountId = transitAccountId, Debit = transfer.ValueAtShipment, Credit = 0, Reference = "Transit" },
-                new() { AccountId = item.InventoryAssetAccountId, Debit = 0, Credit = transfer.ValueAtShipment, Reference = "Shipment" }
+                new() { SegCoaId  = transitAccountId, Debit = transfer.ValueAtShipment, Credit = 0, Reference = "Transit" },
+                new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = transfer.ValueAtShipment, Reference = "Shipment" }
             };
 
             await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines);
@@ -240,15 +240,15 @@ namespace Primafit_ERP.Services
 
             var glLines = new List<GLJournalLine>
             {
-                new() { AccountId = transfer.TransitGLAccountId, Debit = 0, Credit = totalShippedValue, Reference = "Clear Transit" },
-                new() { AccountId = transfer.Item.InventoryAssetAccountId, Debit = receivedValue, Credit = 0, Reference = "Receipt" }
+                new() { SegCoaId  = transfer.TransitGLAccountId, Debit = 0, Credit = totalShippedValue, Reference = "Clear Transit" },
+                new() { SegCoaId  = transfer.Item.InventoryAssetAccountId, Debit = receivedValue, Credit = 0, Reference = "Receipt" }
             };
 
             if (lostValue > 0)
             {
                 glLines.Add(new GLJournalLine
                 {
-                    AccountId = transfer.Item.AdjustmentExpenseAccountId,
+                    SegCoaId = transfer.Item.AdjustmentExpenseAccountId,
                     Debit = lostValue,
                     Credit = 0,
                     Reference = "Transit Loss"

@@ -92,7 +92,10 @@ namespace Primafit_ERP.Components.Models
         public GLJournalHeader? Header { get; set; }
 
         [Required]
-        public Guid AccountId { get; set; } // COA Id
+        public Guid SegCoaId { get; set; }  // was AccountId
+
+        [ForeignKey(nameof(SegCoaId))]
+        public SegChartOfAccount? SegCoa { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Debit { get; set; }
@@ -123,7 +126,10 @@ namespace Primafit_ERP.Components.Models
         public Guid JournalId { get; set; }
 
         [Required]
-        public Guid AccountId { get; set; }
+        public Guid SegCoaId { get; set; }   
+
+        [ForeignKey(nameof(SegCoaId))]
+        public SegChartOfAccount? SegCoa { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Debit { get; set; }
@@ -147,7 +153,7 @@ namespace Primafit_ERP.Components.Models
 
     public class TrialBalanceRow
     {
-        public Guid AccountId { get; set; }
+        public Guid SegCoaId { get; set; }
         public string AccountCode { get; set; } = "";
         public string AccountName { get; set; } = "";
 
@@ -157,7 +163,7 @@ namespace Primafit_ERP.Components.Models
     }
     public class LedgerReportRow
     {
-        public Guid AccountId { get; set; }
+        public Guid SegCoaId { get; set; }
         public string AccountCode { get; set; } = "";
         public string AccountName { get; set; } = "";
         public DateOnly PostingDate { get; set; }

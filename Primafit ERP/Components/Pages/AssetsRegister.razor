@@ -7,7 +7,8 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject AssetService AssetService
-@inject GLSetupService GLService
+@inject SegCoaService SegCoaService
+@inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -118,9 +119,20 @@
                         <div class="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-100">
                             <h4 class="text-xs font-bold text-slate-500 uppercase">GL Mapping</h4>
 
-                            <SearchableGlAccount Label="Asset Account (Debit)" Accounts="@assetAccounts" @bind-Value="model.FixedAssetAccountId" IsInvalid="@(model.FixedAssetAccountId == Guid.Empty)" />
-                            <SearchableGlAccount Label="Accum. Depr. Account (Credit)" Accounts="@liabilityAccounts" @bind-Value="model.AccumulatedDepreciationAccountId" IsInvalid="@(model.AccumulatedDepreciationAccountId == Guid.Empty)" />
-                            <SearchableGlAccount Label="Depreciation Expense (Debit)" Accounts="@expenseAccounts" @bind-Value="model.DepreciationExpenseAccountId" IsInvalid="@(model.DepreciationExpenseAccountId == Guid.Empty)" />
+                            <SearchableGlAccount Label="Asset Account (Debit)"
+                                                 Accounts="@assetAccounts"
+                                                 @bind-Value="model.FixedAssetAccountId"
+                                                 IsInvalid="@(model.FixedAssetAccountId == Guid.Empty)" />
+
+                            <SearchableGlAccount Label="Accum. Depr. Account (Credit)"
+                                                 Accounts="@liabilityAccounts"
+                                                 @bind-Value="model.AccumulatedDepreciationAccountId"
+                                                 IsInvalid="@(model.AccumulatedDepreciationAccountId == Guid.Empty)" />
+
+                            <SearchableGlAccount Label="Depreciation Expense (Debit)"
+                                                 Accounts="@expenseAccounts"
+                                                 @bind-Value="model.DepreciationExpenseAccountId"
+                                                 IsInvalid="@(model.DepreciationExpenseAccountId == Guid.Empty)" />
                         </div>
                     </div>
 
@@ -180,10 +192,11 @@
     private List<FixedAsset> assets = new();
     private FixedAsset model = new();
 
-    // Dropdowns
-    private List<GLChartOfAccount> assetAccounts = new();
-    private List<GLChartOfAccount> liabilityAccounts = new();
-    private List<GLChartOfAccount> expenseAccounts = new();
+    // Dropdowns (Corrected Types)
+    private List<SegChartOfAccount> assetAccounts = new();
+    private List<SegChartOfAccount> liabilityAccounts = new();
+    private List<SegChartOfAccount> expenseAccounts = new();
+    private List<SegAccountType> accountTypes = new();
 
     private bool isLoading = true;
     private bool showModal = false;
@@ -198,15 +211,36 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-            await LoadData();
 
-            // Load GL Accounts
-            var allGl = await GLService.GetChartOfAccountsAsync(currentCompanyId);
-            assetAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList();
-            liabilityAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Liability || a.MainAccount.AccountType.Name.Contains("Accum")).ToList();
-            expenseAccounts = allGl.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Expenses).ToList();
+            // 1. Get Types
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+            // 2. Get All COA
+            var allGl = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            // 3. Filter using Flags
+
+            // Assets: BS=True, Dr=True
+            assetAccounts = FilterAccounts(allGl, true, true);
+
+            // Liability (Contra-Asset): BS=True, Dr=False (Accum Depr)
+            liabilityAccounts = FilterAccounts(allGl, true, false);
+
+            // Expense: BS=False, Dr=True
+            expenseAccounts = FilterAccounts(allGl, false, true);
+
+            await LoadData();
         }
         isLoading = false;
+    }
+
+    private List<SegChartOfAccount> FilterAccounts(List<SegChartOfAccount> source, bool isBs, bool isDr)
+    {
+        return source.Where(a =>
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr;
+        }).OrderBy(x => x.AccountCode).ToList();
     }
 
     private async Task LoadData() => assets = await AssetService.GetAssetsAsync(currentCompanyId);

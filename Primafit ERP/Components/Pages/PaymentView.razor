@@ -8,6 +8,7 @@
 
 @inject PaymentService PayService
 @inject MasterDataService MasterService
+@inject SegCoaService SegCoaService
 @inject CurrencyService CurrService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
@@ -93,7 +94,6 @@
                     <div class="pt-2">
                         <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
                         <div class="relative">
-                            
                             <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 @(HasInvoiceSelected ? "cursor-not-allowed opacity-80" : "")" placeholder="0.00" readonly="@HasInvoiceSelected" />
                         </div>
                         
@@ -117,7 +117,11 @@
 
                     <div class="space-y-3">
                         <div>
-                            <SearchableGlAccount Label="Deposit To (Bank)" Placeholder="Search Bank Asset..." Accounts="@bankAccounts" @bind-Value="payment.DepositToGlAccountId" IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
+                            <SearchableGlAccount Label="Deposit To (Bank)" 
+                                                 Placeholder="Search Bank Asset..." 
+                                                 Accounts="@bankAccounts" 
+                                                 @bind-Value="payment.DepositToGlAccountId" 
+                                                 IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
                         </div>
                         
                         <div>
@@ -201,8 +205,9 @@
     private List<Currency> currencies = new();
     
     // GL Lists
-    private List<GLChartOfAccount> allAccounts = new();
-    private List<GLChartOfAccount> bankAccounts = new();
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> bankAccounts = new();
+    private List<SegAccountType> accountTypes = new();
     
     private Guid currentCompanyId;
     private bool isBusy = false;
@@ -240,9 +245,15 @@
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
 
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            allAccounts = await ctx.GLChartOfAccounts.Include(a => a.MainAccount.AccountType).Where(a => a.CompanyId == currentCompanyId).ToListAsync();
-            bankAccounts = allAccounts.Where(a => a.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList();
+            // CHANGED: Use SegCoaService
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            // Filter Banks: Assets (BS=True, Debit=True)
+            bankAccounts = allAccounts.Where(a => {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+            }).ToList();
 
             CreateNew();
         }
@@ -262,30 +273,19 @@
         }
     }
 
-    private async Task OnCurrencyChanged(ChangeEventArgs e)
-    {
-        if (!HasInvoiceSelected && Guid.TryParse(e.Value?.ToString(), out var currId))
-        {
-            payment.CurrencyId = currId;
-            var c = currencies.FirstOrDefault(x => x.Id == currId);
-            currencySymbol = c?.CurrencyCode ?? "";
-            payment.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(currentCompanyId, currId);
-        }
-    }
-
     private async Task OnCustomerChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var custId))
         {
             payment.CustomerId = custId;
             
-            // Auto-fetch Customer AR Account
+            // Auto-fetch Customer AR Account from SegCOA
             var customer = customers.FirstOrDefault(c => c.Id == custId);
             if (customer != null && customer.ReceivablesAccountId.HasValue)
             {
                 payment.CreditGlAccountId = customer.ReceivablesAccountId.Value;
                 var arAcc = allAccounts.FirstOrDefault(a => a.Id == payment.CreditGlAccountId);
-                CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.AccountName}" : "Unknown Account";
+                CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.Description}" : "Unknown Account";
             }
             else
             {
@@ -308,6 +308,10 @@
         }
     }
 
+    // ... [Rest of the methods: LoadCustomerInvoices, OnInvoiceChanged, PostPayment remain the same]
+    // Just ensure DbFactory calls inside LoadCustomerInvoices use your entities correctly.
+    // I've kept the LoadCustomerInvoices logic as it was, assuming SalesOrder structure is correct.
+    
     private async Task LoadCustomerInvoices(Guid customerId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
@@ -335,7 +339,7 @@
 
             decimal balanceDue = grandTotal - paidAmount;
 
-            if (balanceDue > 0)
+            if (balanceDue > 0.01m) // Tolerance for floating point
             {
                 openInvoices.Add(new InvoiceRow
                 {

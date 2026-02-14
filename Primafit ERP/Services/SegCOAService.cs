@@ -157,6 +157,21 @@ namespace Primafit_ERP.Services
                 .OrderBy(x => x.AccountCode)
                 .ToListAsync();
         }
+        public async Task<List<SegChartOfAccount>> GetSegmentedChartOfAccountsAsync(Guid companyId, bool allowJournalOnly = true)
+        {
+            using var context = _dbFactory.CreateDbContext();
+
+            var q = context.SegChartOfAccounts
+                .AsNoTracking()
+                .Where(c => c.CompanyId == companyId);
+
+            if (allowJournalOnly)
+                q = q.Where(c => c.AllowJournal);
+
+            return await q
+                .OrderBy(c => c.AccountCode)
+                .ToListAsync();
+        }
 
         public sealed class SegCoaDraft
         {

@@ -6,7 +6,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject MasterDataService MasterService
-@inject GLSetupService GLService
+@inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -21,7 +21,8 @@
             <p class="text-sm text-slate-500 mt-1">Manage Inventory Items and Services.</p>
         </div>
         <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all">
-            + New Item
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            New Item
         </button>
     </div>
 
@@ -35,17 +36,17 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div>
-                        <label class="label">SKU</label>
-                        <InputText @bind-Value="currentItem.SKU" class="input-class" placeholder="PROD-001" />
+                        <label class="label">SKU <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentItem.SKU" class="input-class font-mono" placeholder="PROD-001" />
                     </div>
                     <div>
-                        <label class="label">Name</label>
+                        <label class="label">Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentItem.Name" class="input-class" placeholder="Product Name" />
                     </div>
                     <div>
                         <label class="label">Type</label>
-                        <div class="flex items-center gap-3 mt-1">
-                            <label class="flex items-center gap-2 cursor-pointer">
+                        <div class="flex items-center gap-3 mt-2">
+                            <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
                                 <InputCheckbox @bind-Value="currentItem.IsService" class="w-4 h-4 rounded text-slate-900 focus:ring-slate-900" />
                                 <span class="text-sm font-bold text-slate-700">Is Service?</span>
                             </label>
@@ -57,45 +58,51 @@
                         <div><label class="label">UoM</label><InputText @bind-Value="currentItem.UoM" class="input-class" /></div>
                         <div><label class="label">Reorder Level</label><InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class" /></div>
                     }
+                    else
+                    {
+                        <div class="md:col-span-2"></div>
+                    }
 
                     <div><label class="label">Selling Price</label><InputNumber @bind-Value="currentItem.SellingPrice" class="input-class" /></div>
                 </div>
 
                 <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
-                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-4">GL Accounts Mapping</h4>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-4 border-b border-slate-200 pb-2">GL Accounts Mapping</h4>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
                         @if (!currentItem.IsService)
                         {
-                            <SearchableGlAccount Label="Inventory Asset Account"
+                            <SearchableGlAccount Label="Inventory Asset Account (BS / Debit)"
                                                  Placeholder="Search Asset Accounts..."
-                                                 Accounts="@allAccounts.Where(x => x.MainAccount.AccountType.Class == GLAccountClass.Asset).ToList()"
+                                                 Accounts="@assetAccounts"
                                                  @bind-Value="currentItem.InventoryAssetAccountId"
                                                  IsInvalid="@(currentItem.InventoryAssetAccountId == Guid.Empty)" />
                         }
 
-                        <SearchableGlAccount Label="Sales Income Account"
+                        <SearchableGlAccount Label="Sales Income Account (PL / Credit)"
                                              Placeholder="Search Revenue Accounts..."
-                                             Accounts="@allAccounts.Where(x => x.MainAccount.AccountType.Class == GLAccountClass.Revenue).ToList()"
+                                             Accounts="@revenueAccounts"
                                              @bind-Value="currentItem.SalesIncomeAccountId"
                                              IsInvalid="@(currentItem.SalesIncomeAccountId == Guid.Empty)" />
 
-                        <SearchableGlAccount Label="Cost of Goods Sold (Expense)"
+                        <SearchableGlAccount Label="Cost of Goods Sold (PL / Debit)"
                                              Placeholder="Search Expense Accounts..."
-                                             Accounts="@allAccounts.Where(x => x.MainAccount.AccountType.Class == GLAccountClass.Expenses).ToList()"
+                                             Accounts="@expenseAccounts"
                                              @bind-Value="currentItem.CostOfGoodsSoldAccountId"
                                              IsInvalid="@(currentItem.CostOfGoodsSoldAccountId == Guid.Empty)" />
 
-                        <SearchableGlAccount Label="Inventory Adjustment (Theft/Loss)"
+                        <SearchableGlAccount Label="Inventory Adjustment / Loss (PL / Debit)"
                                              Placeholder="Search Expense Accounts..."
-                                             Accounts="@allAccounts.Where(x => x.MainAccount.AccountType.Class == GLAccountClass.Expenses).ToList()"
+                                             Accounts="@expenseAccounts"
                                              @bind-Value="currentItem.AdjustmentExpenseAccountId" />
                     </div>
+
                 </div>
 
                 <div class="flex justify-end gap-3">
-                    <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100">Cancel</button>
-                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800">@(isEditing ? "Update" : "Save")</button>
+                    <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all">@(isEditing ? "Update" : "Save")</button>
                 </div>
             </EditForm>
         </div>
@@ -114,21 +121,30 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-                @foreach (var i in items)
+                @if (items.Any())
                 {
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-4 font-mono font-bold">@i.SKU</td>
-                        <td class="p-4">@i.Name</td>
-                        <td class="p-4">@(i.IsService ? "Service" : "Goods")</td>
-                        <td class="p-4 text-right">@i.SellingPrice.ToString("N2")</td>
-                        <td class="p-4 text-right font-mono text-slate-500">
-                            @i.WeightedAverageCost.ToString("N2")
-                        </td>
-                        <td class="p-4 text-right">
-                            <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
-                            <button @onclick="() => Delete(i)" class="text-red-600 font-bold hover:underline">Delete</button>
-                        </td>
-                    </tr>
+                    @foreach (var i in items)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="p-4 font-mono font-bold text-slate-700">@i.SKU</td>
+                            <td class="p-4 font-medium">@i.Name</td>
+                            <td class="p-4">
+                                <span class="px-2 py-1 rounded text-xs font-bold @(i.IsService ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600")">
+                                    @(i.IsService ? "Service" : "Goods")
+                                </span>
+                            </td>
+                            <td class="p-4 text-right">@i.SellingPrice.ToString("N2")</td>
+                            <td class="p-4 text-right font-mono text-slate-500">@i.WeightedAverageCost.ToString("N2")</td>
+                            <td class="p-4 text-right">
+                                <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
+                                <button @onclick="() => Delete(i)" class="text-red-600 font-bold hover:underline">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="6" class="p-8 text-center text-slate-400">No items found.</td></tr>
                 }
             </tbody>
         </table>
@@ -143,6 +159,7 @@
         color: #475569;
         text-transform: uppercase;
         margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
     }
 
     .input-class {
@@ -151,12 +168,25 @@
         border: 1px solid #e2e8f0;
         padding: 0.6rem;
         font-size: 0.875rem;
+        transition: border-color 0.2s;
     }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+        }
 </style>
 
 @code {
     private List<Item> items = new();
-    private List<GLChartOfAccount> allAccounts = new();
+
+    // Segmented COA lists
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> assetAccounts = new();
+    private List<SegChartOfAccount> revenueAccounts = new();
+    private List<SegChartOfAccount> expenseAccounts = new();
+    private List<SegAccountType> accountTypes = new();
+
     private Item currentItem = new();
     private bool showForm = false;
     private bool isEditing = false;
@@ -166,21 +196,53 @@
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
+
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
+
             items = await MasterService.GetItemsAsync(currentCompanyId);
 
-            // Load ALL accounts (we filter them in the UI)
-            allAccounts = await GLService.GetChartOfAccountsAsync(currentCompanyId);
+            // 1. Get Types for Flags
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+            // 2. Get All COA
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            // 3. Filter using Flags (IsBalanceSheet / IsDebit)
+
+            // Assets: BS=True, Dr=True
+            assetAccounts = FilterAccounts(true, true);
+
+            // Revenue: BS=False, Dr=False
+            revenueAccounts = FilterAccounts(false, false);
+
+            // Expense: BS=False, Dr=True
+            expenseAccounts = FilterAccounts(false, true);
         }
     }
 
-    private void CreateNew() { currentItem = new Item { CompanyId = currentCompanyId }; showForm = true; isEditing = false; }
+    private List<SegChartOfAccount> FilterAccounts(bool isBs, bool isDr)
+    {
+        return allAccounts
+            .Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr;
+            })
+            .OrderBy(a => a.AccountCode)
+            .ToList();
+    }
+
+    private void CreateNew()
+    {
+        currentItem = new Item { CompanyId = currentCompanyId };
+        showForm = true;
+        isEditing = false;
+    }
 
     private void Edit(Item i)
     {
-        // Clone to prevent direct edit on list before save
         currentItem = new Item
         {
             Id = i.Id,
@@ -196,21 +258,35 @@
             CostOfGoodsSoldAccountId = i.CostOfGoodsSoldAccountId,
             AdjustmentExpenseAccountId = i.AdjustmentExpenseAccountId
         };
-        showForm = true; isEditing = true;
+        showForm = true;
+        isEditing = true;
     }
 
     private async Task Delete(Item i)
     {
         if (!await JS.InvokeAsync<bool>("confirm", $"Delete item '{i.Name}'?")) return;
         var err = await MasterService.DeleteItemAsync(i.Id);
-        if (string.IsNullOrEmpty(err)) { items = await MasterService.GetItemsAsync(currentCompanyId); }
-        else { await JS.InvokeVoidAsync("alert", err); }
+        if (string.IsNullOrEmpty(err))
+        {
+            items = await MasterService.GetItemsAsync(currentCompanyId);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
     }
 
     private async Task SaveItem()
     {
         var err = await MasterService.SaveItemAsync(currentItem);
-        if (string.IsNullOrEmpty(err)) { showForm = false; items = await MasterService.GetItemsAsync(currentCompanyId); }
-        else { await JS.InvokeVoidAsync("alert", err); }
+        if (string.IsNullOrEmpty(err))
+        {
+            showForm = false;
+            items = await MasterService.GetItemsAsync(currentCompanyId);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
     }
 }

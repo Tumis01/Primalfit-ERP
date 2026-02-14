@@ -9,9 +9,11 @@
              @onclick="EnableSearch">
             <div class="flex flex-col">
                 <span class="text-sm font-bold text-slate-900">@SelectedAccount.AccountCode</span>
-                <span class="text-xs text-slate-500 truncate w-48">@SelectedAccount.AccountName</span>
+                <span class="text-xs text-slate-500 truncate w-48">@SelectedAccount.Description</span>
             </div>
-            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
         </div>
     }
     else
@@ -33,7 +35,7 @@
                         <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0"
                              @onmousedown="() => Select(acc)">
                             <div class="font-bold text-sm text-slate-900">@acc.AccountCode</div>
-                            <div class="text-xs text-slate-500">@acc.AccountName</div>
+                            <div class="text-xs text-slate-500">@acc.Description</div>
                         </div>
                     }
                 }
@@ -49,7 +51,7 @@
 @code {
     [Parameter] public string Label { get; set; } = "GL Account";
     [Parameter] public string Placeholder { get; set; } = "Search Account...";
-    [Parameter] public List<GLChartOfAccount> Accounts { get; set; } = new();
+    [Parameter] public List<SegChartOfAccount> Accounts { get; set; } = new();
     [Parameter] public Guid Value { get; set; }
     [Parameter] public EventCallback<Guid> ValueChanged { get; set; }
     [Parameter] public bool IsInvalid { get; set; }
@@ -58,31 +60,24 @@
     private bool isSearching = false;
     private bool showDropdown = false;
 
-    private GLChartOfAccount? SelectedAccount => Accounts.FirstOrDefault(a => a.Id == Value);
+    private SegChartOfAccount? SelectedAccount => Accounts.FirstOrDefault(a => a.Id == Value);
 
-    private IEnumerable<GLChartOfAccount> FilteredAccounts =>
+    private IEnumerable<SegChartOfAccount> FilteredAccounts =>
         string.IsNullOrWhiteSpace(searchTerm)
-        ? Accounts.Take(20)
-        : Accounts.Where(a => a.AccountName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
-                           || a.AccountCode.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
-
-    protected override void OnParametersSet()
-    {
-        // If we have a value but haven't started searching, ensure dropdown is closed
-        if (Value != Guid.Empty && string.IsNullOrEmpty(searchTerm))
-        {
-            isSearching = false;
-        }
-    }
+            ? Accounts.Take(20)
+            : Accounts.Where(a =>
+                   (a.Description ?? "").Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                || (a.AccountCode ?? "").Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+              .Take(50);
 
     private void EnableSearch()
     {
         isSearching = true;
         showDropdown = true;
-        searchTerm = ""; // Clear to show full list or let user type
+        searchTerm = "";
     }
 
-    private async Task Select(GLChartOfAccount acc)
+    private async Task Select(SegChartOfAccount acc)
     {
         searchTerm = "";
         isSearching = false;
@@ -92,7 +87,6 @@
 
     private async Task OnBlur()
     {
-        // Small delay to allow click event to register
         await Task.Delay(150);
         showDropdown = false;
         isSearching = false;

@@ -9,7 +9,7 @@ namespace Primafit_ERP.Components.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
-        public Guid BankAccountId { get; set; } // The Asset Account
+        public Guid BankSegCoaId { get; set; } 
 
         [Required]
         [MaxLength(50)]
@@ -51,10 +51,11 @@ namespace Primafit_ERP.Components.Models
         public decimal Debit { get; set; }  // Money In
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal Credit { get; set; } 
+        public decimal Credit { get; set; }
 
 
-        public Guid OffsetAccountId { get; set; }
+        public Guid OffsetSegCoaId { get; set; } // was OffsetAccountId
+
 
         [Required(ErrorMessage = "Reference is required")] 
         [MaxLength(50)]

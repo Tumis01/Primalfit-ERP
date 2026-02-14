@@ -7,7 +7,7 @@
 @using System.Globalization
 
 @inject ReconciliationService ReconService
-@inject GLSetupService SetupService
+@inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -31,7 +31,7 @@
                             @if (vm != null)
                             {
                                 <span class="text-xs text-slate-300">|</span>
-                                <span class="text-xs font-medium text-slate-600">@bankAccounts.FirstOrDefault(b => b.Id == selectedBankAccountId)?.AccountName</span>
+                                <span class="text-xs font-medium text-slate-600">@bankAccounts.FirstOrDefault(b => b.Id == selectedBankAccountId)?.Description</span>
                             }
                         </div>
                     }
@@ -48,7 +48,6 @@
                 </span>
 
                 <button @onclick="ExitRecon" class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                     Back to Setup
                 </button>
             </div>
@@ -82,7 +81,7 @@
                             </div>
                             <div class="ml-3 text-sm">
                                 <span class="block font-bold text-slate-900">Manual Mode</span>
-                                <span class="block text-slate-500 mt-1">Tick items off a paper statement manually. Best for low volume.</span>
+                                <span class="block text-slate-500 mt-1">Tick items off a paper statement.</span>
                             </div>
                         </label>
                         <label class="relative flex items-start p-4 cursor-pointer rounded-xl border transition-all @(reconType == ReconType.Automatic ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:bg-slate-50")">
@@ -91,7 +90,7 @@
                             </div>
                             <div class="ml-3 text-sm">
                                 <span class="block font-bold text-slate-900">Auto Import Mode</span>
-                                <span class="block text-slate-500 mt-1">Upload CSV/Excel and auto-match transactions. Best for high volume.</span>
+                                <span class="block text-slate-500 mt-1">Upload CSV/Excel and auto-match.</span>
                             </div>
                         </label>
                     </div>
@@ -99,12 +98,12 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label class="label">Bank Account</label>
+                        <label class="label">Bank Account (Asset)</label>
                         <select class="input-class" @bind="selectedBankAccountId" disabled="@(!HasCompany)">
                             <option value="@Guid.Empty">-- Select Account --</option>
                             @foreach (var a in bankAccounts)
                             {
-                                <option value="@a.Id">@a.AccountCode - @a.AccountName</option>
+                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
                             }
                         </select>
                     </div>
@@ -156,7 +155,6 @@
                     else
                     {
                         <span>Start Reconciliation</span>
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                     }
                 </button>
             </div>
@@ -216,16 +214,17 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
-                                @* @foreach (var line in vm.Reconciliation.StatementLines.Where(x => !x.IsMatched)) *@
                                 @foreach (var line in vm.Reconciliation.StatementLines)
-
                                 {
                                     <tr class="hover:bg-slate-50 cursor-pointer transition-colors @(selectedBankLine?.Id == line.Id ? "bg-indigo-50 ring-1 ring-indigo-200" : "")"
                                         @onclick="() => selectedBankLine = line">
                                         <td class="px-4 py-2 font-mono text-slate-500">@line.Date.ToString("dd/MM")</td>
                                         <td class="px-4 py-2 font-medium text-slate-700">
                                             @line.Description
-                                            <div class="text-[10px] text-slate-400 font-mono">Ref: @line.Reference</div>
+                                            @if (line.IsMatched)
+                                            {
+                                                <span class="ml-2 text-emerald-600 text-[10px] font-bold border border-emerald-200 px-1 rounded">MATCHED</span>
+                                            }
                                         </td>
                                         <td class="px-4 py-2 text-right font-mono font-bold text-slate-900">@line.Amount.ToString("N2")</td>
                                     </tr>
@@ -336,9 +335,11 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    private List<GLChartOfAccount> bankAccounts = new();
-    private Guid selectedBankAccountId = Guid.Empty;
+    // CHANGED: Use SegChartOfAccount
+    private List<SegChartOfAccount> bankAccounts = new();
+    private List<SegAccountType> accountTypes = new();
 
+    private Guid selectedBankAccountId = Guid.Empty;
     private DateOnly statementDate = DateOnly.FromDateTime(DateTime.Today);
     private decimal endingBalance;
     private ReconType reconType = ReconType.Manual;
@@ -396,27 +397,39 @@
     {
         reconId = null; vm = null; bankAccounts.Clear();
         if (!HasCompany) return;
-        var coa = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
-        bankAccounts = coa.Where(a => a.AccountCode.StartsWith("1")).ToList();
+
+        // 1. Get Account Types to check flags
+        accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+        // 2. Get All COA
+        var allCoa = await SegCoaService.GetCoaAsync(selectedCompanyId);
+
+        // 3. Filter for Assets (BS=True, Dr=True)
+        bankAccounts = allCoa
+            .Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+            })
+            .OrderBy(a => a.AccountCode)
+            .ToList();
     }
 
     private void HandleFileUpload(InputFileChangeEventArgs e) => uploadedFile = e.File;
 
-    // 1. Navigation Logic
     private void ExitRecon()
     {
         reconId = null;
         vm = null;
         uploadedFile = null;
-        // Reset selection to force clean state
         selectedBankLine = null;
         selectedTxn = null;
     }
 
     private async Task StartRecon()
     {
-        if (isBusy) return; // Prevent double execution
-        isBusy = true;      // Lock
+        if (isBusy) return;
+        isBusy = true;
 
         try
         {
@@ -438,7 +451,7 @@
         }
         finally
         {
-            isBusy = false; // Unlock
+            isBusy = false;
         }
     }
 
@@ -451,10 +464,7 @@
 
     private async Task ToggleCleared(GLTransaction txn, bool isChecked)
     {
-        // 2. Logic Check: Updates DB immediately, so state persists on reload
         await ReconService.ToggleTransactionClearedAsync(txn.Id, vm!.Reconciliation.Id, isChecked);
-
-        // Optimistic UI Update
         txn.BankReconciliationId = isChecked ? vm.Reconciliation.Id : null;
         StateHasChanged();
     }

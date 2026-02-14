@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using MudBlazor.Charts;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -165,8 +166,9 @@ namespace Primafit_ERP.Services
                 decimal cogsValueBase = line.Quantity * line.Item.WeightedAverageCost;
                 if (cogsValueBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { AccountId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU}" });
-                    glLines.Add(new GLJournalLine { AccountId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU}" });
+
                 }
             }
 
@@ -238,13 +240,8 @@ namespace Primafit_ERP.Services
                         return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
 
                     // Credit Revenue
-                    glLines.Add(new GLJournalLine
-                    {
-                        AccountId = line.Item.SalesIncomeAccountId,
-                        Debit = 0,
-                        Credit = lineTotalBase,
-                        Reference = $"Rev {line.Item.Name}"
-                    });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.SalesIncomeAccountId, Debit = 0, Credit = lineTotalBase, Reference = $"Rev {line.Item.Name}" });
+
 
                     totalRevenueBase += lineTotalBase;
                 }
@@ -268,13 +265,9 @@ namespace Primafit_ERP.Services
                             return $"Tax '{taxDef.TaxName}' is selected but no GL Account is mapped (neither on the Tax setup nor the Order).";
 
                         // Credit Tax Liability
-                        glLines.Add(new GLJournalLine
-                        {
-                            AccountId = targetGlId,
-                            Debit = 0,
-                            Credit = totalTaxBase,
-                            Reference = $"{taxDef.TaxCode} on {order.OrderNumber}"
-                        });
+                        glLines.Add(new GLJournalLine { SegCoaId = targetGlId, Debit = 0, Credit = totalTaxBase, Reference = $"{taxDef.TaxCode} on {order.OrderNumber}" });
+
+
                     }
                 }
 
@@ -285,13 +278,8 @@ namespace Primafit_ERP.Services
                     return "Customer AR Account is missing. Please configure it in Master Data.";
 
                 // Debit AR
-                glLines.Add(new GLJournalLine
-                {
-                    AccountId = order.Customer.ReceivablesAccountId.Value,
-                    Debit = grandTotalBase,
-                    Credit = 0,
-                    Reference = $"Inv {order.OrderNumber}"
-                });
+                glLines.Add(new GLJournalLine { SegCoaId = order.Customer.ReceivablesAccountId.Value, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
+
 
                 // --- STEP 3: POST GL BATCH ---
                 if (glLines.Any())
