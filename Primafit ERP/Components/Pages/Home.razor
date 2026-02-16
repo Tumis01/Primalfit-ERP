@@ -3,6 +3,7 @@
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Authorization
+@using MudBlazor
 @attribute [Authorize]
 @inject CompanyApiService CompanyService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -10,7 +11,7 @@
 
 <div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
 
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mt-4">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Dashboard</h1>
             <p class="text-sm text-slate-500 mt-1">Overview of your organization's performance and entities.</p>
@@ -21,27 +22,88 @@
     </div>
 
     @* --- QUICK ACTIONS ROW --- *@
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <a href="companies" class="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 hover:shadow-md transition-all">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="group ml-1 mr-1 p-3 bg-white rounded-lg flex flex-col justify-center shadow-sm ring-1 ring-slate-200 hover:ring-[#2A9ADB] hover:shadow-md transition-all">
+            <h2 class="text-md font-bold mb-2">Metrics</h2>
+            <div class="mt-2">
+                <div class="text-4xl mb-3 font-bold text-slate-900">$ 100,254</div>
+                <div class="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Business Profit</div>
             </div>
-            <span class="font-semibold text-slate-700 group-hover:text-indigo-700">Add Company</span>
-        </a>
+            <div class="mt-8 flex flex-col gap-6">
+                <div class="flex items-center gap-4">
+                    <div class="relative flex-1">
+                        <div class="h-5 w-full overflow-hidden">
+                            <div class="h-full bg-[#004e7c] w-[90%]"></div>
+                        </div>
+                    </div>
+                    <span class="min-w-[70px] text-sm font-light text-slate-600">$ 187,373</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="relative flex-1">
+                        <div class="h-5 w-full overflow-hidden">
+                            <div class="h-full bg-[#2da1e7] w-[45%]"></div>
+                        </div>
+                    </div>
+                    <span class="min-w-[70px] text-sm font-light text-slate-600">$ 87,373</span>
+                </div>
+            </div>
+            <div class="mt-auto pt-6 flex justify-center gap-6">
+                <div class="flex items-center gap-2">
+                    <span class="block h-3 w-3 bg-[#004e7c]"></span>
+                    <span class="text-[11px] font-light text-slate-500">Income</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="block h-3 w-3 bg-[#2da1e7]"></span>
+                    <span class="text-[11px] font-light text-slate-500">Spending</span>
+                </div>
+            </div>
+        </div>
+        <div class="group w-full ml-1 mr-1 p-3 bg-white rounded-lg not-first:flex not-first:items-center shadow-sm ring-1 ring-slate-200 hover:ring-[#2A9ADB] hover:shadow-md transition-all">
+            <h2 class="text-md font-bold mb-3 mt-1">Spending</h2>
+            <div class="flex flex-row align-center items-center gap-2">
+                <MudChart ChartType="ChartType.Donut"
+                          InputData="@data"
+                          Width="90%"
+                          Height="90%"
+                          ChartOptions="@options" />
 
-        <a href="users" class="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 hover:shadow-md transition-all">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
+                <MudStack Spacing="2">
+                    @for (int i = 0; i < labels.Length; i++)
+                    {
+                        var index = i;
+                        <div class="flex items-start gap-2 font-light">
+                            <div style="width: 16px; height: 16px; background-color: @options.ChartPalette[index]; border-radius: 3px; margin-top: 2px;"></div>
+                            <div>
+                                <MudText Typo="Typo.body2" Style="font-weight: 500;">@labels[index]</MudText>
+                                <MudText Typo="Typo.caption" Style="color: #666;">@descriptions[index]</MudText>
+                            </div>
+                        </div>
+                    }
+                </MudStack>
             </div>
-            <span class="font-semibold text-slate-700 group-hover:text-purple-700">New User</span>
-        </a>
+        </div>
 
-        <a href="gl/chart-of-accounts" class="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 hover:shadow-md transition-all">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+        <div class="group ml-1 mr-1 p-3 bg-white rounded-lg flex flex-col justify-center shadow-sm ring-1 ring-slate-200 hover:ring-[#2A9ADB] hover:shadow-md transition-all">
+            <h2 class="text-md font-bold mb-2">Bank Accounts</h2>
+            <div class="pb-4 w-full border-b border-slate-300">
+                <h3 class="mb-2">Bank 1</h3>
+                <div class="text-slate-400 w-full grid grid-cols-3 gap-y-1 text-sm font-light">
+                    <p class="col-span-2">Account Number</p>
+                    <p>1234567890</p>
+                    <p class="col-span-2">Bank Balance</p>
+                    <p>$ 123,456</p>
+                </div>
             </div>
-            <span class="font-semibold text-slate-700 group-hover:text-emerald-700">Chart Of Account</span>
-        </a>
+            <div class="mt-4 mb-4 pb-4 w-full">
+                <h3 class="mb-2">Bank 1</h3>
+                <div class="text-slate-400 w-full grid grid-cols-3 gap-y-1 text-sm font-light">
+                    <p class="col-span-2">Account Number</p>
+                    <p>1234567890</p>
+                    <p class="col-span-2">Bank Balance</p>
+                    <p>$ 123,456</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     @if (isLoading)
@@ -79,7 +141,7 @@
                 <h3 class="mb-6 font-bold text-slate-800">Company Count</h3>
                 <div class="flex flex-col items-center">
                     <div class="relative h-44 w-44 rounded-full bg-slate-50 shadow-inner p-4"
-                         style="background: conic-gradient(#6366f1 @(ActivePercentage)%, #f1f5f9 0);">
+                         style="background: conic-gradient(#5EA9D3 @(ActivePercentage)%, #f1f5f9 0);">
                         <div class="absolute inset-3 flex items-center justify-center rounded-full bg-white shadow-lg">
                             <div class="text-center">
                                 <span class="block text-3xl font-extrabold text-slate-900">@companies.Count</span>
@@ -90,7 +152,7 @@
 
                     <div class="mt-8 flex w-full justify-center gap-8">
                         <div class="flex flex-col items-center gap-1">
-                            <span class="h-2.5 w-2.5 rounded-full bg-indigo-500 shadow shadow-indigo-200"></span>
+                            <span class="h-2.5 w-2.5 rounded-full bg-[#5EA9D3] shadow "></span>
                             <span class="text-2xl font-bold text-slate-700">@activeCount</span>
                             <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active</span>
                         </div>
@@ -106,7 +168,7 @@
             <div class="md:col-span-2 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5">
                     <h3 class="font-bold text-slate-800">Recent Companies</h3>
-                    <a href="companies" class="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+                    <a href="companies" class="text-sm font-medium text-[#5EA9D3] hover:text-[#004E7A] flex items-center gap-1">
                         View All
                         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                     </a>
@@ -125,7 +187,7 @@
                             @foreach (var company in companies.Take(5))
                             {
                                 <tr class="group hover:bg-slate-50/50 transition-colors">
-                                    <td class="px-6 py-4 font-medium text-slate-900 group-hover:text-indigo-600 transition-colors">@company.CompanyName</td>
+                                    <td class="px-6 py-4 font-medium text-slate-900 group-hover:text-[#5EA9D3] transition-colors">@company.CompanyName</td>
                                     <td class="px-6 py-4">@company.country</td>
                                     <td class="px-6 py-4 text-xs font-mono text-slate-500">@company.FiscalStartYear.Year - @company.FiscalEndYear.Year</td>
                                     <td class="px-6 py-4">
@@ -172,4 +234,27 @@
             isLoading = false;
         }
     }
+    private double[] data = { 25, 25, 30, 20 };
+    private string[] labels = { "Oil", "Coal", "Gas", "Renewable" };
+    private string[] descriptions = {
+                "Fossil fuel energy",
+                "Traditional fuel",
+                "Natural gas supply",
+                "Clean energy sources"
+                };
+
+    private ChartOptions options = new ChartOptions
+    {
+        ChartPalette = new[]
+    {
+                "#004E7A",
+                "#2A9ADB",
+                "#CEEDFF",
+                "#85CEF9"
+                },
+        YAxisLines = false,
+        XAxisLines = false,
+        YAxisTicks = -7,
+        YAxisFormat = ""
+    };
 }
