@@ -51,10 +51,10 @@ namespace Primafit_ERP.Services
             // Validate selected bank account exists in Seg COA
             var bank = await ctx.SegChartOfAccounts
                 .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == bankAccountId);
+                .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == bankAccountId && x.IsActive);
 
             if (bank == null)
-                throw new InvalidOperationException("Selected bank account does not exist in Segmented COA.");
+                throw new InvalidOperationException("Selected bank account does not exist in Segmented COA or is Inactive.");
 
             // Opening balance from segmented GL transactions
             decimal openingBal = await ctx.GLTransactions
@@ -176,7 +176,7 @@ namespace Primafit_ERP.Services
             // Offset lines (swap logic)
             foreach (var entry in batch.Entries)
             {
-                if (entry.OffsetSegCoaId == Guid.Empty)
+                if (entry.OffsetSegCoaId == Guid.Empty )
                     return "One or more entries are missing an offset account.";
 
                 if (entry.Debit <= 0 && entry.Credit <= 0)

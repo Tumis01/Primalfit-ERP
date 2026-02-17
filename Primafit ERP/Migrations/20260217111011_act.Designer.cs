@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260217111011_act")]
+    partial class act
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -807,11 +810,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("CustomerGroupId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
@@ -828,31 +827,7 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("CurrencyId");
 
-                    b.HasIndex("CustomerGroupId");
-
                     b.ToTable("Customers");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerGroup", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid>("ReceivablesAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("CustomerGroups");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerPayment", b =>
@@ -2429,7 +2404,6 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Email")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Name")
@@ -2442,14 +2416,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("VendorGroupId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
-
-                    b.HasIndex("VendorGroupId");
 
                     b.ToTable("Vendors");
                 });
@@ -2535,28 +2504,6 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("VendorBillId");
 
                     b.ToTable("VendorBillLines");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorGroup", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid?>("PayablesAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("VendorGroups");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.WaccHistory", b =>
@@ -2812,13 +2759,7 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.CustomerGroup", "Group")
-                        .WithMany()
-                        .HasForeignKey("CustomerGroupId");
-
                     b.Navigation("DefaultCurrency");
-
-                    b.Navigation("Group");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GLAccountType", b =>
@@ -3170,13 +3111,7 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("Primafit_ERP.Components.Models.VendorGroup", "Group")
-                        .WithMany()
-                        .HasForeignKey("VendorGroupId");
-
                     b.Navigation("DefaultCurrency");
-
-                    b.Navigation("Group");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorBillLine", b =>

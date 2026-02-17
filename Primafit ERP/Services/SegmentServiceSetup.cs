@@ -1,85 +1,78 @@
-﻿using Microsoft.EntityFrameworkCore;
-using PrimafitERP.Data;
+﻿using ExcelDataReader;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
+using PrimafitERP.Data;
+using System.Reflection;
+using System.Text;
 
 namespace Primafit_ERP.Services
 {
-    public sealed class SegmentsSetupService
+    public class SegmentsSetupService
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
         public SegmentsSetupService(IDbContextFactory<AppDbContext> dbFactory)
         {
             _dbFactory = dbFactory;
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
         }
 
-        // -----------------------------
-        // CONFIG (names + active flags)
-        // -----------------------------
+        // =========================================================
+        // 1. CONFIGURATION (Active Status & Naming)
+        // =========================================================
         public async Task<SegCoaConfig> GetOrCreateConfigAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var cfg = await ctx.SegCoaConfigs.FirstOrDefaultAsync(x => x.CompanyId == companyId);
 
-            var cfg = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == companyId);
-            if (cfg != null) return cfg;
-
-            cfg = new SegCoaConfig { CompanyId = companyId };
-            ctx.Add(cfg);
-            await ctx.SaveChangesAsync();
+            if (cfg == null)
+            {
+                cfg = new SegCoaConfig { CompanyId = companyId };
+                ctx.SegCoaConfigs.Add(cfg);
+                await ctx.SaveChangesAsync();
+            }
             return cfg;
         }
 
-        public async Task<string?> SaveConfigAsync(SegCoaConfig cfg)
+        public async Task<string> SaveConfigAsync(SegCoaConfig cfg)
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+                var existing = await ctx.SegCoaConfigs.FirstOrDefaultAsync(x => x.Id == cfg.Id);
 
-                var existing = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == cfg.CompanyId);
                 if (existing == null)
                 {
-                    // force segment0 active by default
-                    cfg.Segment1Active = cfg.Segment1Active;
-                    ctx.Add(cfg);
+                    ctx.SegCoaConfigs.Add(cfg);
                 }
                 else
                 {
-                    existing.Segment0Name = Clean(cfg.Segment0Name, "Segment 0");
-                    existing.Segment1Name = Clean(cfg.Segment1Name, "Segment 1");
-                    existing.Segment2Name = Clean(cfg.Segment2Name, "Segment 2");
-                    existing.Segment3Name = Clean(cfg.Segment3Name, "Segment 3");
-                    existing.Segment4Name = Clean(cfg.Segment4Name, "Segment 4");
-                    existing.Segment5Name = Clean(cfg.Segment5Name, "Segment 5");
-
-                    // Segment0 always active; only allow toggles for 1..5
-                    existing.Segment1Active = cfg.Segment1Active;
-                    existing.Segment2Active = cfg.Segment2Active;
-                    existing.Segment3Active = cfg.Segment3Active;
-                    existing.Segment4Active = cfg.Segment4Active;
-                    existing.Segment5Active = cfg.Segment5Active;
+                    // Copy values
+                    ctx.Entry(existing).CurrentValues.SetValues(cfg);
                 }
-
                 await ctx.SaveChangesAsync();
-                return null;
+                return string.Empty;
             }
             catch (Exception ex)
             {
-                return ex.Message;
+                return $"Error saving config: {ex.Message}";
             }
         }
 
-        private static string Clean(string? s, string fallback)
-        {
-            s = (s ?? "").Trim();
-            return string.IsNullOrWhiteSpace(s) ? fallback : s;
-        }
+        // =========================================================
+        // 2. SEGMENT VALUES (CRUD)
+        // =========================================================
 
-        // -----------------------------
-        // SEGMENTS CRUD (generic)
-        // -----------------------------
+        // --- READ ---
+        // Used by the Razor View to load lists (e.g., Service.GetSegmentsAsync<Segment0>(...))
         public async Task<List<T>> GetSegmentsAsync<T>(Guid companyId) where T : class
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // We rely on the fact that your Segment entities follow a naming convention 
+            // or we use EF Core's Shadow Properties/Reflection if no interface exists.
+            // Since we know they have 'CompanyId' and 'Code', we can use EF.Property in a generic query.
+
             return await ctx.Set<T>()
                 .AsNoTracking()
                 .Where(x => EF.Property<Guid>(x, "CompanyId") == companyId)
@@ -87,42 +80,93 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        public async Task<string?> SaveSegmentAsync<T>(T model) where T : class
+        // Wrappers for convenience (if needed by other services)
+        public Task<List<Segment0>> GetSegment0Async(Guid cId) => GetSegmentsAsync<Segment0>(cId);
+        public Task<List<Segment1>> GetSegment1Async(Guid cId) => GetSegmentsAsync<Segment1>(cId);
+        public Task<List<Segment2>> GetSegment2Async(Guid cId) => GetSegmentsAsync<Segment2>(cId);
+        public Task<List<Segment3>> GetSegment3Async(Guid cId) => GetSegmentsAsync<Segment3>(cId);
+        public Task<List<Segment4>> GetSegment4Async(Guid cId) => GetSegmentsAsync<Segment4>(cId);
+        public Task<List<Segment5>> GetSegment5Async(Guid cId) => GetSegmentsAsync<Segment5>(cId);
+
+        // --- SAVE (CREATE / UPDATE) ---
+        // The View calls this: await Service.SaveSegmentAsync(new SegmentX { ... })
+        public async Task<string> SaveSegmentAsync<T>(T segment) where T : class, new()
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
 
-                var id = (Guid)typeof(T).GetProperty("Id")!.GetValue(model)!;
-                var companyId = (Guid)typeof(T).GetProperty("CompanyId")!.GetValue(model)!;
-                var code = (typeof(T).GetProperty("Code")!.GetValue(model)?.ToString() ?? "").Trim();
-                var desc = (typeof(T).GetProperty("Description")!.GetValue(model)?.ToString() ?? "").Trim();
+                // Use reflection to get ID and CompanyId
+                var idProp = typeof(T).GetProperty("Id");
+                var companyIdProp = typeof(T).GetProperty("CompanyId");
+                var codeProp = typeof(T).GetProperty("Code");
+                var descProp = typeof(T).GetProperty("Description");
 
-                if (companyId == Guid.Empty) return "CompanyId missing.";
-                if (string.IsNullOrWhiteSpace(code)) return "Code is required.";
-                if (string.IsNullOrWhiteSpace(desc)) return "Description is required.";
+                if (idProp == null || companyIdProp == null || codeProp == null || descProp == null)
+                    return "System Error: Invalid Segment Model Structure.";
 
-                // uniqueness per company per segment table (even without DB unique index)
-                var exists = await ctx.Set<T>()
-                    .AnyAsync(x =>
-                        EF.Property<Guid>(x, "CompanyId") == companyId &&
-                        EF.Property<string>(x, "Code") == code &&
-                        EF.Property<Guid>(x, "Id") != id);
+                var idVal = (Guid)idProp.GetValue(segment)!;
+                var companyIdVal = (Guid)companyIdProp.GetValue(segment)!;
+                var codeVal = (string)codeProp.GetValue(segment)!;
+                var descVal = (string)descProp.GetValue(segment)!;
 
-                if (exists) return $"Code '{code}' already exists in this segment.";
+                if (string.IsNullOrWhiteSpace(codeVal)) return "Code is required.";
+                if (string.IsNullOrWhiteSpace(descVal)) return "Description is required.";
 
-                if (id == Guid.Empty)
+                // Check for duplicates (Code must be unique within Company)
+                var dbSet = ctx.Set<T>();
+                var duplicate = await dbSet
+                    .AnyAsync(x => EF.Property<Guid>(x, "CompanyId") == companyIdVal
+                                && EF.Property<string>(x, "Code") == codeVal
+                                && EF.Property<Guid>(x, "Id") != idVal);
+
+                if (duplicate) return $"Code '{codeVal}' already exists.";
+
+                if (idVal == Guid.Empty)
                 {
-                    typeof(T).GetProperty("Id")!.SetValue(model, Guid.NewGuid());
-                    ctx.Add(model);
+                    // CREATE
+                    idProp.SetValue(segment, Guid.NewGuid());
+                    dbSet.Add(segment);
                 }
                 else
                 {
-                    ctx.Update(model);
+                    // UPDATE
+                    // Attach and set modified, or fetch and update
+                    var existing = await dbSet.FindAsync(idVal);
+                    if (existing == null) return "Record not found.";
+
+                    // Update properties safely
+                    ctx.Entry(existing).CurrentValues.SetValues(segment);
                 }
 
                 await ctx.SaveChangesAsync();
-                return null;
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                return $"Error saving value: {ex.Message}";
+            }
+        }
+
+        // --- DELETE ---
+        public async Task<string> DeleteSegmentAsync<T>(Guid id) where T : class
+        {
+            try
+            {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+                var entity = await ctx.Set<T>().FindAsync(id);
+
+                if (entity == null) return "Record not found.";
+
+                // Optional: Check if used in existing COA before deleting?
+                // For simplicity, we just delete. EF Foreign Keys will throw error if used.
+                ctx.Remove(entity);
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch (DbUpdateException)
+            {
+                return "Cannot delete: This segment value is currently in use by an account.";
             }
             catch (Exception ex)
             {
@@ -130,21 +174,152 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string?> DeleteSegmentAsync<T>(Guid id) where T : class
+        // =========================================================
+        // 3. GENERIC IMPORT
+        // =========================================================
+        public async Task<string> ImportSegmentValuesAsync<T>(Guid companyId, Stream fileStream, string fileName) where T : class, new()
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
-                var entity = await ctx.Set<T>().FindAsync(id);
-                if (entity == null) return "Record not found.";
-                ctx.Remove(entity);
-                await ctx.SaveChangesAsync();
-                return null;
+                // 1. CRITICAL FIX: Copy to MemoryStream to make it seekable
+                // Blazor streams are forward-only; ExcelDataReader needs to seek (rewind/fast-forward).
+                using var memoryStream = new MemoryStream();
+                await fileStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0; // Reset pointer to the start
+
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+                var dbSet = ctx.Set<T>();
+
+                // Reflection setup (Same as before)
+                var type = typeof(T);
+                var codeProp = type.GetProperty("Code");
+                var descProp = type.GetProperty("Description");
+                var compIdProp = type.GetProperty("CompanyId");
+                var idProp = type.GetProperty("Id");
+
+                if (codeProp == null || descProp == null || compIdProp == null || idProp == null)
+                    return "System Error: Model structure invalid for import.";
+
+                // Get Existing Codes (Same as before)
+                var allData = await dbSet
+                    .AsNoTracking()
+                    .Where(x => EF.Property<Guid>(x, "CompanyId") == companyId)
+                    .ToListAsync();
+
+                var existingCodes = new HashSet<string>(
+                    allData.Select(x => (string)codeProp.GetValue(x)!),
+                    StringComparer.OrdinalIgnoreCase
+                );
+
+                List<(string Code, string Description)> parsedRows = new();
+                string extension = Path.GetExtension(fileName).ToLower();
+
+                // 2. PARSE (Using memoryStream instead of fileStream)
+                if (extension == ".csv")
+                {
+                    // Use memoryStream here
+                    using var reader = new StreamReader(memoryStream);
+                    int rowNum = 0;
+                    while (!reader.EndOfStream)
+                    {
+                        var line = await reader.ReadLineAsync();
+                        rowNum++;
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        if (rowNum == 1 && (line.ToLower().Contains("code") || line.ToLower().Contains("description"))) continue;
+
+                        var parts = ParseCsvLine(line);
+                        if (parts.Count >= 2) parsedRows.Add((parts[0].Trim(), parts[1].Trim()));
+                    }
+                }
+                else if (extension == ".xlsx" || extension == ".xls")
+                {
+                    // Use memoryStream here
+                    using var reader = ExcelReaderFactory.CreateReader(memoryStream);
+                    var result = reader.AsDataSet();
+                    if (result.Tables.Count > 0)
+                    {
+                        var table = result.Tables[0];
+                        for (int i = 0; i < table.Rows.Count; i++)
+                        {
+                            var firstCell = table.Rows[i][0]?.ToString() ?? "";
+                            if (i == 0 && firstCell.ToLower().Contains("code")) continue; // Skip header
+
+                            string code = table.Rows[i][0]?.ToString()?.Trim() ?? "";
+                            string desc = table.Rows[i][1]?.ToString()?.Trim() ?? "";
+
+                            if (!string.IsNullOrEmpty(code) && !string.IsNullOrEmpty(desc))
+                            {
+                                parsedRows.Add((code, desc));
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    return "Unsupported file format. Please use .csv, .xls, or .xlsx";
+                }
+
+                // 3. INSERT (Same as before)
+                int addedCount = 0;
+                int skippedCount = 0;
+
+                foreach (var row in parsedRows)
+                {
+                    if (existingCodes.Contains(row.Code))
+                    {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    var entity = new T();
+                    idProp.SetValue(entity, Guid.NewGuid());
+                    compIdProp.SetValue(entity, companyId);
+                    codeProp.SetValue(entity, row.Code);
+                    descProp.SetValue(entity, row.Description);
+
+                    dbSet.Add(entity);
+                    existingCodes.Add(row.Code);
+                    addedCount++;
+                }
+
+                if (addedCount > 0)
+                {
+                    await ctx.SaveChangesAsync();
+                    return $"Success: Imported {addedCount} records. (Skipped {skippedCount} duplicates).";
+                }
+                else
+                {
+                    return $"No new records imported. (Skipped {skippedCount} duplicates).";
+                }
             }
             catch (Exception ex)
             {
-                return ex.Message;
+                return $"Import Error: {ex.Message}";
             }
         }
+
+        // Basic CSV Parser handles "Lagos, Main" quotes
+        private List<string> ParseCsvLine(string line)
+        {
+            var result = new List<string>();
+            bool inQuotes = false;
+            var sb = new StringBuilder();
+            foreach (char c in line)
+            {
+                if (c == '"') inQuotes = !inQuotes;
+                else if (c == ',' && !inQuotes) { result.Add(sb.ToString()); sb.Clear(); }
+                else sb.Append(c);
+            }
+            result.Add(sb.ToString());
+            return result;
+        }
+
+        // Backward compatibility wrappers if needed by the View for specific Add methods
+        public Task<string> AddSegment0Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment0 { CompanyId = cId, Code = code, Description = desc });
+        public Task<string> AddSegment1Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment1 { CompanyId = cId, Code = code, Description = desc });
+        public Task<string> AddSegment2Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment2 { CompanyId = cId, Code = code, Description = desc });
+        public Task<string> AddSegment3Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment3 { CompanyId = cId, Code = code, Description = desc });
+        public Task<string> AddSegment4Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment4 { CompanyId = cId, Code = code, Description = desc });
+        public Task<string> AddSegment5Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment5 { CompanyId = cId, Code = code, Description = desc });
     }
 }

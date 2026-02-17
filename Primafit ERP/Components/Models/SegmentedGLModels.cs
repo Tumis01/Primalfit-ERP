@@ -116,6 +116,7 @@ namespace Primafit_ERP.Components.Models
         public int SegAccountTypeId { get; set; }
 
         public bool AllowJournal { get; set; } = true;
+        public bool IsActive { get; set; } = true;
     }
     public class SegCoaConfig
     {

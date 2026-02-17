@@ -374,14 +374,14 @@ namespace Primafit_ERP.Services
             if (bill.AccountsPayableGlId == Guid.Empty) return "STOP: The AP Account is not set.";
 
             // 1. Validate Accounts in SegCOA
-            bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId && a.CompanyId == bill.CompanyId);
-            if (!apExists) return "STOP: Invalid AP Account ID.";
+            bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId && a.CompanyId == bill.CompanyId && a.IsActive);
+            if (!apExists) return "STOP: AP Account ID is invalid or Inactive.";
 
             foreach (var line in bill.Lines)
             {
                 if (line.ExpenseGlAccountId == Guid.Empty) return "STOP: Line missing Expense Account.";
-                bool expExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == line.ExpenseGlAccountId && a.CompanyId == bill.CompanyId);
-                if (!expExists) return "STOP: Invalid Expense Account ID.";
+                bool expExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == line.ExpenseGlAccountId && a.CompanyId == bill.CompanyId && a.IsActive);
+                if (!expExists) return "STOP: Selected Expense/Asset account is invalid or Inactive.";
             }
 
             // 2. Validate Period

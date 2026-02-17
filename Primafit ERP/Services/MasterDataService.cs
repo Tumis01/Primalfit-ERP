@@ -19,6 +19,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Customers
                 .Include(c => c.DefaultCurrency)
+                .Include(c => c.Group) // Include Group Name for the grid
                 .Where(c => c.CompanyId == companyId)
                 .OrderBy(c => c.Name)
                 .ToListAsync();
@@ -28,6 +29,9 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
+
+            // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor) 
+            // via the @onchange event, so we just save whatever the model contains here.
 
             if (customer.Id == Guid.Empty || !await ctx.Customers.AnyAsync(x => x.Id == customer.Id))
             {
@@ -41,12 +45,21 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
+        public async Task<string> DeleteCustomerAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var c = await ctx.Customers.FindAsync(id);
+            if (c != null) { ctx.Customers.Remove(c); await ctx.SaveChangesAsync(); }
+            return string.Empty;
+        }
+
         // --- VENDORS ---
         public async Task<List<Vendor>> GetVendorsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Vendors
                 .Include(v => v.DefaultCurrency)
+                .Include(v => v.Group) // Include Group Name for the grid
                 .Where(v => v.CompanyId == companyId)
                 .OrderBy(v => v.Name)
                 .ToListAsync();
@@ -117,15 +130,8 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // --- DELETE HANDLERS ---
-        public async Task<string> DeleteCustomerAsync(Guid id)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            // In a real app, check SalesOrders/Invoices
-            var c = await ctx.Customers.FindAsync(id);
-            if (c != null) { ctx.Customers.Remove(c); await ctx.SaveChangesAsync(); }
-            return string.Empty;
-        }
+       
+        
 
         public async Task<string> DeleteVendorAsync(Guid id)
         {
@@ -142,6 +148,97 @@ namespace Primafit_ERP.Services
             // In a real app, check InvoiceLines/POLines
             var i = await ctx.Items.FindAsync(id);
             if (i != null) { ctx.Items.Remove(i); await ctx.SaveChangesAsync(); }
+            return string.Empty;
+        }
+        public async Task<List<CustomerGroup>> GetCustomerGroupsAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.CustomerGroups
+                .AsNoTracking()
+                .Where(x => x.CompanyId == companyId)
+                .OrderBy(x => x.Name)
+                .ToListAsync();
+        }
+
+        public async Task<string> SaveCustomerGroupAsync(CustomerGroup group)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
+
+            // Duplicate Check
+            if (await ctx.CustomerGroups.AnyAsync(x => x.CompanyId == group.CompanyId && x.Name == group.Name && x.Id != group.Id))
+                return "Group Name already exists.";
+
+            if (group.Id == Guid.Empty || !await ctx.CustomerGroups.AnyAsync(x => x.Id == group.Id))
+            {
+                if (group.Id == Guid.Empty) group.Id = Guid.NewGuid();
+                ctx.CustomerGroups.Add(group);
+            }
+            else
+            {
+                ctx.CustomerGroups.Update(group);
+            }
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteCustomerGroupAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            // Check usage
+            if (await ctx.Customers.AnyAsync(c => c.CustomerGroupId == id))
+                return "Cannot delete: This group is assigned to one or more customers.";
+
+            var g = await ctx.CustomerGroups.FindAsync(id);
+            if (g != null) { ctx.CustomerGroups.Remove(g); await ctx.SaveChangesAsync(); }
+            return string.Empty;
+        }
+
+        public async Task<List<VendorGroup>> GetVendorGroupsAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.VendorGroups
+                .AsNoTracking()
+                .Where(x => x.CompanyId == companyId)
+                .OrderBy(x => x.Name)
+                .ToListAsync();
+        }
+
+        public async Task<string> SaveVendorGroupAsync(VendorGroup group)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
+
+            // Duplicate Check
+            if (await ctx.VendorGroups.AnyAsync(x => x.CompanyId == group.CompanyId && x.Name == group.Name && x.Id != group.Id))
+                return "Group Name already exists.";
+
+            if (group.Id == Guid.Empty || !await ctx.VendorGroups.AnyAsync(x => x.Id == group.Id))
+            {
+                if (group.Id == Guid.Empty) group.Id = Guid.NewGuid();
+                ctx.VendorGroups.Add(group);
+            }
+            else
+            {
+                ctx.VendorGroups.Update(group);
+            }
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteVendorGroupAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            // Check usage
+            if (await ctx.Vendors.AnyAsync(v => v.VendorGroupId == id))
+                return "Cannot delete: This group is assigned to one or more vendors.";
+
+            var g = await ctx.VendorGroups.FindAsync(id);
+            if (g != null) { ctx.VendorGroups.Remove(g); await ctx.SaveChangesAsync(); }
             return string.Empty;
         }
     }

@@ -228,7 +228,7 @@
             .Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr;
+                return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr && a.IsActive;
             })
             .OrderBy(a => a.AccountCode)
             .ToList();

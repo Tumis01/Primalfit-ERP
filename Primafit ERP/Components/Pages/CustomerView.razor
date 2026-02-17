@@ -41,6 +41,17 @@
                     </div>
 
                     <div>
+                        <label class="label">Customer Group</label>
+                        <select @onchange="OnGroupChanged" value="@(currentCustomer.CustomerGroupId?.ToString() ?? "")" class="input-class bg-slate-50 border-slate-300">
+                            <option value="">-- No Group --</option>
+                            @foreach (var g in groups)
+                            {
+                                <option value="@g.Id">@g.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div>
                         <label class="label">Email</label>
                         <InputText @bind-Value="currentCustomer.Email" class="input-class" />
                     </div>
@@ -95,7 +106,7 @@
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="px-6 py-4">Name</th>
-                        <th class="px-6 py-4">Contact</th>
+                        <th class="px-6 py-4">Group</th> <th class="px-6 py-4">Contact</th>
                         <th class="px-6 py-4">Currency</th>
                         <th class="px-6 py-4">A/R Setup</th>
                         <th class="px-6 py-4 text-right">Action</th>
@@ -107,6 +118,16 @@
                         var arAccount = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId);
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4 font-bold text-slate-900">@c.Name</td>
+                            <td class="px-6 py-4">
+                                @if (c.Group != null)
+                                {
+                                    <span class="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-bold border border-indigo-100">@c.Group.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 text-xs">-</span>
+                                }
+                            </td>
                             <td class="px-6 py-4">
                                 <div class="flex flex-col">
                                     <span>@c.Email</span>
@@ -145,7 +166,7 @@
                     }
                     @if (!customers.Any())
                     {
-                        <tr><td colspan="5" class="p-8 text-center text-slate-400">No customers found.</td></tr>
+                        <tr><td colspan="6" class="p-8 text-center text-slate-400">No customers found.</td></tr>
                     }
                 </tbody>
             </table>
@@ -154,34 +175,15 @@
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.35rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.6rem;
-        font-size: 0.875rem;
-        transition: border-color 0.2s;
-        outline: none;
-    }
-
-        .input-class:focus {
-            border-color: #4f46e5;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-        }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: border-color 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
 </style>
 
 @code {
     private List<Customer> customers = new();
     private List<Currency> availableCurrencies = new();
+    private List<CustomerGroup> groups = new(); // NEW: Groups List
 
     // Segmented COA
     private List<SegChartOfAccount> allAccounts = new();
@@ -192,7 +194,6 @@
     private bool isEditing = false;
     private Guid selectedCompanyId;
 
-    // Helper property to map Guid? to Guid for the SearchableGlAccount component
     private Guid ReceivablesAccountIdWrapper
     {
         get => currentCustomer.ReceivablesAccountId ?? Guid.Empty;
@@ -207,42 +208,50 @@
         {
             selectedCompanyId = user.CompanyDetailsId.Value;
 
-            // Load Data
             availableCurrencies = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
+            groups = await MasterService.GetCustomerGroupsAsync(selectedCompanyId); // Load Groups
             await LoadCustomers();
             await LoadGlAccounts();
         }
     }
 
-    private async Task LoadCustomers()
-    {
-        customers = await MasterService.GetCustomersAsync(selectedCompanyId);
-    }
+    private async Task LoadCustomers() => customers = await MasterService.GetCustomersAsync(selectedCompanyId);
 
     private async Task LoadGlAccounts()
     {
-        // 1. Get Types to check flags
+        // ... (Same account loading logic as before) ...
         accountTypes = await SegCoaService.GetAccountTypesAsync();
-
-        // 2. Get All COA
         allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
-
-        // 3. Filter for Assets (AR)
-        // Rule: IsBalanceSheet = TRUE (It's an asset) AND IsDebit = TRUE (Assets have debit balance)
-        arAccounts = allAccounts
-            .Where(a =>
-            {
-                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
-            })
-            .OrderBy(a => a.AccountCode)
-            .ToList();
+        arAccounts = allAccounts.Where(a =>
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == true && type.IsDebit == true && a.IsActive;
+        }).OrderBy(a => a.AccountCode).ToList();
     }
+
+    // NEW: Auto-fill Logic
+    private void OnGroupChanged(ChangeEventArgs e)
+ {
+     if (Guid.TryParse(e.Value?.ToString(), out var gId))
+     {
+         currentCustomer.CustomerGroupId = gId;
+         var group = groups.FirstOrDefault(x => x.Id == gId);
+         
+         // FIX: Check against Guid.Empty instead of .HasValue
+         if (group != null && group.ReceivablesAccountId != Guid.Empty)
+         {
+             currentCustomer.ReceivablesAccountId = group.ReceivablesAccountId;
+         }
+     }
+     else
+     {
+         currentCustomer.CustomerGroupId = null;
+     }
+ }
 
     private void CreateNew()
     {
         currentCustomer = new Customer { CompanyId = selectedCompanyId };
-        // Auto-select first currency if available
         if (availableCurrencies.Any()) currentCustomer.CurrencyId = availableCurrencies.First().Id;
         isEditing = true;
     }
@@ -255,10 +264,9 @@
 
     private async Task Save()
     {
-        // Validation for A/R Account
         if (currentCustomer.ReceivablesAccountId == null || currentCustomer.ReceivablesAccountId == Guid.Empty)
         {
-            await JS.InvokeVoidAsync("alert", "Accounts Receivable GL Account is required to process invoices for this customer.");
+            await JS.InvokeVoidAsync("alert", "Accounts Receivable GL Account is required.");
             return;
         }
 

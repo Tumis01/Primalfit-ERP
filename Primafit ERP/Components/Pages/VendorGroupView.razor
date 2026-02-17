@@ -1,0 +1,210 @@
+﻿@page "/md/vendor-groups"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject MasterDataService MasterService
+@inject SegCoaService SegCoaService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Vendor Groups</h1>
+            <p class="text-sm text-slate-500">Categorize vendors and set default A/P accounts.</p>
+        </div>
+        <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-colors">
+            + New Group
+        </button>
+    </div>
+
+    @if (showForm)
+    {
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-6">@(model.Id == Guid.Empty ? "Create Group" : "Edit Group")</h3>
+
+            <EditForm Model="model" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label class="label">Group Name <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="model.Name" class="input-class" placeholder="e.g. Suppliers, Contractors" />
+                    </div>
+
+                    <div>
+                        <SearchableGlAccount Label="Default A/P Account (Liability)"
+                                             Placeholder="Search A/P accounts..."
+                                             Accounts="@apAccounts"
+                                             @bind-Value="PayablesAccountIdWrapper" />
+                        
+                        <p class="text-[10px] text-slate-400 mt-1">
+                            Selecting this group on a vendor will auto-fill this GL Account.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 shadow-md">Save Group</button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm text-slate-600">
+            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                <tr>
+                    <th class="px-6 py-4">Group Name</th>
+                    <th class="px-6 py-4">Default A/P GL</th>
+                    <th class="px-6 py-4 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var item in groups)
+                {
+                    var gl = apAccounts.FirstOrDefault(a => a.Id == item.PayablesAccountId);
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
+                        <td class="px-6 py-4">
+                            @if (gl != null)
+                            {
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 text-xs font-bold border border-rose-100">
+                                    <span class="font-mono">@gl.AccountCode</span>
+                                    <span>@gl.Description</span>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="text-slate-400 italic text-xs">None set</span>
+                            }
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <button @onclick="() => Edit(item)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
+                            <button @onclick="() => Delete(item)" class="text-rose-600 font-bold hover:underline">Delete</button>
+                        </td>
+                    </tr>
+                }
+                @if (!groups.Any())
+                {
+                    <tr><td colspan="3" class="p-8 text-center text-slate-400">No groups found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+        transition: border-color 0.2s;
+        outline: none;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+</style>
+
+@code {
+    private List<VendorGroup> groups = new();
+    private List<SegChartOfAccount> apAccounts = new();
+    private VendorGroup model = new();
+    private bool showForm = false;
+    private Guid currentCompanyId;
+
+    // Helper property for binding Guid? to SearchableGlAccount (which expects Guid)
+    private Guid PayablesAccountIdWrapper
+    {
+        get => model.PayablesAccountId ?? Guid.Empty;
+        set => model.PayablesAccountId = value == Guid.Empty ? null : value;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            
+            // Load AP Accounts (Liabilities)
+            // Rule: IsBalanceSheet = TRUE (Liability) AND IsDebit = FALSE
+            var types = await SegCoaService.GetAccountTypesAsync();
+            var allCoa = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
+
+            apAccounts = allCoa.Where(a =>
+            {
+                var t = types.FirstOrDefault(x => x.Id == a.SegAccountTypeId);
+                return t != null && t.IsBalanceSheet == true && t.IsDebit == false;
+            }).OrderBy(x => x.AccountCode).ToList();
+
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData() => groups = await MasterService.GetVendorGroupsAsync(currentCompanyId);
+
+    private void CreateNew()
+    {
+        model = new VendorGroup { CompanyId = currentCompanyId };
+        showForm = true;
+    }
+
+    private void Edit(VendorGroup item)
+    {
+        model = new VendorGroup
+        {
+            Id = item.Id,
+            CompanyId = item.CompanyId,
+            Name = item.Name,
+            PayablesAccountId = item.PayablesAccountId
+        };
+        showForm = true;
+    }
+
+    private async Task Save()
+    {
+        var err = await MasterService.SaveVendorGroupAsync(model);
+        if (string.IsNullOrEmpty(err))
+        {
+            showForm = false;
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task Delete(VendorGroup item)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete group '{item.Name}'?")) return;
+        var err = await MasterService.DeleteVendorGroupAsync(item.Id);
+        if (string.IsNullOrEmpty(err)) await LoadData();
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+}

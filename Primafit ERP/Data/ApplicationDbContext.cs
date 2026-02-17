@@ -73,7 +73,8 @@ namespace PrimafitERP.Data
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
-
+        public DbSet<CustomerGroup> CustomerGroups { get; set; }
+        public DbSet<VendorGroup> VendorGroups { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

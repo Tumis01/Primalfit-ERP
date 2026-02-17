@@ -427,7 +427,7 @@
         // This is used for the Tax Payable dropdown
         liabilityAccounts = allAccounts.Where(a => {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-            return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
+            return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
     }
 

@@ -216,8 +216,13 @@
         isLoading = true;
         if (selectedCompanyId != Guid.Empty)
         {
-            coaList = await SetupService.GetCoaAsync(selectedCompanyId);  // uses your SegCoaService
-            coaList = coaList.Where(x => x.AllowJournal).OrderBy(x => x.AccountCode).ToList();
+            var allCoa = await SetupService.GetCoaAsync(selectedCompanyId);
+
+            // CHANGED: Filter for BOTH (AllowJournal == true) AND (IsActive == true)
+            coaList = allCoa
+                .Where(x => x.AllowJournal && x.IsActive)
+                .OrderBy(x => x.AccountCode)
+                .ToList();
 
             projects = await ProjectService.GetProjectsAsync(selectedCompanyId);
         }

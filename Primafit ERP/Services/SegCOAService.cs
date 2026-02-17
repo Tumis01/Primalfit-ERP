@@ -19,7 +19,6 @@ namespace Primafit_ERP.Services
         public async Task<SegCoaConfig> GetOrCreateConfigAsync(Guid companyId)
         {
             using var ctx = _dbFactory.CreateDbContext();
-
             var cfg = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == companyId);
             if (cfg != null) return cfg;
 
@@ -34,14 +33,15 @@ namespace Primafit_ERP.Services
             try
             {
                 using var ctx = _dbFactory.CreateDbContext();
-
                 var existing = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == cfg.CompanyId);
+
                 if (existing == null)
                 {
                     ctx.Add(cfg);
                 }
                 else
                 {
+                    // Copy config values
                     existing.Segment0Name = cfg.Segment0Name;
                     existing.Segment1Name = cfg.Segment1Name;
                     existing.Segment2Name = cfg.Segment2Name;
@@ -59,27 +59,22 @@ namespace Primafit_ERP.Services
                 await ctx.SaveChangesAsync();
                 return null;
             }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
+            catch (Exception ex) { return ex.Message; }
         }
 
         // -----------------------------
-        // SEGMENT LISTS (read)
+        // SEGMENT LISTS
         // -----------------------------
-        public Task<List<Segment0>> GetSegment0Async(Guid companyId) => GetSegmentsAsync<Segment0>(companyId);
-        public Task<List<Segment1>> GetSegment1Async(Guid companyId) => GetSegmentsAsync<Segment1>(companyId);
-        public Task<List<Segment2>> GetSegment2Async(Guid companyId) => GetSegmentsAsync<Segment2>(companyId);
-        public Task<List<Segment3>> GetSegment3Async(Guid companyId) => GetSegmentsAsync<Segment3>(companyId);
-        public Task<List<Segment4>> GetSegment4Async(Guid companyId) => GetSegmentsAsync<Segment4>(companyId);
-        public Task<List<Segment5>> GetSegment5Async(Guid companyId) => GetSegmentsAsync<Segment5>(companyId);
+        public Task<List<Segment0>> GetSegment0Async(Guid cId) => GetSegmentsAsync<Segment0>(cId);
+        public Task<List<Segment1>> GetSegment1Async(Guid cId) => GetSegmentsAsync<Segment1>(cId);
+        public Task<List<Segment2>> GetSegment2Async(Guid cId) => GetSegmentsAsync<Segment2>(cId);
+        public Task<List<Segment3>> GetSegment3Async(Guid cId) => GetSegmentsAsync<Segment3>(cId);
+        public Task<List<Segment4>> GetSegment4Async(Guid cId) => GetSegmentsAsync<Segment4>(cId);
+        public Task<List<Segment5>> GetSegment5Async(Guid cId) => GetSegmentsAsync<Segment5>(cId);
 
         private async Task<List<T>> GetSegmentsAsync<T>(Guid companyId) where T : class
         {
             using var ctx = _dbFactory.CreateDbContext();
-
-            // Works because all Segment* have CompanyId, Code, Description
             return await ctx.Set<T>()
                 .AsNoTracking()
                 .OrderBy(x => EF.Property<string>(x, "Code"))
@@ -87,14 +82,14 @@ namespace Primafit_ERP.Services
         }
 
         // -----------------------------
-        // SEGMENT CRUD (add/delete)
+        // SEGMENT CRUD
         // -----------------------------
-        public Task<string?> AddSegment0Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment0>(companyId, code, description);
-        public Task<string?> AddSegment1Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment1>(companyId, code, description);
-        public Task<string?> AddSegment2Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment2>(companyId, code, description);
-        public Task<string?> AddSegment3Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment3>(companyId, code, description);
-        public Task<string?> AddSegment4Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment4>(companyId, code, description);
-        public Task<string?> AddSegment5Async(Guid companyId, string code, string description) => AddSegmentAsync<Segment5>(companyId, code, description);
+        public Task<string?> AddSegment0Async(Guid cId, string c, string d) => AddSegmentAsync<Segment0>(cId, c, d);
+        public Task<string?> AddSegment1Async(Guid cId, string c, string d) => AddSegmentAsync<Segment1>(cId, c, d);
+        public Task<string?> AddSegment2Async(Guid cId, string c, string d) => AddSegmentAsync<Segment2>(cId, c, d);
+        public Task<string?> AddSegment3Async(Guid cId, string c, string d) => AddSegmentAsync<Segment3>(cId, c, d);
+        public Task<string?> AddSegment4Async(Guid cId, string c, string d) => AddSegmentAsync<Segment4>(cId, c, d);
+        public Task<string?> AddSegment5Async(Guid cId, string c, string d) => AddSegmentAsync<Segment5>(cId, c, d);
 
         private async Task<string?> AddSegmentAsync<T>(Guid companyId, string code, string description) where T : class, new()
         {
@@ -104,7 +99,6 @@ namespace Primafit_ERP.Services
                 if (string.IsNullOrWhiteSpace(description)) return "Description is required.";
 
                 using var ctx = _dbFactory.CreateDbContext();
-
                 var entity = new T();
                 Set(entity, "Id", Guid.NewGuid());
                 Set(entity, "CompanyId", companyId);
@@ -133,30 +127,206 @@ namespace Primafit_ERP.Services
         }
 
         // -----------------------------
-        // SegAccountTypes (fixed list)
+        // COA & TYPES
         // -----------------------------
         public async Task<List<SegAccountType>> GetAccountTypesAsync()
         {
             using var ctx = _dbFactory.CreateDbContext();
-            return await ctx.Set<SegAccountType>()
-                .AsNoTracking()
-                .OrderBy(x => x.Id)
-                .ToListAsync();
+            return await ctx.Set<SegAccountType>().AsNoTracking().OrderBy(x => x.Id).ToListAsync();
         }
 
-        // -----------------------------
-        // COA list + create
-        // -----------------------------
         public async Task<List<SegChartOfAccount>> GetCoaAsync(Guid companyId)
         {
             using var ctx = _dbFactory.CreateDbContext();
-
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
                 .OrderBy(x => x.AccountCode)
                 .ToListAsync();
         }
+
+        // -----------------------------
+        // SAVE ACCOUNT (Create/Update)
+        // -----------------------------
+        public sealed class SegCoaDraft
+        {
+            public Guid? Id { get; set; } // Null = Create, Value = Update
+            public Guid CompanyId { get; set; }
+            public Guid Segment0Id { get; set; }
+            public Guid? Segment1Id { get; set; }
+            public Guid? Segment2Id { get; set; }
+            public Guid? Segment3Id { get; set; }
+            public Guid? Segment4Id { get; set; }
+            public Guid? Segment5Id { get; set; }
+
+            public string Description { get; set; } = "";
+            public int SegAccountTypeId { get; set; }
+            public bool AllowJournal { get; set; } = true;
+            public bool IsActive { get; set; } = true;
+        }
+
+        public async Task<(string? error, SegChartOfAccount? result)> SaveAccountAsync(SegCoaDraft draft)
+        {
+            try
+            {
+                using var ctx = _dbFactory.CreateDbContext();
+                var cfg = await GetOrCreateConfigAsync(draft.CompanyId);
+
+                // 1. Base Requirements
+                if (draft.Segment0Id == Guid.Empty) return ("Segment0 is required.", null);
+
+                // 2. Active Segment Validation
+                if (cfg.Segment1Active && (draft.Segment1Id == null || draft.Segment1Id == Guid.Empty)) return ($"{cfg.Segment1Name} is required.", null);
+                if (cfg.Segment2Active && (draft.Segment2Id == null || draft.Segment2Id == Guid.Empty)) return ($"{cfg.Segment2Name} is required.", null);
+                if (cfg.Segment3Active && (draft.Segment3Id == null || draft.Segment3Id == Guid.Empty)) return ($"{cfg.Segment3Name} is required.", null);
+                if (cfg.Segment4Active && (draft.Segment4Id == null || draft.Segment4Id == Guid.Empty)) return ($"{cfg.Segment4Name} is required.", null);
+                if (cfg.Segment5Active && (draft.Segment5Id == null || draft.Segment5Id == Guid.Empty)) return ($"{cfg.Segment5Name} is required.", null);
+
+                // 3. Compute Code & Description
+                var (accountCode, computedDesc, err) = await BuildCodeAndDescriptionAsync(ctx, draft.CompanyId,
+                    draft.Segment0Id, draft.Segment1Id, draft.Segment2Id, draft.Segment3Id, draft.Segment4Id, draft.Segment5Id);
+
+                if (!string.IsNullOrEmpty(err)) return (err, null);
+
+                var finalDesc = string.IsNullOrWhiteSpace(draft.Description) ? computedDesc : draft.Description.Trim();
+                if (string.IsNullOrWhiteSpace(finalDesc)) return ("Description is required.", null);
+                if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
+
+                // 4. Duplicate Check (Exclude self if updating)
+                var codeExistsQuery = ctx.Set<SegChartOfAccount>()
+                    .Where(x => x.CompanyId == draft.CompanyId && x.AccountCode == accountCode);
+
+                if (draft.Id.HasValue)
+                {
+                    codeExistsQuery = codeExistsQuery.Where(x => x.Id != draft.Id.Value);
+                }
+
+                if (await codeExistsQuery.AnyAsync())
+                {
+                    return ($"Account code '{accountCode}' already exists.", null);
+                }
+
+                SegChartOfAccount account;
+
+                if (draft.Id.HasValue)
+                {
+                    // --- UPDATE ---
+                    account = await ctx.Set<SegChartOfAccount>().FindAsync(draft.Id.Value);
+                    if (account == null) return ("Account not found for update.", null);
+
+                    // Update Fields
+                    account.Segment0Id = draft.Segment0Id;
+                    account.Segment1Id = draft.Segment1Id;
+                    account.Segment2Id = draft.Segment2Id;
+                    account.Segment3Id = draft.Segment3Id;
+                    account.Segment4Id = draft.Segment4Id;
+                    account.Segment5Id = draft.Segment5Id;
+
+                    account.AccountCode = accountCode; // Code might change if segments changed
+                    account.Description = finalDesc;
+                    account.SegAccountTypeId = draft.SegAccountTypeId;
+                    account.AllowJournal = draft.AllowJournal;
+                    account.IsActive = draft.IsActive;
+
+                    ctx.Update(account);
+                }
+                else
+                {
+                    // --- CREATE ---
+                    account = new SegChartOfAccount
+                    {
+                        Id = Guid.NewGuid(),
+                        CompanyId = draft.CompanyId,
+                        Segment0Id = draft.Segment0Id,
+                        Segment1Id = draft.Segment1Id,
+                        Segment2Id = draft.Segment2Id,
+                        Segment3Id = draft.Segment3Id,
+                        Segment4Id = draft.Segment4Id,
+                        Segment5Id = draft.Segment5Id,
+                        AccountCode = accountCode,
+                        Description = finalDesc,
+                        SegAccountTypeId = draft.SegAccountTypeId,
+                        AllowJournal = draft.AllowJournal,
+                        IsActive = draft.IsActive
+                    };
+                    ctx.Add(account);
+                }
+
+                await ctx.SaveChangesAsync();
+                return (null, account);
+            }
+            catch (Exception ex)
+            {
+                return (ex.Message, null);
+            }
+        }
+
+        public async Task ToggleActiveStatusAsync(Guid accountId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            var acc = await ctx.Set<SegChartOfAccount>().FindAsync(accountId);
+            if (acc != null)
+            {
+                acc.IsActive = !acc.IsActive;
+                await ctx.SaveChangesAsync();
+            }
+        }
+        public async Task<List<SegChartOfAccount>> GetActiveCoaAsync(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+
+            return await ctx.Set<SegChartOfAccount>()
+                .AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.IsActive)
+                .OrderBy(x => x.AccountCode)
+                .ToListAsync();
+        }
+        private async Task<(string code, string desc, string? error)> BuildCodeAndDescriptionAsync(
+            AppDbContext ctx, Guid companyId, Guid seg0Id, Guid? seg1Id, Guid? seg2Id, Guid? seg3Id, Guid? seg4Id, Guid? seg5Id)
+        {
+            var s0 = await ctx.Set<Segment0>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg0Id && x.CompanyId == companyId);
+            if (s0 == null) return ("", "", "Invalid Segment0 selection.");
+
+            // Helper to fetch optional segments safely
+            async Task<(string c, string d)?> Fetch<T>(Guid? id) where T : class
+            {
+                if (id == null || id == Guid.Empty) return null;
+                var s = await ctx.Set<T>().AsNoTracking().FirstOrDefaultAsync(x => EF.Property<Guid>(x, "Id") == id && EF.Property<Guid>(x, "CompanyId") == companyId);
+                if (s == null) return null;
+                return ((string)s.GetType().GetProperty("Code")!.GetValue(s)!, (string)s.GetType().GetProperty("Description")!.GetValue(s)!);
+            }
+
+            var s1 = await Fetch<Segment1>(seg1Id);
+            var s2 = await Fetch<Segment2>(seg2Id);
+            var s3 = await Fetch<Segment3>(seg3Id);
+            var s4 = await Fetch<Segment4>(seg4Id);
+            var s5 = await Fetch<Segment5>(seg5Id);
+
+            // Validation: if ID passed but not found
+            if (seg1Id != null && seg1Id != Guid.Empty && s1 == null) return ("", "", "Invalid Segment1.");
+            if (seg2Id != null && seg2Id != Guid.Empty && s2 == null) return ("", "", "Invalid Segment2.");
+            if (seg3Id != null && seg3Id != Guid.Empty && s3 == null) return ("", "", "Invalid Segment3.");
+            if (seg4Id != null && seg4Id != Guid.Empty && s4 == null) return ("", "", "Invalid Segment4.");
+            if (seg5Id != null && seg5Id != Guid.Empty && s5 == null) return ("", "", "Invalid Segment5.");
+
+            var codes = new List<string> { s0.Code };
+            var descs = new List<string> { s0.Description };
+
+            if (s1 != null) { codes.Add(s1.Value.c); descs.Add(s1.Value.d); }
+            if (s2 != null) { codes.Add(s2.Value.c); descs.Add(s2.Value.d); }
+            if (s3 != null) { codes.Add(s3.Value.c); descs.Add(s3.Value.d); }
+            if (s4 != null) { codes.Add(s4.Value.c); descs.Add(s4.Value.d); }
+            if (s5 != null) { codes.Add(s5.Value.c); descs.Add(s5.Value.d); }
+
+            return (string.Join("/", codes), string.Join(" - ", descs), null);
+        }
+
+        private static void Set(object obj, string prop, object value)
+        {
+            var p = obj.GetType().GetProperty(prop);
+            if (p != null) p.SetValue(obj, value);
+        }
+
         public async Task<List<SegChartOfAccount>> GetSegmentedChartOfAccountsAsync(Guid companyId, bool allowJournalOnly = true)
         {
             using var context = _dbFactory.CreateDbContext();
@@ -171,166 +341,6 @@ namespace Primafit_ERP.Services
             return await q
                 .OrderBy(c => c.AccountCode)
                 .ToListAsync();
-        }
-
-        public sealed class SegCoaDraft
-        {
-            public Guid CompanyId { get; set; }
-
-            public Guid Segment0Id { get; set; }
-            public Guid? Segment1Id { get; set; }
-            public Guid? Segment2Id { get; set; }
-            public Guid? Segment3Id { get; set; }
-            public Guid? Segment4Id { get; set; }
-            public Guid? Segment5Id { get; set; }
-
-            public string Description { get; set; } = "";
-            public int SegAccountTypeId { get; set; }
-            public bool AllowJournal { get; set; } = true;
-        }
-
-        public async Task<(string? error, SegChartOfAccount? created)> CreateCoaAsync(SegCoaDraft draft)
-        {
-            try
-            {
-                using var ctx = _dbFactory.CreateDbContext();
-
-                var cfg = await GetOrCreateConfigAsync(draft.CompanyId);
-
-                // 1. Base Requirement: Segment 0 is always mandatory
-                if (draft.Segment0Id == Guid.Empty)
-                    return ("Segment0 is required.", null);
-
-                // 2. Logic Check: Are we trying to use segmentation?
-                // Check if any of the optional segments have a value selected
-                bool isSegmented =
-                    (draft.Segment1Id != null && draft.Segment1Id != Guid.Empty) ||
-                    (draft.Segment2Id != null && draft.Segment2Id != Guid.Empty) ||
-                    (draft.Segment3Id != null && draft.Segment3Id != Guid.Empty) ||
-                    (draft.Segment4Id != null && draft.Segment4Id != Guid.Empty) ||
-                    (draft.Segment5Id != null && draft.Segment5Id != Guid.Empty);
-
-                // 3. Validation Rules
-                if (isSegmented)
-                {
-                    // Rule: If using segments, ALL ACTIVE segments must have a value.
-                    // You cannot have "Segment 0 + Segment 1" if Segment 2 is also active.
-
-                    if (cfg.Segment1Active && (draft.Segment1Id == null || draft.Segment1Id == Guid.Empty))
-                        return ($"{cfg.Segment1Name} is active and must be selected for a segmented account.", null);
-
-                    if (cfg.Segment2Active && (draft.Segment2Id == null || draft.Segment2Id == Guid.Empty))
-                        return ($"{cfg.Segment2Name} is active and must be selected for a segmented account.", null);
-
-                    if (cfg.Segment3Active && (draft.Segment3Id == null || draft.Segment3Id == Guid.Empty))
-                        return ($"{cfg.Segment3Name} is active and must be selected for a segmented account.", null);
-
-                    if (cfg.Segment4Active && (draft.Segment4Id == null || draft.Segment4Id == Guid.Empty))
-                        return ($"{cfg.Segment4Name} is active and must be selected for a segmented account.", null);
-
-                    if (cfg.Segment5Active && (draft.Segment5Id == null || draft.Segment5Id == Guid.Empty))
-                        return ($"{cfg.Segment5Name} is active and must be selected for a segmented account.", null);
-                }
-                else
-                {
-                    // Rule: Pure Segment 0 account. 
-                    // This is allowed per requirements. We proceed without checking active flags for 1-5.
-                }
-
-                // Compute code + default description from selected segment rows
-                var (accountCode, computedDesc, err) = await BuildCodeAndDescriptionAsync(ctx, draft.CompanyId,
-                    draft.Segment0Id, draft.Segment1Id, draft.Segment2Id, draft.Segment3Id, draft.Segment4Id, draft.Segment5Id);
-
-                if (!string.IsNullOrEmpty(err)) return (err, null);
-
-                var finalDesc = string.IsNullOrWhiteSpace(draft.Description) ? computedDesc : draft.Description.Trim();
-                if (string.IsNullOrWhiteSpace(finalDesc)) return ("Description is required.", null);
-                if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
-
-                // Ensure unique account code per company
-                var exists = await ctx.Set<SegChartOfAccount>()
-                    .AnyAsync(x => x.CompanyId == draft.CompanyId && x.AccountCode == accountCode);
-
-                if (exists) return ($"COA account code already exists: {accountCode}", null);
-
-                var coa = new SegChartOfAccount
-                {
-                    CompanyId = draft.CompanyId,
-                    Segment0Id = draft.Segment0Id,
-                    Segment1Id = draft.Segment1Id,
-                    Segment2Id = draft.Segment2Id,
-                    Segment3Id = draft.Segment3Id,
-                    Segment4Id = draft.Segment4Id,
-                    Segment5Id = draft.Segment5Id,
-                    AccountCode = accountCode,
-                    Description = finalDesc,
-                    SegAccountTypeId = draft.SegAccountTypeId,
-                    AllowJournal = draft.AllowJournal
-                };
-
-                ctx.Add(coa);
-                await ctx.SaveChangesAsync();
-                return (null, coa);
-            }
-            catch (Exception ex)
-            {
-                return (ex.Message, null);
-            }
-        }
-
-        private async Task<(string code, string desc, string? error)> BuildCodeAndDescriptionAsync(
-            AppDbContext ctx,
-            Guid companyId,
-            Guid seg0Id,
-            Guid? seg1Id,
-            Guid? seg2Id,
-            Guid? seg3Id,
-            Guid? seg4Id,
-            Guid? seg5Id)
-        {
-            // fetch all selected segments (must belong to company)
-            var s0 = await ctx.Set<Segment0>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg0Id && x.CompanyId == companyId);
-            if (s0 == null) return ("", "", "Invalid Segment0 selection.");
-
-            Segment1? s1 = null; Segment2? s2 = null; Segment3? s3 = null; Segment4? s4 = null; Segment5? s5 = null;
-
-            if (seg1Id != null && seg1Id != Guid.Empty) s1 = await ctx.Set<Segment1>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg1Id && x.CompanyId == companyId);
-            if (seg2Id != null && seg2Id != Guid.Empty) s2 = await ctx.Set<Segment2>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg2Id && x.CompanyId == companyId);
-            if (seg3Id != null && seg3Id != Guid.Empty) s3 = await ctx.Set<Segment3>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg3Id && x.CompanyId == companyId);
-            if (seg4Id != null && seg4Id != Guid.Empty) s4 = await ctx.Set<Segment4>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg4Id && x.CompanyId == companyId);
-            if (seg5Id != null && seg5Id != Guid.Empty) s5 = await ctx.Set<Segment5>().AsNoTracking().FirstOrDefaultAsync(x => x.Id == seg5Id && x.CompanyId == companyId);
-
-            // if ID provided but not found => error
-            if (seg1Id != null && seg1Id != Guid.Empty && s1 == null) return ("", "", "Invalid Segment1 selection.");
-            if (seg2Id != null && seg2Id != Guid.Empty && s2 == null) return ("", "", "Invalid Segment2 selection.");
-            if (seg3Id != null && seg3Id != Guid.Empty && s3 == null) return ("", "", "Invalid Segment3 selection.");
-            if (seg4Id != null && seg4Id != Guid.Empty && s4 == null) return ("", "", "Invalid Segment4 selection.");
-            if (seg5Id != null && seg5Id != Guid.Empty && s5 == null) return ("", "", "Invalid Segment5 selection.");
-
-            var codes = new List<string> { s0.Code };
-            var descs = new List<string> { s0.Description };
-
-            if (s1 != null) { codes.Add(s1.Code); descs.Add(s1.Description); }
-            if (s2 != null) { codes.Add(s2.Code); descs.Add(s2.Description); }
-            if (s3 != null) { codes.Add(s3.Code); descs.Add(s3.Description); }
-            if (s4 != null) { codes.Add(s4.Code); descs.Add(s4.Description); }
-            if (s5 != null) { codes.Add(s5.Code); descs.Add(s5.Description); }
-
-            var code = string.Join("/", codes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
-            var desc = string.Join(" - ", descs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
-
-            if (string.IsNullOrWhiteSpace(code)) return ("", "", "AccountCode could not be computed.");
-            return (code, desc, null);
-        }
-
-        // -----------------------------
-        // small reflection setter (for segment generic insert)
-        // -----------------------------
-        private static void Set(object obj, string prop, object value)
-        {
-            var p = obj.GetType().GetProperty(prop);
-            if (p == null) throw new InvalidOperationException($"Property {prop} not found on {obj.GetType().Name}");
-            p.SetValue(obj, value);
         }
     }
 }

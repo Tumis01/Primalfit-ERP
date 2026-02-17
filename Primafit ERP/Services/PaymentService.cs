@@ -60,10 +60,10 @@ namespace Primafit_ERP.Services
                 if (pay.Status != PaymentStatus.Draft) return "Only draft payments can be posted.";
 
                 // Validate Seg COA existence
-                bool bankExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.DepositToGlAccountId && a.CompanyId == pay.CompanyId);
+                bool bankExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.DepositToGlAccountId && a.CompanyId == pay.CompanyId && a.IsActive);
                 if (!bankExists) return "Deposit Bank Account is invalid (not in Seg COA).";
 
-                bool arExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.CreditGlAccountId && a.CompanyId == pay.CompanyId);
+                bool arExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == pay.CreditGlAccountId && a.CompanyId == pay.CompanyId && a.IsActive);
                 if (!arExists) return "Customer AR Account is invalid (not in Seg COA).";
 
                 var glLines = new List<GLJournalLine>();
