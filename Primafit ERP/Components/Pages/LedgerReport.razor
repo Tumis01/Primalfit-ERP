@@ -28,17 +28,34 @@
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Detailed transaction history filtered by date range.</p>
+            <p class="text-sm text-slate-500 mt-1">Detailed transaction history filtered by date range and account.</p>
         </div>
 
-        <div class="flex items-end gap-3 w-full md:w-auto">
-            <div class="w-full md:w-40">
+        <div class="flex flex-wrap items-end gap-3 w-full md:w-auto">
+            
+            <div class="w-full md:w-64 relative">
+                <SearchableGlAccount Label="Filter Account (Optional)"
+                                     Placeholder="All Accounts..."
+                                     Accounts="allAccounts"
+                                     @bind-Value="selectedAccountId" />
+                
+                @if (selectedAccountId != Guid.Empty)
+                {
+                    <button @onclick="ClearAccount" class="absolute right-8 top-8 text-slate-400 hover:text-rose-500 transition-colors" title="Clear filter">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                }
+            </div>
+
+            <div class="w-full md:w-36">
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
                 <input type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all"
                        @bind="startDate" />
             </div>
 
-            <div class="w-full md:w-40">
+            <div class="w-full md:w-36">
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">End Date</label>
                 <input type="date" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all"
                        @bind="endDate" />
@@ -91,7 +108,7 @@
                         {
                             <tr>
                                 <td colspan="5" class="p-12 text-center text-slate-400">
-                                    No transactions found for the selected date range.
+                                    No transactions found for the selected date range and filters.
                                 </td>
                             </tr>
                         }
@@ -158,9 +175,13 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    // Report Parameters
+    // Filter Parameters
     private DateOnly startDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
     private DateOnly endDate = DateOnly.FromDateTime(DateTime.Today);
+    
+    // NEW: Account Filtering properties
+    private List<SegChartOfAccount> allAccounts = new();
+    private Guid selectedAccountId = Guid.Empty;
 
     private List<LedgerReportRow> rows = new();
     private bool busy;
@@ -176,8 +197,20 @@
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
+
+            // Fetch all active accounts for the dropdown
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            allAccounts = await ctx.SegChartOfAccounts
+                .Where(a => a.CompanyId == selectedCompanyId && a.IsActive)
+                .OrderBy(a => a.AccountCode)
+                .ToListAsync();
         }
         isLoading = false;
+    }
+
+    private void ClearAccount()
+    {
+        selectedAccountId = Guid.Empty;
     }
 
     private async Task LoadLedger()
@@ -195,8 +228,21 @@
 
         try
         {
-            // Call the new service method
-            rows = await GLOps.GetLedgerReportAsync(selectedCompanyId, startDate, endDate);
+            // 1. Fetch data from service
+            var result = await GLOps.GetLedgerReportAsync(selectedCompanyId, startDate, endDate);
+
+            // 2. In-memory filter if a specific account is selected
+            if (selectedAccountId != Guid.Empty)
+            {
+                var selectedAcc = allAccounts.FirstOrDefault(a => a.Id == selectedAccountId);
+                if (selectedAcc != null)
+                {
+                    // Filter based on the chosen Account Code
+                    result = result.Where(r => r.AccountCode == selectedAcc.AccountCode).ToList();
+                }
+            }
+
+            rows = result;
         }
         catch (Exception ex)
         {

@@ -33,10 +33,14 @@
                 </div>
             }
 
-            <button @onclick="RunReportAsync" disabled="@IsLoading" class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2">
+            <button @onclick="RunReportAsync" disabled="@IsLoading" class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
                 @if (IsLoading)
                 {
-                    <span class="animate-spin">↻</span> <span>Loading...</span>
+                    <svg class="h-4 w-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Loading...</span>
                 }
                 else
                 {
@@ -56,11 +60,28 @@
                     Data Preview
                 </div>
                 <div class="flex gap-2">
-                    <button @onclick="() => Download(true)" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-rose-600 text-xs font-bold rounded hover:bg-rose-50 transition-colors shadow-sm">
-                        PDF
+                    <button @onclick="() => Download(true)" disabled="@isDownloadingPdf" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-rose-600 text-xs font-bold rounded hover:bg-rose-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        @if (isDownloadingPdf)
+                        {
+                            <svg class="h-3 w-3 animate-spin text-rose-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>PDF...</span>
+                        }
+                        else
+                        {
+                            <span>PDF</span>
+                        }
                     </button>
-                    <button @onclick="() => Download(false)" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-emerald-600 text-xs font-bold rounded hover:bg-emerald-50 transition-colors shadow-sm">
-                        Excel
+
+                    <button @onclick="() => Download(false)" disabled="@isDownloadingExcel" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-emerald-600 text-xs font-bold rounded hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                        @if (isDownloadingExcel)
+                        {
+                            <svg class="h-3 w-3 animate-spin text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>Excel...</span>
+                        }
+                        else
+                        {
+                            <span>Excel</span>
+                        }
                     </button>
                 </div>
             </div>
@@ -99,7 +120,7 @@
     [Parameter] public bool ShowDateRange { get; set; } = false;
     [Parameter] public bool ShowAsOfDate { get; set; } = false;
     [Parameter] public Guid CompanyId { get; set; }
-    // The parent page will pass a function that returns the data
+    
     [Parameter] public Func<DateOnly, DateOnly, Task<StandardReportData>> FetchData { get; set; }
 
     public DateOnly StartDate { get; set; } = new DateOnly(DateTime.Today.Year, 1, 1);
@@ -108,29 +129,31 @@
     private StandardReportData? ReportData;
     private bool IsLoading = false;
 
+    // Loading flags for downloads
+    private bool isDownloadingPdf = false;
+    private bool isDownloadingExcel = false;
+
     private async Task RunReportAsync()
     {
         if (FetchData == null) return;
         IsLoading = true;
         try
         {
-            // 1. Fetch the raw numbers from your Services
             ReportData = await FetchData(StartDate, EndDate);
 
             if (ReportData != null)
             {
-                // 2. DYNAMICALLY STAMP METADATA
                 var authState = await AuthStateProvider.GetAuthenticationStateAsync();
                 ReportData.GeneratedBy = authState.User.Identity?.Name ?? "System Administrator";
                 ReportData.DateGenerated = DateTime.Now;
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
-                var company = await ctx.CompanyDetails.Include(c => c.BaseCurrency).FirstOrDefaultAsync(c => c.CompanyDetailsId == CompanyId);
-                
+                var company = await ctx.CompanyDetails.FirstOrDefaultAsync(c => c.CompanyDetailsId == CompanyId);
+
                 if (company != null)
                 {
                     ReportData.CompanyName = company.CompanyName;
-                    ReportData.Currency = company.BaseCurrency ?? "NGN";
+                    ReportData.Currency = "NGN";
                 }
             }
         }
@@ -148,16 +171,36 @@
     {
         if (ReportData == null) return;
         
-        byte[] fileBytes = isPdf ? Exporter.GeneratePdf(ReportData) : Exporter.GenerateExcel(ReportData);
-        string extension = isPdf ? ".pdf" : ".xlsx";
-        string mimeType = isPdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-        
-        string safeName = ReportData.ReportName.Replace(" ", "_").Replace("/", "-");
-        string fileName = $"{safeName}_{DateTime.Now:yyyyMMdd}{extension}";
+        // Prevent clicking while another download is happening
+        if (isDownloadingPdf || isDownloadingExcel) return;
 
-        var base64 = Convert.ToBase64String(fileBytes);
+        if (isPdf) isDownloadingPdf = true;
+        else isDownloadingExcel = true;
 
-        // Call the robust JS function we added in Step 1
-        await JS.InvokeVoidAsync("downloadReportFile", fileName, base64, mimeType);
+        try
+        {
+            // Give Blazor a fraction of a second to render the UI spinner before locking the thread
+            await Task.Delay(50);
+
+            byte[] fileBytes = isPdf ? Exporter.GeneratePdf(ReportData) : Exporter.GenerateExcel(ReportData);
+            string extension = isPdf ? ".pdf" : ".xlsx";
+            string mimeType = isPdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            
+            string safeName = ReportData.ReportName.Replace(" ", "_").Replace("/", "-");
+            string fileName = $"{safeName}_{DateTime.Now:yyyyMMdd}{extension}";
+
+            var base64 = Convert.ToBase64String(fileBytes);
+
+            await JS.InvokeVoidAsync("downloadReportFile", fileName, base64, mimeType);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Download failed: {ex.Message}");
+        }
+        finally
+        {
+            isDownloadingPdf = false;
+            isDownloadingExcel = false;
+        }
     }
 }

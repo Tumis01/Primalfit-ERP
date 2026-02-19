@@ -426,6 +426,37 @@
 
     private async Task SaveAccount()
     {
+        // 1. Base Mandatory Validation
+        if (draft.Segment0Id == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", $"{cfg.Segment0Name} is required.");
+            return;
+        }
+
+        if (draft.SegAccountTypeId == 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Account Type is required.");
+            return;
+        }
+
+        // 2. "All-or-Nothing" Active Sub-Segments Validation
+        int activeSubSegmentsCount = 0;
+        int selectedSubSegmentsCount = 0;
+
+        if (cfg.Segment1Active) { activeSubSegmentsCount++; if (draft.Segment1Id.HasValue) selectedSubSegmentsCount++; }
+        if (cfg.Segment2Active) { activeSubSegmentsCount++; if (draft.Segment2Id.HasValue) selectedSubSegmentsCount++; }
+        if (cfg.Segment3Active) { activeSubSegmentsCount++; if (draft.Segment3Id.HasValue) selectedSubSegmentsCount++; }
+        if (cfg.Segment4Active) { activeSubSegmentsCount++; if (draft.Segment4Id.HasValue) selectedSubSegmentsCount++; }
+        if (cfg.Segment5Active) { activeSubSegmentsCount++; if (draft.Segment5Id.HasValue) selectedSubSegmentsCount++; }
+
+        // If they started picking segments but didn't finish picking ALL active ones
+        if (selectedSubSegmentsCount > 0 && selectedSubSegmentsCount < activeSubSegmentsCount)
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: You have partially selected segments. You must either leave all optional segments blank, or select a value for all active segments.");
+            return;
+        }
+
+        // 3. Proceed to Save
         draft.CompanyId = selectedCompanyId;
         var (err, created) = await Service.SaveAccountAsync(draft);
         if (!string.IsNullOrEmpty(err))

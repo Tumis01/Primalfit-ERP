@@ -9,13 +9,6 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
-@inject TestDataSeederService Seeder
-@inject IJSRuntime JS
-
-<button @onclick="RunSeeder" class="px-4 py-2 bg-red-600 text-white font-bold rounded">
-    GENERATE TEST DATA
-</button>
-
 
 
 <div class="max-w-7xl mx-auto mt-6">
@@ -27,32 +20,7 @@
 
 @code {
     private Guid companyId;
-    [Parameter] public Guid CompanyId { get; set; } // Make sure this is populated by your AuthState
 
-    private async Task RunSeeder()
-    {
-        try
-        {
-            // 1. Securely fetch the logged-in user's Company ID
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = await UserManager.GetUserAsync(authState.User);
-
-            if (user?.CompanyDetailsId == null || user.CompanyDetailsId == Guid.Empty)
-            {
-                await JS.InvokeVoidAsync("alert", "Error: No valid Company assigned to your account.");
-                return;
-            }
-
-            // 2. Pass the valid ID to the seeder
-            var result = await Seeder.SeedFullScenarioAsync(user.CompanyDetailsId.Value);
-            
-            await JS.InvokeVoidAsync("alert", result);
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("alert", $"Seeder Failed: {ex.Message}\n\nInner: {ex.InnerException?.Message}");
-        }
-    }
     protected override async Task OnInitializedAsync()
     {
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
