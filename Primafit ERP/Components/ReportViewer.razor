@@ -1,0 +1,163 @@
+﻿@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject ReportExportService Exporter
+@inject IJSRuntime JS
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+
+<div class="space-y-6">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">@Title</h1>
+            <p class="text-sm text-slate-500">@Description</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+            @if (ShowDateRange)
+            {
+                <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1">
+                    <input type="date" @bind="StartDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
+                    <span class="text-slate-400 text-xs">to</span>
+                    <input type="date" @bind="EndDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
+                </div>
+            }
+            else if (ShowAsOfDate)
+            {
+                <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1 px-3">
+                    <span class="text-slate-400 text-xs font-bold uppercase">As Of:</span>
+                    <input type="date" @bind="EndDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none" />
+                </div>
+            }
+
+            <button @onclick="RunReportAsync" disabled="@IsLoading" class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2">
+                @if (IsLoading)
+                {
+                    <span class="animate-spin">↻</span> <span>Loading...</span>
+                }
+                else
+                {
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span>Run Report</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (ReportData != null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            <div class="bg-slate-50/50 border-b border-slate-100 p-4 flex justify-between items-center">
+                <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                    Data Preview
+                </div>
+                <div class="flex gap-2">
+                    <button @onclick="() => Download(true)" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-rose-600 text-xs font-bold rounded hover:bg-rose-50 transition-colors shadow-sm">
+                        PDF
+                    </button>
+                    <button @onclick="() => Download(false)" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-emerald-600 text-xs font-bold rounded hover:bg-emerald-50 transition-colors shadow-sm">
+                        Excel
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm whitespace-nowrap">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-600 border-b border-slate-200">
+                        <tr>
+                            @foreach (var header in ReportData.Headers)
+                            {
+                                <th class="px-6 py-4">@header</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var row in ReportData.Rows)
+                        {
+                            bool isSummary = row.Any(c => c != null && (c.Contains("TOTAL") || c.Contains("SUMMARY") || c.Contains("PROFIT")));
+                            <tr class="hover:bg-slate-50 transition-colors @(isSummary ? "bg-slate-50/80 font-bold text-slate-900" : "text-slate-600")">
+                                @foreach (var cell in row)
+                                {
+                                    <td class="px-6 py-3">@cell</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Report";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public bool ShowDateRange { get; set; } = false;
+    [Parameter] public bool ShowAsOfDate { get; set; } = false;
+    [Parameter] public Guid CompanyId { get; set; }
+    // The parent page will pass a function that returns the data
+    [Parameter] public Func<DateOnly, DateOnly, Task<StandardReportData>> FetchData { get; set; }
+
+    public DateOnly StartDate { get; set; } = new DateOnly(DateTime.Today.Year, 1, 1);
+    public DateOnly EndDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    
+    private StandardReportData? ReportData;
+    private bool IsLoading = false;
+
+    private async Task RunReportAsync()
+    {
+        if (FetchData == null) return;
+        IsLoading = true;
+        try
+        {
+            // 1. Fetch the raw numbers from your Services
+            ReportData = await FetchData(StartDate, EndDate);
+
+            if (ReportData != null)
+            {
+                // 2. DYNAMICALLY STAMP METADATA
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                ReportData.GeneratedBy = authState.User.Identity?.Name ?? "System Administrator";
+                ReportData.DateGenerated = DateTime.Now;
+
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                var company = await ctx.CompanyDetails.Include(c => c.BaseCurrency).FirstOrDefaultAsync(c => c.CompanyDetailsId == CompanyId);
+                
+                if (company != null)
+                {
+                    ReportData.CompanyName = company.CompanyName;
+                    ReportData.Currency = company.BaseCurrency ?? "NGN";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task Download(bool isPdf)
+    {
+        if (ReportData == null) return;
+        
+        byte[] fileBytes = isPdf ? Exporter.GeneratePdf(ReportData) : Exporter.GenerateExcel(ReportData);
+        string extension = isPdf ? ".pdf" : ".xlsx";
+        string mimeType = isPdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        
+        string safeName = ReportData.ReportName.Replace(" ", "_").Replace("/", "-");
+        string fileName = $"{safeName}_{DateTime.Now:yyyyMMdd}{extension}";
+
+        var base64 = Convert.ToBase64String(fileBytes);
+
+        // Call the robust JS function we added in Step 1
+        await JS.InvokeVoidAsync("downloadReportFile", fileName, base64, mimeType);
+    }
+}

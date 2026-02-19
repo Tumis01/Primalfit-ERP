@@ -9,9 +9,11 @@
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
+@inject BudgetService BudgetService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -38,13 +40,9 @@
     {
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             
-            @* ========================== *@
-            @* BILL HEADER          *@
-            @* ========================== *@
             <div class="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 h-fit">
                 <h3 class="font-bold border-b pb-2 text-slate-800 uppercase text-xs tracking-wider">Bill Header</h3>
 
-                @* 1. AP Account Selection (Filtered: BS=True, Dr=False) *@
                 <div class="bg-rose-50 p-3 rounded-lg border border-rose-100">
                     <SearchableGlAccount 
                         Label="Credit Liability (AP)" 
@@ -55,7 +53,6 @@
                     <p class="text-[10px] text-rose-600 mt-1 font-bold">Liability increases (Credit).</p>
                 </div>
 
-                @* 2. Vendor Selection (Locked if PO Selected) *@
                 <div>
                     <label class="label">Vendor</label>
                     <select value="@currentBill.VendorId" @onchange="OnVendorChanged" class="input-class @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "")" disabled="@IsLocked">
@@ -67,7 +64,6 @@
                     </select>
                 </div>
 
-                @* 3. Currency Display *@
                 @if(!string.IsNullOrEmpty(currencyCode))
                 {
                     <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-100 flex justify-between items-center text-xs">
@@ -82,7 +78,6 @@
                     </div>
                 }
 
-                @* 4. PO Link *@
                 <div>
                     <label class="label">Link to PO (Import)</label>
                     <select value="@(currentBill.PurchaseOrderId?.ToString() ?? "")" @onchange="OnPoChanged" class="input-class border-indigo-200 font-medium text-indigo-700 bg-indigo-50/30" disabled="@(currentBill.VendorId == Guid.Empty)">
@@ -94,7 +89,6 @@
                     </select>
                 </div>
 
-                @* 5. Invoice Details *@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="label">Invoice #</label>
@@ -106,7 +100,6 @@
                     </div>
                 </div>
 
-                @* 6. Totals *@
                 <div class="pt-4 border-t border-slate-100">
                     <label class="label text-slate-600">Total Amount (@(currencyCode ?? "Base"))</label>
                     <div class="relative">
@@ -126,9 +119,6 @@
                 </div>
             </div>
 
-            @* ========================== *@
-            @* LINES SECTION        *@
-            @* ========================== *@
             <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col min-h-[500px]">
                 <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
                     <h3 class="font-bold text-slate-700 uppercase text-xs tracking-wider">Expense Allocation</h3>
@@ -151,7 +141,7 @@
                     <table class="w-full text-left text-sm">
                         <thead class="text-xs uppercase font-bold text-slate-500 border-b bg-slate-50/50">
                             <tr>
-                                <th class="px-2 py-2 w-[30%]">Debit Account</th>
+                                <th class="px-2 py-2 w-[30%]">Debit Account (Asset/Exp)</th>
                                 <th class="px-2 py-2 w-[25%]">Item (Optional)</th>
                                 <th class="px-2 py-2 text-right w-[10%]">Qty</th>
                                 <th class="px-2 py-2 text-right w-[15%]">Cost (@currencyCode)</th>
@@ -167,7 +157,7 @@
                                         <div class="@(IsLocked ? "pointer-events-none opacity-60" : "")">
                                             <SearchableGlAccount 
                                                 Label="" 
-                                                Placeholder="Expense/Asset GL..." 
+                                                Placeholder="Select GL..." 
                                                 Accounts="@expenseAccounts" 
                                                 @bind-Value="line.ExpenseGlAccountId"
                                                 IsInvalid="@(line.ExpenseGlAccountId == Guid.Empty)" />
@@ -186,7 +176,7 @@
                                     
                                     <td class="px-0 py-2 align-top pt-3">
                                         <input type="number" @bind="line.QuantityBilled" 
-                                               class="input-class py-2 text-center text-xs  font-bold @(IsLocked ? "bg-slate-100 text-slate-500" : "")" 
+                                               class="input-class py-2 text-center text-xs font-bold @(IsLocked ? "bg-slate-100 text-slate-500" : "")" 
                                                readonly="@IsLocked" />
                                     </td>
                                     
@@ -240,35 +230,38 @@
     .input-class:focus { border-color: #4f46e5; outline: none; ring: 2px; ring-color: #e0e7ff; }
     
     .input-class[readonly], .input-class[disabled] {
-        background-color: #f1f5f9; /* slate-100 */
-        color: #64748b; /* slate-500 */
+        background-color: #f1f5f9;
+        color: #64748b;
         cursor: not-allowed;
     }
 </style>
 
 @code {
+    // === MODELS ===
     private VendorBill currentBill = new();
     
+    // === DATA LISTS ===
     private List<Vendor> vendors = new();
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
-    
-    // CHANGED: Use Segmented COA
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegAccountType> accountTypes = new();
     
+    // === STATE ===
     private Guid currentCompanyId;
     private bool isBusy = false;
     private string currencyCode = "";
     private string currencySymbol = "$";
+    
+    // === PARAMETERS ===
+    [SupplyParameterFromQuery] public Guid? PoId { get; set; }
 
-    [SupplyParameterFromQuery]
-    public Guid? PoId { get; set; }
-
+    // === COMPUTED ===
     private bool IsLocked => currentBill.PurchaseOrderId.HasValue && currentBill.PurchaseOrderId != Guid.Empty;
 
+    // === INITIALIZATION ===
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -277,22 +270,29 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             
-            vendors = await MasterService.GetVendorsAsync(currentCompanyId);
-            items = await MasterService.GetItemsAsync(currentCompanyId);
-            openPOs = await PurchService.GetPOsReadyForInvoicingAsync(currentCompanyId);
+            // Parallel Load for Performance (Optional but good practice)
+            var t1 = MasterService.GetVendorsAsync(currentCompanyId);
+            var t2 = MasterService.GetItemsAsync(currentCompanyId);
+            var t3 = PurchService.GetPOsReadyForInvoicingAsync(currentCompanyId);
+            var t4 = SegCoaService.GetAccountTypesAsync();
+            var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
 
-            // CHANGED: Use SegCoaService
-            accountTypes = await SegCoaService.GetAccountTypesAsync();
-            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+            await Task.WhenAll(t1, t2, t3, t4, t5);
 
-            // Filter AP Accounts: BS = True, Dr = False (Liabilities)
+            vendors = t1.Result;
+            items = t2.Result;
+            openPOs = t3.Result;
+            accountTypes = t4.Result;
+            allAccounts = t5.Result;
+
+            // Filter AP Accounts (Liabilities)
             liabilityAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
             }).OrderBy(x => x.AccountCode).ToList();
 
-            // Filter Expense/Line Accounts: Dr = True (Expenses & Assets)
+            // Filter Expense/Asset Accounts (Debits)
             expenseAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
@@ -301,6 +301,7 @@
             
             CreateNew();
 
+            // Handle Direct Navigation from PO Screen
             if (PoId.HasValue && PoId.Value != Guid.Empty)
             {
                 var targetPO = openPOs.FirstOrDefault(p => p.Id == PoId.Value);
@@ -312,16 +313,25 @@
                     currencyCode = data.CurrencyCode;
                     currentBill.ExchangeRate = targetPO.ExchangeRate > 0 ? targetPO.ExchangeRate : data.Rate;
 
-                    var args = new ChangeEventArgs { Value = targetPO.Id.ToString() };
-                    OnPoChanged(args);
+                    OnPoChanged(new ChangeEventArgs { Value = targetPO.Id.ToString() });
                 }
             }
         }
     }
 
-    private void CreateNew() => currentBill = new VendorBill { CompanyId = currentCompanyId, BillDate = DateTime.Today, Lines = new List<VendorBillLine> { new VendorBillLine() } };
+    private void CreateNew() 
+    {
+        currentBill = new VendorBill 
+        { 
+            CompanyId = currentCompanyId, 
+            BillDate = DateTime.Today, 
+            Lines = new List<VendorBillLine> { new VendorBillLine() } 
+        }; 
+    }
     
     private void AddLine() => currentBill.Lines.Add(new VendorBillLine());
+
+    // === EVENT HANDLERS ===
 
     private async Task OnVendorChanged(ChangeEventArgs e)
     {
@@ -334,6 +344,7 @@
             currentBill.ExchangeRate = data.Rate;
             currencyCode = data.CurrencyCode;
             
+            // Reset PO Link if Vendor changes
             currentBill.PurchaseOrderId = null;
             currentBill.Lines.Clear();
             AddLine();
@@ -401,8 +412,11 @@
         }
     }
 
+    // === MAIN ACTION: POSTING ===
+
     private async Task PostBill()
     {
+        // 1. Basic UI Validation
         if (currentBill.VendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "STOP: Select a Vendor."); return; }
         if (currentBill.AccountsPayableGlId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "STOP: Select an AP Account."); return; }
         if (!currentBill.Lines.Any()) { await JS.InvokeVoidAsync("alert", "STOP: Add a line."); return; }
@@ -417,6 +431,7 @@
             }
         }
 
+        // 2. Finalize Totals
         decimal calcTotalForeign = Math.Round(currentBill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled), 2);
         if (currentBill.TotalAmountForeign == 0 && calcTotalForeign > 0) 
             currentBill.TotalAmountForeign = calcTotalForeign;
@@ -426,9 +441,38 @@
         isBusy = true;
         try
         {
+            // =========================================================
+            // PHASE 3: BUDGET CHECK (GATEKEEPER)
+            // =========================================================
+            
+            // A. Prepare Request List (GL Account, Amount in BASE Currency)
+            var budgetRequests = currentBill.Lines
+                .Where(l => l.ExpenseGlAccountId != Guid.Empty)
+                .Select(l => (
+                    SegCoaId: l.ExpenseGlAccountId, 
+                    Amount: (l.QuantityBilled * l.UnitCostBilled) * currentBill.ExchangeRate
+                ))
+                .ToList();
+
+            // B. Call Service
+            if (budgetRequests.Any())
+            {
+                string budgetError = await BudgetService.ValidateFundsAsync(currentBill.CompanyId, budgetRequests);
+                if (!string.IsNullOrEmpty(budgetError))
+                {
+                    // Block Execution and Alert User
+                    await JS.InvokeVoidAsync("alert", $"BUDGET STOP:\n\n{budgetError}");
+                    isBusy = false;
+                    return; 
+                }
+            }
+            // =========================================================
+
+            // 3. Save Bill
             var saveErr = await PurchService.SaveVendorBillAsync(currentBill);
             if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
 
+            // 4. Validate 3-Way Match (if PO linked)
             if (currentBill.PurchaseOrderId != null)
             {
                 var matchRes = await PurchService.ValidateThreeWayMatch(currentBill.Id);
@@ -440,6 +484,7 @@
                 }
             }
 
+            // 5. Post to GL
             var postErr = await PurchService.PostVendorBillAsync(currentBill.Id);
             
             if (string.IsNullOrEmpty(postErr)) 

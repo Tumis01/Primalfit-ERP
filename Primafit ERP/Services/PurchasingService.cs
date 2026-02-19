@@ -10,7 +10,7 @@ namespace Primafit_ERP.Services
         private readonly InventoryService _inventoryService;
         private readonly GLOperationsService _glOps;
         private readonly BudgetService _budgetService;
-
+        private readonly InventoryValuationService _valuationService;
         public PurchasingService(
             IDbContextFactory<AppDbContext> dbFactory,
             InventoryService inventoryService,
@@ -26,19 +26,21 @@ namespace Primafit_ERP.Services
 
 
 
-        // Services/PurchasingService.cs
+
 
         public async Task<string> SaveVendorBillAsync(VendorBill bill)
         {
+            // 1. Sanitize Inputs
             if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = "";
             if (bill.ExternalInvoiceNumber == null) bill.ExternalInvoiceNumber = "";
+
             if (bill.CompanyId == Guid.Empty) return "System Error: Bill has no Company ID.";
+            if (bill.VendorId == Guid.Empty) return "Vendor is required.";
+            if (bill.Lines == null || bill.Lines.Count == 0) return "Bill must have at least one line.";
 
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            if (bill.Lines.Count == 0) return "Bill must have at least one line.";
-            if (bill.VendorId == Guid.Empty) return "Vendor is required.";
-
+            // 2. Load Existing (Include Lines to handle replacement)
             var existing = await ctx.VendorBills
                 .Include(b => b.Lines)
                 .FirstOrDefaultAsync(b => b.Id == bill.Id);
@@ -47,32 +49,60 @@ namespace Primafit_ERP.Services
             {
                 if (existing == null)
                 {
+                    // --- CREATE NEW ---
                     if (bill.Id == Guid.Empty) bill.Id = Guid.NewGuid();
+
                     foreach (var line in bill.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.VendorBillId = bill.Id;
                     }
+
                     ctx.VendorBills.Add(bill);
+                    // Note: EF Core usually handles children automatically if added to parent, 
+                    // but explicit addition is safer in detached scenarios.
                     ctx.VendorBillLines.AddRange(bill.Lines);
                 }
                 else
                 {
+                    // --- UPDATE EXISTING ---
+
+                    // Check if already posted (Safety Guard)
+                    if (existing.IsPosted) return "STOP: Cannot edit a bill that has already been posted.";
+
+                    // Preserve critical fields that shouldn't change on edit
                     bill.CompanyId = existing.CompanyId;
+                    bill.IsPosted = existing.IsPosted;
+                    bill.PostedDate = existing.PostedDate;
+
+                    // Update Header
                     ctx.Entry(existing).CurrentValues.SetValues(bill);
+
+                    // Replace Lines (Clear old, Insert new)
                     ctx.VendorBillLines.RemoveRange(existing.Lines);
+
                     foreach (var line in bill.Lines)
                     {
-                        line.VendorBillId = bill.Id;
-                        ctx.VendorBillLines.Add(line);
+                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                        line.VendorBillId = bill.Id; // Ensure Link
                     }
+                    ctx.VendorBillLines.AddRange(bill.Lines);
                 }
 
-                // Integrity Checks
-                if (!await ctx.Vendors.AnyAsync(v => v.Id == bill.VendorId)) return "STOP: Vendor does not exist.";
+                // 3. Integrity Checks
+                // Ensure Vendor exists
+                if (!await ctx.Vendors.AnyAsync(v => v.Id == bill.VendorId))
+                    return "STOP: Selected Vendor does not exist.";
+
+                // Ensure PO exists (if linked)
+                if (bill.PurchaseOrderId.HasValue && bill.PurchaseOrderId != Guid.Empty)
+                {
+                    if (!await ctx.PurchaseOrders.AnyAsync(p => p.Id == bill.PurchaseOrderId))
+                        return "STOP: Linked Purchase Order does not exist.";
+                }
 
                 await ctx.SaveChangesAsync();
-                return string.Empty;
+                return string.Empty; // Success
             }
             catch (Exception ex)
             {
@@ -154,11 +184,50 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SavePurchaseOrderAsync(PurchaseOrder po)
         {
-            // ... [Keep your Validation and Budget Checks here] ...
-
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Ask the DB: "Do you know this ID?"
+            // A. Basic Validation
+            if (po.VendorId == Guid.Empty) return "Vendor is required.";
+            if (po.Lines.Count == 0) return "Order must have at least one line.";
+
+           
+            
+            // 1. Get all Items involved in this PO to find their GL Accounts
+            var itemIds = po.Lines.Select(l => l.ItemId).Distinct().ToList();
+            var items = await ctx.Items
+                .AsNoTracking()
+                .Where(i => itemIds.Contains(i.Id))
+                .ToListAsync();
+
+            // 2. Map PO Lines to Budget Requests (GL Account + Amount)
+            var budgetRequests = new List<(Guid SegCoaId, decimal Amount)>();
+
+            foreach (var line in po.Lines)
+            {
+                var item = items.FirstOrDefault(i => i.Id == line.ItemId);
+                if (item != null)
+                {
+                    Guid targetAccount = item.IsService ? item.CostOfGoodsSoldAccountId : item.InventoryAssetAccountId;
+                    decimal lineTotal = line.QuantityOrdered * line.UnitCost;
+                    budgetRequests.Add((targetAccount, lineTotal));
+                }
+            }
+
+            // 3. Perform the Check
+            if (budgetRequests.Any())
+            {
+                // Pass CompanyId and the list of (Account, Amount) to the Budget Service
+                string budgetError = await _budgetService.ValidateFundsAsync(po.CompanyId, budgetRequests);
+                
+                if (!string.IsNullOrEmpty(budgetError))
+                {
+                    // HARD STOP: Return the error immediately. Do not save.
+                    return $"BUDGET STOP: {budgetError}"; 
+                }
+            }
+            
+            
+
             var existing = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .FirstOrDefaultAsync(p => p.Id == po.Id);
@@ -167,46 +236,33 @@ namespace Primafit_ERP.Services
             {
                 if (existing == null)
                 {
-                    // --- CASE A: NEW ORDER (Even if it has an ID) ---
-
-                    // Ensure the main ID is valid
+                    // --- CREATE NEW ---
                     if (po.Id == Guid.Empty) po.Id = Guid.NewGuid();
-
-                    // Ensure lines are linked correctly
+                    
                     foreach (var line in po.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
-                        line.PurchaseOrderId = po.Id; // Link Line to Header
-                        ctx.PurchaseOrderLines.Add(line); // Explicitly track line
+                        line.PurchaseOrderId = po.Id;
+                        ctx.PurchaseOrderLines.Add(line);
                     }
-
-                    ctx.PurchaseOrders.Add(po); // Explicitly track header
+                    ctx.PurchaseOrders.Add(po);
                 }
                 else
                 {
-                    // --- CASE B: UPDATE EXISTING ---
-
-                    // Protect CompanyId integrity
+                    
+                    
                     po.CompanyId = existing.CompanyId;
-
-                    // Update Header values
                     ctx.Entry(existing).CurrentValues.SetValues(po);
 
-                    // Replace Lines (Clear old, add new)
                     ctx.PurchaseOrderLines.RemoveRange(existing.Lines);
                     foreach (var line in po.Lines)
                     {
-                        line.PurchaseOrderId = po.Id; // Ensure Link
+                        line.PurchaseOrderId = po.Id;
                         ctx.PurchaseOrderLines.Add(line);
                     }
                 }
 
-                // 2. Commit to Database
-                int changes = await ctx.SaveChangesAsync();
-
-                // OPTIONAL DEBUG: Check if SQL actually wrote something
-                // if (changes == 0) return "WARNING: SQL reported 0 rows affected.";
-
+                await ctx.SaveChangesAsync();
                 return string.Empty; // Success
             }
             catch (Exception ex)
@@ -223,21 +279,26 @@ namespace Primafit_ERP.Services
 
             try
             {
+                // 1. Basic Validations
                 if (grn.CompanyId == Guid.Empty) return "STOP: No CompanyId.";
                 if (grn.PurchaseOrderId == Guid.Empty) return "STOP: No Purchase Order selected.";
                 if (warehouseId == Guid.Empty) return "STOP: No Warehouse selected.";
                 if (grn.Lines == null || grn.Lines.Count == 0) return "STOP: GRN has no lines.";
 
+                // 2. Fetch PO (Include Lines to avoid database round-trips in the loop)
                 var po = await ctx.PurchaseOrders
+                    .Include(p => p.Lines)
                     .FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId && p.CompanyId == grn.CompanyId);
 
                 if (po == null) return "STOP: PO not found.";
                 if (po.IsInvoicePosted) return "STOP: Invoice already posted. Cannot receive again.";
 
+                // 3. Prepare GRN Header
                 if (grn.Id == Guid.Empty) grn.Id = Guid.NewGuid();
                 if (string.IsNullOrWhiteSpace(grn.GrnNumber))
                     grn.GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}";
 
+                // 4. Process Lines
                 foreach (var line in grn.Lines)
                 {
                     if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
@@ -245,17 +306,19 @@ namespace Primafit_ERP.Services
                     if (line.QuantityReceived < 0) return "STOP: Negative qty not allowed.";
                 }
 
-                // ✅ Save GRN
+                // Add GRN to Context
                 ctx.GoodsReceipts.Add(grn);
+
+                // 5. Create Stock Ledger Entries (Physical Movement)
                 foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
-                    var poLine = await ctx.PurchaseOrderLines
-                        .FirstOrDefaultAsync(l => l.Id == grnLine.PurchaseOrderLineId);
+                    // Find corresponding PO Line (Loaded in memory via Include above)
+                    var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
 
                     if (poLine == null)
-                        return "STOP: PO line not found for a GRN line.";
+                        return $"STOP: PO line not found for GRN Line ID {grnLine.Id}";
 
-                    // Example StockLedger entry
+                    // Create Ledger Entry
                     ctx.StockLedgers.Add(new StockLedger
                     {
                         Id = Guid.NewGuid(),
@@ -265,18 +328,18 @@ namespace Primafit_ERP.Services
                         Date = grn.DateReceived,
                         Reference = grn.GrnNumber,
                         Type = StockMovementType.Purchase,
-                        QuantityChanged = grnLine.QuantityReceived
+                        QuantityChanged = grnLine.QuantityReceived,
+
+                        // IMPORTANT: Set provisional cost to PO Price. 
+                        // The Valuation Engine will update the Item Master WACC shortly.
+                        CostAtTime = poLine.UnitCost
                     });
-
-                    // OPTIONAL: update Item weighted average cost using your logic
-                    // (If you maintain WeightedAverageCost on Item)
                 }
-                await ctx.SaveChangesAsync();
 
-                // ✅ Mark PO as received (but keep Status OPEN)
+                
                 po.HasReceipt = true;
-
                 await ctx.SaveChangesAsync();
+                await _valuationService.RecalculateWACC(grn.Id);
                 return string.Empty;
             }
             catch (Exception ex)

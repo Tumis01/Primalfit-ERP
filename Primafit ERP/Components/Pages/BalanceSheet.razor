@@ -1,0 +1,67 @@
+﻿@page "/reports/balance-sheet"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject FinancialReportingService FinanceService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+@inject TestDataSeederService Seeder
+@inject IJSRuntime JS
+
+<button @onclick="RunSeeder" class="px-4 py-2 bg-red-600 text-white font-bold rounded">
+    GENERATE TEST DATA
+</button>
+
+
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId" Title="Balance Sheet"
+                  Description="Snapshot of Assets, Liabilities, and Equity."
+                  ShowAsOfDate="true"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+    [Parameter] public Guid CompanyId { get; set; } // Make sure this is populated by your AuthState
+
+    private async Task RunSeeder()
+    {
+        try
+        {
+            // 1. Securely fetch the logged-in user's Company ID
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = await UserManager.GetUserAsync(authState.User);
+
+            if (user?.CompanyDetailsId == null || user.CompanyDetailsId == Guid.Empty)
+            {
+                await JS.InvokeVoidAsync("alert", "Error: No valid Company assigned to your account.");
+                return;
+            }
+
+            // 2. Pass the valid ID to the seeder
+            var result = await Seeder.SeedFullScenarioAsync(user.CompanyDetailsId.Value);
+            
+            await JS.InvokeVoidAsync("alert", result);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Seeder Failed: {ex.Message}\n\nInner: {ex.InnerException?.Message}");
+        }
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        // Balance Sheet only cares about the "End Date" (As Of Date)
+        return await FinanceService.GenerateBalanceSheetAsync(companyId, end);
+    }
+}

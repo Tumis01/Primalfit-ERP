@@ -1,0 +1,35 @@
+﻿@page "/reports/trial-balance"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject FinancialReportingService FinanceService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId" Title="Trial Balance"
+                  Description="A mathematical proof that total Debits equal total Credits across all active accounts for the selected period."
+                  ShowDateRange="true"
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    // This method is passed down to the ReportViewer component
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await FinanceService.GenerateTrialBalanceAsync(companyId, start, end);
+    }
+}

@@ -69,12 +69,15 @@ namespace PrimafitERP.Data
         // --- CREDIT NOTES (New) ---
         public DbSet<CreditNote> CreditNotes { get; set; }
         public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
+        //public DbSet<SegAccountType> SegAccountTypes { get; set; }
 
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<CustomerGroup> CustomerGroups { get; set; }
         public DbSet<VendorGroup> VendorGroups { get; set; }
+        public DbSet<LandedCostType> LandedCostTypes { get; set; }
+        public DbSet<GrnLandedCost> GrnLandedCosts { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

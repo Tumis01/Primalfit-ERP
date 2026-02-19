@@ -8,7 +8,6 @@
 
 @inject AssetService AssetService
 @inject SegCoaService SegCoaService
-@inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
@@ -21,19 +20,26 @@
             <h1 class="text-2xl font-bold text-slate-900">Fixed Asset Register</h1>
             <p class="text-sm text-slate-500">Track acquisition, value, and depreciation.</p>
         </div>
-        <div class="flex gap-2">
-            <button @onclick="() => showDeprModal = true" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50">
-                Run Depreciation
-            </button>
-            <button @onclick="CreateNew" class="px-4 py-2 bg-slate-900 text-white font-bold rounded-lg shadow-md hover:bg-slate-800">
-                + New Asset
+        <div class="flex gap-4 items-center">
+            
+            <div class="px-4 py-2 bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold flex flex-col items-end">
+                <span class="uppercase tracking-wide text-[10px] text-slate-400">Depreciation Status</span>
+                <span class="flex items-center gap-1 text-emerald-600">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Automated (Nightly)
+                </span>
+            </div>
+
+            <button @onclick="CreateNew" class="px-4 py-2 bg-slate-900 text-white font-bold rounded-lg shadow-md hover:bg-slate-800 flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                New Asset
             </button>
         </div>
     </div>
 
     @if (isLoading)
     {
-        <div class="p-12 text-center text-slate-400">Loading Assets...</div>
+        <div class="p-12 text-center text-slate-400">Loading Registry...</div>
     }
     else
     {
@@ -41,9 +47,9 @@
             <table class="w-full text-left text-sm">
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
                     <tr>
-                        <th class="p-4">Asset Tag</th>
+                        <th class="p-4">Tag</th>
                         <th class="p-4">Name</th>
-                        <th class="p-4">Purchased</th>
+                        <th class="p-4 text-center">Last Run</th>
                         <th class="p-4 text-right">Original Cost</th>
                         <th class="p-4 text-right">Current Value</th>
                         <th class="p-4 text-center">Status</th>
@@ -52,18 +58,24 @@
                 <tbody class="divide-y divide-slate-100">
                     @foreach (var asset in assets)
                     {
-                        <tr class="hover:bg-slate-50">
-                            <td class="p-4 font-mono text-slate-600 font-bold">@asset.AssetTag</td>
-                            <td class="p-4 font-medium text-slate-900">@asset.AssetName</td>
-                            <td class="p-4 text-slate-500">@asset.PurchaseDate.ToString("yyyy-MM-dd")</td>
-                            <td class="p-4 text-right">@asset.PurchaseCost.ToString("N2")</td>
-                            <td class="p-4 text-right font-bold text-emerald-600">@asset.CurrentBookValue.ToString("N2")</td>
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="p-4 font-mono font-bold text-slate-600">@asset.AssetTag</td>
+                            <td class="p-4 font-bold text-slate-900">@asset.AssetName</td>
+                            <td class="p-4 text-center text-slate-500 text-xs">
+                                @(asset.LastDepreciationDate?.ToString("MMM yyyy") ?? "-")
+                            </td>
+                            <td class="p-4 text-right font-mono text-slate-500">@asset.PurchaseCost.ToString("N2")</td>
+                            <td class="p-4 text-right font-mono font-bold text-emerald-600">@asset.CurrentBookValue.ToString("N2")</td>
                             <td class="p-4 text-center">
                                 <span class="px-2 py-1 rounded text-[10px] font-bold @GetStatusColor(asset.Status)">
                                     @asset.Status
                                 </span>
                             </td>
                         </tr>
+                    }
+                    @if (!assets.Any())
+                    {
+                        <tr><td colspan="6" class="p-8 text-center text-slate-400">No assets registered.</td></tr>
                     }
                 </tbody>
             </table>
@@ -72,138 +84,98 @@
 
     @if (showModal)
     {
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6 h-[80vh] overflow-y-auto">
-                <h3 class="text-xl font-bold text-slate-900 mb-4">Add Fixed Asset</h3>
-
-                <EditForm Model="model" OnValidSubmit="SaveAsset">
-                    <DataAnnotationsValidator />
-                    <div class="space-y-4">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="label">Asset Name</label>
-                                <InputText @bind-Value="model.AssetName" class="input-class" />
-                            </div>
-                            <div>
-                                <label class="label">Tag / ID</label>
-                                <InputText @bind-Value="model.AssetTag" class="input-class" placeholder="FA-..." />
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-3 gap-4">
-                            <div>
-                                <label class="label">Purchase Cost</label>
-                                <InputNumber @bind-Value="model.PurchaseCost" class="input-class" />
-                            </div>
-                            <div>
-                                <label class="label">Salvage Value</label>
-                                <InputNumber @bind-Value="model.SalvageValue" class="input-class" />
-                            </div>
-                            <div>
-                                <label class="label">Life (Months)</label>
-                                <InputNumber @bind-Value="model.UsefulLifeMonths" class="input-class" />
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="label">Purchase Date</label>
-                                <InputDate @bind-Value="model.PurchaseDate" class="input-class" />
-                            </div>
-                            <div>
-                                <label class="label">Depreciation Start</label>
-                                <InputDate @bind-Value="model.DepreciationStartDate" class="input-class" />
-                            </div>
-                        </div>
-
-                        <div class="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-100">
-                            <h4 class="text-xs font-bold text-slate-500 uppercase">GL Mapping</h4>
-
-                            <SearchableGlAccount Label="Asset Account (Debit)"
-                                                 Accounts="@assetAccounts"
-                                                 @bind-Value="model.FixedAssetAccountId"
-                                                 IsInvalid="@(model.FixedAssetAccountId == Guid.Empty)" />
-
-                            <SearchableGlAccount Label="Accum. Depr. Account (Credit)"
-                                                 Accounts="@liabilityAccounts"
-                                                 @bind-Value="model.AccumulatedDepreciationAccountId"
-                                                 IsInvalid="@(model.AccumulatedDepreciationAccountId == Guid.Empty)" />
-
-                            <SearchableGlAccount Label="Depreciation Expense (Debit)"
-                                                 Accounts="@expenseAccounts"
-                                                 @bind-Value="model.DepreciationExpenseAccountId"
-                                                 IsInvalid="@(model.DepreciationExpenseAccountId == Guid.Empty)" />
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end gap-3 mt-6">
-                        <button type="button" @onclick="() => showModal = false" class="px-4 py-2 border rounded-lg">Cancel</button>
-                        <button type="submit" class="px-6 py-2 bg-slate-900 text-white rounded-lg font-bold">Save Asset</button>
-                    </div>
-                </EditForm>
-            </div>
-        </div>
-    }
-
-    @if (showDeprModal)
-    {
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-                <div class="mx-auto w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
-                    <svg class="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
+                <div class="p-6 border-b border-slate-100 bg-slate-50">
+                    <h3 class="text-xl font-bold text-slate-900">Add Fixed Asset</h3>
                 </div>
-                <h3 class="text-lg font-bold text-slate-900">Run Monthly Depreciation</h3>
-                <p class="text-sm text-slate-500 mb-4">This will generate GL journals for all eligible active assets.</p>
 
-                <input type="date" @bind="deprDate" class="input-class mb-6 text-center" />
+                <div class="p-6 overflow-y-auto">
+                    <EditForm Model="model" OnValidSubmit="SaveAsset">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="space-y-6">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="label">Asset Name <span class="text-rose-500">*</span></label>
+                                    <InputText @bind-Value="model.AssetName" class="input-class" placeholder="e.g. Delivery Truck" />
+                                </div>
+                                <div>
+                                    <label class="label">Asset Tag <span class="text-rose-500">*</span></label>
+                                    <InputText @bind-Value="model.AssetTag" class="input-class" placeholder="FA-2026-..." />
+                                </div>
+                            </div>
 
-                <div class="flex gap-2 justify-center">
-                    <button @onclick="() => showDeprModal = false" class="px-4 py-2 border rounded-lg">Cancel</button>
-                    <button @onclick="RunDepreciation" disabled="@isBusy" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold shadow-md hover:bg-indigo-700 disabled:opacity-50">
-                        @(isBusy ? "Running..." : "Confirm Run")
-                    </button>
+                            <div class="grid grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                <div>
+                                    <label class="label">Purchase Cost</label>
+                                    <InputNumber @bind-Value="model.PurchaseCost" class="input-class" />
+                                </div>
+                                <div>
+                                    <label class="label">Salvage Value</label>
+                                    <InputNumber @bind-Value="model.SalvageValue" class="input-class" />
+                                </div>
+                                <div>
+                                    <label class="label">Life (Months)</label>
+                                    <InputNumber @bind-Value="model.UsefulLifeMonths" class="input-class" />
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="label">Purchase Date</label>
+                                    <InputDate @bind-Value="model.PurchaseDate" class="input-class" />
+                                </div>
+                                <div>
+                                    <label class="label">Depreciation Start</label>
+                                    <InputDate @bind-Value="model.DepreciationStartDate" class="input-class" />
+                                </div>
+                            </div>
+
+                            <div class="bg-indigo-50/50 p-4 rounded-xl space-y-4 border border-indigo-100">
+                                <h4 class="text-xs font-bold text-indigo-500 uppercase tracking-wide">Accounting Setup</h4>
+
+                                <SearchableGlAccount Label="Fixed Asset Account (Debit)"
+                                                     Accounts="@assetAccounts"
+                                                     @bind-Value="model.FixedAssetAccountId" />
+
+                                <SearchableGlAccount Label="Accumulated Depr. Account (Credit)"
+                                                     Accounts="@liabilityAccounts"
+                                                     @bind-Value="model.AccumulatedDepreciationAccountId" />
+
+                                <SearchableGlAccount Label="Depreciation Expense Account (Debit)"
+                                                     Accounts="@expenseAccounts"
+                                                     @bind-Value="model.DepreciationExpenseAccountId" />
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                            <button type="button" @onclick="() => showModal = false" class="px-5 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">Cancel</button>
+                            <button type="submit" class="px-6 py-2 bg-slate-900 text-white rounded-lg font-bold shadow hover:bg-slate-800">Save Asset</button>
+                        </div>
+                    </EditForm>
                 </div>
             </div>
         </div>
     }
-
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.25rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.5rem;
-        font-size: 0.875rem;
-    }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; outline: none; transition: border-color 0.2s; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
 </style>
 
 @code {
     private List<FixedAsset> assets = new();
     private FixedAsset model = new();
-
-    // Dropdowns (Corrected Types)
     private List<SegChartOfAccount> assetAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
-    private List<SegAccountType> accountTypes = new();
-
+    
     private bool isLoading = true;
     private bool showModal = false;
-    private bool showDeprModal = false;
-    private bool isBusy = false;
     private Guid currentCompanyId;
-    private DateTime deprDate = DateTime.Today;
 
     protected override async Task OnInitializedAsync()
     {
@@ -211,57 +183,52 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
+            var types = await SegCoaService.GetAccountTypesAsync();
+            var allCoa = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
 
-            // 1. Get Types
-            accountTypes = await SegCoaService.GetAccountTypesAsync();
-
-            // 2. Get All COA
-            var allGl = await SegCoaService.GetCoaAsync(currentCompanyId);
-
-            // 3. Filter using Flags
-
-            // Assets: BS=True, Dr=True
-            assetAccounts = FilterAccounts(allGl, true, true);
-
-            // Liability (Contra-Asset): BS=True, Dr=False (Accum Depr)
-            liabilityAccounts = FilterAccounts(allGl, true, false);
-
-            // Expense: BS=False, Dr=True
-            expenseAccounts = FilterAccounts(allGl, false, true);
+            assetAccounts = FilterAccounts(allCoa, types, isBs: true, isDr: true);
+            liabilityAccounts = FilterAccounts(allCoa, types, isBs: true, isDr: false);
+            expenseAccounts = FilterAccounts(allCoa, types, isBs: false, isDr: true);
 
             await LoadData();
         }
         isLoading = false;
     }
 
-    private List<SegChartOfAccount> FilterAccounts(List<SegChartOfAccount> source, bool isBs, bool isDr)
+    private List<SegChartOfAccount> FilterAccounts(List<SegChartOfAccount> coa, List<SegAccountType> types, bool isBs, bool isDr)
     {
-        return source.Where(a =>
-        {
-            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-            return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr;
+        return coa.Where(a => {
+            var t = types.FirstOrDefault(x => x.Id == a.SegAccountTypeId);
+            return t != null && t.IsBalanceSheet == isBs && t.IsDebit == isDr;
         }).OrderBy(x => x.AccountCode).ToList();
     }
 
     private async Task LoadData() => assets = await AssetService.GetAssetsAsync(currentCompanyId);
 
-    private void CreateNew() { model = new FixedAsset { CompanyId = currentCompanyId, PurchaseDate = DateTime.Today, DepreciationStartDate = DateTime.Today }; showModal = true; }
+    private void CreateNew() 
+    { 
+        model = new FixedAsset 
+        { 
+            CompanyId = currentCompanyId, 
+            PurchaseDate = DateTime.Today, 
+            DepreciationStartDate = DateTime.Today 
+        }; 
+        showModal = true; 
+    }
 
     private async Task SaveAsset()
     {
         var err = await AssetService.CreateAssetAsync(model);
-        if (string.IsNullOrEmpty(err)) { showModal = false; await LoadData(); }
-        else await JS.InvokeVoidAsync("alert", err);
-    }
-
-    private async Task RunDepreciation()
-    {
-        isBusy = true;
-        var res = await AssetService.RunMonthlyDepreciationAsync(currentCompanyId, deprDate);
-        await JS.InvokeVoidAsync("alert", res);
-        showDeprModal = false;
-        await LoadData();
-        isBusy = false;
+        if (string.IsNullOrEmpty(err)) 
+        { 
+            showModal = false; 
+            await LoadData(); 
+            await JS.InvokeVoidAsync("alert", "Asset Saved Successfully!");
+        }
+        else 
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
     }
 
     private string GetStatusColor(AssetStatus s) => s switch

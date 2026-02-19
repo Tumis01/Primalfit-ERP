@@ -15,7 +15,6 @@ namespace Primafit_ERP.Services
             _glOps = glOps;
         }
 
-        // 1. GET ASSETS
         public async Task<List<FixedAsset>> GetAssetsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -26,34 +25,39 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        // 2. ACQUIRE ASSET (Create or Update)
         public async Task<string> CreateAssetAsync(FixedAsset asset)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Validate Accounts
-            if (asset.FixedAssetAccountId == Guid.Empty ||
-                asset.AccumulatedDepreciationAccountId == Guid.Empty ||
+            if (string.IsNullOrWhiteSpace(asset.AssetName)) return "Asset Name is required.";
+            
+            if (asset.FixedAssetAccountId == Guid.Empty || 
+                asset.AccumulatedDepreciationAccountId == Guid.Empty || 
                 asset.DepreciationExpenseAccountId == Guid.Empty)
             {
-                return "Please map all GL accounts (Asset, Accum. Depr, Expense).";
+                return "Please map all GL accounts.";
             }
 
-            // 2. Check Database for existence
-            bool exists = await ctx.FixedAssets.AnyAsync(a => a.Id == asset.Id);
+            var existing = await ctx.FixedAssets.FindAsync(asset.Id);
 
-            if (!exists)
+            if (existing == null)
             {
-                // --- NEW ASSET ---
                 if (asset.Id == Guid.Empty) asset.Id = Guid.NewGuid();
-                // Set Initial Book Value
-                asset.CurrentBookValue = asset.PurchaseCost;
+                asset.CurrentBookValue = asset.PurchaseCost; 
                 ctx.FixedAssets.Add(asset);
             }
             else
             {
-                // --- UPDATE EXISTING ---
-                ctx.FixedAssets.Update(asset);
+                if (existing.LastDepreciationDate.HasValue && existing.PurchaseCost != asset.PurchaseCost)
+                {
+                    return "Cannot change Purchase Cost after depreciation has started.";
+                }
+                
+                asset.CompanyId = existing.CompanyId;
+                asset.CurrentBookValue = existing.CurrentBookValue;
+                asset.LastDepreciationDate = existing.LastDepreciationDate;
+                
+                ctx.Entry(existing).CurrentValues.SetValues(asset);
             }
 
             try
@@ -61,110 +65,115 @@ namespace Primafit_ERP.Services
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
-            catch (Exception ex)
-            {
-                return $"Error saving asset: {ex.Message}";
-            }
+            catch (Exception ex) { return $"Error: {ex.Message}"; }
         }
 
-        // 3. RUN DEPRECIATION (The Core Engine)
-        public async Task<string> RunMonthlyDepreciationAsync(Guid companyId, DateTime periodDate)
+        // =========================================================
+        // AUTOMATED CATCH-UP LOGIC
+        // =========================================================
+        public async Task RunAutomatedCatchUpForCompanyAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // A. Find Assets eligible for depreciation
+            // 1. Find the starting point
+            var assets = await ctx.FixedAssets
+                .Where(a => a.CompanyId == companyId && a.Status == AssetStatus.Active)
+                .ToListAsync();
+
+            if (!assets.Any()) return;
+
+            DateTime? earliestLastRun = assets.Where(a => a.LastDepreciationDate.HasValue).Min(a => a.LastDepreciationDate);
+            DateTime earliestStart = assets.Min(a => a.DepreciationStartDate);
+
+            DateTime nextRunDate;
+
+            if (earliestLastRun.HasValue)
+            {
+                // Start from the end of the month FOLLOWING the last run
+                var last = earliestLastRun.Value;
+                var nextMonthStart = new DateTime(last.Year, last.Month, 1).AddMonths(1);
+                nextRunDate = new DateTime(nextMonthStart.Year, nextMonthStart.Month, DateTime.DaysInMonth(nextMonthStart.Year, nextMonthStart.Month));
+            }
+            else
+            {
+                // Start from end of the earliest start month
+                nextRunDate = new DateTime(earliestStart.Year, earliestStart.Month, DateTime.DaysInMonth(earliestStart.Year, earliestStart.Month));
+            }
+
+            // 2. Loop until caught up to Today
+            while (nextRunDate <= DateTime.Today)
+            {
+                await RunMonthlyDepreciationAsync(companyId, nextRunDate);
+
+                // Move to end of next month
+                var nextMonth = new DateTime(nextRunDate.Year, nextRunDate.Month, 1).AddMonths(1);
+                nextRunDate = new DateTime(nextMonth.Year, nextMonth.Month, DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month));
+            }
+        }
+
+        public async Task<string> RunMonthlyDepreciationAsync(Guid companyId, DateTime runDate)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
             var assets = await ctx.FixedAssets
                 .Where(a => a.CompanyId == companyId
                             && a.Status == AssetStatus.Active
-                            && a.DepreciationStartDate <= periodDate
+                            && a.DepreciationStartDate <= runDate
                             && a.CurrentBookValue > a.SalvageValue)
                 .ToListAsync();
 
-            if (!assets.Any()) return "No eligible assets found for depreciation.";
-
-            // Filter out assets already depreciated this month
-            var eligibleAssets = assets.Where(a =>
-                a.LastDepreciationDate == null ||
-                (a.LastDepreciationDate.Value.Month != periodDate.Month || a.LastDepreciationDate.Value.Year != periodDate.Year)
+            // Filter assets already run for this specific period
+            var eligibleAssets = assets.Where(a => 
+                a.LastDepreciationDate == null || 
+                (a.LastDepreciationDate.Value.Year < runDate.Year) || 
+                (a.LastDepreciationDate.Value.Year == runDate.Year && a.LastDepreciationDate.Value.Month < runDate.Month)
             ).ToList();
 
-            if (!eligibleAssets.Any()) return "Depreciation already run for this month.";
+            if (!eligibleAssets.Any()) return "No eligible assets found.";
 
             var glLines = new List<GLJournalLine>();
-            decimal totalDepreciation = 0;
+            decimal totalRunAmount = 0;
 
-            // B. Calculate for each asset
             foreach (var asset in eligibleAssets)
             {
+                // Sequential Safety Check
+                if (asset.LastDepreciationDate.HasValue)
+                {
+                    var expectedNext = asset.LastDepreciationDate.Value.AddMonths(1);
+                    if (runDate > expectedNext.AddDays(5)) continue; 
+                }
+
                 if (asset.UsefulLifeMonths <= 0) continue;
 
-                // Straight Line: (Cost - Salvage) / Life
                 decimal monthlyAmount = (asset.PurchaseCost - asset.SalvageValue) / asset.UsefulLifeMonths;
 
-                // Cap check: Don't depreciate below salvage
                 if ((asset.CurrentBookValue - monthlyAmount) < asset.SalvageValue)
-                {
                     monthlyAmount = asset.CurrentBookValue - asset.SalvageValue;
-                }
 
                 if (monthlyAmount <= 0) continue;
 
-                // Update Asset
                 asset.CurrentBookValue -= monthlyAmount;
-                asset.LastDepreciationDate = periodDate;
-                if (asset.CurrentBookValue <= asset.SalvageValue)
-                {
-                    asset.Status = AssetStatus.FullyDepreciated;
-                }
+                asset.LastDepreciationDate = runDate;
+                if (asset.CurrentBookValue <= asset.SalvageValue) asset.Status = AssetStatus.FullyDepreciated;
 
-                // Add to History
-                ctx.Add(new AssetDepreciationHistory
-                {
-                    FixedAssetId = asset.Id,
-                    Date = periodDate,
-                    Amount = monthlyAmount
-                });
+                glLines.Add(new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = monthlyAmount, Credit = 0, Reference = $"Depr {runDate:MM/yy}: {asset.AssetTag}" });
+                glLines.Add(new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = monthlyAmount, Reference = $"Accum Depr: {asset.AssetTag}" });
 
-                // Build GL Lines
-                // Dr Depreciation Expense
-                glLines.Add(new GLJournalLine
-                {
-                    SegCoaId = asset.DepreciationExpenseAccountId, // CHANGED: AccountId -> SegCoaId
-                    Debit = monthlyAmount,
-                    Credit = 0,
-                    Reference = $"Depr: {asset.AssetTag}"
-                });
-
-                // Cr Accumulated Depreciation
-                glLines.Add(new GLJournalLine
-                {
-                    SegCoaId = asset.AccumulatedDepreciationAccountId, // CHANGED: AccountId -> SegCoaId
-                    Debit = 0,
-                    Credit = monthlyAmount,
-                    Reference = $"Accum Depr: {asset.AssetTag}"
-                });
-
-                totalDepreciation += monthlyAmount;
+                ctx.Add(new AssetDepreciationHistory { FixedAssetId = asset.Id, Date = runDate, Amount = monthlyAmount });
+                totalRunAmount += monthlyAmount;
             }
 
-            // C. Post Batch
             if (glLines.Any())
             {
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
-                    companyId,
-                    DateOnly.FromDateTime(periodDate),
-                    "Asset Depreciation",
-                    $"Monthly Run: {periodDate:MMM yyyy}",
-                    glLines
-                );
-
-                if (!string.IsNullOrEmpty(err)) return $"GL Error: {err}";
-
+                    companyId, DateOnly.FromDateTime(runDate), 
+                    "Asset Depreciation", $"Auto-Run: {runDate:MMM yyyy}", glLines);
+                
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
             }
 
             await ctx.SaveChangesAsync();
-            return $"Success! Depreciated {eligibleAssets.Count} assets. Total: {totalDepreciation:C}";
+            return $"Processed {eligibleAssets.Count} assets. Total: {totalRunAmount:C}";
         }
     }
 }

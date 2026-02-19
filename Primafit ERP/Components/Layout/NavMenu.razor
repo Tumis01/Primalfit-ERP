@@ -144,7 +144,6 @@
                             <NavLink href="ar/payment-entry" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Customer Receipt
                             </NavLink>
-                            @* --- NEW: CREDIT NOTES --- *@
                             <NavLink href="sales/credit-notes" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Credit Notes
                             </NavLink>
@@ -337,14 +336,14 @@
                 <span class="flex-1 font-medium">Reconciliation</span>
             </NavLink>
 
-            @* 10. REPORTS *@
+            @* 10. REPORTS & ANALYTICS *@
             <div class="space-y-1">
                 <button @onclick="ToggleReportMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
                         <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <span class="flex-1 text-left font-medium">Financial Reports</span>
+                        <span class="flex-1 text-left font-medium">Reports & Analytics</span>
                     </div>
                     <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_reportMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
@@ -354,9 +353,37 @@
                 {
                     <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
                         <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+    
                         <div class="space-y-1 pt-1">
+                            <NavLink href="/reports/trial-balance" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Trial Balance
+                            </NavLink>
                             <NavLink href="gl/general-ledger" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Ledger Report
+                            </NavLink>
+        
+                            <NavLink href="reports/profit-and-loss" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Profit & Loss
+                            </NavLink>
+        
+                            <NavLink href="reports/balance-sheet" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Balance Sheet
+                            </NavLink>
+        
+                            <NavLink href="reports/budget-variance" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Budget Variance
+                            </NavLink>
+
+                            <NavLink href="reports/inventory-valuation" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Inventory Valuation
+                            </NavLink>
+
+                            <NavLink href="reports/consumption-log" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Consumption Log
+                            </NavLink>
+
+                            <NavLink href="reports/stock-aging" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Stock Aging
                             </NavLink>
                         </div>
                     </div>
@@ -465,14 +492,14 @@
         // Auto-open Menus based on current path
         var path = new Uri(Nav.Uri).AbsolutePath.Trim('/').ToLowerInvariant();
 
-        _reportMenuOpen = path.StartsWith("gl/trial-balance");
+        // UPDATED: Ensure the Report Menu stays open if the path starts with "reports/" or "gl/general-ledger"
+        _reportMenuOpen = path.StartsWith("reports/") || path.StartsWith("gl/general-ledger") || path.StartsWith("gl/trial-balance");
 
         _financeMenuOpen = (path.StartsWith("finance/") || path.StartsWith("gl/") || path.StartsWith("seg-"))
             && !_reportMenuOpen
             && !path.Contains("bank-reconciliation")
             && !path.Contains("budget");
 
-        // Updated logic to include 'sales/' path for Credit Notes
         _salesMenuOpen = path.StartsWith("sc/sales") || path.StartsWith("ar/") || path.StartsWith("sales/");
 
         _purchasingMenuOpen = path.StartsWith("procurement/") || path.StartsWith("ap/") || path.StartsWith("purchases/");

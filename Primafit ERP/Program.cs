@@ -76,6 +76,12 @@ builder.Services.AddScoped<SegCoaService>();
 builder.Services.AddScoped<SegmentsSetupService>();
 builder.Services.AddScoped<PurchaseReturnService>();
 builder.Services.AddScoped<CreditNoteService>();
+builder.Services.AddScoped<InventoryValuationService>();
+builder.Services.AddHostedService<Primafit_ERP.Services.DepreciationWorker>();
+builder.Services.AddScoped<ReportExportService>();
+builder.Services.AddScoped<OperationalReportingService>();
+builder.Services.AddScoped<FinancialReportingService>();
+builder.Services.AddScoped<TestDataSeederService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---
