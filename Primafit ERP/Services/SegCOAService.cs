@@ -174,13 +174,37 @@ namespace Primafit_ERP.Services
 
                 // 1. Base Requirements
                 if (draft.Segment0Id == Guid.Empty) return ("Segment0 is required.", null);
+                if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
 
-                // 2. Active Segment Validation
-                if (cfg.Segment1Active && (draft.Segment1Id == null || draft.Segment1Id == Guid.Empty)) return ($"{cfg.Segment1Name} is required.", null);
-                if (cfg.Segment2Active && (draft.Segment2Id == null || draft.Segment2Id == Guid.Empty)) return ($"{cfg.Segment2Name} is required.", null);
-                if (cfg.Segment3Active && (draft.Segment3Id == null || draft.Segment3Id == Guid.Empty)) return ($"{cfg.Segment3Name} is required.", null);
-                if (cfg.Segment4Active && (draft.Segment4Id == null || draft.Segment4Id == Guid.Empty)) return ($"{cfg.Segment4Name} is required.", null);
-                if (cfg.Segment5Active && (draft.Segment5Id == null || draft.Segment5Id == Guid.Empty)) return ($"{cfg.Segment5Name} is required.", null);
+                // 2. BULLETPROOF "All-or-Nothing" Validation
+                // Check which segments actually have a valid selected value
+                bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
+                bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
+                bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
+                bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
+                bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
+
+                // Count how many segments are globally configured as Active
+                int activeCount = 0;
+                if (cfg.Segment1Active) activeCount++;
+                if (cfg.Segment2Active) activeCount++;
+                if (cfg.Segment3Active) activeCount++;
+                if (cfg.Segment4Active) activeCount++;
+                if (cfg.Segment5Active) activeCount++;
+
+                // Count how many of those active segments the user actually filled out
+                int selectedCount = 0;
+                if (cfg.Segment1Active && hasS1) selectedCount++;
+                if (cfg.Segment2Active && hasS2) selectedCount++;
+                if (cfg.Segment3Active && hasS3) selectedCount++;
+                if (cfg.Segment4Active && hasS4) selectedCount++;
+                if (cfg.Segment5Active && hasS5) selectedCount++;
+
+                // The Core Rule: If they started picking sub-segments, they must pick ALL of them.
+                if (selectedCount > 0 && selectedCount < activeCount)
+                {
+                    return ($"Validation Error: You must either leave optional segments blank, or select a value for all {activeCount} active segments.", null);
+                }
 
                 // 3. Compute Code & Description
                 var (accountCode, computedDesc, err) = await BuildCodeAndDescriptionAsync(ctx, draft.CompanyId,
@@ -190,7 +214,6 @@ namespace Primafit_ERP.Services
 
                 var finalDesc = string.IsNullOrWhiteSpace(draft.Description) ? computedDesc : draft.Description.Trim();
                 if (string.IsNullOrWhiteSpace(finalDesc)) return ("Description is required.", null);
-                if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
 
                 // 4. Duplicate Check (Exclude self if updating)
                 var codeExistsQuery = ctx.Set<SegChartOfAccount>()
@@ -214,15 +237,15 @@ namespace Primafit_ERP.Services
                     account = await ctx.Set<SegChartOfAccount>().FindAsync(draft.Id.Value);
                     if (account == null) return ("Account not found for update.", null);
 
-                    // Update Fields
+                    // Update Fields (we safely assign null if they cleared the optional segments)
                     account.Segment0Id = draft.Segment0Id;
-                    account.Segment1Id = draft.Segment1Id;
-                    account.Segment2Id = draft.Segment2Id;
-                    account.Segment3Id = draft.Segment3Id;
-                    account.Segment4Id = draft.Segment4Id;
-                    account.Segment5Id = draft.Segment5Id;
+                    account.Segment1Id = hasS1 ? draft.Segment1Id : null;
+                    account.Segment2Id = hasS2 ? draft.Segment2Id : null;
+                    account.Segment3Id = hasS3 ? draft.Segment3Id : null;
+                    account.Segment4Id = hasS4 ? draft.Segment4Id : null;
+                    account.Segment5Id = hasS5 ? draft.Segment5Id : null;
 
-                    account.AccountCode = accountCode; // Code might change if segments changed
+                    account.AccountCode = accountCode;
                     account.Description = finalDesc;
                     account.SegAccountTypeId = draft.SegAccountTypeId;
                     account.AllowJournal = draft.AllowJournal;
@@ -238,11 +261,11 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         CompanyId = draft.CompanyId,
                         Segment0Id = draft.Segment0Id,
-                        Segment1Id = draft.Segment1Id,
-                        Segment2Id = draft.Segment2Id,
-                        Segment3Id = draft.Segment3Id,
-                        Segment4Id = draft.Segment4Id,
-                        Segment5Id = draft.Segment5Id,
+                        Segment1Id = hasS1 ? draft.Segment1Id : null,
+                        Segment2Id = hasS2 ? draft.Segment2Id : null,
+                        Segment3Id = hasS3 ? draft.Segment3Id : null,
+                        Segment4Id = hasS4 ? draft.Segment4Id : null,
+                        Segment5Id = hasS5 ? draft.Segment5Id : null,
                         AccountCode = accountCode,
                         Description = finalDesc,
                         SegAccountTypeId = draft.SegAccountTypeId,

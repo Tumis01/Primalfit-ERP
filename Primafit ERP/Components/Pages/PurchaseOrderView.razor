@@ -159,7 +159,7 @@
                                             <span class="font-mono font-bold text-slate-900">@stat.TotalSpent.ToString("N0") <span class="text-[10px] text-slate-400">@companyBaseCurrency</span></span>
                                         </div>
                                         <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                            <div class="h-full bg-indigo-500 rounded-full transition-all duration-500" style="width: @(Math.Min((stat.TotalSpent / maxVendorSpend) * 100, 100))%"></div>
+                                            <div class="h-full bg-indigo-500 rounded-full transition-all duration-500" style="width: @(Math.Min((stat.TotalSpent / (maxVendorSpend == 0 ? 1 : maxVendorSpend)) * 100, 100))%"></div>
                                         </div>
                                     </div>
                                 </div>

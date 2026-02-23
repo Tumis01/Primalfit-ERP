@@ -309,7 +309,7 @@
     private string draftCode = "";
     private bool showBuilder = false;
     private bool descTouched = false;
-    private bool isEditing = false; // To track UI state
+    private bool isEditing = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -367,12 +367,11 @@
         isEditing = false;
     }
 
-    // --- EDIT LOGIC ---
     private void EditAccount(SegChartOfAccount acc)
     {
         draft = new SegCoaService.SegCoaDraft
         {
-            Id = acc.Id, // Set ID to trigger update mode
+            Id = acc.Id,
             CompanyId = acc.CompanyId,
             Segment0Id = acc.Segment0Id,
             Segment1Id = acc.Segment1Id,
@@ -387,7 +386,7 @@
         };
 
         draftCode = acc.AccountCode;
-        descTouched = true; // Prevent auto-overwriting description immediately
+        descTouched = true;
         isEditing = true;
         showBuilder = true;
     }
@@ -426,7 +425,7 @@
 
     private async Task SaveAccount()
     {
-        // 1. Base Mandatory Validation
+        // 1. Base Mandatory Validation (Checking against Guid.Empty natively)
         if (draft.Segment0Id == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", $"{cfg.Segment0Name} is required.");
@@ -439,20 +438,32 @@
             return;
         }
 
-        // 2. "All-or-Nothing" Active Sub-Segments Validation
-        int activeSubSegmentsCount = 0;
-        int selectedSubSegmentsCount = 0;
+        // 2. BULLETPROOF "All-or-Nothing" Validation
+        // We explicitly check that the ID has a value AND is not Guid.Empty to prevent false positives.
+        bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
+        bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
+        bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
+        bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
+        bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
 
-        if (cfg.Segment1Active) { activeSubSegmentsCount++; if (draft.Segment1Id.HasValue) selectedSubSegmentsCount++; }
-        if (cfg.Segment2Active) { activeSubSegmentsCount++; if (draft.Segment2Id.HasValue) selectedSubSegmentsCount++; }
-        if (cfg.Segment3Active) { activeSubSegmentsCount++; if (draft.Segment3Id.HasValue) selectedSubSegmentsCount++; }
-        if (cfg.Segment4Active) { activeSubSegmentsCount++; if (draft.Segment4Id.HasValue) selectedSubSegmentsCount++; }
-        if (cfg.Segment5Active) { activeSubSegmentsCount++; if (draft.Segment5Id.HasValue) selectedSubSegmentsCount++; }
+        int activeCount = 0;
+        if (cfg.Segment1Active) activeCount++;
+        if (cfg.Segment2Active) activeCount++;
+        if (cfg.Segment3Active) activeCount++;
+        if (cfg.Segment4Active) activeCount++;
+        if (cfg.Segment5Active) activeCount++;
 
-        // If they started picking segments but didn't finish picking ALL active ones
-        if (selectedSubSegmentsCount > 0 && selectedSubSegmentsCount < activeSubSegmentsCount)
+        int selectedCount = 0;
+        if (cfg.Segment1Active && hasS1) selectedCount++;
+        if (cfg.Segment2Active && hasS2) selectedCount++;
+        if (cfg.Segment3Active && hasS3) selectedCount++;
+        if (cfg.Segment4Active && hasS4) selectedCount++;
+        if (cfg.Segment5Active && hasS5) selectedCount++;
+
+        // If they selected SOME but not ALL active configuration segments
+        if (selectedCount > 0 && selectedCount < activeCount)
         {
-            await JS.InvokeVoidAsync("alert", "Validation Error: You have partially selected segments. You must either leave all optional segments blank, or select a value for all active segments.");
+            await JS.InvokeVoidAsync("alert", $"Validation Error: You have a partial setup. You must either leave them all blank, or select a value for all {activeCount} active segments.");
             return;
         }
 
