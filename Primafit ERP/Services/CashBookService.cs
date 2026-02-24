@@ -45,18 +45,15 @@ namespace Primafit_ERP.Services
 
         public async Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId)
         {
-            // NOTE: bankAccountId here is now a SegCoaId (BankSegCoaId). Interface kept name for compatibility.
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Validate selected bank account exists in Seg COA
             var bank = await ctx.SegChartOfAccounts
                 .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == bankAccountId && x.IsActive);
 
             if (bank == null)
-                throw new InvalidOperationException("Selected bank account does not exist in Segmented COA or is Inactive.");
+                throw new InvalidOperationException("Selected bank account does not exist or is Inactive.");
 
-            // Opening balance from segmented GL transactions
             decimal openingBal = await ctx.GLTransactions
                 .Where(t => t.CompanyId == companyId && t.SegCoaId == bankAccountId)
                 .SumAsync(t => t.Debit - t.Credit);
@@ -153,10 +150,8 @@ namespace Primafit_ERP.Services
             if (!batch.Entries.Any()) return "Cannot post empty batch.";
             if (batch.PostedGLBatchId.HasValue) return "Batch already posted to GL.";
 
-            // Posting date derived from entries
             var postingDate = DateOnly.FromDateTime(batch.Entries.Max(e => e.TransactionDate));
 
-            // Validate Seg COA exists for bank + all offset accounts
             var allCoaIds = batch.Entries.Select(e => e.OffsetSegCoaId).ToList();
             allCoaIds.Add(batch.BankSegCoaId);
             allCoaIds = allCoaIds.Where(x => x != Guid.Empty).Distinct().ToList();
@@ -170,43 +165,36 @@ namespace Primafit_ERP.Services
             if (existingIds.Count != allCoaIds.Count)
                 return "One or more selected accounts do not exist in Segmented COA.";
 
-            // Prepare GL lines
             var glLines = new List<GLJournalLine>();
 
-            // Offset lines (swap logic)
+            // RULE 3 & 4: Balance each account individually against the bank (No cumulative totals)
             foreach (var entry in batch.Entries)
             {
-                if (entry.OffsetSegCoaId == Guid.Empty )
+                if (entry.OffsetSegCoaId == Guid.Empty)
                     return "One or more entries are missing an offset account.";
 
                 if (entry.Debit <= 0 && entry.Credit <= 0)
                     return "One or more entries have zero amount.";
 
+                // 1. The Offset Account Line (Gets exactly what the user typed in the UI)
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = entry.OffsetSegCoaId,
-                    Debit = entry.Credit,   // swap
-                    Credit = entry.Debit,   // swap
+                    Debit = entry.Debit,
+                    Credit = entry.Credit,
                     Reference = $"{entry.Reference}: {entry.Description}",
+                });
+
+                // 2. The Bank Account Line (Immediately perfectly balances the offset)
+                glLines.Add(new GLJournalLine
+                {
+                    SegCoaId = batch.BankSegCoaId,
+                    Debit = entry.Credit, // Opposite of Offset
+                    Credit = entry.Debit, // Opposite of Offset
+                    Reference = $"Cashbook: {entry.Reference}"
                 });
             }
 
-            // Bank summary line
-            var totalDebit = batch.Entries.Sum(e => e.Debit);
-            var totalCredit = batch.Entries.Sum(e => e.Credit);
-
-            if (totalDebit <= 0 && totalCredit <= 0)
-                return "Nothing to post (total is zero).";
-
-            glLines.Add(new GLJournalLine
-            {
-                SegCoaId = batch.BankSegCoaId,
-                Debit = totalDebit,
-                Credit = totalCredit,
-                Reference = $"Cashbook Batch: {batch.BatchReference}"
-            });
-
-            // Create GL batch
             var (err, glBatchId) = await _glOps.CreateJournalEntryAsync(
                 batch.CompanyId,
                 postingDate,
@@ -216,12 +204,10 @@ namespace Primafit_ERP.Services
 
             if (!string.IsNullOrWhiteSpace(err)) return err;
 
-            // Mark cashbook as posted
             batch.Status = BatchStatus.Posted;
             batch.PostedGLBatchId = glBatchId;
             await ctx.SaveChangesAsync();
 
-            // Auto-post GL batch
             if (glBatchId.HasValue)
             {
                 var postErr = await _glOps.PostBatchAsync(batch.CompanyId, glBatchId.Value);
@@ -229,6 +215,29 @@ namespace Primafit_ERP.Services
                     return $"Cashbook marked as posted but GL posting failed: {postErr}";
             }
 
+            return string.Empty;
+        }
+        public async Task<string> DeleteDraftBatchAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var batch = await ctx.CashbookBatches
+                .Include(b => b.Entries) // Include entries to delete them safely
+                .FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Draft) return "Only draft batches can be deleted.";
+
+            // Explicitly remove entries first to prevent Foreign Key constraint errors
+            if (batch.Entries.Any())
+            {
+                ctx.CashbookEntries.RemoveRange(batch.Entries);
+            }
+
+            // Remove the batch itself
+            ctx.CashbookBatches.Remove(batch);
+
+            await ctx.SaveChangesAsync();
             return string.Empty;
         }
     }

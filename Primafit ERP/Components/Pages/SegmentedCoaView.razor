@@ -83,86 +83,232 @@
 
                 <div class="p-6 space-y-6">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div class="space-y-1.5">
+                        
+                        <div class="relative space-y-1.5">
                             <label class="label">@cfg.Segment0Name (Required)</label>
-                            <select class="@InputClass" @onchange="OnSeg0Changed" value="@draft.Segment0Id">
-                                <option value="">-- select --</option>
-                                @foreach (var r in seg0)
+                            @if (draft.Segment0Id != Guid.Empty && !isSearching0)
+                            {
+                                <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching0 = true">
+                                    <span class="text-sm font-medium text-slate-900 truncate">
+                                        @{
+                                            var s0 = seg0.FirstOrDefault(x => x.Id == draft.Segment0Id);
+                                        }
+                                        @(s0 != null ? $"{s0.Code} - {s0.Description}" : "-- select --")
+                                    </span>
+                                    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
+                            }
+                            else
+                            {
+                                <input @bind="search0" @bind:event="oninput" @onfocus="() => isSearching0 = true" @onblur="OnBlur0" class="@InputClass" placeholder="Select @cfg.Segment0Name..." autofocus />
+                                @if (isSearching0)
                                 {
-                                    <option value="@r.Id">@r.Code - @r.Description</option>
+                                    <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                        @foreach (var r in seg0.Where(x => string.IsNullOrWhiteSpace(search0) || x.Code.Contains(search0, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search0, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg0(r.Id)">
+                                                <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                            </div>
+                                        }
+                                        @if (!seg0.Any(x => string.IsNullOrWhiteSpace(search0) || x.Code.Contains(search0, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search0, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="px-4 py-3 text-xs text-slate-400 text-center">No results found.</div>
+                                        }
+                                    </div>
                                 }
-                            </select>
+                            }
                         </div>
 
                         @if (cfg.Segment1Active)
                         {
-                            <div class="space-y-1.5">
+                            <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment1Name</label>
-                                <select class="@InputClass" @onchange="OnSeg1Changed" value="@draft.Segment1Id">
-                                    <option value="">-- select --</option>
-                                    @foreach (var r in seg1)
+                                @if (draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty && !isSearching1)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching1 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s1 = seg1.FirstOrDefault(x => x.Id == draft.Segment1Id);
+                                            }
+                                            @(s1 != null ? $"{s1.Code} - {s1.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search1" @bind:event="oninput" @onfocus="() => isSearching1 = true" @onblur="OnBlur1" class="@InputClass" placeholder="Select @cfg.Segment1Name..." />
+                                    @if (isSearching1)
                                     {
-                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg1(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg1.Where(x => string.IsNullOrWhiteSpace(search1) || x.Code.Contains(search1, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search1, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg1(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                </select>
+                                }
                             </div>
                         }
 
                         @if (cfg.Segment2Active)
                         {
-                            <div class="space-y-1.5">
+                            <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment2Name</label>
-                                <select class="@InputClass" @onchange="OnSeg2Changed" value="@draft.Segment2Id">
-                                    <option value="">-- select --</option>
-                                    @foreach (var r in seg2)
+                                @if (draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty && !isSearching2)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching2 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s2 = seg2.FirstOrDefault(x => x.Id == draft.Segment2Id);
+                                            }
+                                            @(s2 != null ? $"{s2.Code} - {s2.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search2" @bind:event="oninput" @onfocus="() => isSearching2 = true" @onblur="OnBlur2" class="@InputClass" placeholder="Select @cfg.Segment2Name..." />
+                                    @if (isSearching2)
                                     {
-                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg2(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg2.Where(x => string.IsNullOrWhiteSpace(search2) || x.Code.Contains(search2, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search2, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg2(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                </select>
+                                }
                             </div>
                         }
 
                         @if (cfg.Segment3Active)
                         {
-                            <div class="space-y-1.5">
+                            <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment3Name</label>
-                                <select class="@InputClass" @onchange="OnSeg3Changed" value="@draft.Segment3Id">
-                                    <option value="">-- select --</option>
-                                    @foreach (var r in seg3)
+                                @if (draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty && !isSearching3)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching3 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s3 = seg3.FirstOrDefault(x => x.Id == draft.Segment3Id);
+                                            }
+                                            @(s3 != null ? $"{s3.Code} - {s3.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search3" @bind:event="oninput" @onfocus="() => isSearching3 = true" @onblur="OnBlur3" class="@InputClass" placeholder="Select @cfg.Segment3Name..." />
+                                    @if (isSearching3)
                                     {
-                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg3(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg3.Where(x => string.IsNullOrWhiteSpace(search3) || x.Code.Contains(search3, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search3, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg3(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                </select>
+                                }
                             </div>
                         }
 
                         @if (cfg.Segment4Active)
                         {
-                            <div class="space-y-1.5">
+                            <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment4Name</label>
-                                <select class="@InputClass" @onchange="OnSeg4Changed" value="@draft.Segment4Id">
-                                    <option value="">-- select --</option>
-                                    @foreach (var r in seg4)
+                                @if (draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty && !isSearching4)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching4 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s4 = seg4.FirstOrDefault(x => x.Id == draft.Segment4Id);
+                                            }
+                                            @(s4 != null ? $"{s4.Code} - {s4.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search4" @bind:event="oninput" @onfocus="() => isSearching4 = true" @onblur="OnBlur4" class="@InputClass" placeholder="Select @cfg.Segment4Name..." />
+                                    @if (isSearching4)
                                     {
-                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg4(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg4.Where(x => string.IsNullOrWhiteSpace(search4) || x.Code.Contains(search4, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search4, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg4(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                </select>
+                                }
                             </div>
                         }
 
                         @if (cfg.Segment5Active)
                         {
-                            <div class="space-y-1.5">
+                            <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment5Name</label>
-                                <select class="@InputClass" @onchange="OnSeg5Changed" value="@draft.Segment5Id">
-                                    <option value="">-- select --</option>
-                                    @foreach (var r in seg5)
+                                @if (draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty && !isSearching5)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching5 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s5 = seg5.FirstOrDefault(x => x.Id == draft.Segment5Id);
+                                            }
+                                            @(s5 != null ? $"{s5.Code} - {s5.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search5" @bind:event="oninput" @onfocus="() => isSearching5 = true" @onblur="OnBlur5" class="@InputClass" placeholder="Select @cfg.Segment5Name..." />
+                                    @if (isSearching5)
                                     {
-                                        <option value="@r.Id">@r.Code - @r.Description</option>
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg5(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg5.Where(x => string.IsNullOrWhiteSpace(search5) || x.Code.Contains(search5, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search5, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg5(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
                                     }
-                                </select>
+                                }
                             </div>
                         }
+
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -181,15 +327,40 @@
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                        <div class="space-y-1.5">
+                        
+                        <div class="relative space-y-1.5">
                             <label class="label">Account Type</label>
-                            <select class="@InputClass" @bind="draft.SegAccountTypeId">
-                                <option value="0">-- select --</option>
-                                @foreach (var t in types)
+                            @if (draft.SegAccountTypeId > 0 && !isSearchingType)
+                            {
+                                <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearchingType = true">
+                                    <span class="text-sm font-medium text-slate-900 truncate">
+                                        @{
+                                            var t = types.FirstOrDefault(x => x.Id == draft.SegAccountTypeId);
+                                        }
+                                        @(t != null ? t.Description : "-- select --")
+                                    </span>
+                                    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
+                            }
+                            else
+                            {
+                                <input @bind="searchType" @bind:event="oninput" @onfocus="() => isSearchingType = true" @onblur="OnBlurType" class="@InputClass" placeholder="Select Account Type..." />
+                                @if (isSearchingType)
                                 {
-                                    <option value="@t.Id">@t.Description</option>
+                                    <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                        @foreach (var r in types.Where(x => string.IsNullOrWhiteSpace(searchType) || x.Description.Contains(searchType, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectType(r.Id)">
+                                                <span class="text-slate-900 font-medium">@r.Description</span>
+                                            </div>
+                                        }
+                                        @if (!types.Any(x => string.IsNullOrWhiteSpace(searchType) || x.Description.Contains(searchType, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="px-4 py-3 text-xs text-slate-400 text-center">No results found.</div>
+                                        }
+                                    </div>
                                 }
-                            </select>
+                            }
                         </div>
 
                         <div class="col-span-2 flex items-center gap-6 mt-6">
@@ -286,12 +457,23 @@
 @code {
     private const string InputClass =
         "block w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 shadow-sm " +
-        "focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400";
+        "focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400 outline-none";
 
     private Guid selectedCompanyId;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
+
+    // Search Terms & UI States for Inline Filters
+    private string search0 = ""; private bool isSearching0 = false;
+    private string search1 = ""; private bool isSearching1 = false;
+    private string search2 = ""; private bool isSearching2 = false;
+    private string search3 = ""; private bool isSearching3 = false;
+    private string search4 = ""; private bool isSearching4 = false;
+    private string search5 = ""; private bool isSearching5 = false;
+    
+    // NEW: Search tracking for Account Type
+    private string searchType = ""; private bool isSearchingType = false;
 
     private SegCoaConfig cfg = new();
 
@@ -338,6 +520,7 @@
     private async Task LoadAll()
     {
         types = await Service.GetAccountTypesAsync();
+        
         seg0 = await Service.GetSegment0Async(selectedCompanyId);
         seg1 = await Service.GetSegment1Async(selectedCompanyId);
         seg2 = await Service.GetSegment2Async(selectedCompanyId);
@@ -361,10 +544,14 @@
 
     private void ResetDraft()
     {
-        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null };
+        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null, SegAccountTypeId = 0 };
         draftCode = "";
         descTouched = false;
         isEditing = false;
+
+        // Clear all search states
+        search0 = search1 = search2 = search3 = search4 = search5 = searchType = "";
+        isSearching0 = isSearching1 = isSearching2 = isSearching3 = isSearching4 = isSearching5 = isSearchingType = false;
     }
 
     private void EditAccount(SegChartOfAccount acc)
@@ -389,6 +576,10 @@
         descTouched = true;
         isEditing = true;
         showBuilder = true;
+        
+        // Clear all search states
+        search0 = search1 = search2 = search3 = search4 = search5 = searchType = "";
+        isSearching0 = isSearching1 = isSearching2 = isSearching3 = isSearching4 = isSearching5 = isSearchingType = false;
     }
 
     private async Task RebuildDraft()
@@ -412,34 +603,43 @@
             draft.Description = computedDesc;
     }
 
-    private async Task OnSeg0Changed(ChangeEventArgs e)
-    {
-        draft.Segment0Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : Guid.Empty;
-        await RebuildDraft();
-    }
-    private async Task OnSeg1Changed(ChangeEventArgs e) { draft.Segment1Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
-    private async Task OnSeg2Changed(ChangeEventArgs e) { draft.Segment2Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
-    private async Task OnSeg3Changed(ChangeEventArgs e) { draft.Segment3Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
-    private async Task OnSeg4Changed(ChangeEventArgs e) { draft.Segment4Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
-    private async Task OnSeg5Changed(ChangeEventArgs e) { draft.Segment5Id = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; await RebuildDraft(); }
+    // --- INLINE SEARCH & SELECT METHODS ---
+    private async Task OnBlur0() { await Task.Delay(150); isSearching0 = false; }
+    private async Task SelectSeg0(Guid id) { draft.Segment0Id = id; search0 = ""; isSearching0 = false; await RebuildDraft(); }
+
+    private async Task OnBlur1() { await Task.Delay(150); isSearching1 = false; }
+    private async Task SelectSeg1(Guid? id) { draft.Segment1Id = id; search1 = ""; isSearching1 = false; await RebuildDraft(); }
+
+    private async Task OnBlur2() { await Task.Delay(150); isSearching2 = false; }
+    private async Task SelectSeg2(Guid? id) { draft.Segment2Id = id; search2 = ""; isSearching2 = false; await RebuildDraft(); }
+
+    private async Task OnBlur3() { await Task.Delay(150); isSearching3 = false; }
+    private async Task SelectSeg3(Guid? id) { draft.Segment3Id = id; search3 = ""; isSearching3 = false; await RebuildDraft(); }
+
+    private async Task OnBlur4() { await Task.Delay(150); isSearching4 = false; }
+    private async Task SelectSeg4(Guid? id) { draft.Segment4Id = id; search4 = ""; isSearching4 = false; await RebuildDraft(); }
+
+    private async Task OnBlur5() { await Task.Delay(150); isSearching5 = false; }
+    private async Task SelectSeg5(Guid? id) { draft.Segment5Id = id; search5 = ""; isSearching5 = false; await RebuildDraft(); }
+
+    // NEW: Account Type Select Handler
+    private async Task OnBlurType() { await Task.Delay(150); isSearchingType = false; }
+    private void SelectType(int id) { draft.SegAccountTypeId = id; searchType = ""; isSearchingType = false; }
 
     private async Task SaveAccount()
     {
-        // 1. Base Mandatory Validation (Checking against Guid.Empty natively)
         if (draft.Segment0Id == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", $"{cfg.Segment0Name} is required.");
             return;
         }
 
-        if (draft.SegAccountTypeId == 0)
+        if (draft.SegAccountTypeId <= 0)
         {
             await JS.InvokeVoidAsync("alert", "Account Type is required.");
             return;
         }
 
-        // 2. BULLETPROOF "All-or-Nothing" Validation
-        // We explicitly check that the ID has a value AND is not Guid.Empty to prevent false positives.
         bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
         bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
         bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
@@ -460,14 +660,12 @@
         if (cfg.Segment4Active && hasS4) selectedCount++;
         if (cfg.Segment5Active && hasS5) selectedCount++;
 
-        // If they selected SOME but not ALL active configuration segments
         if (selectedCount > 0 && selectedCount < activeCount)
         {
-            await JS.InvokeVoidAsync("alert", $"Validation Error: You have a partial setup. You must either leave them all blank, or select a value for all {activeCount} active segments.");
+            await JS.InvokeVoidAsync("alert", $"Select a value for all {activeCount} active segments.");
             return;
         }
 
-        // 3. Proceed to Save
         draft.CompanyId = selectedCompanyId;
         var (err, created) = await Service.SaveAccountAsync(draft);
         if (!string.IsNullOrEmpty(err))

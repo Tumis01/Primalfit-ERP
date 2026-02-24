@@ -9,9 +9,11 @@ namespace Primafit_ERP.Services
         Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankSegCoaId, string userId);
         Task<string> AddEntryAsync(CashbookEntry entry);
         Task<string> UpdateEntryAsync(CashbookEntry entry);
+
         Task RemoveEntryAsync(Guid id);
         Task<string> SubmitForApprovalAsync(Guid batchId);
         Task<string> RevertToDraftAsync(Guid batchId);
         Task<string> PostBatchAsync(Guid batchId, string userId);
+        Task<string> DeleteDraftBatchAsync(Guid batchId);
     }
 }

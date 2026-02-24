@@ -89,6 +89,18 @@
                             <div class="flex gap-2">
                                 @if (selectedBatch.Status == BatchStatus.Draft)
                                 {
+                                    <button @onclick="DeleteBatch" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                                        <svg class="w-4 h-4 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        Delete Draft
+                                    </button>
+
+                                    <button @onclick="SubmitForApproval" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2 transition-colors">
+                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                        Lock Batch
+                                    </button>
+                                }
+                                @if (selectedBatch.Status == BatchStatus.Draft)
+                                {
                                     <button @onclick="SubmitForApproval" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2">
                                         <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                                         Lock Batch
@@ -125,7 +137,7 @@
                                     <div class="md:col-span-3">
                                         <SearchableGlAccount Label="Offset Account"
                                                              Placeholder="Search Account..."
-                                                             Accounts="@allAccounts"
+                                                             Accounts="@AvailableOffsetAccounts"
                                                              @bind-Value="entryForm.OffsetSegCoaId"
                                                              IsInvalid="@(entryForm.OffsetSegCoaId == Guid.Empty)" />
                                     </div>
@@ -141,13 +153,13 @@
                                     </div>
 
                                     <div class="md:col-span-2">
-                                        <label class="label text-emerald-700">Debit (In)</label>
-                                        <InputNumber @bind-Value="entryForm.Debit" @oninput="(e) => entryForm.Credit = 0" class="input-class py-2 font-bold text-emerald-700" placeholder="0.00" />
+                                        <label class="label text-rose-700">Debit </label>
+                                        <InputNumber @bind-Value="entryForm.Debit" @oninput="(e) => entryForm.Credit = 0" class="input-class py-2 font-bold text-rose-700" placeholder="0.00" />
                                     </div>
 
                                     <div class="md:col-span-2">
-                                        <label class="label text-rose-700">Credit (Out)</label>
-                                        <InputNumber @bind-Value="entryForm.Credit" @oninput="(e) => entryForm.Debit = 0" class="input-class py-2 font-bold text-rose-700" placeholder="0.00" />
+                                        <label class="label text-emerald-700">Credit </label>
+                                        <InputNumber @bind-Value="entryForm.Credit" @oninput="(e) => entryForm.Debit = 0" class="input-class py-2 font-bold text-emerald-700" placeholder="0.00" />
                                     </div>
 
                                     <div class="md:col-span-8 flex justify-end gap-2 mt-2">
@@ -237,7 +249,7 @@
                 <h3 class="text-lg font-bold text-slate-900 mb-4">Start New Cashbook Batch</h3>
 
                 <div class="space-y-4">
-                    <SearchableGlAccount Label="Select Bank/Cash Account (Asset)"
+                    <SearchableGlAccount Label="Select Bank/Cash Account"
                                          Placeholder="Search bank accounts..."
                                          Accounts="@bankAccounts"
                                          @bind-Value="newBatchAccountId"
@@ -286,24 +298,25 @@
 </style>
 
 @code {
-    // --- Context & State ---
     private Guid currentCompanyId;
     private string currentUserId = "";
     private bool isLoading = true;
     private bool showCreateModal = false;
     private bool isEditing = false;
 
-    // --- Data Sources ---
     private List<CashbookBatch> activeBatches = new();
     private List<SegChartOfAccount> allAccounts = new();
-    private List<SegChartOfAccount> bankAccounts = new(); // Filtered list
+    private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
     private List<AccountingPeriod> openPeriods = new();
 
-    // --- Models ---
     private CashbookBatch? selectedBatch;
     private CashbookEntry entryForm = new();
     private Guid newBatchAccountId;
+
+    // RULE 2: A dynamic list that strips the selected bank out of the offset options
+    private List<SegChartOfAccount> AvailableOffsetAccounts =>
+        allAccounts.Where(a => selectedBatch == null || a.Id != selectedBatch.BankSegCoaId).ToList();
 
     protected override async Task OnInitializedAsync()
     {
@@ -315,18 +328,16 @@
             currentCompanyId = user.CompanyDetailsId.Value;
             currentUserId = user.Id;
 
-            // 1. Fetch Types & COA
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            // 2. Filter Bank Accounts (Assets: IsBalanceSheet=True, IsDebit=True)
+            // RULE 1: Filter to ONLY "Cash and Cash Equivalents"
             bankAccounts = allAccounts.Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+                return type != null && type.Description.Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase);
             }).OrderBy(x => x.AccountCode).ToList();
 
-            // 3. Load Context Data
             openPeriods = await GLService.GetOpenPeriodsAsync(currentCompanyId);
             activeBatches = await CashService.GetActiveBatchesAsync(currentCompanyId);
         }
@@ -345,7 +356,6 @@
         ResetForm();
     }
 
-    // --- BATCH ACTIONS ---
     private void CreateBatch() => showCreateModal = true;
 
     private async Task ConfirmCreateBatch()
@@ -388,7 +398,6 @@
         }
     }
 
-    // --- ENTRY ACTIONS ---
     private async Task SaveEntry()
     {
         if (entryForm.OffsetSegCoaId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select an offset account."); return; }
@@ -438,7 +447,25 @@
             TransactionDate = DateTime.Today
         };
     }
+    private async Task DeleteBatch()
+    {
+        if (selectedBatch == null) return;
+    
+        // Safety prompt before deleting
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to permanently delete this Draft batch and all its entries? This cannot be undone.")) return;
 
+        var err = await CashService.DeleteDraftBatchAsync(selectedBatch.Id);
+    
+        if (string.IsNullOrEmpty(err))
+        {
+            selectedBatch = null; // Clear the selected view
+            await LoadBatches();  // Refresh the left-hand list
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
     private string GetAccountName(Guid id) => allAccounts.FirstOrDefault(a => a.Id == id)?.Description ?? "Unknown";
 
     private string GetStatusColor(BatchStatus status) => status switch

@@ -65,12 +65,59 @@ namespace Primafit_ERP.Services
         // -----------------------------
         // SEGMENT LISTS
         // -----------------------------
-        public Task<List<Segment0>> GetSegment0Async(Guid cId) => GetSegmentsAsync<Segment0>(cId);
-        public Task<List<Segment1>> GetSegment1Async(Guid cId) => GetSegmentsAsync<Segment1>(cId);
-        public Task<List<Segment2>> GetSegment2Async(Guid cId) => GetSegmentsAsync<Segment2>(cId);
-        public Task<List<Segment3>> GetSegment3Async(Guid cId) => GetSegmentsAsync<Segment3>(cId);
-        public Task<List<Segment4>> GetSegment4Async(Guid cId) => GetSegmentsAsync<Segment4>(cId);
-        public Task<List<Segment5>> GetSegment5Async(Guid cId) => GetSegmentsAsync<Segment5>(cId);
+        public async Task<List<Segment0>> GetSegment0Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment0s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
+
+        public async Task<List<Segment1>> GetSegment1Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment1s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
+
+        public async Task<List<Segment2>> GetSegment2Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment2s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
+
+        public async Task<List<Segment3>> GetSegment3Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment3s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
+
+        public async Task<List<Segment4>> GetSegment4Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment4s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
+
+        public async Task<List<Segment5>> GetSegment5Async(Guid companyId)
+        {
+            using var ctx = _dbFactory.CreateDbContext();
+            return await ctx.Segment5s
+                .Where(s => s.CompanyId == companyId)
+                .OrderBy(s => s.Code)
+                .ToListAsync();
+        }
 
         private async Task<List<T>> GetSegmentsAsync<T>(Guid companyId) where T : class
         {
@@ -203,7 +250,7 @@ namespace Primafit_ERP.Services
                 // The Core Rule: If they started picking sub-segments, they must pick ALL of them.
                 if (selectedCount > 0 && selectedCount < activeCount)
                 {
-                    return ($"Validation Error: You must either leave optional segments blank, or select a value for all {activeCount} active segments.", null);
+                    return ($"select a value for all {activeCount} active segments.", null);
                 }
 
                 // 3. Compute Code & Description
