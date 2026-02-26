@@ -173,7 +173,7 @@
                         else
                         {
                             <div class="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
-                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                 Please select a Customer and an Order to view items.
                             </div>
                         }
@@ -200,11 +200,14 @@
 </style>
 
 @code {
+    // --- THIS MAGIC PARAMETER CATCHES THE ID FROM THE URL ---
+    [SupplyParameterFromQuery]
+    public Guid? invoiceId { get; set; }
+
     private CustomerPayment payment = new();
     private List<Customer> customers = new();
     private List<Currency> currencies = new();
     
-    // GL Lists
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
@@ -214,7 +217,6 @@
     private string currencySymbol = "";
     private string CustomerArAccountName = "Select Customer First";
 
-    // Invoice Selection State
     private Guid selectedInvoiceId = Guid.Empty;
     private bool HasInvoiceSelected => selectedInvoiceId != Guid.Empty;
     private InvoiceRow? SelectedInvoice => openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
@@ -245,17 +247,27 @@
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
 
-            // CHANGED: Use SegCoaService
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            // Filter Banks: Assets (BS=True, Debit=True)
             bankAccounts = allAccounts.Where(a => {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
                 return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
             }).ToList();
 
             CreateNew();
+
+            // --- THE AUTO-FILL WIZARDRY ---
+            if (invoiceId.HasValue && invoiceId.Value != Guid.Empty)
+            {
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                var targetInvoice = await ctx.SalesOrders.FirstOrDefaultAsync(o => o.Id == invoiceId.Value);
+                if (targetInvoice != null)
+                {
+                    await OnCustomerChanged(new ChangeEventArgs { Value = targetInvoice.CustomerId.ToString() });
+                    OnInvoiceChanged(new ChangeEventArgs { Value = invoiceId.Value.ToString() });
+                }
+            }
         }
     }
 
@@ -279,7 +291,6 @@
         {
             payment.CustomerId = custId;
             
-            // Auto-fetch Customer AR Account from SegCOA
             var customer = customers.FirstOrDefault(c => c.Id == custId);
             if (customer != null && customer.ReceivablesAccountId.HasValue)
             {
@@ -308,10 +319,6 @@
         }
     }
 
-    // ... [Rest of the methods: LoadCustomerInvoices, OnInvoiceChanged, PostPayment remain the same]
-    // Just ensure DbFactory calls inside LoadCustomerInvoices use your entities correctly.
-    // I've kept the LoadCustomerInvoices logic as it was, assuming SalesOrder structure is correct.
-    
     private async Task LoadCustomerInvoices(Guid customerId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
@@ -339,7 +346,7 @@
 
             decimal balanceDue = grandTotal - paidAmount;
 
-            if (balanceDue > 0.01m) // Tolerance for floating point
+            if (balanceDue > 0.01m)
             {
                 openInvoices.Add(new InvoiceRow
                 {

@@ -1,20 +1,23 @@
-﻿using iText.Kernel.Pdf;
-using iText.Layout;
-using iText.Layout.Element;
-using iText.Layout.Properties;
+﻿using iText.IO.Font.Constants;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
-using iText.IO.Font.Constants;
-using iText.Layout.Borders; // NEW for professional table borders
+using iText.Kernel.Pdf;
+using iText.Layout;
+using iText.Layout.Borders;
+using iText.Layout.Element;
+using iText.Layout.Properties;
 using ClosedXML.Excel;
 using Primafit_ERP.Components.Models.Reporting;
+using System;
+using System.IO;
+using System.Linq;
 
 namespace Primafit_ERP.Services
 {
     public class ReportExportService
     {
         // ==========================================
-        // 1. GENERATE PROFESSIONAL PDF 
+        // 1. PDF GENERATOR
         // ==========================================
         public byte[] GeneratePdf(StandardReportData data)
         {
@@ -51,21 +54,53 @@ namespace Primafit_ERP.Services
             // --- 2. DATA TABLE ---
             if (data.Headers != null && data.Headers.Any())
             {
-                var table = new Table(UnitValue.CreatePercentArray(data.Headers.Count)).UseAllAvailableWidth();
+                // SMART COLUMN ALLOCATION
+                float[] columnWidths = new float[data.Headers.Count];
+                bool[] isNumericColumn = new bool[data.Headers.Count];
 
-                // Professional Headers (Top and Bottom borders, no vertical lines)
-                foreach (var header in data.Headers)
+                for (int i = 0; i < data.Headers.Count; i++)
+                {
+                    string headerUpper = data.Headers[i].ToUpper();
+
+                    // Right-align numbers and give them a standard width
+                    if (headerUpper.Contains("AMOUNT") || headerUpper.Contains("BALANCE") ||
+                        headerUpper.Contains("VALUE") || headerUpper.Contains("DEBIT") ||
+                        headerUpper.Contains("CREDIT") || headerUpper.Contains("TOTAL") ||
+                        headerUpper.Contains("QTY"))
+                    {
+                        isNumericColumn[i] = true;
+                        columnWidths[i] = 2.5f;
+                    }
+                    // Left-align descriptions and make them wider
+                    else if (headerUpper.Contains("NAME") || headerUpper.Contains("DESCRIPTION") ||
+                             headerUpper.Contains("NARRATION") || headerUpper.Contains("ITEM") ||
+                             headerUpper.Contains("ACCOUNT"))
+                    {
+                        isNumericColumn[i] = false;
+                        columnWidths[i] = (headerUpper.Contains("CODE")) ? 2f : 5f; // Code needs less space than Name
+                    }
+                    // Default fallback
+                    else
+                    {
+                        isNumericColumn[i] = false;
+                        columnWidths[i] = 2f;
+                    }
+                }
+
+                // Apply the dynamic widths
+                var table = new Table(UnitValue.CreatePercentArray(columnWidths)).UseAllAvailableWidth();
+
+                // Professional Headers
+                for (int i = 0; i < data.Headers.Count; i++)
                 {
                     Cell cell = new Cell()
-                        .Add(new Paragraph(header).SetFont(fontBold).SetFontSize(9))
+                        .Add(new Paragraph(data.Headers[i]).SetFont(fontBold).SetFontSize(9))
                         .SetBorder(Border.NO_BORDER)
                         .SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f))
                         .SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1f))
-                        .SetTextAlignment(TextAlignment.LEFT);
-
-                    // Align headers containing amount/value to the right
-                    if (header.Contains("Amount") || header.Contains("Balance") || header.Contains("Value") || header.Contains("Debit") || header.Contains("Credit"))
-                        cell.SetTextAlignment(TextAlignment.RIGHT);
+                        .SetPaddingTop(4f)
+                        .SetPaddingBottom(4f)
+                        .SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
 
                     table.AddHeaderCell(cell);
                 }
@@ -75,32 +110,41 @@ namespace Primafit_ERP.Services
                 {
                     foreach (var row in data.Rows)
                     {
-                        // Detect if this is a total/summary row
-                        bool isSummary = row.Any(c => c != null && (c.ToUpper().Contains("TOTAL") || c.ToUpper().Contains("SUMMARY") || c.ToUpper().Contains("PROFIT")));
-
-                        foreach (var cellData in row)
+                        // PDF FIX: Only bold the row if Column 1 (Code) is EMPTY and Column 2 contains Summary Words
+                        bool isSummary = false;
+                        if (row.Count >= 2 && string.IsNullOrWhiteSpace(row[0]))
                         {
-                            var p = new Paragraph(cellData ?? "").SetFontSize(9);
+                            string col2 = (row[1] ?? "").ToUpper();
+                            if (col2.Contains("TOTAL") || col2.Contains("SUMMARY") || col2.Contains("PROFIT"))
+                            {
+                                isSummary = true;
+                            }
+                        }
+
+                        for (int i = 0; i < row.Count; i++)
+                        {
+                            string cellText = i < row.Count ? (row[i] ?? "") : "";
+                            var p = new Paragraph(cellText).SetFontSize(9);
+
                             if (isSummary) p.SetFont(fontBold);
 
-                            Cell cell = new Cell().Add(p).SetBorder(Border.NO_BORDER);
+                            Cell cell = new Cell().Add(p)
+                                .SetBorder(Border.NO_BORDER)
+                                .SetPaddingTop(3f)
+                                .SetPaddingBottom(3f);
 
-                            // Summary rows get a top line (subtotal) and bold text
                             if (isSummary)
                             {
                                 cell.SetBorderTop(new SolidBorder(ColorConstants.BLACK, 0.5f));
+                                cell.SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.2f));
                             }
                             else
                             {
-                                // Subtle bottom border for standard rows
                                 cell.SetBorderBottom(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.3f));
                             }
 
-                            // If it's a number, align right perfectly
-                            if (decimal.TryParse(cellData?.Replace(",", ""), out _))
-                            {
-                                cell.SetTextAlignment(TextAlignment.RIGHT);
-                            }
+                            // Use the header array logic to align dashes perfectly with numbers
+                            cell.SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
 
                             table.AddCell(cell);
                         }
@@ -112,7 +156,8 @@ namespace Primafit_ERP.Services
                         .Add(new Paragraph("No data available for the selected period.")
                         .SetTextAlignment(TextAlignment.CENTER)
                         .SetFont(fontItalic))
-                        .SetBorder(Border.NO_BORDER);
+                        .SetBorder(Border.NO_BORDER)
+                        .SetPadding(10f);
                     table.AddCell(emptyCell);
                 }
 
@@ -131,16 +176,14 @@ namespace Primafit_ERP.Services
         }
 
         // ==========================================
-        // 2. GENERATE PROFESSIONAL EXCEL 
+        // 2. EXCEL GENERATOR
         // ==========================================
         public byte[] GenerateExcel(StandardReportData data)
         {
             using var workbook = new XLWorkbook();
-            var worksheet = workbook.Worksheets.Add("Report Data");
+            var worksheet = workbook.Worksheets.Add("Report Output");
 
-            int columnCount = data.Headers?.Count ?? 5;
-
-            // --- 1. FINANCIAL HEADER ---
+            // --- 1. HEADER ---
             worksheet.Cell(1, 1).Value = (data.CompanyName ?? "COMPANY NAME").ToUpper();
             worksheet.Cell(1, 1).Style.Font.Bold = true;
             worksheet.Cell(1, 1).Style.Font.FontSize = 14;
@@ -149,75 +192,101 @@ namespace Primafit_ERP.Services
             worksheet.Cell(2, 1).Style.Font.Bold = true;
             worksheet.Cell(2, 1).Style.Font.FontSize = 12;
 
-            worksheet.Cell(3, 1).Value = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}";
-            worksheet.Cell(4, 1).Value = $"Currency: {data.Currency ?? "Base"}";
+            worksheet.Cell(3, 1).Value = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}  |  Currency: {data.Currency ?? "Base"}";
+            worksheet.Cell(3, 1).Style.Font.FontColor = XLColor.DarkGray;
 
-            // Merge headers across the top
-            for (int i = 1; i <= 4; i++) worksheet.Range(i, 1, i, columnCount).Merge();
+            int currentRow = 5;
 
             // --- 2. DATA TABLE ---
-            int currentRow = 6;
-
             if (data.Headers != null && data.Headers.Any())
             {
+                bool[] isNumericColumn = new bool[data.Headers.Count];
+
+                // Write Headers
                 for (int i = 0; i < data.Headers.Count; i++)
                 {
+                    string h = data.Headers[i].ToUpper();
+                    isNumericColumn[i] = h.Contains("AMOUNT") || h.Contains("BALANCE") ||
+                                         h.Contains("VALUE") || h.Contains("DEBIT") ||
+                                         h.Contains("CREDIT") || h.Contains("TOTAL") ||
+                                         h.Contains("QTY");
+
                     var cell = worksheet.Cell(currentRow, i + 1);
                     cell.Value = data.Headers[i];
                     cell.Style.Font.Bold = true;
                     cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
                     cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-                    cell.Style.Fill.BackgroundColor = XLColor.White; // Clean white background
+
+                    if (isNumericColumn[i])
+                        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
                 }
                 currentRow++;
-            }
 
-            if (data.Rows != null && data.Rows.Any())
-            {
-                foreach (var row in data.Rows)
+                // Write Rows
+                if (data.Rows != null && data.Rows.Any())
                 {
-                    bool isSummary = row.Any(c => c != null && (c.ToUpper().Contains("TOTAL") || c.ToUpper().Contains("SUMMARY") || c.ToUpper().Contains("PROFIT")));
-
-                    for (int i = 0; i < row.Count; i++)
+                    for (int r = 0; r < data.Rows.Count; r++)
                     {
-                        var cell = worksheet.Cell(currentRow, i + 1);
-                        string val = row[i] ?? "";
+                        var row = data.Rows[r];
 
-                        // Smart Number Formatting
-                        if (decimal.TryParse(val.Replace(",", ""), out decimal numVal))
+                        // Summary Detection
+                        bool isSummary = false;
+                        if (row.Count >= 2 && string.IsNullOrWhiteSpace(row[0]))
                         {
-                            cell.Value = numVal;
-                            cell.Style.NumberFormat.Format = "#,##0.00"; // Standard Accounting Format
-                        }
-                        else
-                        {
-                            cell.Value = val;
+                            string col2 = (row[1] ?? "").ToUpper();
+                            if (col2.Contains("TOTAL") || col2.Contains("SUMMARY") || col2.Contains("PROFIT"))
+                            {
+                                isSummary = true;
+                            }
                         }
 
-                        if (isSummary)
+                        for (int c = 0; c < row.Count; c++)
                         {
-                            cell.Style.Font.Bold = true;
-                            cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                            var cell = worksheet.Cell(currentRow, c + 1);
+                            string cellText = c < row.Count ? (row[c] ?? "") : "";
+
+                            // Logic to correctly process numbers vs text
+                            if (isNumericColumn[c] && decimal.TryParse(cellText.Replace(",", ""), out decimal numericValue))
+                            {
+                                cell.Value = numericValue;
+                                cell.Style.NumberFormat.Format = "#,##0.00"; // Enforce standard accounting decimal layout
+                            }
+                            else
+                            {
+                               
+                                cell.Value = cellText;
+                            }
+
+                            // Style summary rows
+                            if (isSummary)
+                            {
+                                cell.Style.Font.Bold = true;
+                                cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                                cell.Style.Border.BottomBorder = XLBorderStyleValues.Medium; // Darker bottom line
+                            }
                         }
+                        currentRow++;
                     }
+                }
+                else
+                {
+                    worksheet.Cell(currentRow, 1).Value = "No data available for the selected period.";
+                    worksheet.Cell(currentRow, 1).Style.Font.Italic = true;
                     currentRow++;
                 }
+
+                // Auto-fit all columns nicely
+                worksheet.Columns().AdjustToContents();
             }
 
             // --- 3. FOOTER ---
             currentRow++;
-            worksheet.Cell(currentRow, 1).Value = $"Generated By: {data.GeneratedBy ?? "System"} on {data.DateGenerated:yyyy-MM-dd HH:mm}";
+            worksheet.Cell(currentRow, 1).Value = $"Generated By: {data.GeneratedBy ?? "System User"} on {data.DateGenerated:yyyy-MM-dd HH:mm}";
             worksheet.Cell(currentRow, 1).Style.Font.Italic = true;
-            worksheet.Cell(currentRow, 1).Style.Font.FontSize = 9;
 
-            worksheet.Columns().AdjustToContents();
-
-            // Freeze the header panes for scrolling
-            worksheet.SheetView.FreezeRows(6);
-
-            using var stream = new MemoryStream();
-            workbook.SaveAs(stream);
-            return stream.ToArray();
+            using var memStream = new MemoryStream();
+            workbook.SaveAs(memStream);
+            return memStream.ToArray();
         }
     }
 }

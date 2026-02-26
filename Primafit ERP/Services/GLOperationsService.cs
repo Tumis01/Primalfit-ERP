@@ -1,6 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Primafit_ERP.Services
 {
@@ -40,10 +44,6 @@ namespace Primafit_ERP.Services
             return period;
         }
 
-        /// <summary>
-        /// Ensures all selected Seg COA IDs exist for the company.
-        /// If requireAllowJournal == true, ensures AllowJournal == true for all.
-        /// </summary>
         private async Task<string?> ValidateSegmentedAccountsAsync(
             AppDbContext ctx,
             Guid companyId,
@@ -90,7 +90,7 @@ namespace Primafit_ERP.Services
                 batchName,
                 description,
                 journalNumber,
-                description,              // Narration
+                description,
                 lines,
                 BatchType.Standard);
         }
@@ -110,30 +110,19 @@ namespace Primafit_ERP.Services
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Clean lines
             var cleanLines = lines
                 .Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0))
                 .ToList();
 
             if (cleanLines.Count == 0) return ("No valid lines.", null);
 
-            // Standard journals must be balanced immediately
             if (type == BatchType.Standard && !IsBalanced(cleanLines))
                 return ("Journal is not balanced (Debits must equal Credits).", null);
 
-            // Validate accounting period
             AccountingPeriod period;
-            try
-            {
-                period = await ResolvePeriodOrThrow(ctx, companyId, txnDate);
-            }
-            catch (Exception ex)
-            {
-                return (ex.Message, null);
-            }
+            try { period = await ResolvePeriodOrThrow(ctx, companyId, txnDate); }
+            catch (Exception ex) { return (ex.Message, null); }
 
-            // Validate Seg COA selection
-            // - Standard/Migration journals should only allow AllowJournal accounts
             var requireAllowJournal = type == BatchType.Standard || type == BatchType.Migration;
             var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal);
             if (!string.IsNullOrWhiteSpace(acctErr)) return (acctErr!, null);
@@ -168,31 +157,16 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 3) Opening Balances (Migration)
         // =========================================================
-        public async Task<string> CreateOpeningBalanceMigrationAsync(
-            Guid companyId,
-            DateOnly migrationDate,
-            string batchName,
-            List<GLJournalLine> inputLines)
+        public async Task<string> CreateOpeningBalanceMigrationAsync(Guid companyId, DateOnly migrationDate, string batchName, List<GLJournalLine> inputLines)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var cleanLines = inputLines
-                .Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0))
-                .ToList();
-
+            var cleanLines = inputLines.Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0)).ToList();
             if (cleanLines.Count == 0) return "Enter at least one valid line.";
 
             AccountingPeriod period;
-            try
-            {
-                period = await ResolvePeriodOrThrow(ctx, companyId, migrationDate);
-            }
-            catch (Exception ex)
-            {
-                return ex.Message;
-            }
+            try { period = await ResolvePeriodOrThrow(ctx, companyId, migrationDate); }
+            catch (Exception ex) { return ex.Message; }
 
-            // Only AllowJournal accounts for migration too (keeps it consistent)
             var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal: true);
             if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
 
@@ -222,17 +196,12 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================
-        // 4) Release
+        // 4) Release & Reject
         // =========================================================
         public async Task<string> ReleaseBatchAsync(Guid companyId, Guid batchId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var batch = await ctx.GLBatches
-                .Include(b => b.Journals)
-                .ThenInclude(j => j.Lines)
-                .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
-
+            var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines).FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
             if (batch == null) return "Batch not found.";
             if (batch.Status != BatchStatus.Draft) return "Only Draft batches can be released.";
 
@@ -242,18 +211,13 @@ namespace Primafit_ERP.Services
             batch.Status = BatchStatus.Ready;
             batch.ReleasedByUserId = "ANONYMOUS_USER";
             batch.ReleasedAt = DateTime.UtcNow;
-
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
 
-        // =========================================================
-        // 5) Reject
-        // =========================================================
         public async Task<string> RejectBatchAsync(Guid companyId, Guid batchId, string reason)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
-
             var batch = await ctx.GLBatches.FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
             if (batch == null) return "Batch not found.";
 
@@ -267,30 +231,235 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================
-        // Reports (Segmented COA based)
+        // 5) Post Batch (Atomic, Segmented)
         // =========================================================
-        public async Task<List<TrialBalanceRow>> GetTrialBalanceAsync(Guid companyId, Guid periodId)
+        public async Task<string> PostBatchAsync(Guid companyId, Guid batchId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var tx = await ctx.Database.BeginTransactionAsync();
 
-            var query =
-                from t in ctx.GLTransactions.AsNoTracking()
-                join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
-                where t.CompanyId == companyId && t.AccountingPeriodId == periodId
-                group t by new { t.SegCoaId, a.AccountCode, a.Description } into g
-                orderby g.Key.AccountCode
-                select new TrialBalanceRow
+            try
+            {
+                var batch = await ctx.GLBatches
+                    .Include(b => b.Journals)
+                    .ThenInclude(j => j.Lines)
+                    .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
+
+                if (batch == null) return "Batch not found.";
+                if (batch.Status == BatchStatus.Posted) return "Batch is already posted.";
+
+                if (batch.Status == BatchStatus.Draft)
                 {
-                    SegCoaId = g.Key.SegCoaId,
-                    AccountCode = g.Key.AccountCode,
-                    AccountName = g.Key.Description,
-                    TotalDebit = g.Sum(x => x.Debit),
-                    TotalCredit = g.Sum(x => x.Credit)
-                };
+                    foreach (var j in batch.Journals)
+                        if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced. Cannot auto-post.";
 
-            return await query.ToListAsync();
+                    batch.Status = BatchStatus.Ready;
+                    batch.ReleasedByUserId = "SYSTEM_AUTO";
+                    batch.ReleasedAt = DateTime.UtcNow;
+                    await ctx.SaveChangesAsync();
+                }
+
+                if (batch.Status != BatchStatus.Ready)
+                    return $"Batch cannot be posted. Current Status: {batch.Status}";
+
+                var allLines = batch.Journals.SelectMany(j => j.Lines).ToList();
+                var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, allLines, requireAllowJournal: false);
+                if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
+
+                foreach (var journal in batch.Journals)
+                {
+                    if (!IsBalanced(journal.Lines)) throw new InvalidOperationException("Journal unbalanced.");
+
+                    foreach (var line in journal.Lines)
+                    {
+                        ctx.GLTransactions.Add(new GLTransaction
+                        {
+                            CompanyId = companyId,
+                            AccountingPeriodId = batch.AccountingPeriodId,
+                            PostingDate = journal.TransactionDate,
+                            BatchId = batch.Id,
+                            JournalId = journal.Id,
+                            SegCoaId = line.SegCoaId,
+                            Debit = line.Debit,
+                            Credit = line.Credit,
+                            Narration = line.Reference ?? journal.Narration,
+                        });
+                    }
+                    journal.Status = JournalStatus.Posted;
+                }
+
+                batch.Status = BatchStatus.Posted;
+                batch.PostedByUserId = "SYSTEM_AUTO";
+                batch.PostedAt = DateTime.UtcNow;
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Posting failed: {ex.Message}";
+            }
         }
 
+        // =========================================================
+        // 6) INTERACTIVE UI LIFECYCLE (NEW FOR LINE-BY-LINE EDITOR)
+        // =========================================================
+
+        public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.GLBatches
+                .Include(b => b.Journals)
+                .ThenInclude(j => j.Lines)
+                .Where(b => b.CompanyId == companyId && b.Type == BatchType.Standard && (b.Status == BatchStatus.Draft || b.Status == BatchStatus.Ready))
+                .OrderByDescending(b => b.Id)
+                .ToListAsync();
+        }
+
+        public async Task<GLBatch?> GetBatchByIdAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.GLBatches
+                .Include(b => b.Journals)
+                .ThenInclude(j => j.Lines)
+                .FirstOrDefaultAsync(b => b.Id == batchId);
+        }
+
+        public async Task<GLBatch> CreateDraftBatchAsync(Guid companyId, DateOnly date, string description, string userId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var period = await ResolvePeriodOrThrow(ctx, companyId, date);
+
+            var batchName = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
+
+            var batch = new GLBatch
+            {
+                CompanyId = companyId,
+                AccountingPeriodId = period.Id,
+                BatchName = batchName,
+                Description = description,
+                Type = BatchType.Standard,
+                Status = BatchStatus.Draft,
+                CreatedByUserId = userId
+            };
+
+            // Initialize the Header required to hold the lines
+            batch.Journals.Add(new GLJournalHeader
+            {
+                CompanyId = companyId,
+                AccountingPeriodId = period.Id,
+                JournalNumber = batchName,
+                Narration = description,
+                TransactionDate = date,
+                Status = JournalStatus.Draft
+            });
+
+            ctx.GLBatches.Add(batch);
+            await ctx.SaveChangesAsync();
+            return batch;
+        }
+
+        public async Task<string> DeleteDraftBatchAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines).FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Draft) return "Only Draft batches can be deleted.";
+
+            ctx.GLBatches.Remove(batch);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> SubmitForApprovalAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines).FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Draft) return "Only Draft batches can be locked.";
+
+            var allLines = batch.Journals.SelectMany(j => j.Lines).ToList();
+            if (!allLines.Any()) return "Batch has no lines. Cannot lock.";
+
+            foreach (var j in batch.Journals)
+                if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced.";
+
+            batch.Status = BatchStatus.Ready;
+            batch.ReleasedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> RevertToDraftAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.GLBatches.FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status == BatchStatus.Posted) return "Cannot unlock a posted batch.";
+
+            batch.Status = BatchStatus.Draft;
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> AddJournalLineAsync(Guid batchId, GLJournalLine line)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.GLBatches.Include(b => b.Journals).FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Draft) return "Batch is locked.";
+
+            var header = batch.Journals.FirstOrDefault();
+            if (header == null) return "Journal Header is missing.";
+
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, batch.CompanyId, new List<GLJournalLine> { line }, true);
+            if (!string.IsNullOrEmpty(acctErr)) return acctErr;
+
+            line.HeaderId = header.Id;
+            ctx.Set<GLJournalLine>().Add(line);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> UpdateJournalLineAsync(GLJournalLine line)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var existing = await ctx.Set<GLJournalLine>().Include(l => l.Header).ThenInclude(h => h.Batch).FirstOrDefaultAsync(l => l.Id == line.Id);
+
+            if (existing == null) return "Line not found.";
+            if (existing.Header?.Batch?.Status != BatchStatus.Draft) return "Batch is locked.";
+
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, existing.Header.CompanyId, new List<GLJournalLine> { line }, true);
+            if (!string.IsNullOrEmpty(acctErr)) return acctErr;
+
+            existing.SegCoaId = line.SegCoaId;
+            existing.Reference = line.Reference; // We use Reference as the line-level detail description
+            existing.Debit = line.Debit;
+            existing.Credit = line.Credit;
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> RemoveJournalLineAsync(Guid lineId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var existing = await ctx.Set<GLJournalLine>().Include(l => l.Header).ThenInclude(h => h.Batch).FirstOrDefaultAsync(l => l.Id == lineId);
+
+            if (existing == null) return "Line not found.";
+            if (existing.Header?.Batch?.Status != BatchStatus.Draft) return "Batch is locked.";
+
+            ctx.Set<GLJournalLine>().Remove(existing);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
         public async Task<List<LedgerReportRow>> GetLedgerReportAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -316,88 +485,6 @@ namespace Primafit_ERP.Services
                 };
 
             return await query.ToListAsync();
-        }
-
-        // =========================================================
-        // 6) Post Batch (Atomic, Segmented)
-        // =========================================================
-        public async Task<string> PostBatchAsync(Guid companyId, Guid batchId)
-        {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            await using var tx = await ctx.Database.BeginTransactionAsync();
-
-            try
-            {
-                var batch = await ctx.GLBatches
-                    .Include(b => b.Journals)
-                    .ThenInclude(j => j.Lines)
-                    .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
-
-                if (batch == null) return "Batch not found.";
-
-                // Idempotent already posted
-                if (batch.Status == BatchStatus.Posted)
-                    return "Batch is already posted.";
-
-                // Auto-release draft batches
-                if (batch.Status == BatchStatus.Draft)
-                {
-                    foreach (var j in batch.Journals)
-                        if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced. Cannot auto-post.";
-
-                    batch.Status = BatchStatus.Ready;
-                    batch.ReleasedByUserId = "SYSTEM_AUTO";
-                    batch.ReleasedAt = DateTime.UtcNow;
-
-                    await ctx.SaveChangesAsync();
-                }
-
-                if (batch.Status != BatchStatus.Ready)
-                    return $"Batch cannot be posted. Current Status: {batch.Status}";
-
-                // Validate accounts once per batch before writing transactions
-                var allLines = batch.Journals.SelectMany(j => j.Lines).ToList();
-                var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, allLines, requireAllowJournal: false);
-                if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
-
-                foreach (var journal in batch.Journals)
-                {
-                    if (!IsBalanced(journal.Lines))
-                        throw new InvalidOperationException("Journal unbalanced.");
-
-                    foreach (var line in journal.Lines)
-                    {
-                        ctx.GLTransactions.Add(new GLTransaction
-                        {
-                            CompanyId = companyId,
-                            AccountingPeriodId = batch.AccountingPeriodId,
-                            PostingDate = journal.TransactionDate,
-                            BatchId = batch.Id,
-                            JournalId = journal.Id,
-                            SegCoaId = line.SegCoaId,
-                            Debit = line.Debit,
-                            Credit = line.Credit,
-                            Narration = line.Reference ?? journal.Narration,
-                        });
-                    }
-
-                    journal.Status = JournalStatus.Posted;
-                }
-
-                batch.Status = BatchStatus.Posted;
-                batch.PostedByUserId = "SYSTEM_AUTO";
-                batch.PostedAt = DateTime.UtcNow;
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-                return $"Posting failed: {ex.Message}";
-            }
         }
     }
 }

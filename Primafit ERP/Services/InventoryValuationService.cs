@@ -13,104 +13,129 @@ namespace Primafit_ERP.Services
             _dbFactory = dbFactory;
         }
 
-        
-        public async Task<string> RecalculateWACC(Guid grnId)
+
+        public async Task<string> RecalculateWACC(Guid goodsReceiptId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Fetch GRN with Lines and Landed Costs
+            // 1. Fetch the GRN with its lines
             var grn = await ctx.GoodsReceipts
                 .Include(g => g.Lines)
-                .FirstOrDefaultAsync(g => g.Id == grnId);
+                .FirstOrDefaultAsync(g => g.Id == goodsReceiptId);
 
-            if (grn == null) return "GRN not found";
+            if (grn == null) return "Goods Receipt not found.";
 
-            // 2. Fetch Landed Costs assigned to this GRN
+            // 2. Fetch the linked Purchase Order to get the base prices and Exchange Rate
+            var po = await ctx.PurchaseOrders
+                .Include(p => p.Lines)
+                .FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
+
+            if (po == null) return "Linked Purchase Order not found.";
+
+            // 3. Fetch all Landed Costs added to this GRN (e.g. $100 Freight)
             var landedCosts = await ctx.GrnLandedCosts
-                .Where(x => x.GoodsReceiptId == grnId)
+                .Where(lc => lc.GoodsReceiptId == goodsReceiptId)
                 .ToListAsync();
 
-            decimal totalLandedCost = landedCosts.Sum(x => x.Amount);
+            decimal totalCostByValue = landedCosts.Where(x => x.AllocationMethod == AllocationMethod.ByValue).Sum(x => x.Amount);
+            decimal totalCostByQty = landedCosts.Where(x => x.AllocationMethod == AllocationMethod.ByQuantity).Sum(x => x.Amount);
 
-            // 3. Get PO Lines to determine Base Cost (The Vendor's Price)
-            var poLineIds = grn.Lines.Select(l => l.PurchaseOrderLineId).ToList();
-            var poLines = await ctx.PurchaseOrderLines
-                .Where(p => poLineIds.Contains(p.Id))
-                .ToListAsync();
-
-            // 4. Calculate Total Receipt Value (Base Cost of goods)
-            decimal totalBaseValue = 0;
-            var lineValuations = new Dictionary<Guid, decimal>(); // GrnLineId -> Total Cost (Base + Allocated)
+            // 4. Determine GRN Totals (for proportional allocation)
+            decimal totalGrnPurchaseValueBase = 0;
+            decimal totalGrnQuantity = 0;
 
             foreach (var line in grn.Lines)
             {
-                var poLine = poLines.FirstOrDefault(p => p.Id == line.PurchaseOrderLineId);
-                decimal lineBaseCost = (poLine?.UnitCost ?? 0) * line.QuantityReceived;
-                totalBaseValue += lineBaseCost;
-
-                // Initialize dictionary
-                lineValuations[line.Id] = lineBaseCost;
-            }
-
-            // 5. ALLOCATE Landed Costs (Distribute the extra fees across items)
-            if (totalBaseValue > 0 && totalLandedCost > 0)
-            {
-                foreach (var line in grn.Lines)
+                var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                if (poLine != null && line.QuantityReceived > 0)
                 {
-                    decimal currentLineBaseVal = lineValuations[line.Id];
+                    // Convert PO Vendor Currency to Base Company Currency
+                    decimal baseLineValue = (poLine.UnitCost * line.QuantityReceived) * po.ExchangeRate;
 
-                    // Ratio based on Value (Standard GAAP approach)
-                    decimal ratio = currentLineBaseVal / totalBaseValue;
-
-                    decimal allocatedCost = totalLandedCost * ratio;
-                    lineValuations[line.Id] += allocatedCost;
+                    totalGrnPurchaseValueBase += baseLineValue;
+                    totalGrnQuantity += line.QuantityReceived;
                 }
             }
 
-            // 6. UPDATE ITEM WACC (The Formula)
-            foreach (var line in grn.Lines)
+            // 5. Process each line to calculate the TRUE unit cost and update WACC
+            foreach (var line in grn.Lines.Where(l => l.QuantityReceived > 0))
             {
-                var item = await ctx.Items.FindAsync(poLines.First(p => p.Id == line.PurchaseOrderLineId).ItemId);
-                if (item == null || item.IsService) continue;
+                var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                if (poLine == null) continue;
 
-                // --- THE WACC FORMULA ---
-                // WACC = ((OldQty * OldCost) + (NewQty * NewCost)) / (OldQty + NewQty)
+                var item = await ctx.Items.FirstOrDefaultAsync(i => i.Id == poLine.ItemId);
+                if (item == null || item.IsService) continue; // Services don't hold inventory value
 
-                //  Get Old State (Before this receipt)
-                decimal oldQty = await GetCurrentStockQty(ctx, item.Id, grn.CompanyId) - line.QuantityReceived;
+                // --- A. CALCULATE INCOMING UNIT COST ---
+                decimal linePurchaseValueBase = (poLine.UnitCost * line.QuantityReceived) * po.ExchangeRate;
 
-                if (oldQty < 0) oldQty = 0; // Safety
+                // Allocate costs to this specific line
+                decimal allocatedByValue = totalGrnPurchaseValueBase > 0
+                    ? totalCostByValue * (linePurchaseValueBase / totalGrnPurchaseValueBase) : 0;
+
+                decimal allocatedByQty = totalGrnQuantity > 0
+                    ? totalCostByQty * (line.QuantityReceived / totalGrnQuantity) : 0;
+
+                decimal totalLineLandedCost = allocatedByValue + allocatedByQty;
+                decimal trueTotalLineCost = linePurchaseValueBase + totalLineLandedCost;
+
+                // This is your $31 (Purchase Cost + Extra Costs / Quantity)
+                decimal incomingUnitCost = trueTotalLineCost / line.QuantityReceived;
+
+                // --- B. CALCULATE NEW WEIGHTED AVERAGE COST (WACC) ---
+
+                // Get the current total quantity of this item in the warehouse.
+                // NOTE: Because PurchasingService already saved the physical receipt to the StockLedger,
+                // the Current System Qty already includes the items we just received. 
+                // We must subtract them to find out what the "Old Qty" was before the truck arrived.
+                decimal currentTotalQty = await ctx.StockLedgers
+                    .Where(s => s.ItemId == item.Id && s.CompanyId == item.CompanyId)
+                    .SumAsync(s => s.QuantityChanged);
+
+                decimal oldQty = currentTotalQty - line.QuantityReceived;
+
+                // Protect against negative stock messing up the math
+                if (oldQty < 0) oldQty = 0;
 
                 decimal oldWacc = item.WeightedAverageCost;
                 decimal oldTotalValue = oldQty * oldWacc;
 
-                //  New Incoming Batch
-                decimal newBatchTotalValue = lineValuations[line.Id];
-                decimal newBatchQty = line.QuantityReceived;
-
-                // Calculation
-                decimal finalTotalQty = oldQty + newBatchQty;
-
-                if (finalTotalQty > 0)
+                // The Magic WACC Formula: (Old Value + New Value) / Total Qty
+                decimal newWacc = 0;
+                if (currentTotalQty > 0)
                 {
-                    decimal newWacc = (oldTotalValue + newBatchTotalValue) / finalTotalQty;
-
-                    //  Update Item
-                    item.WeightedAverageCost = newWacc;
-
-                    //  Record History
-                    ctx.ItemCostHistories.Add(new ItemCostHistory
-                    {
-                        ItemId = item.Id,
-                        OldQty = oldQty,
-                        OldWacc = oldWacc,
-                        NewQtyIn = newBatchQty,
-                        NewCostIn = newBatchTotalValue / newBatchQty, // Unit Cost of this specific batch
-                        ResultingWacc = newWacc,
-                        Reference = $"GRN Valuation: {grn.GrnNumber}",
-                        DateChanged = DateTime.UtcNow
-                    });
+                    newWacc = (oldTotalValue + trueTotalLineCost) / currentTotalQty;
                 }
+
+                // --- C. UPDATE DATABASE ---
+
+                // 1. Update the Item Master
+                item.WeightedAverageCost = newWacc;
+
+                // 2. Update the Stock Ledger record to reflect the TRUE landed cost, not just the PO price
+                var ledgerEntry = await ctx.StockLedgers.FirstOrDefaultAsync(s =>
+                    s.Reference == grn.GrnNumber &&
+                    s.ItemId == item.Id &&
+                    s.QuantityChanged == line.QuantityReceived);
+
+                if (ledgerEntry != null)
+                {
+                    ledgerEntry.CostAtTime = incomingUnitCost;
+                }
+
+                // 3. Log the history for the auditor
+                ctx.ItemCostHistories.Add(new ItemCostHistory
+                {
+                    Id = Guid.NewGuid(),
+                    ItemId = item.Id,
+                    DateChanged = DateTime.UtcNow,
+                    OldQty = oldQty,
+                    OldWacc = oldWacc,
+                    NewQtyIn = line.QuantityReceived,
+                    NewCostIn = incomingUnitCost, // Records the $31!
+                    ResultingWacc = newWacc,
+                    Reference = $"GRN: {grn.GrnNumber}"
+                });
             }
 
             await ctx.SaveChangesAsync();

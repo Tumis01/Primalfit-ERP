@@ -16,13 +16,14 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales Orders</h1>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales & Invoicing</h1>
             @if (!string.IsNullOrEmpty(companyName))
             {
                 <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200 mt-2">
@@ -31,13 +32,23 @@
             }
         </div>
 
-        <div class="flex bg-slate-100 p-1 rounded-xl">
-            <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                All Orders
-            </button>
-            <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                New Order
-            </button>
+        <div class="flex gap-4 items-center">
+            @if (activeTab == 0)
+            {
+                <div class="relative w-72">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search customer, item, or order..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                </div>
+            }
+
+            <div class="flex bg-slate-100 p-1 rounded-xl">
+                <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    All Records
+                </button>
+                <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    New Order/Quote
+                </button>
+            </div>
         </div>
     </div>
 
@@ -50,24 +61,34 @@
         @if (activeTab == 0)
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                
+                <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50">
+                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
+                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Quotes" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Quotes"'>Quotes</button>
+                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Invoices" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Invoices"'>Invoices</button>
+                </div>
+
                 <table class="w-full text-left text-sm text-slate-900">
                     <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                         <tr>
-                            <th class="p-4">Date</th>
+                            <th class="p-4 w-28">Date</th>
                             <th class="p-4">Order #</th>
+                            <th class="p-4">Linked Quote</th>
                             <th class="p-4">Customer</th>
                             <th class="p-4">Items (Qty)</th>
-                            <th class="p-4">Status</th>
-                            <th class="p-4 text-right">Total (Base)</th>
-                            <th class="p-4 text-right w-48">Actions</th>
+                            <th class="p-4 text-center">Status</th>
+                            <th class="p-4 text-right">Total (Foreign)</th>
+                            <th class="p-4 text-right border-r border-slate-100">Total (Base)</th>
+                            <th class="p-4 text-center w-56">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        @foreach (var o in orders)
+                        @foreach (var o in FilteredOrders)
                         {
                             <tr class="hover:bg-slate-50 transition-colors">
-                                <td class="p-4 font-mono text-slate-600">@o.Date.ToString("yyyy-MM-dd")</td>
-                                <td class="p-4 font-mono font-bold text-slate-900">@o.OrderNumber</td>
+                                <td class="p-4 font-mono text-slate-600 text-xs">@o.Date.ToString("dd MMM, yyyy")</td>
+                                <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : "text-indigo-700")">@o.OrderNumber</td>
+                                <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
                                 <td class="p-4 font-medium">@o.Customer?.Name</td>
                                 <td class="p-4 text-sm">
                                     @if (o.Lines != null && o.Lines.Any())
@@ -78,7 +99,7 @@
                                             var itemName = items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? "Unknown Item";
                                             <div class="truncate w-40" title="@itemName">
                                                 <span class="text-slate-700">@itemName</span>
-                                                <span class="text-slate-400 text-xs font-bold ml-1">(x@(l.Quantity.ToString("N2")))</span>
+                                                <span class="text-slate-400 text-xs font-bold ml-1">(x@(l.Quantity.ToString("G29")))</span>
                                             </div>
                                         }
                                         if (o.Lines.Count > 2)
@@ -91,26 +112,70 @@
                                         <span class="text-slate-400 italic text-xs">No items</span>
                                     }
                                 </td>
-                                <td class="p-4">
-                                    <span class="inline-flex items-center rounded border px-2 py-1 text-xs font-bold @(o.Status == OrderStatus.Invoiced ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")">
-                                        @o.Status
-                                    </span>
-                                </td>
-                                <td class="p-4 text-right font-mono font-bold text-emerald-600">
-                                    @((o.Lines.Sum(l => l.Quantity * l.UnitPrice) * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
-                                </td>
-                                <td class="p-4 text-right flex items-center justify-end gap-4">
-                                    @if (o.Status != OrderStatus.Invoiced)
+                                <td class="p-4 text-center">
+                                    @if (o.Status == OrderStatus.Quote)
                                     {
-                                        <button @onclick="() => EditOrder(o.Id)" class="text-indigo-600 font-bold hover:text-indigo-900">Edit</button>
-                                        <button @onclick="() => InvoiceOrderFromList(o)" class="text-emerald-600 font-bold hover:text-emerald-900 bg-emerald-50 px-3 py-1 rounded-md border border-emerald-200">Generate Invoice</button>
+                                        <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
+                                    }
+                                    else if (o.Status == OrderStatus.Invoiced)
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Invoiced</span>
                                     }
                                     else
                                     {
-                                        <button @onclick="() => EditOrder(o.Id)" class="text-slate-500 font-bold hover:text-slate-800">View Details</button>
+                                        <span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-600 uppercase tracking-wider">@o.Status</span>
                                     }
                                 </td>
+                                <td class="p-4 text-right font-mono font-bold @(o.Status == OrderStatus.Quote ? "text-slate-500" : "text-slate-900")">
+                                    @o.Currency?.CurrencyCode @o.GrandTotalForeign.ToString("N2")
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">
+                                    @((o.GrandTotalForeign * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
+                                </td>
+                                <td class="p-4">
+                                    <div class="flex items-center justify-center gap-2">
+                                        @if (o.Status == OrderStatus.Quote)
+                                        {
+                                            bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
+
+                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                            @if (isConverted)
+                                            {
+                                                <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
+                                            }
+                                            else
+                                            {
+                                                <button @onclick="() => ConvertQuote(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                            }
+                                        }
+                                        else if (o.Status == OrderStatus.Draft)
+                                        {
+                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                            <button @onclick="() => InvoiceOrderFromList(o)" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm">Post Invoice</button>
+                                        }
+                                        else if (o.Status == OrderStatus.Invoiced)
+                                        {
+                                            @if (o.IsFullyPaid)
+                                            {
+                                                <span class="px-2 py-1 bg-emerald-100 text-emerald-700 font-bold text-[10px] uppercase tracking-wider rounded border border-emerald-200 flex items-center gap-1">
+                                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Paid
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <button @onclick='() => Nav.NavigateTo($"/ar/payment-entry?invoiceId={o.Id}")' class="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm flex items-center gap-1">
+                                                    Make Payment
+                                                </button>
+                                            }
+                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                        }
+                                    </div>
+                                </td>
                             </tr>
+                        }
+                        @if (!FilteredOrders.Any())
+                        {
+                            <tr><td colspan="9" class="p-12 text-center text-slate-400">No records found matching your criteria.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -121,17 +186,42 @@
             <div class="bg-white border border-slate-200 rounded-2xl shadow-xl animate-in fade-in slide-in-from-bottom-4 overflow-visible flex flex-col h-full">
 
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Order Details</h3>
-                    <div class="text-xs font-medium text-slate-500">
-                        Status: <span class="font-bold text-slate-900">@currentOrder.Status</span>
+                    <div class="flex items-center gap-4">
+                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Record Details</h3>
+                        @if (!string.IsNullOrEmpty(currentOrder.OrderNumber))
+                        {
+                            <span class="px-2 py-0.5 bg-slate-200 text-slate-700 font-mono text-xs rounded font-bold">@currentOrder.OrderNumber</span>
+                        }
                     </div>
+                    
+                    @if (!IsLocked)
+                    {
+                        <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Quote)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Quote ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
+                                Quote (Estimate)
+                            </button>
+                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Draft)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Draft ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
+                                Invoice (Actual)
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Locked Invoice
+                        </div>
+                    }
                 </div>
 
                 <div class="p-8">
                     <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
                         <div>
                             <label class="label">Date</label>
-                            <InputDate @bind-Value="currentOrder.Date" class="input-class" disabled="@IsLocked" />
+                            <input type="date"
+                                   value="@currentOrder.Date.ToString("yyyy-MM-dd")"
+                                   @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentOrder.Date = d; })"
+                                   class="input-class" disabled="@IsLocked" />
                         </div>
 
                         <div>
@@ -193,14 +283,6 @@
                                     <option value="@c.Id">@c.CurrencyCode</option>
                                 }
                             </select>
-                        </div>
-
-                        <div>
-                            <label class="label">Exchange Rate</label>
-                            <div class="flex items-center input-class bg-slate-50 text-slate-500 cursor-not-allowed border-slate-200">
-                                <span class="font-bold mr-2 text-slate-400 text-xs">Rate:</span>
-                                <span class="font-mono text-sm">@currentOrder.ExchangeRate.ToString("N4")</span>
-                            </div>
                         </div>
                     </div>
 
@@ -306,14 +388,26 @@
                             @if (!IsLocked)
                             {
                                 <button @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
-                                    Terminate Order
+                                    Delete
                                 </button>
                                 <button @onclick="() => activeTab = 0" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
                                     Cancel
                                 </button>
-                                <button @onclick="SaveOrder" class="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md transition-all active:scale-95">
-                                    Save
-                                </button>
+
+                                @if (currentOrder.Status == OrderStatus.Quote)
+                                {
+                                    <button @onclick="SaveOrder" class="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                        Save Quote
+                                    </button>
+                                }
+                                else if (currentOrder.Status == OrderStatus.Draft)
+                                {
+                                    <button @onclick="SaveAndPostInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        Post Invoice to GL
+                                    </button>
+                                }
                             }
                             else
                             {
@@ -331,37 +425,10 @@
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        margin-bottom: 0.35rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.75rem;
-        border: 1px solid #e2e8f0;
-        padding: 0.6rem 0.8rem;
-        font-size: 0.875rem;
-        background-color: #fff;
-        color: #0f172a;
-        outline: none;
-        transition: border-color 0.2s;
-    }
-
-    .input-class:focus {
-        border-color: #0f172a;
-        box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
-    }
-
-    .input-class:disabled, .input-class[readonly] {
-        background-color: #f8fafc;
-        color: #94a3b8;
-        cursor: not-allowed;
-    }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; }
+    .input-class { width: 100%; border-radius: 0.75rem; border: 1px solid #e2e8f0; padding: 0.6rem 0.8rem; font-size: 0.875rem; background-color: #fff; color: #0f172a; outline: none; transition: border-color 0.2s; }
+    .input-class:focus { border-color: #0f172a; box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1); }
+    .input-class:disabled, .input-class[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
 </style>
 
 @code {
@@ -370,8 +437,12 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
     private int activeTab = 0;
+    private string recordFilter = "All"; // All, Quotes, Invoices
     private bool IsLocked => currentOrder.Status == OrderStatus.Invoiced;
     private string currencySymbol = "";
+    
+    private string searchTerm = "";
+
     private List<SalesOrder> orders = new();
     private SalesOrder currentOrder = new();
     private List<Customer> customers = new();
@@ -380,9 +451,8 @@
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
 
-    // Data Sources for COA (Corrected Types)
     private List<SegChartOfAccount> allAccounts = new();
-    private List<SegChartOfAccount> liabilityAccounts = new(); // Filtered for Tax
+    private List<SegChartOfAccount> liabilityAccounts = new(); 
     private List<SegAccountType> accountTypes = new();
 
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.Quantity * l.UnitPrice);
@@ -390,6 +460,17 @@
     private decimal TaxAmount => SubTotal * (TaxPercentage / 100);
     private decimal GrandTotalForeign => SubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
+
+    // Filter Logic: Includes Items, Customers, Quote Numbers, and specific tabs
+    private IEnumerable<SalesOrder> FilteredOrders => orders
+        .Where(o => recordFilter == "All" 
+                 || (recordFilter == "Quotes" && o.Status == OrderStatus.Quote)
+                 || (recordFilter == "Invoices" && o.Status != OrderStatus.Quote))
+        .Where(o => string.IsNullOrWhiteSpace(searchTerm) 
+                 || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                 || (o.ConvertedFromQuoteNumber != null && o.ConvertedFromQuoteNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                 || (o.Customer != null && o.Customer.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                 || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
 
     protected override async Task OnInitializedAsync()
     {
@@ -417,14 +498,9 @@
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
 
-        // 1. Fetch Types
         accountTypes = await SegCoaService.GetAccountTypesAsync();
-        
-        // 2. Fetch COA
         allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
 
-        // 3. Filter Liabilities (Balance Sheet = TRUE, Debit = FALSE)
-        // This is used for the Tax Payable dropdown
         liabilityAccounts = allAccounts.Where(a => {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
@@ -433,10 +509,15 @@
 
     private void CreateNew()
     {
-        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today) };
+        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Quote };
         currencySymbol = "";
         currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
         activeTab = 1;
+    }
+
+    private void SetStatusType(OrderStatus status)
+    {
+        currentOrder.Status = status;
     }
 
     private async Task EditOrder(Guid id)
@@ -449,6 +530,21 @@
             var c = currencies.FirstOrDefault(x => x.Id == o.CurrencyId);
             currencySymbol = c?.CurrencyCode ?? "";
         }
+    }
+
+    private async Task ConvertQuote(SalesOrder quote)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Clone Quote {quote.OrderNumber} and convert it to a new Invoice Draft?");
+        if (!confirm) return;
+
+        var err = await SalesService.ConvertQuoteToInvoiceAsync(quote.Id);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+
+        await JS.InvokeVoidAsync("alert", "Quote Cloned! It is now a Draft Invoice.");
+        await LoadData();
+        
+        var newInvoice = orders.FirstOrDefault(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
+        if (newInvoice != null) await EditOrder(newInvoice.Id);
     }
 
     private async Task OnCustomerChanged(ChangeEventArgs e)
@@ -483,16 +579,8 @@
         {
             currentOrder.TaxId = taxId;
             var selectedTax = taxes.FirstOrDefault(t => t.Id == taxId);
-
-            // Auto-select the mapped GL Account from the Tax definition (if available)
             if (selectedTax != null)
             {
-                // Note: Ensure your Tax model uses SegCoaId now as per architecture
-                // If it was nullable Guid? GLAccountId in legacy, map it here
-                // Assuming Tax model was updated to `public Guid? SegCoaId { get; set; }` in previous steps
-                // or if it still uses GLAccountId, ensure it holds a SegCoaId value.
-                // Based on previous step, Tax was updated to `public Guid? SegCoaId { get; set; }`.
-                
                 currentOrder.TaxGLAccountId = selectedTax.GLAccountId;
             }
         }
@@ -512,11 +600,7 @@
         {
             decimal rate = currentOrder.ExchangeRate > 0 ? currentOrder.ExchangeRate : 1;
             line.UnitPrice = item.SellingPrice / rate;
-
-            if (item.IsService)
-            {
-                line.Quantity = 1;
-            }
+            if (item.IsService) line.Quantity = 1;
         }
     }
 
@@ -534,6 +618,18 @@
     {
         if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return; }
 
+        var err = await SalesService.SaveOrderAsync(currentOrder);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+
+        await JS.InvokeVoidAsync("alert", "Saved Successfully.");
+        await LoadData();
+        activeTab = 0;
+    }
+
+    private async Task SaveAndPostInvoice()
+    {
+        if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return; }
+        
         bool hasPhysicalItems = currentOrder.Lines.Any(l =>
         {
             var i = items.FirstOrDefault(x => x.Id == l.ItemId);
@@ -546,10 +642,17 @@
             return;
         }
 
-        var err = await SalesService.SaveOrderAsync(currentOrder);
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+        var saveErr = await SalesService.SaveOrderAsync(currentOrder);
+        if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", saveErr); return; }
 
-        await JS.InvokeVoidAsync("alert", "Order Saved Successfully.");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", "This will deduct stock and post to the General Ledger immediately. Proceed?");
+        if (!confirm) return;
+
+        Guid whId = currentOrder.WarehouseId == Guid.Empty ? Guid.Empty : currentOrder.WarehouseId;
+        var invErr = await SalesService.InvoiceOrderAsync(currentOrder.Id, whId);
+        if (!string.IsNullOrEmpty(invErr)) { await JS.InvokeVoidAsync("alert", invErr); return; }
+
+        await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
         await LoadData();
         activeTab = 0;
     }
@@ -568,7 +671,7 @@
             return;
         }
 
-        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Generate Invoice for {o.OrderNumber}?");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Generate and Post Invoice for {o.OrderNumber}?");
         if (!confirm) return;
 
         Guid whId = o.WarehouseId == Guid.Empty ? Guid.Empty : o.WarehouseId;
@@ -576,13 +679,13 @@
         var err = await SalesService.InvoiceOrderAsync(o.Id, whId);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
-        await JS.InvokeVoidAsync("alert", "Invoice Generated!");
+        await JS.InvokeVoidAsync("alert", "Invoice Generated and Posted!");
         await LoadData();
     }
 
     private async Task TerminateOrder()
     {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", "Delete this order?");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", "Delete this order permanently?");
         if (!confirm) return;
 
         var err = await SalesService.TerminateOrderAsync(currentOrder.Id);

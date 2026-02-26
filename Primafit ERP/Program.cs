@@ -81,6 +81,7 @@ builder.Services.AddHostedService<Primafit_ERP.Services.DepreciationWorker>();
 builder.Services.AddScoped<ReportExportService>();
 builder.Services.AddScoped<OperationalReportingService>();
 builder.Services.AddScoped<FinancialReportingService>();
+builder.Services.AddScoped<AssetCategoryService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---

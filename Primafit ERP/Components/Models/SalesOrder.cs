@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    public enum OrderStatus { Draft, Confirmed, Shipped, Invoiced, Cancelled }
+    public enum OrderStatus { Draft, Confirmed, Quote, Shipped, Invoiced, Cancelled }
 
     public class SalesOrder
     {
@@ -11,10 +11,14 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public Guid CompanyId { get; set; } // Strict Multi-tenancy
+        public Guid CompanyId { get; set; }
 
         [Required]
-        public string OrderNumber { get; set; } = string.Empty; // e.g. SO-2026-0001
+        public string OrderNumber { get; set; } = string.Empty;
+
+        // --- Tracks the original Quote Number ---
+        public string? ConvertedFromQuoteNumber { get; set; }
+
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
 
@@ -27,22 +31,25 @@ namespace Primafit_ERP.Components.Models
 
         public OrderStatus Status { get; set; } = OrderStatus.Draft;
 
-        // --- FINANCIALS ---
         [Required]
         public Guid CurrencyId { get; set; }
         [ForeignKey(nameof(CurrencyId))]
         public Currency? Currency { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
-        public decimal ExchangeRate { get; set; } = 1; // Locked at creation
+        public decimal ExchangeRate { get; set; } = 1;
 
-        // --- LINKS ---
-        public Guid? ShipmentBatchId { get; set; } // Link to GL Batch
-        public Guid? InvoiceBatchId { get; set; }  // Link to GL Batch
+        public Guid? ShipmentBatchId { get; set; }
+        public Guid? InvoiceBatchId { get; set; }
         [Required]
         public Guid WarehouseId { get; set; }
 
         public List<SalesOrderLine> Lines { get; set; } = new();
+
+        // --- UI COMPUTED HELPERS (Not saved to DB directly) ---
+        [NotMapped] public decimal GrandTotalForeign { get; set; }
+        [NotMapped] public decimal AmountPaid { get; set; }
+        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && AmountPaid >= GrandTotalForeign && GrandTotalForeign > 0;
     }
 
     public class SalesOrderLine

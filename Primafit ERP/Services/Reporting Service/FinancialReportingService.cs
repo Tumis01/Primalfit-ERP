@@ -37,9 +37,15 @@ namespace Primafit_ERP.Services
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            // 1. Fetch & Group: Sum all debits and credits per account
+            // NOTE: Joined with GLBatches to explicitly exclude Draft/Unposted transactions (Status == 2 is typically 'Posted')
             var query = await (from t in ctx.GLTransactions.AsNoTracking()
                                join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
-                               where t.CompanyId == companyId && t.PostingDate >= startDate && t.PostingDate <= endDate
+                               join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
+                               where t.CompanyId == companyId
+                                  && t.PostingDate >= startDate
+                                  && t.PostingDate <= endDate
+                                  && (int)b.Status == 2 // Enforcing Posted Only
                                group t by new { t.SegCoaId, a.AccountCode, a.Description } into g
                                orderby g.Key.AccountCode
                                select new
@@ -54,31 +60,56 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Trial Balance",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit", "Net Balance" }
+                // Removed "Net Balance" header, keeping it strictly Debit & Credit
+                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit" }
             };
 
-            decimal grandDebit = 0, grandCredit = 0;
+            decimal grandDebit = 0;
+            decimal grandCredit = 0;
 
             foreach (var row in query)
             {
-                decimal net = Math.Abs(row.TotalDebit - row.TotalCredit);
-                string netStr = row.TotalDebit >= row.TotalCredit ? $"{net:N2} (Dr)" : $"{net:N2} (Cr)";
+                // 2. Calculate the Net Difference
+                decimal netBalance = row.TotalDebit - row.TotalCredit;
 
-                report.Rows.Add(new List<string>
+                // Skip accounts with absolutely zero net balance to keep the report clean
+                if (netBalance == 0) continue;
+
+                decimal finalDebit = 0;
+                decimal finalCredit = 0;
+
+                // 3. Mutually Exclusive Placement: Net > 0 goes to Debit, Net < 0 goes to Credit
+                if (netBalance > 0)
                 {
-                    row.AccountCode,
-                    row.AccountName,
-                    row.TotalDebit.ToString("N2"),
-                    row.TotalCredit.ToString("N2"),
-                    netStr
-                });
+                    finalDebit = netBalance;
+                    grandDebit += finalDebit;
+                }
+                else if (netBalance < 0)
+                {
+                    finalCredit = Math.Abs(netBalance); // Remove the negative sign
+                    grandCredit += finalCredit;
+                }
 
-                grandDebit += row.TotalDebit;
-                grandCredit += row.TotalCredit;
+                // 4. Format Output: Use "-" to visually leave the inactive column empty
+                report.Rows.Add(new List<string>
+        {
+            row.AccountCode,
+            row.AccountName,
+            finalDebit > 0 ? finalDebit.ToString("N2") : "-",
+            finalCredit > 0 ? finalCredit.ToString("N2") : "-"
+        });
             }
 
-            // Add Footer Row
-            report.Rows.Add(new List<string> { "", "GRAND TOTAL", grandDebit.ToString("N2"), grandCredit.ToString("N2"), (grandDebit - grandCredit == 0 ? "BALANCED" : "UNBALANCED") });
+            // 5. Mathematical Proof Footer
+            string status = Math.Round(grandDebit, 2) == Math.Round(grandCredit, 2) ? "BALANCED" : "UNBALANCED";
+
+            report.Rows.Add(new List<string>
+    {
+        "",
+        $"GRAND TOTAL ({status})",
+        grandDebit.ToString("N2"),
+        grandCredit.ToString("N2")
+    });
 
             return report;
         }

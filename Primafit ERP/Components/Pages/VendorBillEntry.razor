@@ -45,7 +45,7 @@
 
                 <div class="bg-rose-50 p-3 rounded-lg border border-rose-100">
                     <SearchableGlAccount 
-                        Label="Credit Liability (AP)" 
+                        Label="Account Payable" 
                         Placeholder="Search AP Account..." 
                         Accounts="@liabilityAccounts" 
                         @bind-Value="currentBill.AccountsPayableGlId" 
@@ -289,7 +289,7 @@
             liabilityAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
+                return type != null && type.Description.Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase);
             }).OrderBy(x => x.AccountCode).ToList();
 
             // Filter Expense/Asset Accounts (Debits)

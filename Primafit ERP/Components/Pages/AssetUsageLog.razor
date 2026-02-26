@@ -1,0 +1,215 @@
+﻿@page "/assets/usage-logs"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject AssetService AssetService
+@inject AssetCategoryService CategoryService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JS
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+@rendermode InteractiveServer
+
+<div class="max-w-4xl mx-auto mt-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 animate-in fade-in duration-500">
+    <h3 class="text-xl font-bold text-slate-900 mb-1">Log Asset Usage</h3>
+    <p class="text-sm text-slate-500 mb-6">Enter the units consumed this month for assets using the "Units of Usage" depreciation method.</p>
+
+    <div class="flex gap-4 mb-6 items-end">
+        <div class="w-64">
+            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Select Period (Month)</label>
+            <input type="month" value="@periodMonth.ToString("yyyy-MM")" @onchange="OnMonthChanged" class="w-full p-2.5 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 text-sm font-bold text-slate-700" />
+        </div>
+        
+        @if (isLoading)
+        {
+            <div class="flex items-center gap-2 text-indigo-600 text-sm font-bold mb-3">
+                <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"></circle><path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" class="opacity-75"></path></svg>
+                Loading Period...
+            </div>
+        }
+    </div>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold border-b border-slate-200">
+                <tr>
+                    <th class="p-4">Asset</th>
+                    <th class="p-4 text-right">Est. Total Units</th>
+                    <th class="p-4 w-56">Units Used This Month</th>
+                    <th class="p-4 w-28 text-center">Action</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var asset in usageAssets)
+                {
+                    bool isLocked = isDepreciatedThisMonth.ContainsKey(asset.Id) && isDepreciatedThisMonth[asset.Id];
+                    bool isSaved = logExists.ContainsKey(asset.Id) && logExists[asset.Id];
+
+                    <tr class="hover:bg-slate-50 transition-colors">
+                        <td class="p-4">
+                            <div class="font-bold text-slate-800">@asset.AssetTag</div>
+                            <div class="text-xs text-slate-500">@asset.AssetName</div>
+                        </td>
+                        <td class="p-4 text-right font-mono text-slate-600">@asset.EstimatedTotalUnits?.ToString("N0")</td>
+                        <td class="p-4">
+                            @if (isLocked)
+                            {
+                                <div class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-right text-sm font-bold text-slate-500 cursor-not-allowed">
+                                    @usageInputs[asset.Id]
+                                </div>
+                                <div class="text-[10px] text-rose-500 text-right mt-1 font-bold">Locked (Depreciation Posted)</div>
+                            }
+                            else
+                            {
+                                <input type="number" @bind="usageInputs[asset.Id]" class="w-full p-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 text-right text-sm font-bold" placeholder="0" />
+                            }
+                        </td>
+                        <td class="p-4 text-center">
+                            @if (isLocked)
+                            {
+                                <span class="px-3 py-1.5 bg-slate-100 text-slate-400 rounded-lg text-xs font-bold border border-slate-200">Locked</span>
+                            }
+                            else if (isSaved)
+                            {
+                                <button @onclick="() => SaveLog(asset.Id)" class="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold rounded-lg hover:bg-amber-100 text-xs transition-colors border border-amber-200">
+                                    Update
+                                </button>
+                                <div class="text-[10px] text-emerald-600 font-bold mt-1 flex items-center justify-center gap-1">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg> Saved
+                                </div>
+                            }
+                            else
+                            {
+                                <button @onclick="() => SaveLog(asset.Id)" class="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 text-xs transition-colors">
+                                    Save
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!usageAssets.Any() && !isLoading)
+                {
+                    <tr><td colspan="4" class="p-12 text-center text-slate-400">No active usage assets found for this period. They may not have started depreciating yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private Guid companyId;
+    private DateTime periodMonth = DateTime.Today;
+    private bool isLoading = true;
+    
+    private List<FixedAsset> usageAssets = new();
+    private Dictionary<Guid, decimal> usageInputs = new();
+    private Dictionary<Guid, bool> logExists = new();
+    private Dictionary<Guid, bool> isDepreciatedThisMonth = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+            await LoadDataForPeriod();
+        }
+    }
+
+    private async Task OnMonthChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out DateTime newDate))
+        {
+            periodMonth = newDate;
+            await LoadDataForPeriod();
+        }
+    }
+
+    private async Task LoadDataForPeriod()
+    {
+        isLoading = true;
+        StateHasChanged(); // Force UI to show loading spinner
+
+        var allAssets = await AssetService.GetAssetsAsync(companyId);
+        
+        // Target month start date (e.g. Feb 1, 2026)
+        var targetMonthStart = new DateTime(periodMonth.Year, periodMonth.Month, 1);
+
+        // 1. Filter assets based on active dates
+        usageAssets = allAssets.Where(a =>
+        {
+            // Only process Units of Usage method
+            if (a.DepreciationMethod != DepreciationMethod.UnitsOfUsage) return false;
+            
+            // Only active assets
+            if (a.Status != AssetStatus.Active) return false;
+            
+            // Cannot log usage before the asset's depreciation start date
+            var assetStartMonth = new DateTime(a.DepreciationStartDate.Year, a.DepreciationStartDate.Month, 1);
+            if (targetMonthStart < assetStartMonth) return false;
+
+            // If it has a strict useful life limit, it cannot go past it (optional safety net)
+            if (a.UsefulLifeMonths > 0)
+            {
+                var assetEndMonth = assetStartMonth.AddMonths(a.UsefulLifeMonths);
+                if (targetMonthStart > assetEndMonth) return false;
+            }
+
+            return true;
+        }).ToList();
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var eomDate = new DateTime(periodMonth.Year, periodMonth.Month, DateTime.DaysInMonth(periodMonth.Year, periodMonth.Month));
+        
+        // 2. Fetch existing usage logs
+        var existingLogs = await ctx.AssetUsageLogs
+            .AsNoTracking()
+            .Where(u => u.CompanyId == companyId && u.PeriodDate.Year == eomDate.Year && u.PeriodDate.Month == eomDate.Month)
+            .ToListAsync();
+
+        // 3. Fetch Depreciation History to lock inputs if it's already posted!
+        var existingDepreciationRuns = await ctx.AssetDepreciationHistories
+            .AsNoTracking()
+            .Where(h => h.Date.Year == eomDate.Year && h.Date.Month == eomDate.Month)
+            .Select(h => h.FixedAssetId)
+            .ToListAsync();
+
+        usageInputs.Clear();
+        logExists.Clear();
+        isDepreciatedThisMonth.Clear();
+        
+        foreach (var a in usageAssets)
+        {
+            var log = existingLogs.FirstOrDefault(l => l.FixedAssetId == a.Id);
+            
+            usageInputs[a.Id] = log != null ? log.UnitsUsed : 0;
+            logExists[a.Id] = log != null;
+            isDepreciatedThisMonth[a.Id] = existingDepreciationRuns.Contains(a.Id);
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task SaveLog(Guid assetId)
+    {
+        if (usageInputs.TryGetValue(assetId, out decimal units) && units > 0)
+        {
+            await CategoryService.LogUsageAsync(companyId, assetId, periodMonth, units);
+            
+            // Update UI state to show it was successfully saved
+            logExists[assetId] = true;
+            
+            await JS.InvokeVoidAsync("alert", $"Usage of {units} units logged successfully for {periodMonth:MMMM yyyy}!");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Please enter a valid number greater than 0.");
+        }
+    }
+}

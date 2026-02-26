@@ -13,14 +13,16 @@ namespace Primafit_ERP.Services
         private readonly InventoryValuationService _valuationService;
         public PurchasingService(
             IDbContextFactory<AppDbContext> dbFactory,
-            InventoryService inventoryService,
-            GLOperationsService glOps,
-            BudgetService budgetService)
+        InventoryService inventoryService,
+        GLOperationsService glOps,
+        BudgetService budgetService,
+        InventoryValuationService valuationService)
         {
             _dbFactory = dbFactory;
             _inventoryService = inventoryService;
             _glOps = glOps;
             _budgetService = budgetService;
+            _valuationService = valuationService;
 
         }
 
@@ -339,7 +341,7 @@ namespace Primafit_ERP.Services
                 
                 po.HasReceipt = true;
                 await ctx.SaveChangesAsync();
-                await _valuationService.RecalculateWACC(grn.Id);
+                //await _valuationService.RecalculateWACC(grn.Id);
                 return string.Empty;
             }
             catch (Exception ex)

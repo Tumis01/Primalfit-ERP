@@ -78,7 +78,7 @@
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Core Modules</div>
 
-            @* 1. GENERAL LEDGER (Excluding Assets & Budget) *@
+            @* 1. GENERAL LEDGER *@
             <div class="space-y-1">
                 <button @onclick="ToggleFinanceMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -114,7 +114,6 @@
                             <NavLink href="gl/cashbook" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> CashBook Batches
                             </NavLink>
-                            
                         </div>
                     </div>
                 }
@@ -317,13 +316,37 @@
                 <span class="flex-1 font-medium">Projects</span>
             </NavLink>
 
-            @* 7. FIXED ASSETS *@
-            <NavLink href="assets/register" class="@NavBase" activeClass="@NavActive">
-                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                </svg>
-                <span class="flex-1 font-medium">Fixed Assets</span>
-            </NavLink>
+            @* 7. FIXED ASSETS (NEW STRUCTURED MODULE) *@
+            <div class="space-y-1">
+                <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between">
+                    <div class="flex items-center gap-3">
+                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                        </svg>
+                        <span class="flex-1 text-left font-medium">Fixed Assets</span>
+                    </div>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_assetsMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                @if (_assetsMenuOpen)
+                {
+                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                        <div class="space-y-1 pt-1">
+                            <NavLink href="assets/register" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Asset Register
+                            </NavLink>
+                            <NavLink href="assets/categories" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Categories
+                            </NavLink>
+                            <NavLink href="assets/usage-logs" class="@SubNavBase" activeClass="@SubNavActive">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Usage Logs
+                            </NavLink>
+                        </div>
+                    </div>
+                }
+            </div>
 
             @* 8. BUDGET *@
             <NavLink href="finance/budget" class="@NavBase" activeClass="@NavActive">
@@ -381,9 +404,6 @@
                             <NavLink href="reports/budget-variance" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Budget Variance
                             </NavLink>
-                            @* <NavLink href="reports/cashbook" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Cashbook Report
-                            </NavLink> *@
 
                             <NavLink href="reports/inventory-valuation" class="@SubNavBase" activeClass="@SubNavActive">
                                 <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Inventory Valuation
@@ -471,6 +491,7 @@
     private bool _purchasingMenuOpen;
     private bool _inventoryMenuOpen;
     private bool _masterDataMenuOpen;
+    private bool _assetsMenuOpen; // NEW: Added Asset Menu State
     private bool _reportMenuOpen;
     private bool _setupMenuOpen;
     private bool showCustomers = false;
@@ -503,7 +524,6 @@
         // Auto-open Menus based on current path
         var path = new Uri(Nav.Uri).AbsolutePath.Trim('/').ToLowerInvariant();
 
-        // UPDATED: Ensure the Report Menu stays open if the path starts with "reports/" or "gl/general-ledger"
         _reportMenuOpen = path.StartsWith("reports/") || path.StartsWith("gl/general-ledger") || path.StartsWith("gl/trial-balance");
 
         _financeMenuOpen = (path.StartsWith("finance/") || path.StartsWith("gl/") || path.StartsWith("seg-"))
@@ -520,6 +540,8 @@
 
         _masterDataMenuOpen = path.StartsWith("md/") || path == "warehouses" || path.Contains("items");
 
+        _assetsMenuOpen = path.StartsWith("assets/"); // NEW: Auto-open if navigating anywhere inside the assets module
+
         _setupMenuOpen = path is "companies" or "users" or "roles" or "tax-setup" or "accounting-periods" or "currency-setup";
     }
 
@@ -531,6 +553,7 @@
     private void TogglePurchasingMenu() => _purchasingMenuOpen = !_purchasingMenuOpen;
     private void ToggleInventoryMenu() => _inventoryMenuOpen = !_inventoryMenuOpen;
     private void ToggleMasterDataMenu() => _masterDataMenuOpen = !_masterDataMenuOpen;
+    private void ToggleAssetsMenu() => _assetsMenuOpen = !_assetsMenuOpen; // NEW: Toggle Method
     private void ToggleReportMenu() => _reportMenuOpen = !_reportMenuOpen;
     private void ToggleSetupMenu() => _setupMenuOpen = !_setupMenuOpen;
 }

@@ -427,19 +427,80 @@
 
     private async Task SaveSegmentRow()
     {
-        string? err = activeTab switch
-        {
-            0 => await Service.AddSegment0Async(selectedCompanyId, editModel.Code, editModel.Description),
-            1 => await Service.AddSegment1Async(selectedCompanyId, editModel.Code, editModel.Description),
-            2 => await Service.AddSegment2Async(selectedCompanyId, editModel.Code, editModel.Description),
-            3 => await Service.AddSegment3Async(selectedCompanyId, editModel.Code, editModel.Description),
-            4 => await Service.AddSegment4Async(selectedCompanyId, editModel.Code, editModel.Description),
-            5 => await Service.AddSegment5Async(selectedCompanyId, editModel.Code, editModel.Description),
-            _ => "Invalid segment."
-        };
+        string? err = "";
 
-        if (!string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", err);
-        else { await LoadAllSegments(); CancelValueForm(); }
+        // We instantiate the specific class and include 'Id = editModel.Id'.
+        // The Service.SaveSegmentAsync checks if Id is Empty (Create) or populated (Update).
+        switch (activeTab)
+        {
+            case 0:
+                err = await Service.SaveSegmentAsync(new Segment0
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            case 1:
+                err = await Service.SaveSegmentAsync(new Segment1
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            case 2:
+                err = await Service.SaveSegmentAsync(new Segment2
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            case 3:
+                err = await Service.SaveSegmentAsync(new Segment3
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            case 4:
+                err = await Service.SaveSegmentAsync(new Segment4
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            case 5:
+                err = await Service.SaveSegmentAsync(new Segment5
+                {
+                    Id = editModel.Id,
+                    CompanyId = selectedCompanyId,
+                    Code = editModel.Code,
+                    Description = editModel.Description
+                });
+                break;
+            default:
+                err = "Invalid segment selected.";
+                break;
+        }
+
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        else
+        {
+            await LoadAllSegments();
+            CancelValueForm();
+        }
     }
 
     private async Task DeleteRow(Guid id)

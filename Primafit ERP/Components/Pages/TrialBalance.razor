@@ -1,4 +1,5 @@
 ﻿@page "/reports/trial-balance"
+
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -11,8 +12,9 @@
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId" Title="Trial Balance"
-                  Description="A mathematical proof that total Debits equal total Credits across all active accounts for the selected period."
+    <ReportViewer CompanyId="companyId"
+                  Title="Trial Balance"
+                  Description="Structured Trial Balance Report"
                   ShowDateRange="true"
                   ShowAsOfDate="false"
                   FetchData="GetData" />
@@ -23,10 +25,15 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+        }
     }
-
+    
     // This method is passed down to the ReportViewer component
     private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
     {

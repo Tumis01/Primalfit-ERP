@@ -1,0 +1,179 @@
+﻿@page "/assets/categories"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject AssetCategoryService CatService
+@inject SegCoaService CoaService
+@inject IJSRuntime JS
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 mt-6">
+    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Asset Categories</h1>
+            <p class="text-sm text-slate-500">Configure default depreciation methods and GL accounts.</p>
+        </div>
+        <button @onclick="NewCategory" class="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all">
+            + New Category
+        </button>
+    </div>
+
+    @if (categories != null)
+    {
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Method</th>
+                        <th class="px-6 py-4">Asset GL</th>
+                        <th class="px-6 py-4">Accum Depr GL</th>
+                        <th class="px-6 py-4">Expense GL</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var c in categories)
+                    {
+                        <tr class="hover:bg-slate-50">
+                            <td class="px-6 py-4 font-bold text-slate-800">@c.Name</td>
+                            <td class="px-6 py-4"><span class="bg-slate-100 px-2 py-1 rounded text-xs font-bold border border-slate-200">@c.DefaultDepreciationMethod</span></td>
+                            <td class="px-6 py-4 text-slate-600">@GetGlName(c.FixedAssetAccountId)</td>
+                            <td class="px-6 py-4 text-slate-600">@GetGlName(c.AccumulatedDepreciationAccountId)</td>
+                            <td class="px-6 py-4 text-slate-600">@GetGlName(c.DepreciationExpenseAccountId)</td>
+                        </tr>
+                    }
+                    @if (!categories.Any())
+                    {
+                        <tr><td colspan="5" class="px-6 py-12 text-center text-slate-400">No categories created yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (showModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 my-8 animate-in zoom-in-95 duration-200">
+                <h3 class="text-lg font-bold text-slate-900 border-b border-slate-100 pb-4 mb-4">Category Setup</h3>
+                
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Name</label>
+                            <input class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" placeholder="e.g. Vehicles" @bind="draft.Name" />
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Code</label>
+                            <input class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" placeholder="VEH" @bind="draft.Code" />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Default Method</label>
+                        <select class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" @bind="draft.DefaultDepreciationMethod">
+                            @foreach (var m in Enum.GetValues<DepreciationMethod>())
+                            {
+                                <option value="@m">@m.ToString()</option>
+                            }
+                        </select>
+                    </div>
+
+                    @if (draft.DefaultDepreciationMethod == DepreciationMethod.DecliningBalance)
+                    {
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Declining Rate</label>
+                                <input class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" type="number" placeholder="0.2" @bind="draft.DecliningRate" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Declining Factor</label>
+                                <input class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" type="number" placeholder="2.0" @bind="draft.DecliningFactor" />
+                            </div>
+                        </div>
+                    }
+                    
+                    <div class="space-y-3 pt-4 border-t border-slate-100">
+                        <h4 class="text-xs font-bold text-indigo-600 uppercase tracking-wider">Default GL Accounts</h4>
+                        <select class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" @bind="draft.FixedAssetAccountId">
+                            <option value="">-- Asset Account (Dr) --</option>
+                            @foreach (var a in coa)
+                            {
+                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
+                            }
+                        </select>
+                        <select class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" @bind="draft.AccumulatedDepreciationAccountId">
+                            <option value="">-- Accum Depr Account (Cr) --</option>
+                            @foreach (var a in coa)
+                            {
+                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
+                            }
+                        </select>
+                        <select class="w-full border border-slate-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500" @bind="draft.DepreciationExpenseAccountId">
+                            <option value="">-- Expense Account (Dr) --</option>
+                            @foreach (var a in coa)
+                            {
+                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                    <button class="px-5 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl" @onclick="() => showModal = false">Cancel</button>
+                    <button class="px-6 py-2 bg-slate-900 text-white text-sm font-bold rounded-xl shadow hover:bg-slate-800" @onclick="Save">Save Category</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Guid companyId;
+    List<AssetCategory> categories = new();
+    List<SegChartOfAccount> coa = new();
+    AssetCategory draft = new();
+    bool showModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+            categories = await CatService.GetCategoriesAsync(companyId);
+            coa = await CoaService.GetCoaAsync(companyId);
+        }
+    }
+
+   
+    void NewCategory()
+    {
+        draft = new AssetCategory
+        {
+            Id = Guid.Empty, // <-- ADD THIS LINE
+            CompanyId = companyId
+        };
+        showModal = true;
+    }
+    async Task Save()
+    {
+        var err = await CatService.SaveCategoryAsync(draft);
+        if (string.IsNullOrEmpty(err))
+        {
+            showModal = false;
+            categories = await CatService.GetCategoriesAsync(companyId);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    string GetGlName(Guid? id) => coa.FirstOrDefault(a => a.Id == id)?.Description ?? "-";
+}

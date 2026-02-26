@@ -190,10 +190,33 @@
                                     </tr>
                                 }
                             </tbody>
-                            <tfoot class="border-t border-slate-200 bg-slate-50">
+                            <tfoot class="border-t-2 border-slate-300 bg-slate-50">
+                                @{
+                                    // FIX: Multiply the goods value by the PO Exchange Rate to match the Base Currency of the Extra Costs
+                                    var exchangeRate = selectedPO?.ExchangeRate ?? 1m;
+                                    var goodsTotalBase = currentGrn.Lines.Sum(l => l.QuantityReceived * (selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId)?.UnitCost ?? 0)) * exchangeRate;
+                                    var extrasTotal = addedCosts.Sum(x => x.Amount);
+                                    var totalLandedValue = goodsTotalBase + extrasTotal;
+                                }
                                 <tr>
-                                    <td colspan="2" class="py-2 font-bold text-right pr-4">Total Landed Cost:</td>
-                                    <td class="py-2 text-right font-mono font-bold text-indigo-600">@addedCosts.Sum(x => x.Amount).ToString("N2")</td>
+                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Goods Value (Base Rate):</td>
+                                    <td class="py-2 text-right font-mono font-bold text-slate-700">
+                                        @goodsTotalBase.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Extra Costs:</td>
+                                    <td class="py-2 text-right font-mono font-bold text-rose-600">
+                                        @extrasTotal.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr class="bg-indigo-50 border-t border-indigo-100">
+                                    <td colspan="2" class="py-3 font-black text-right text-indigo-900 uppercase text-xs pr-4">Total Landed Value:</td>
+                                    <td class="py-3 text-right font-mono font-black text-indigo-700 text-lg">
+                                        @totalLandedValue.ToString("N2")
+                                    </td>
                                     <td></td>
                                 </tr>
                             </tfoot>
@@ -272,7 +295,7 @@
             var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId);
             var t3 = PurchService.GetOpenPOsAsync(currentCompanyId);
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
-            var t5 = GetLandedCostTypes(); // Implement this helper
+            var t5 = GetLandedCostTypes(); 
 
             await Task.WhenAll(t1, t2, t3, t4, t5);
 
@@ -294,11 +317,28 @@
         }
     }
 
-    // Helper to fetch Cost Types
     private async Task<List<LandedCostType>> GetLandedCostTypes()
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
-        return await ctx.LandedCostTypes.Where(x => x.CompanyId == currentCompanyId).ToListAsync();
+        var types = await ctx.LandedCostTypes
+            .Where(x => x.CompanyId == currentCompanyId)
+            .ToListAsync();
+
+        if (!types.Any())
+        {
+            types = new List<LandedCostType>
+            {
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Freight & Shipping" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Customs Duty & Tariffs" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Transit Insurance" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Handling Charges" }
+            };
+            
+            ctx.LandedCostTypes.AddRange(types);
+            await ctx.SaveChangesAsync();
+        }
+
+        return types;
     }
 
     private void OnPoSelected(ChangeEventArgs e)
@@ -330,7 +370,6 @@
         }
     }
 
-    // STEP 1: Save Receipt & Open Modal
     private async Task SaveReceipt()
     {
         if (selectedWarehouseId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Warehouse."); return; }
@@ -339,14 +378,10 @@
         isBusy = true;
         try
         {
-            // Note: We modified SaveGoodsReceiptAsync to NOT auto-calculate Valuation yet
-            // Or pass a flag "skipValuation: true" if you customized it further.
-            // For now, assuming standard save.
             string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId);
 
             if (string.IsNullOrEmpty(result))
             {
-                // SUCCESS -> Open Modal
                 showLandedCostModal = true;
             }
             else
@@ -358,7 +393,6 @@
         finally { isBusy = false; }
     }
 
-    // Modal Action: Add Cost Line
     private void AddCostLine()
     {
         if (newCostTypeId == Guid.Empty || newCostAmount <= 0) return;
@@ -366,20 +400,18 @@
         addedCosts.Add(new GrnLandedCost
         {
             Id = Guid.NewGuid(),
-            GoodsReceiptId = currentGrn.Id, // We have the ID from the saved GRN
+            GoodsReceiptId = currentGrn.Id, 
             LandedCostTypeId = newCostTypeId,
             Amount = newCostAmount,
             AllocationMethod = newAllocMethod
         });
 
-        // Reset inputs
         newCostAmount = 0;
         newCostTypeId = Guid.Empty;
     }
 
     private void RemoveCost(GrnLandedCost c) => addedCosts.Remove(c);
 
-    // STEP 2: Finalize Valuation
     private async Task FinalizeValuation()
     {
         isValuationBusy = true;
@@ -387,14 +419,12 @@
         {
             using var ctx = await DbFactory.CreateDbContextAsync();
 
-            // 1. Save the Landed Cost records
             if (addedCosts.Any())
             {
                 ctx.GrnLandedCosts.AddRange(addedCosts);
                 await ctx.SaveChangesAsync();
             }
 
-            // 2. Trigger Calculation Engine
             string result = await ValuationService.RecalculateWACC(currentGrn.Id);
 
             if (string.IsNullOrEmpty(result))

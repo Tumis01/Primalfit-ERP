@@ -98,14 +98,11 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label class="label">Bank Account (Asset)</label>
-                        <select class="input-class" @bind="selectedBankAccountId" disabled="@(!HasCompany)">
-                            <option value="@Guid.Empty">-- Select Account --</option>
-                            @foreach (var a in bankAccounts)
-                            {
-                                <option value="@a.Id">@a.AccountCode - @a.Description</option>
-                            }
-                        </select>
+                        <SearchableGlAccount Label="Bank Account (Cash/Bank)"
+                                             Placeholder="Select bank accounts..."
+                                             Accounts="@bankAccounts"
+                                             @bind-Value="selectedBankAccountId"
+                                             IsInvalid="@(selectedBankAccountId == Guid.Empty)" />
                     </div>
                     <div>
                         <label class="label">Statement Ending Date</label>
@@ -335,7 +332,6 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    // CHANGED: Use SegChartOfAccount
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
 
@@ -395,24 +391,34 @@
 
     private async Task LoadContextData()
     {
-        reconId = null; vm = null; bankAccounts.Clear();
+        reconId = null;
+        vm = null;
+        bankAccounts.Clear();
+        
         if (!HasCompany) return;
 
-        // 1. Get Account Types to check flags
+        // 1. Get Account Types
         accountTypes = await SegCoaService.GetAccountTypesAsync();
 
         // 2. Get All COA
         var allCoa = await SegCoaService.GetCoaAsync(selectedCompanyId);
 
-        // 3. Filter for Assets (BS=True, Dr=True)
+        // 3. STRICT FILTER: Only keep "Cash and Cash Equivalents"
         bankAccounts = allCoa
             .Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+                
+                // We use .Contains to be safe against accidental trailing spaces in your database
+                return type != null &&
+                       !string.IsNullOrEmpty(type.Description) &&
+                       type.Description.Contains("Cash and Cash Equivalent", StringComparison.OrdinalIgnoreCase);
             })
             .OrderBy(a => a.AccountCode)
             .ToList();
+            
+        // Force the UI to re-render with the newly filtered list
+        StateHasChanged();
     }
 
     private void HandleFileUpload(InputFileChangeEventArgs e) => uploadedFile = e.File;
