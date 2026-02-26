@@ -1,0 +1,205 @@
+﻿@page "/supply-chain/issue-to-project"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject InventoryService InventoryService
+@inject ProjectService ProjectService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h1 class="text-2xl font-bold text-slate-900">Issue to Project</h1>
+        <p class="text-sm text-slate-500">Consume inventory for a specific job. This will increase Project Costs.</p>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
+        <EditForm Model="@form" OnValidSubmit="HandleSubmit">
+            <DataAnnotationsValidator />
+            
+            <div class="space-y-6">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="label">From Warehouse</label>
+                        <InputSelect @bind-Value="form.WarehouseId" class="input-class">
+                            <option value="@Guid.Empty">-- Select Source --</option>
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div>
+                        <label class="label text-indigo-600">Charge To Project</label>
+                        <InputSelect @bind-Value="form.ProjectId" class="input-class font-bold text-indigo-700 bg-indigo-50 border-indigo-200">
+                            <option value="@Guid.Empty">-- Select Project --</option>
+                            @foreach (var p in projects)
+                            {
+                                <option value="@p.Id">@p.ProjectCode - @p.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="label">Select Item</label>
+                    <div class="relative">
+                        <InputSelect @bind-Value="form.ItemId" class="input-class" @oninput="OnItemChange">
+                            <option value="@Guid.Empty">-- Select Item --</option>
+                            @foreach (var i in items)
+                            {
+                                <option value="@i.Id">@i.SKU - @i.Name (Avail: @GetStockDisplay(i.Id))</option>
+                            }
+                        </InputSelect>
+                        @if(selectedItemStock.HasValue)
+                        {
+                            <div class="absolute right-3 top-2.5 text-xs font-bold @(selectedItemStock > 0 ? "text-emerald-600" : "text-rose-600")">
+                                Stock: @selectedItemStock.Value.ToString("N0")
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label class="label">Quantity</label>
+                        <InputNumber @bind-Value="form.Quantity" class="input-class font-bold text-right" placeholder="0.00" />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="label">Reference / Note</label>
+                        <InputText @bind-Value="form.Note" class="input-class" placeholder="e.g. Parts for Stage 2" />
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-slate-100 flex justify-end">
+                    <button type="submit" disabled="@isBusy" class="px-6 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-2">
+                        @if (isBusy) { <span class="animate-spin">↻</span> }
+                        <span>Confirm Issue</span>
+                    </button>
+                </div>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<style>
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: all 0.2s; }
+    .input-class:focus { border-color: #4f46e5; outline: none; ring: 2px; ring-color: #e0e7ff; }
+</style>
+
+@code {
+    // Form Model
+    public class IssueForm
+    {
+        public Guid WarehouseId { get; set; }
+        public Guid ProjectId { get; set; }
+        public Guid ItemId { get; set; }
+        public decimal Quantity { get; set; }
+        public string Note { get; set; } = "";
+    }
+
+    private IssueForm form = new();
+    private bool isBusy = false;
+    private Guid currentCompanyId;
+    private decimal? selectedItemStock;
+
+    // Data Sources
+    private List<Warehouse> warehouses = new();
+    private List<Project> projects = new();
+    private List<Item> items = new();
+    private Dictionary<Guid, decimal> stockCache = new(); // Simple cache for display
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+        }
+    }
+
+    private async Task LoadData()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        
+        // 1. Load Warehouses
+        warehouses = await ctx.Warehouses.Where(w => w.CompanyId == currentCompanyId).ToListAsync();
+        
+        // 2. Load Active Projects
+        projects = await ProjectService.GetProjectsAsync(currentCompanyId);
+        projects = projects.Where(p => p.Status == ProjectStatus.Active).ToList();
+
+        // 3. Load Non-Service Items
+        items = await ctx.Items.Where(i => i.CompanyId == currentCompanyId && !i.IsService).ToListAsync();
+        
+        // 4. Pre-fetch Stock Levels (For display purposes only - simplistic approach)
+        var stocks = await ctx.StockLedgers
+            .Where(s => s.CompanyId == currentCompanyId)
+            .GroupBy(s => s.ItemId)
+            .Select(g => new { ItemId = g.Key, Total = g.Sum(x => x.QuantityChanged) })
+            .ToListAsync();
+            
+        stockCache = stocks.ToDictionary(k => k.ItemId, v => v.Total);
+    }
+
+    private string GetStockDisplay(Guid itemId) => stockCache.TryGetValue(itemId, out var qty) ? qty.ToString("N0") : "0";
+
+    // Update the stock display helper when item changes
+    private void OnItemChange(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out Guid id))
+        {
+            selectedItemStock = stockCache.TryGetValue(id, out var qty) ? qty : 0;
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (form.WarehouseId == Guid.Empty || form.ProjectId == Guid.Empty || form.ItemId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select Warehouse, Project, and Item.");
+            return;
+        }
+        if (form.Quantity <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Quantity must be greater than zero.");
+            return;
+        }
+
+        isBusy = true;
+
+        var err = await InventoryService.IssueToProjectAsync(
+            currentCompanyId, 
+            form.ItemId, 
+            form.WarehouseId, 
+            form.ProjectId, 
+            form.Quantity, 
+            form.Note
+        );
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Stock Issued Successfully! Project Cost updated.");
+            form = new(); // Reset
+            selectedItemStock = null;
+            await LoadData(); // Refresh stock levels
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", $"Error: {err}");
+        }
+
+        isBusy = false;
+    }
+}

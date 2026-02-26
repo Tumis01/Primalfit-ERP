@@ -1,104 +1,162 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Components.Forms;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
+using System.Globalization;
 
 namespace Primafit_ERP.Services
 {
     public class ReconciliationService
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
-        private readonly GLOperationsService _gl;
+        private readonly StatementImportService _statementImport;
 
-        public ReconciliationService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService gl)
+        public ReconciliationService(
+        IDbContextFactory<AppDbContext> dbFactory,
+        StatementImportService statementImport)
         {
             _dbFactory = dbFactory;
-            _gl = gl;
+            _statementImport = statementImport;
         }
 
-        private static bool LooksLikeHeader(string line) => line.ToLower().Contains("date") && line.ToLower().Contains("amount");
-
-        // 1. Start Reconciliation (Import CSV - FIXED)
-        public async Task<(string error, Guid? reconId)> StartReconciliationAsync(
-            Guid companyId, Guid bankAccountId, DateOnly statementDate, decimal endingBalance, Stream csvStream)
+        public async Task<(string err, Guid id)> StartReconciliationAsync(
+             Guid companyId,
+             Guid bankSegCoaId, // CHANGED: Renamed for clarity
+             DateOnly statementDate,
+             decimal endingBalance,
+             ReconType type,
+             IBrowserFile? uploadedFile,
+             string userId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var period = await ctx.AccountingPeriods.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.CompanyId == companyId && p.StartDate <= statementDate && p.EndDate >= statementDate);
-
-            if (period == null) return ("No accounting period found for this statement date.", null);
-            if (period.IsClosed) return ("The accounting period is closed.", null);
-
-            var recon = new BankReconciliation
+            try
             {
-                CompanyId = companyId,
-                AccountingPeriodId = period.Id,
-                BankAccountId = bankAccountId,
-                StatementDate = statementDate,
-                StatementEndingBalance = endingBalance,
-                PreparedByUserId = "ANONYMOUS_USER",
-                Status = ReconStatus.Draft
-            };
+                if (companyId == Guid.Empty) return ("Select a company.", Guid.Empty);
+                if (bankSegCoaId == Guid.Empty) return ("Select a bank account.", Guid.Empty);
 
-            // FIX: Using StreamReader with Async Loop
-            using var reader = new StreamReader(csvStream);
-            string? line;
-            bool firstLine = true;
+                await using var db = await _dbFactory.CreateDbContextAsync();
 
-            // This loop replaces !reader.EndOfStream to fix the exception
-            while ((line = await reader.ReadLineAsync()) != null)
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
+                // 1. SEARCH FOR EXISTING DRAFT
+                var existingDraft = await db.BankReconciliations
+                    .Include(r => r.StatementLines)
+                    .FirstOrDefaultAsync(r =>
+                        r.CompanyId == companyId &&
+                        r.BankAccountId == bankSegCoaId && // CHANGED
+                        r.StatementDate == statementDate &&
+                        r.Status == ReconStatus.Draft);
 
-                if (firstLine)
+                if (existingDraft != null)
                 {
-                    firstLine = false;
-                    if (LooksLikeHeader(line)) continue;
-                }
+                    existingDraft.StatementEndingBalance = endingBalance;
+                    existingDraft.Type = type;
+                    existingDraft.PreparedByUserId = userId;
 
-                var cols = line.Split(',');
-                if (cols.Length < 3) continue;
-
-                // Format: Date, Description, Amount, Reference(opt)
-                if (DateOnly.TryParse(cols[0].Trim(), out var d) && decimal.TryParse(cols[2].Trim(), out var a))
-                {
-                    recon.StatementLines.Add(new BankStatementLine
+                    if (type == ReconType.Automatic)
                     {
-                        CompanyId = companyId,
-                        Date = d,
-                        Description = cols[1].Trim(),
-                        Amount = a,
-                        Reference = cols.Length > 3 ? cols[3].Trim() : null,
-                        IsMatched = false
-                    });
+                        if (uploadedFile == null && !existingDraft.StatementLines.Any())
+                            return ("Please upload a bank statement file.", Guid.Empty);
+
+                        if (uploadedFile != null)
+                        {
+                            // Parse & Replace logic (Same as your code)
+                            await using var stream = uploadedFile.OpenReadStream(10 * 1024 * 1024);
+                            var rows = await _statementImport.ParseAsync(uploadedFile.Name, uploadedFile.ContentType, stream);
+
+                            if (rows.Count == 0) return ("No valid transactions found.", Guid.Empty);
+
+                            await using var tx = await db.Database.BeginTransactionAsync();
+                            var oldLines = await db.BankStatementLines.Where(x => x.ReconciliationId == existingDraft.Id).ToListAsync();
+                            if (oldLines.Count > 0) db.BankStatementLines.RemoveRange(oldLines);
+
+                            foreach (var r in rows)
+                            {
+                                db.BankStatementLines.Add(new BankStatementLine
+                                {
+                                    ReconciliationId = existingDraft.Id,
+                                    Date = r.Date,
+                                    Reference = r.Reference,
+                                    Description = r.Description ?? "Imported",
+                                    Amount = r.Amount,
+                                    IsMatched = false
+                                });
+                            }
+                            await db.SaveChangesAsync();
+                            await tx.CommitAsync();
+                        }
+                    }
+
+                    await db.SaveChangesAsync();
+                    return ("", existingDraft.Id);
                 }
+
+                // --- NEW RECONCILIATION ---
+                var recon = new BankReconciliation
+                {
+                    Id = Guid.NewGuid(),
+                    CompanyId = companyId,
+                    BankAccountId = bankSegCoaId, // CHANGED
+                    StatementDate = statementDate,
+                    StatementEndingBalance = endingBalance,
+                    Type = type,
+                    Status = ReconStatus.Draft,
+                    PreparedByUserId = userId,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                if (type == ReconType.Automatic)
+                {
+                    if (uploadedFile == null) return ("Please upload a file.", Guid.Empty);
+                    await using var stream = uploadedFile.OpenReadStream(10 * 1024 * 1024);
+                    var rows = await _statementImport.ParseAsync(uploadedFile.Name, uploadedFile.ContentType, stream);
+                    if (rows.Count == 0) return ("File is empty.", Guid.Empty);
+
+                    foreach (var r in rows)
+                    {
+                        recon.StatementLines.Add(new BankStatementLine
+                        {
+                            ReconciliationId = recon.Id,
+                            Date = r.Date,
+                            Reference = r.Reference,
+                            Description = r.Description ?? "Imported",
+                            Amount = r.Amount,
+                            IsMatched = false
+                        });
+                    }
+                }
+
+                db.BankReconciliations.Add(recon);
+                await db.SaveChangesAsync();
+                return ("", recon.Id);
             }
-
-            if (recon.StatementLines.Count == 0) return ("No valid lines found in CSV.", null);
-
-            ctx.BankReconciliations.Add(recon);
-            await ctx.SaveChangesAsync();
-            return (string.Empty, recon.Id);
+            catch (Exception ex)
+            {
+                return ($"Error: {ex.Message}", Guid.Empty);
+            }
         }
 
-        // 2. Get Data
-        public async Task<ReconViewModel> GetReconDataAsync(Guid companyId, Guid reconId)
+        public async Task<ReconViewModel?> GetReconDataAsync(Guid companyId, Guid reconId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var recon = await ctx.BankReconciliations
-                .Include(r => r.StatementLines)
+            var recon = await db.BankReconciliations
                 .FirstOrDefaultAsync(r => r.Id == reconId && r.CompanyId == companyId);
 
-            if (recon == null) throw new InvalidOperationException("Reconciliation not found.");
+            if (recon == null) return null;
 
-            var txns = await ctx.GLTransactions
-                .AsNoTracking()
-                .Where(t => t.CompanyId == companyId &&
-                            t.AccountId == recon.BankAccountId &&
-                            !t.IsReconciled &&
-                            t.PostingDate <= recon.StatementDate)
-                .OrderByDescending(t => t.PostingDate)
+            // Load Lines
+            recon.StatementLines = await db.BankStatementLines
+                .Where(l => l.ReconciliationId == reconId)
+                .OrderBy(l => l.Date)
+                .ToListAsync();
+
+            // Load Candidates (GL Transactions)
+            // CRITICAL FIX: Query SegCoaId, not AccountId
+            var txns = await db.GLTransactions
+                .Where(t =>
+                    t.CompanyId == companyId &&
+                    t.SegCoaId == recon.BankAccountId &&
+                    (t.BankReconciliationId == null || t.BankReconciliationId == reconId) &&
+                    t.PostingDate <= recon.StatementDate)
+                .OrderBy(t => t.PostingDate)
                 .ToListAsync();
 
             return new ReconViewModel
@@ -108,116 +166,107 @@ namespace Primafit_ERP.Services
             };
         }
 
-        // 3. Auto Match
-        public async Task<int> AutoMatchAsync(Guid companyId, Guid reconId, int toleranceDays)
+        public async Task ToggleTransactionClearedAsync(Guid txnId, Guid reconId, bool isChecked)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            var recon = await ctx.BankReconciliations.Include(r => r.StatementLines).FirstOrDefaultAsync(r => r.Id == reconId);
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var txn = await db.GLTransactions.FirstOrDefaultAsync(t => t.Id == txnId);
+            if (txn == null) return;
+
+            if (isChecked)
+                txn.BankReconciliationId = reconId;
+            else if (txn.BankReconciliationId == reconId)
+                txn.BankReconciliationId = null;
+
+            await db.SaveChangesAsync();
+        }
+
+        public async Task<int> AutoMatchAsync(Guid companyId, Guid reconId, decimal tolerance)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            var recon = await db.BankReconciliations.FirstOrDefaultAsync(r => r.Id == reconId && r.CompanyId == companyId);
             if (recon == null) return 0;
 
-            var txns = await ctx.GLTransactions
-                .Where(t => t.CompanyId == companyId &&
-                            t.AccountId == recon.BankAccountId &&
-                            !t.IsReconciled &&
-                            t.PostingDate <= recon.StatementDate)
+            var statementLines = await db.BankStatementLines.Where(l => l.ReconciliationId == reconId && !l.IsMatched).ToListAsync();
+
+            // CRITICAL FIX: Query SegCoaId
+            var glTransactions = await db.GLTransactions
+                .Where(t =>
+                    t.CompanyId == companyId &&
+                    t.SegCoaId == recon.BankAccountId && // CHANGED
+                    t.BankReconciliationId == null &&
+                    t.PostingDate <= recon.StatementDate.AddDays(10)) // Grace period
                 .ToListAsync();
 
-            int count = 0;
+            int matched = 0;
 
-            foreach (var line in recon.StatementLines.Where(l => !l.IsMatched))
+            foreach (var line in statementLines)
             {
-                var match = txns.FirstOrDefault(t =>
-                    (t.Debit - t.Credit) == line.Amount &&
-                    Math.Abs(t.PostingDate.DayNumber - line.Date.DayNumber) <= toleranceDays);
+                var stAmt = line.Amount;
 
-                if (match != null)
+                // Simple Auto-Match logic
+                var match = glTransactions.FirstOrDefault(t =>
                 {
-                    line.IsMatched = true;
-                    line.MatchedGLTransactionId = match.Id;
-                    line.MatchedByUserId = "ANONYMOUS_USER";
-                    line.MatchedAt = DateTime.UtcNow;
-                    txns.Remove(match);
-                    count++;
-                }
+                    // GL Amount: Debit - Credit. 
+                    // If Bank Statement +100 (Deposit), GL should be Debit 100 (Asset Increase).
+                    // If Bank Statement -100 (Payment), GL should be Credit 100 (Asset Decrease).
+
+                    var glNet = t.Debit - t.Credit;
+
+                    var amountMatches = Math.Abs(glNet - stAmt) <= tolerance;
+                    var dateMatches = Math.Abs(t.PostingDate.DayNumber - line.Date.DayNumber) <= 5;
+
+                    return amountMatches && dateMatches;
+                });
+
+                if (match == null) continue;
+
+                match.BankReconciliationId = reconId;
+                line.IsMatched = true;
+                line.MatchedGLTransactionId = match.Id;
+
+                glTransactions.Remove(match); // Prevent double use
+                matched++;
             }
-            await ctx.SaveChangesAsync();
-            return count;
+
+            await db.SaveChangesAsync();
+            return matched;
         }
 
-        // 4. Manual Match
-        public async Task<string> MatchManuallyAsync(Guid companyId, Guid bankLineId, Guid glTxnId)
+        // MatchManuallyAsync and FinalizeReconciliationAsync remain largely the same, 
+        // just ensure any queries use SegCoaId if they touch GLTransactions directly.
+        public async Task<string> MatchManuallyAsync(Guid companyId, Guid statementLineId, Guid txnId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            var line = await ctx.BankStatementLines.FirstOrDefaultAsync(l => l.Id == bankLineId && l.CompanyId == companyId);
-            if (line == null) return "Bank line not found.";
-
-            var txn = await ctx.GLTransactions.FirstOrDefaultAsync(t => t.Id == glTxnId && t.CompanyId == companyId);
-            if (txn == null) return "GL Transaction not found.";
-
-            if (line.IsMatched || txn.IsReconciled) return "Already matched/reconciled.";
-
-            line.IsMatched = true;
-            line.MatchedGLTransactionId = txn.Id;
-            line.MatchedByUserId = "ANONYMOUS_USER";
-            line.MatchedAt = DateTime.UtcNow;
-
-            await ctx.SaveChangesAsync();
-            return string.Empty;
-        }
-
-        // 5. Create Adjustment
-        public async Task<string> CreateAdjustmentAsync(Guid companyId, Guid reconId, string description, decimal amount, Guid expenseAccountId)
-        {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            var recon = await ctx.BankReconciliations.FindAsync(reconId);
-            if (recon == null) return "Recon not found.";
-
-            var lines = new List<GLJournalLine>
+            try
             {
-                new GLJournalLine { AccountId = expenseAccountId, Debit = amount, Credit = 0, Reference = description },
-                new GLJournalLine { AccountId = recon.BankAccountId, Debit = 0, Credit = amount, Reference = "Bank Adjustment" }
-            };
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var line = await db.BankStatementLines.FirstOrDefaultAsync(l => l.Id == statementLineId);
+                if (line == null) return "Statement line not found.";
 
-            var (err, _) = await _gl.CreateDraftBatchAsync(
-                companyId,
-                recon.StatementDate,
-                $"RECON-ADJ {DateTime.Now:HHmm}",
-                description,
-                "RECON-ADJ",
-                description,
-                lines,
-                BatchType.ReconciliationAdjustment);
+                var txn = await db.GLTransactions.FirstOrDefaultAsync(t => t.Id == txnId && t.CompanyId == companyId);
+                if (txn == null) return "GL transaction not found.";
 
-            return err;
+                if (line.IsMatched || txn.BankReconciliationId != null) return "Item already matched.";
+
+                txn.BankReconciliationId = line.ReconciliationId;
+                line.IsMatched = true;
+                line.MatchedGLTransactionId = txn.Id;
+
+                await db.SaveChangesAsync();
+                return "";
+            }
+            catch (Exception ex) { return ex.Message; }
         }
 
-        // 6. Finalize
         public async Task<string> FinalizeReconciliationAsync(Guid companyId, Guid reconId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            var recon = await ctx.BankReconciliations.Include(r => r.StatementLines).FirstOrDefaultAsync(r => r.Id == reconId);
-            if (recon == null) return "Recon not found.";
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var recon = await db.BankReconciliations.FirstOrDefaultAsync(r => r.Id == reconId && r.CompanyId == companyId);
+            if (recon == null) return "Reconciliation not found.";
 
-            var matchedTxnIds = recon.StatementLines
-                .Where(l => l.MatchedGLTransactionId != null)
-                .Select(l => l.MatchedGLTransactionId!.Value)
-                .ToList();
-
-            var txns = await ctx.GLTransactions.Where(t => matchedTxnIds.Contains(t.Id)).ToListAsync();
-
-            foreach (var t in txns)
-            {
-                t.IsReconciled = true;
-                t.ReconciledByUserId = "ANONYMOUS_USER";
-                t.ReconciledAt = DateTime.UtcNow;
-                t.BankReconciliationId = recon.Id;
-            }
-
-            recon.Status = ReconStatus.Approved;
-            recon.ApprovedByUserId = "ANONYMOUS_USER";
+            recon.Status = ReconStatus.Finalized;
             recon.ApprovedAt = DateTime.UtcNow;
-
-            await ctx.SaveChangesAsync();
+            await db.SaveChangesAsync();
             return "Success";
         }
     }

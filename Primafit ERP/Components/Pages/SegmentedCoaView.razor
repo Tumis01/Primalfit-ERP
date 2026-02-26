@@ -1,0 +1,827 @@
+﻿@page "/finance/segmented-coa"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SegCoaService Service
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject ReportExportService ReportExportService
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Segmented Chart of Accounts</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">
+                Create COA accounts by selecting segment values. Accounts marked 'Inactive' are hidden from transaction screens.
+            </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            <button @onclick="ToggleAccountBuilder"
+                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Create Account
+            </button>
+
+            <button @onclick="ExportPdf" disabled="@(isDownloadingPdf || isDownloadingExcel || !coa.Any())"
+                    class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (isDownloadingPdf)
+                {
+                    <svg class="h-4 w-4 animate-spin text-rose-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>PDF...</span>
+                }
+                else
+                {
+                    
+                    <span> PDF</span>
+                }
+            </button>
+
+            <button @onclick="ExportExcel" disabled="@(isDownloadingPdf || isDownloadingExcel || !coa.Any())"
+                    class="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-emerald-600 text-sm font-bold rounded-xl hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (isDownloadingExcel)
+                {
+                    <svg class="h-4 w-4 animate-spin text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Excel...</span>
+                }
+                else
+                {
+                    
+                    <span>Excel</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading setup...
+        </div>
+    }
+    else if (!HasCompany)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500">
+            No company context found for this user.
+        </div>
+    }
+    else
+    {
+        @if (showBuilder)
+        {
+            <div class="rounded-2xl border border-slate-200 bg-white shadow-sm mb-6">
+                <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">@(draft.Id.HasValue ? "Edit Account" : "Build Account")</h3>
+                        <p class="text-sm text-slate-500 mt-1">
+                            Define the structure and permissions for this GL account.
+                        </p>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <button @onclick="CancelAccountBuilder"
+                                class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
+                            Cancel
+                        </button>
+
+                        <button @onclick="SaveAccount"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95">
+                            @(draft.Id.HasValue ? "Update Account" : "Save Account")
+                        </button>
+                    </div>
+                </div>
+
+                <div class="p-6 space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        <div class="relative space-y-1.5">
+                            <label class="label">@cfg.Segment0Name (Required)</label>
+                            @if (draft.Segment0Id != Guid.Empty && !isSearching0)
+                            {
+                                <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching0 = true">
+                                    <span class="text-sm font-medium text-slate-900 truncate">
+                                        @{
+                                            var s0 = seg0.FirstOrDefault(x => x.Id == draft.Segment0Id);
+                                        }
+                                        @(s0 != null ? $"{s0.Code} - {s0.Description}" : "-- select --")
+                                    </span>
+                                    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
+                            }
+                            else
+                            {
+                                <input @bind="search0" @bind:event="oninput" @onfocus="() => isSearching0 = true" @onblur="OnBlur0" class="@InputClass" placeholder="Select @cfg.Segment0Name..." autofocus />
+                                @if (isSearching0)
+                                {
+                                    <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                        @foreach (var r in seg0.Where(x => string.IsNullOrWhiteSpace(search0) || x.Code.Contains(search0, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search0, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg0(r.Id)">
+                                                <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                            </div>
+                                        }
+                                        @if (!seg0.Any(x => string.IsNullOrWhiteSpace(search0) || x.Code.Contains(search0, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search0, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="px-4 py-3 text-xs text-slate-400 text-center">No results found.</div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+
+                        @if (cfg.Segment1Active)
+                        {
+                            <div class="relative space-y-1.5">
+                                <label class="label">@cfg.Segment1Name</label>
+                                @if (draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty && !isSearching1)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching1 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s1 = seg1.FirstOrDefault(x => x.Id == draft.Segment1Id);
+                                            }
+                                            @(s1 != null ? $"{s1.Code} - {s1.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search1" @bind:event="oninput" @onfocus="() => isSearching1 = true" @onblur="OnBlur1" class="@InputClass" placeholder="Select @cfg.Segment1Name..." />
+                                    @if (isSearching1)
+                                    {
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg1(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg1.Where(x => string.IsNullOrWhiteSpace(search1) || x.Code.Contains(search1, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search1, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg1(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
+                        @if (cfg.Segment2Active)
+                        {
+                            <div class="relative space-y-1.5">
+                                <label class="label">@cfg.Segment2Name</label>
+                                @if (draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty && !isSearching2)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching2 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s2 = seg2.FirstOrDefault(x => x.Id == draft.Segment2Id);
+                                            }
+                                            @(s2 != null ? $"{s2.Code} - {s2.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search2" @bind:event="oninput" @onfocus="() => isSearching2 = true" @onblur="OnBlur2" class="@InputClass" placeholder="Select @cfg.Segment2Name..." />
+                                    @if (isSearching2)
+                                    {
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg2(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg2.Where(x => string.IsNullOrWhiteSpace(search2) || x.Code.Contains(search2, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search2, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg2(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
+                        @if (cfg.Segment3Active)
+                        {
+                            <div class="relative space-y-1.5">
+                                <label class="label">@cfg.Segment3Name</label>
+                                @if (draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty && !isSearching3)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching3 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s3 = seg3.FirstOrDefault(x => x.Id == draft.Segment3Id);
+                                            }
+                                            @(s3 != null ? $"{s3.Code} - {s3.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search3" @bind:event="oninput" @onfocus="() => isSearching3 = true" @onblur="OnBlur3" class="@InputClass" placeholder="Select @cfg.Segment3Name..." />
+                                    @if (isSearching3)
+                                    {
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg3(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg3.Where(x => string.IsNullOrWhiteSpace(search3) || x.Code.Contains(search3, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search3, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg3(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
+                        @if (cfg.Segment4Active)
+                        {
+                            <div class="relative space-y-1.5">
+                                <label class="label">@cfg.Segment4Name</label>
+                                @if (draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty && !isSearching4)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching4 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s4 = seg4.FirstOrDefault(x => x.Id == draft.Segment4Id);
+                                            }
+                                            @(s4 != null ? $"{s4.Code} - {s4.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search4" @bind:event="oninput" @onfocus="() => isSearching4 = true" @onblur="OnBlur4" class="@InputClass" placeholder="Select @cfg.Segment4Name..." />
+                                    @if (isSearching4)
+                                    {
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg4(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg4.Where(x => string.IsNullOrWhiteSpace(search4) || x.Code.Contains(search4, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search4, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg4(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
+                        @if (cfg.Segment5Active)
+                        {
+                            <div class="relative space-y-1.5">
+                                <label class="label">@cfg.Segment5Name</label>
+                                @if (draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty && !isSearching5)
+                                {
+                                    <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching5 = true">
+                                        <span class="text-sm font-medium text-slate-900 truncate">
+                                            @{
+                                                var s5 = seg5.FirstOrDefault(x => x.Id == draft.Segment5Id);
+                                            }
+                                            @(s5 != null ? $"{s5.Code} - {s5.Description}" : "-- select --")
+                                        </span>
+                                        <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <input @bind="search5" @bind:event="oninput" @onfocus="() => isSearching5 = true" @onblur="OnBlur5" class="@InputClass" placeholder="Select @cfg.Segment5Name..." />
+                                    @if (isSearching5)
+                                    {
+                                        <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                            @if (draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty)
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-rose-50 border-b border-slate-100 text-xs text-rose-600 font-bold" @onmousedown="() => SelectSeg5(null)">-- Clear Selection --</div>
+                                            }
+                                            @foreach (var r in seg5.Where(x => string.IsNullOrWhiteSpace(search5) || x.Code.Contains(search5, StringComparison.OrdinalIgnoreCase) || x.Description.Contains(search5, StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectSeg5(r.Id)">
+                                                    <span class="font-bold text-slate-900">@r.Code</span> <span class="text-slate-500">- @r.Description</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="label">Account Code </label>
+                            <input class="@InputClass bg-slate-50 text-slate-500" value="@draftCode" readonly />
+                        </div>
+
+                        <div class="space-y-1.5 md:col-span-2">
+                            <label class="label">Description </label>
+                            <InputText @bind-Value="draft.Description" class="@InputClass" />
+                            <div class="text-xs text-slate-500 font-medium">
+                                Auto-built by joining segment descriptions with " - ". You can edit it.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        
+                        <div class="relative space-y-1.5">
+                            <label class="label">Account Type</label>
+                            @if (draft.SegAccountTypeId > 0 && !isSearchingType)
+                            {
+                                <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearchingType = true">
+                                    <span class="text-sm font-medium text-slate-900 truncate">
+                                        @{
+                                            var t = types.FirstOrDefault(x => x.Id == draft.SegAccountTypeId);
+                                        }
+                                        @(t != null ? t.Description : "-- select --")
+                                    </span>
+                                    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
+                            }
+                            else
+                            {
+                                <input @bind="searchType" @bind:event="oninput" @onfocus="() => isSearchingType = true" @onblur="OnBlurType" class="@InputClass" placeholder="Select Account Type..." />
+                                @if (isSearchingType)
+                                {
+                                    <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                                        @foreach (var r in types.Where(x => string.IsNullOrWhiteSpace(searchType) || x.Description.Contains(searchType, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm" @onmousedown="() => SelectType(r.Id)">
+                                                <span class="text-slate-900 font-medium">@r.Description</span>
+                                            </div>
+                                        }
+                                        @if (!types.Any(x => string.IsNullOrWhiteSpace(searchType) || x.Description.Contains(searchType, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            <div class="px-4 py-3 text-xs text-slate-400 text-center">No results found.</div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+
+                        <div class="col-span-2 flex items-center gap-6 mt-6">
+                            <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-colors">
+                                <input type="checkbox" class="h-4 w-4 rounded text-slate-900 focus:ring-slate-900" @bind="draft.AllowJournal" />
+                                <div>
+                                    <span class="block text-sm font-bold text-slate-900">Allow Journal</span>
+                                </div>
+                            </label>
+
+                            <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-colors">
+                                <input type="checkbox" class="h-4 w-4 rounded text-emerald-600 focus:ring-emerald-600" @bind="draft.IsActive" />
+                                <div>
+                                    <span class="block text-sm font-bold text-slate-900">Is Active</span>
+                                    <span class="block text-xs text-slate-500">Available for transactions</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="px-6 py-4">Account Code</th>
+                        <th class="px-6 py-4">Description</th>
+                        <th class="px-6 py-4">Account Type</th>
+                        <th class="px-6 py-4">Allow Journal</th>
+                        <th class="px-6 py-4">Active</th>
+                        <th class="px-6 py-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var a in PaginatedCoa)
+                    {
+                        <tr class="group hover:bg-slate-50 transition-colors @(a.IsActive ? "" : "opacity-60 bg-slate-50")">
+                            <td class="px-6 py-4 font-bold font-mono">@a.AccountCode</td>
+                            <td class="px-6 py-4 text-slate-600 font-medium">@a.Description</td>
+                            <td class="px-6 py-4">
+                                @types.FirstOrDefault(x => x.Id == a.SegAccountTypeId)?.Description
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="text-xs font-bold @(a.AllowJournal ? "text-slate-700" : "text-slate-400")">
+                                    @(a.AllowJournal ? "Yes" : "No")
+                                </span>
+                            </td>
+                            <td class="px-6 py-4">
+                                <span class="text-xs font-bold @(a.IsActive ? "text-emerald-700" : "text-slate-400")">
+                                    @(a.IsActive ? "Yes" : "No")
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <div class="flex items-center justify-end gap-3">
+                                    <button @onclick="() => EditAccount(a)" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline transition-colors">
+                                        Edit
+                                    </button>
+                                    <button @onclick="() => ToggleActive(a)" class="text-xs font-bold underline transition-colors @(a.IsActive ? "text-rose-500 hover:text-rose-700" : "text-emerald-600 hover:text-emerald-800")">
+                                        @(a.IsActive ? "Deactivate" : "Activate")
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!PaginatedCoa.Any())
+                    {
+                        <tr>
+                            <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                                No accounts created yet.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            
+            @if (coa.Any())
+            {
+                <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <span class="text-xs text-slate-500 font-medium">
+                        Showing @(((currentPage - 1) * pageSize) + 1) to @(Math.Min(currentPage * pageSize, coa.Count)) of @coa.Count entries
+                    </span>
+                    <div class="flex gap-2">
+                        <button @onclick="PrevPage" disabled="@(currentPage == 1)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm">Previous</button>
+                        <button @onclick="NextPage" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm">Next</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+</style>
+
+@code {
+    private const string InputClass =
+        "block w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 shadow-sm " +
+        "focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400 outline-none";
+
+    private Guid selectedCompanyId;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // Loading tracking for exports
+    private bool isDownloadingPdf = false;
+    private bool isDownloadingExcel = false;
+
+    // Pagination State
+    private int currentPage = 1;
+    private int pageSize = 15;
+    private int TotalPages => (int)Math.Ceiling(coa.Count / (double)pageSize);
+    private IEnumerable<SegChartOfAccount> PaginatedCoa => coa.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    // Search Terms & UI States for Inline Filters
+    private string search0 = ""; private bool isSearching0 = false;
+    private string search1 = ""; private bool isSearching1 = false;
+    private string search2 = ""; private bool isSearching2 = false;
+    private string search3 = ""; private bool isSearching3 = false;
+    private string search4 = ""; private bool isSearching4 = false;
+    private string search5 = ""; private bool isSearching5 = false;
+    
+    // Search tracking for Account Type
+    private string searchType = ""; private bool isSearchingType = false;
+
+    private SegCoaConfig cfg = new();
+
+    private List<Segment0> seg0 = new();
+    private List<Segment1> seg1 = new();
+    private List<Segment2> seg2 = new();
+    private List<Segment3> seg3 = new();
+    private List<Segment4> seg4 = new();
+    private List<Segment5> seg5 = new();
+
+    private List<SegAccountType> types = new();
+    private List<SegChartOfAccount> coa = new();
+
+    private SegCoaService.SegCoaDraft draft = new();
+    private string draftCode = "";
+    private bool showBuilder = false;
+    private bool descTouched = false;
+    private bool isEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                cfg = await Service.GetOrCreateConfigAsync(selectedCompanyId);
+                ResetDraft();
+                await LoadAll();
+            }
+        }
+
+        isLoading = false;
+    }
+
+    private async Task LoadAll()
+    {
+        types = await Service.GetAccountTypesAsync();
+        
+        seg0 = await Service.GetSegment0Async(selectedCompanyId);
+        seg1 = await Service.GetSegment1Async(selectedCompanyId);
+        seg2 = await Service.GetSegment2Async(selectedCompanyId);
+        seg3 = await Service.GetSegment3Async(selectedCompanyId);
+        seg4 = await Service.GetSegment4Async(selectedCompanyId);
+        seg5 = await Service.GetSegment5Async(selectedCompanyId);
+        coa = await Service.GetCoaAsync(selectedCompanyId);
+
+        // Reset pagination if out of bounds after reload
+        if (currentPage > TotalPages && TotalPages > 0) currentPage = TotalPages;
+        if (currentPage < 1) currentPage = 1;
+    }
+
+    private void NextPage() { if (currentPage < TotalPages) currentPage++; }
+    private void PrevPage() { if (currentPage > 1) currentPage--; }
+
+    private void ToggleAccountBuilder()
+    {
+        showBuilder = !showBuilder;
+        if (showBuilder) ResetDraft();
+    }
+
+    private void CancelAccountBuilder()
+    {
+        ResetDraft();
+        showBuilder = false;
+    }
+
+    private void ResetDraft()
+    {
+        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null, SegAccountTypeId = 0 };
+        draftCode = "";
+        descTouched = false;
+        isEditing = false;
+
+        // Clear all search states
+        search0 = search1 = search2 = search3 = search4 = search5 = searchType = "";
+        isSearching0 = isSearching1 = isSearching2 = isSearching3 = isSearching4 = isSearching5 = isSearchingType = false;
+    }
+
+    private void EditAccount(SegChartOfAccount acc)
+    {
+        draft = new SegCoaService.SegCoaDraft
+        {
+            Id = acc.Id,
+            CompanyId = acc.CompanyId,
+            Segment0Id = acc.Segment0Id,
+            Segment1Id = acc.Segment1Id,
+            Segment2Id = acc.Segment2Id,
+            Segment3Id = acc.Segment3Id,
+            Segment4Id = acc.Segment4Id,
+            Segment5Id = acc.Segment5Id,
+            Description = acc.Description,
+            SegAccountTypeId = acc.SegAccountTypeId,
+            AllowJournal = acc.AllowJournal,
+            IsActive = acc.IsActive
+        };
+
+        draftCode = acc.AccountCode;
+        descTouched = true;
+        isEditing = true;
+        showBuilder = true;
+        
+        // Clear all search states
+        search0 = search1 = search2 = search3 = search4 = search5 = searchType = "";
+        isSearching0 = isSearching1 = isSearching2 = isSearching3 = isSearching4 = isSearching5 = isSearchingType = false;
+    }
+
+    private async Task RebuildDraft()
+    {
+        var codes = new List<string>();
+        var descs = new List<string>();
+
+        var s0 = seg0.FirstOrDefault(x => x.Id == draft.Segment0Id);
+        if (s0 != null) { codes.Add(s0.Code); descs.Add(s0.Description); }
+
+        if (draft.Segment1Id != null) { var x = seg1.FirstOrDefault(a => a.Id == draft.Segment1Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment2Id != null) { var x = seg2.FirstOrDefault(a => a.Id == draft.Segment2Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment3Id != null) { var x = seg3.FirstOrDefault(a => a.Id == draft.Segment3Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment4Id != null) { var x = seg4.FirstOrDefault(a => a.Id == draft.Segment4Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+        if (draft.Segment5Id != null) { var x = seg5.FirstOrDefault(a => a.Id == draft.Segment5Id); if (x != null) { codes.Add(x.Code); descs.Add(x.Description); } }
+
+        draftCode = string.Join("/", codes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+
+        var computedDesc = string.Join(" - ", descs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+        if (!descTouched)
+            draft.Description = computedDesc;
+    }
+
+    private async Task OnBlur0() { await Task.Delay(150); isSearching0 = false; }
+    private async Task SelectSeg0(Guid id) { draft.Segment0Id = id; search0 = ""; isSearching0 = false; await RebuildDraft(); }
+
+    private async Task OnBlur1() { await Task.Delay(150); isSearching1 = false; }
+    private async Task SelectSeg1(Guid? id) { draft.Segment1Id = id; search1 = ""; isSearching1 = false; await RebuildDraft(); }
+
+    private async Task OnBlur2() { await Task.Delay(150); isSearching2 = false; }
+    private async Task SelectSeg2(Guid? id) { draft.Segment2Id = id; search2 = ""; isSearching2 = false; await RebuildDraft(); }
+
+    private async Task OnBlur3() { await Task.Delay(150); isSearching3 = false; }
+    private async Task SelectSeg3(Guid? id) { draft.Segment3Id = id; search3 = ""; isSearching3 = false; await RebuildDraft(); }
+
+    private async Task OnBlur4() { await Task.Delay(150); isSearching4 = false; }
+    private async Task SelectSeg4(Guid? id) { draft.Segment4Id = id; search4 = ""; isSearching4 = false; await RebuildDraft(); }
+
+    private async Task OnBlur5() { await Task.Delay(150); isSearching5 = false; }
+    private async Task SelectSeg5(Guid? id) { draft.Segment5Id = id; search5 = ""; isSearching5 = false; await RebuildDraft(); }
+
+    private async Task OnBlurType() { await Task.Delay(150); isSearchingType = false; }
+    private void SelectType(int id) { draft.SegAccountTypeId = id; searchType = ""; isSearchingType = false; }
+
+    private async Task SaveAccount()
+    {
+        if (draft.Segment0Id == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", $"{cfg.Segment0Name} is required.");
+            return;
+        }
+
+        if (draft.SegAccountTypeId <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Account Type is required.");
+            return;
+        }
+
+        bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
+        bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
+        bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
+        bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
+        bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
+
+        int activeCount = 0;
+        if (cfg.Segment1Active) activeCount++;
+        if (cfg.Segment2Active) activeCount++;
+        if (cfg.Segment3Active) activeCount++;
+        if (cfg.Segment4Active) activeCount++;
+        if (cfg.Segment5Active) activeCount++;
+
+        int selectedCount = 0;
+        if (cfg.Segment1Active && hasS1) selectedCount++;
+        if (cfg.Segment2Active && hasS2) selectedCount++;
+        if (cfg.Segment3Active && hasS3) selectedCount++;
+        if (cfg.Segment4Active && hasS4) selectedCount++;
+        if (cfg.Segment5Active && hasS5) selectedCount++;
+
+        if (selectedCount > 0 && selectedCount < activeCount)
+        {
+            await JS.InvokeVoidAsync("alert", $"Select a value for all {activeCount} active segments.");
+            return;
+        }
+
+        draft.CompanyId = selectedCompanyId;
+        var (err, created) = await Service.SaveAccountAsync(draft);
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+            return;
+        }
+
+        await LoadAll();
+        CancelAccountBuilder();
+    }
+
+    private async Task ToggleActive(SegChartOfAccount acc)
+    {
+        await Service.ToggleActiveStatusAsync(acc.Id);
+        coa = await Service.GetCoaAsync(selectedCompanyId);
+    }
+
+    private StandardReportData BuildCoaReportData()
+    {
+        return new StandardReportData
+        {
+            CompanyName = companyName,
+            ReportName = "Segmented Chart of Accounts",
+            // ReportingPeriod = "As At Date",
+            // Currency = "Base",
+            // GeneratedBy = "System User",
+            // DateGenerated = DateTime.Now,
+
+            Headers = new List<string>
+            {
+                "Account Code",
+                "Description",
+                "Account Type"
+            },
+
+            Rows = coa.Select(a => new List<string>
+            {
+                a.AccountCode?.ToString() ?? "",
+                a.Description?.ToString() ?? "",
+                types.FirstOrDefault(x => x.Id == a.SegAccountTypeId)?.Description?.ToString() ?? ""
+            }).ToList()
+        };
+    }
+
+    private async Task ExportPdf()
+    {
+        if (isDownloadingPdf || isDownloadingExcel || !coa.Any()) return;
+        isDownloadingPdf = true;
+
+        try
+        {
+            await Task.Delay(50); // allow UI to render spinner
+
+            var data = BuildCoaReportData();
+            var fileBytes = ReportExportService.GeneratePdf(data);
+
+            // Use the safe name and matching JS function
+            string safeName = data.ReportName.Replace(" ", "_").Replace("/", "-");
+            string fileName = $"{safeName}_{DateTime.Now:yyyyMMddHHmm}.pdf";
+            var base64 = Convert.ToBase64String(fileBytes);
+
+            await JS.InvokeVoidAsync("downloadReportFile", fileName, base64, "application/pdf");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Download failed: {ex.Message}");
+        }
+        finally
+        {
+            isDownloadingPdf = false;
+        }
+    }
+
+    private async Task ExportExcel()
+    {
+        if (isDownloadingPdf || isDownloadingExcel || !coa.Any()) return;
+        isDownloadingExcel = true;
+
+        try
+        {
+            await Task.Delay(50); // allow UI to render spinner
+
+            var data = BuildCoaReportData();
+            var fileBytes = ReportExportService.GenerateExcel(data);
+
+            string safeName = data.ReportName.Replace(" ", "_").Replace("/", "-");
+            string fileName = $"{safeName}_{DateTime.Now:yyyyMMddHHmm}.xlsx";
+            var base64 = Convert.ToBase64String(fileBytes);
+
+            await JS.InvokeVoidAsync("downloadReportFile", fileName, base64, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Download failed: {ex.Message}");
+        }
+        finally
+        {
+            isDownloadingExcel = false;
+        }
+    }
+}

@@ -1,0 +1,213 @@
+﻿@page "/purchases/returns"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Purchase Returns</h1>
+            <p class="text-sm text-slate-500">Manage returns to vendors and inventory reversals.</p>
+        </div>
+        <button @onclick='() => Nav.NavigateTo("/purchases/returns/entry")' class="px-4 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-sm flex items-center gap-2">
+            @* <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg> *@
+            New Return
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400 animate-pulse">Loading returns data...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="p-4">Return # / Date</th>
+                        <th class="p-4">Vendor</th>
+                        <th class="p-4 w-[30%]">Items Returned (Qty)</th>
+                        <th class="p-4">Reference Bill</th>
+                        <th class="p-4">Status</th>
+                        <th class="p-4 text-right">Value (Vendor)</th>
+                        <th class="p-4 text-right">Value (Base)</th>
+                        <th class="p-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var r in returns)
+                    {
+                        var currencyCode = currencies.ContainsKey(r.CurrencyId) ? currencies[r.CurrencyId] : "???";
+                        var baseAmount = r.TotalAmount * r.ExchangeRate;
+
+                        <tr class="hover:bg-slate-50 transition-colors group align-top">
+                            <td class="p-4">
+                                <div class="font-mono font-bold text-rose-700">@r.ReturnNumber</div>
+                                <div class="text-xs text-slate-400 mt-0.5">@r.ReturnDate.ToShortDateString()</div>
+                            </td>
+                            <td class="p-4">
+                                <div class="font-bold text-slate-800">
+                                    @(vendors.ContainsKey(r.VendorId) ? vendors[r.VendorId] : "Unknown")
+                                </div>
+                            </td>
+
+                            <td class="p-4">
+                                @if (r.Lines.Any())
+                                {
+                                    <div class="space-y-1">
+                                        @foreach (var line in r.Lines.Take(3))
+                                        {
+                                            <div class="flex justify-between text-xs text-slate-600 border-b border-slate-100 pb-1 last:border-0">
+                                                <span class="truncate pr-2 font-medium">
+                                                @line.ItemName <span class="font-mono font-bold">(@line.QtyReturning.ToString("G29")) </span> </span>
+                                                @* <span class="font-mono font-bold text-rose-600">@line.QtyReturning.ToString("G29")</span> *@
+                                            </div>
+                                        }
+                                        @if (r.Lines.Count > 3)
+                                        {
+                                            <div class="text-[10px] text-slate-400 font-bold uppercase pt-1">
+                                                + @(r.Lines.Count - 3) more items...
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 italic text-xs">No items</span>
+                                }
+                            </td>
+
+                            <td class="p-4">
+                                <div class="text-xs font-mono bg-slate-50 rounded p-1.5 border border-slate-100 inline-block">
+                                    @(bills.ContainsKey(r.VendorBillId) ? bills[r.VendorBillId] : "N/A")
+                                </div>
+                            </td>
+                            <td class="p-4">
+                                <span class="px-2 py-1 rounded text-xs font-bold border
+                                                    @(r.Status == ReturnStatus.Posted ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200")">
+                                    @r.Status
+                                </span>
+                            </td>
+
+                            <td class="p-4 text-right">
+                                <div class="font-mono font-bold text-slate-900">@r.TotalAmount.ToString("N2")</div>
+                                <div class="text-[10px] font-bold text-slate-400 uppercase">@currencyCode</div>
+                            </td>
+                            <td class="p-4 text-right">
+                                <div class="font-mono font-bold text-indigo-600">@baseAmount.ToString("N2")</div>
+                                <div class="text-[10px] font-bold text-slate-400 uppercase">BASE</div>
+                            </td>
+
+                            <td class="p-4 text-right">
+                                <a href="/purchases/returns/entry/@r.Id" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 uppercase tracking-wide border border-indigo-100 bg-indigo-50 px-3 py-1.5 rounded-lg">
+                                    @(r.Status == ReturnStatus.Posted ? "View" : "Edit")
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            @if (!returns.Any())
+            {
+                <div class="p-12 text-center text-slate-400">No returns found.</div>
+            }
+        </div>
+
+        @if (itemAnalytics.Any())
+        {
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in slide-in-from-bottom-4 fade-in duration-700">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                    <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        Top Returned Items by Quantity
+                    </h3>
+                    <div class="space-y-3">
+                        @foreach (var item in itemAnalytics.OrderByDescending(x => x.TotalQty).Take(5))
+                        {
+                            <div class="flex items-center justify-between text-sm group">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xs">
+                                        @item.TotalQty.ToString("N0")
+                                    </div>
+                                    <div>
+                                        <div class="font-medium text-slate-700">@item.ItemName</div>
+                                        <div class="text-[10px] text-slate-400">Vendor: @item.VendorName</div>
+                                    </div>
+                                </div>
+                                <div class="h-1.5 flex-1 mx-4 bg-slate-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-rose-500 rounded-full" style="width: @(Math.Min((item.TotalQty / maxReturnedQty) * 100, 100))%"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<PurchaseReturn> returns = new();
+
+    // Optimized Caches (Dictionary for O(1) lookup)
+    private Dictionary<Guid, string> vendors = new();
+    private Dictionary<Guid, string> bills = new();
+    private Dictionary<Guid, string> currencies = new();
+
+    // Analytics Data
+    private List<ItemReturnAnalytic> itemAnalytics = new();
+    private decimal maxReturnedQty = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        // 1. Load Returns WITH Lines (Needed for item breakdown and analytics)
+        returns = await ctx.PurchaseReturns
+            .Include(r => r.Lines) // <--- CRITICAL: Include Lines
+            .OrderByDescending(r => r.ReturnDate)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // 2. Fetch Helper Data (Vendors, Bills, Currencies) efficiently
+        var vendorIds = returns.Select(r => r.VendorId).Distinct().ToList();
+        vendors = await ctx.Vendors.Where(v => vendorIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id, v => v.Name);
+
+        var billIds = returns.Select(r => r.VendorBillId).Distinct().ToList();
+        bills = await ctx.VendorBills.Where(b => billIds.Contains(b.Id)).ToDictionaryAsync(b => b.Id, b => b.ExternalInvoiceNumber ?? "N/A");
+
+        var currencyIds = returns.Select(r => r.CurrencyId).Distinct().ToList();
+        currencies = await ctx.Currencies.Where(c => currencyIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.CurrencyCode);
+
+        // 3. Calculate Analytics (Group Lines by Item + Vendor)
+        var allLines = returns.SelectMany(r => r.Lines.Select(l => new { l.ItemName, l.QtyReturning, r.VendorId })).ToList();
+
+        itemAnalytics = allLines
+            .GroupBy(x => new { x.ItemName, x.VendorId })
+            .Select(g => new ItemReturnAnalytic
+            {
+                ItemName = g.Key.ItemName,
+                VendorName = vendors.ContainsKey(g.Key.VendorId) ? vendors[g.Key.VendorId] : "Unknown",
+                TotalQty = g.Sum(x => x.QtyReturning)
+            })
+            .Where(x => x.TotalQty > 0)
+            .ToList();
+
+        if (itemAnalytics.Any()) maxReturnedQty = itemAnalytics.Max(x => x.TotalQty);
+
+        isLoading = false;
+    }
+
+    public class ItemReturnAnalytic
+    {
+        public string ItemName { get; set; } = "";
+        public string VendorName { get; set; } = "";
+        public decimal TotalQty { get; set; }
+    }
+}

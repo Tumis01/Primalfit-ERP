@@ -1,0 +1,35 @@
+﻿@page "/reports/balance-sheet"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject FinancialReportingService FinanceService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId" Title="Balance Sheet"
+                  Description="Snapshot of Assets, Liabilities, and Equity."
+                  ShowAsOfDate="true"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        // Balance Sheet only cares about the "End Date" (As Of Date)
+        return await FinanceService.GenerateBalanceSheetAsync(companyId, end);
+    }
+}

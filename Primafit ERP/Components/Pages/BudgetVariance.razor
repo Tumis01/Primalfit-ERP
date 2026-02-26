@@ -1,0 +1,34 @@
+﻿@page "/reports/budget-variance"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject BudgetService BudgetService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId" Title="Budget Variance Report"
+                  Description="Compare limits against Actuals and PO Encumbrances."
+                  ShowDateRange="false"
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await BudgetService.GenerateVarianceReportAsync(companyId);
+    }
+}

@@ -1,0 +1,256 @@
+﻿@page "/sc/stock-list"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Current Stock Inventory</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Real-time quantity and valuation (Services & Physical).</p>
+        </div>
+        
+        <div class="flex gap-4">
+            <div class="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100 text-right">
+                <div class="text-[10px] font-bold text-slate-400 uppercase">Total Sales Value (Physical)</div>
+                <div class="text-lg font-mono font-bold text-emerald-600">@GrandTotalValue.ToString("C0")</div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400 animate-pulse">Loading Inventory...</div>
+    }
+    else if (!inventoryLines.Any())
+    {
+        <div class="p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400">
+            No items found in master data.
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
+                        <tr>
+                            <th class="p-4">Item Details</th>
+                            <th class="p-4">Warehouse</th>
+                            <th class="p-4 text-right">Quantity</th>
+                            <th class="p-4 text-right">Selling Price</th>
+                            <th class="p-4 text-right">Total Potential</th>
+                            <th class="p-4 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var line in inventoryLines)
+                        {
+                            <tr class="hover:bg-slate-50 transition-colors group">
+                                <td class="p-4">
+                                    <div class="font-bold text-slate-900">@line.ItemName</div>
+                                    <div class="text-xs text-slate-500 font-mono flex gap-2">
+                                        <span>@line.SKU</span>
+                                        @if (line.IsService)
+                                        {
+                                            <span class="px-1.5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-bold uppercase tracking-wide">Service</span>
+                                        }
+                                    </div>
+                                </td>
+                                
+                                <td class="p-4">
+                                    @if (line.IsService)
+                                    {
+                                        <span class="inline-flex items-center px-2 py-1 rounded bg-indigo-50 text-xs font-bold text-indigo-500 border border-indigo-100">
+                                            Global (Non-Stock)
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-xs font-bold text-slate-600">
+                                            @line.WarehouseName
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="p-4 text-right font-mono font-bold">
+                                    @if (line.IsService)
+                                    {
+                                        <span class="text-2xl leading-none text-indigo-400">∞</span> 
+                                        }
+                                    else
+                                    {
+                                        <span class="@(line.Quantity <= line.ReorderLevel ? "text-amber-600" : "text-slate-700")">
+                                            @line.Quantity.ToString("N2")
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="p-4 text-right font-mono text-slate-500">
+                                    @line.SellingPrice.ToString("N2")
+                                </td>
+
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600">
+                                    @if (line.IsService)
+                                    {
+                                        <span class="text-xs text-slate-400 uppercase">N/A</span>
+                                    }
+                                    else
+                                    {
+                                        @((line.Quantity * line.SellingPrice).ToString("N2"))
+                                    }
+                                </td>
+
+                                <td class="p-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                                    @if (!line.IsService)
+                                    {
+                                        <a href="sc/stock-entry" class="text-xs font-bold text-indigo-600 hover:underline">Adjust</a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private Guid currentCompanyId;
+    private string companyName = "";
+    private List<StockSummaryRow> inventoryLines = new();
+
+    // Sum only Physical items (Services are infinite, so we can't sum value)
+    private decimal GrandTotalValue => inventoryLines.Where(x => !x.IsService).Sum(x => x.Quantity * x.SellingPrice);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            var c = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            companyName = c?.CompanyName ?? "";
+            
+            await LoadInventory();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadInventory()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        // 1. Fetch ALL Items (Master Data is the Source of Truth now)
+        var allItems = await ctx.Items
+            .AsNoTracking()
+            .Where(i => i.CompanyId == currentCompanyId)
+            .ToListAsync();
+
+        // 2. Fetch Ledger Data (Only for Physical Items)
+        var ledgerData = await ctx.StockLedgers
+            .AsNoTracking()
+            .Where(s => s.CompanyId == currentCompanyId)
+            .GroupBy(s => new { s.ItemId, s.WarehouseId })
+            .Select(g => new 
+            { 
+                g.Key.ItemId, 
+                g.Key.WarehouseId, 
+                TotalQty = g.Sum(x => x.QuantityChanged) 
+            })
+            .Where(x => x.TotalQty != 0) // Filter out zero physical stock
+            .ToListAsync();
+
+        // 3. Fetch Warehouse Names
+        var warehouseIds = ledgerData.Select(x => x.WarehouseId).Distinct().ToList();
+        var warehouseMap = await ctx.Warehouses
+            .AsNoTracking()
+            .Where(w => warehouseIds.Contains(w.Id))
+            .ToDictionaryAsync(w => w.Id, w => w.Name);
+
+        inventoryLines = new List<StockSummaryRow>();
+
+        // 4. MERGE LOGIC
+        foreach (var item in allItems)
+        {
+            if (item.IsService)
+            {
+                // -- A. SERVICE ITEM: Add once, Globally --
+                inventoryLines.Add(new StockSummaryRow
+                {
+                    ItemId = item.Id,
+                    ItemName = item.Name,
+                    SKU = item.SKU,
+                    SellingPrice = item.SellingPrice,
+                    IsService = true,
+                    Quantity = 0, // Placeholder
+                    WarehouseName = "Global"
+                });
+            }
+            else
+            {
+                // -- B. PHYSICAL ITEM: Add row PER WAREHOUSE --
+                var itemStock = ledgerData.Where(x => x.ItemId == item.Id).ToList();
+
+                if (itemStock.Any())
+                {
+                    foreach (var stock in itemStock)
+                    {
+                        inventoryLines.Add(new StockSummaryRow
+                        {
+                            ItemId = item.Id,
+                            ItemName = item.Name,
+                            SKU = item.SKU,
+                            SellingPrice = item.SellingPrice,
+                            ReorderLevel = item.ReorderLevel,
+                            IsService = false,
+                            WarehouseName = warehouseMap.ContainsKey(stock.WarehouseId) ? warehouseMap[stock.WarehouseId] : "Unknown",
+                            Quantity = stock.TotalQty
+                        });
+                    }
+                }
+                else
+                {
+                   
+                }
+            }
+        }
+
+        // Sort by Name
+        inventoryLines = inventoryLines.OrderBy(x => x.ItemName).ToList();
+    }
+
+    public class StockSummaryRow
+    {
+        public Guid ItemId { get; set; }
+        public string ItemName { get; set; } = "";
+        public string SKU { get; set; } = "";
+        public string WarehouseName { get; set; } = "";
+        public decimal Quantity { get; set; }
+        public decimal SellingPrice { get; set; }
+        public decimal ReorderLevel { get; set; }
+        public bool IsService { get; set; }
+    }
+}

@@ -92,7 +92,10 @@ namespace Primafit_ERP.Components.Models
         public GLJournalHeader? Header { get; set; }
 
         [Required]
-        public Guid AccountId { get; set; } // COA Id
+        public Guid SegCoaId { get; set; }  // was AccountId
+
+        [ForeignKey(nameof(SegCoaId))]
+        public SegChartOfAccount? SegCoa { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Debit { get; set; }
@@ -101,6 +104,7 @@ namespace Primafit_ERP.Components.Models
         public decimal Credit { get; set; }
 
         public string? Reference { get; set; }
+       
     }
     public class GLTransaction
     {
@@ -122,7 +126,10 @@ namespace Primafit_ERP.Components.Models
         public Guid JournalId { get; set; }
 
         [Required]
-        public Guid AccountId { get; set; }
+        public Guid SegCoaId { get; set; }   
+
+        [ForeignKey(nameof(SegCoaId))]
+        public SegChartOfAccount? SegCoa { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Debit { get; set; }
@@ -139,16 +146,30 @@ namespace Primafit_ERP.Components.Models
         public Guid? BankReconciliationId { get; set; }
         public DateTime? ReconciledAt { get; set; }
         public string? ReconciledByUserId { get; set; }
+        public Guid? ProjectId { get; set; } // The User selection
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
     }
 
     public class TrialBalanceRow
     {
-        public Guid AccountId { get; set; }
+        public Guid SegCoaId { get; set; }
         public string AccountCode { get; set; } = "";
         public string AccountName { get; set; } = "";
 
         public decimal TotalDebit { get; set; }
         public decimal TotalCredit { get; set; }
         public decimal NetBalance => TotalDebit - TotalCredit;
+    }
+    public class LedgerReportRow
+    {
+        public Guid SegCoaId { get; set; }
+        public string AccountCode { get; set; } = "";
+        public string AccountName { get; set; } = "";
+        public DateOnly PostingDate { get; set; }
+        public string JournalNumber { get; set; } = "";
+        public string? Narration { get; set; }
+        public decimal Debit { get; set; }
+        public decimal Credit { get; set; }
     }
 }

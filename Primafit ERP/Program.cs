@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
+using OfficeOpenXml;
 using Primafit_ERP.Components;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Services;
@@ -8,39 +9,46 @@ using PrimafitERP.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// DATABASE CONFIGURATION
-// Standard Context for Controllers
+ExcelPackage.License.SetNonCommercialPersonal("Primafit");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// FIX IS HERE: Added 'ServiceLifetime.Scoped' to prevent the Singleton crash
+// Factory for Blazor Components (Scoped to prevent concurrency issues)
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")),
     ServiceLifetime.Scoped);
 
-//  IDENTITY CONFIGURATION
+// --- 2. IDENTITY CONFIGURATION ---
 builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options => {
     options.Password.RequireDigit = false;
     options.Password.RequiredLength = 6;
+    options.User.RequireUniqueEmail = true;
+    options.SignIn.RequireConfirmedEmail = false; // Easier for MVP
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
 
 builder.Services.ConfigureApplicationCookie(options => {
     options.LoginPath = "/login";
+    options.ExpireTimeSpan = TimeSpan.FromDays(1);
 });
 
-//  UI & FRAMEWORK SERVICES
+// --- 3. UI & FRAMEWORK SERVICES ---
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents(options => options.DetailedErrors = true); // Add this
 builder.Services.AddMudServices();
-builder.Services.AddControllers();
+builder.Services.AddControllersWithViews();
 builder.Services.AddSignalR(e => { e.MaximumReceiveMessageSize = 10 * 1024 * 1024; });
 
-//  APPLICATION SERVICES (Direct DB Access)
-builder.Services.AddScoped<CompanyApiService>();
+// --- 4. APPLICATION SERVICES (Scoped) ---
+// Core Auth & Identity
+builder.Services.AddScoped<AuthService>(); // <--- NEW: Handles the Tenant Registration Logic
 builder.Services.AddScoped<UserApiService>();
 builder.Services.AddScoped<RoleApiService>();
+builder.Services.AddScoped<CompanyApiService>();
+
+// Operations
 builder.Services.AddScoped<GLSetupService>();
 builder.Services.AddScoped<ProjectService>();
 builder.Services.AddScoped<CurrencyService>();
@@ -48,41 +56,35 @@ builder.Services.AddScoped<TaxService>();
 builder.Services.AddScoped<AccountingPeriodService>();
 builder.Services.AddScoped<GLOperationsService>();
 builder.Services.AddScoped<ReconciliationService>();
+builder.Services.AddScoped<InventoryService>();
+builder.Services.AddScoped<SalesService>();
+builder.Services.AddScoped<WarehouseService>();
+builder.Services.AddScoped<MasterDataService>();
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<ProjectService>();
+builder.Services.AddScoped<PurchasingService>();
+builder.Services.AddScoped<AssetService>();
+builder.Services.AddScoped<BudgetService>();
+builder.Services.AddScoped<ICashbookService, CashbookService>();
+builder.Services.AddScoped<IStatementParser, CsvStatementParser>();
+builder.Services.AddScoped<IStatementParser, ExcelStatementParser>();
+builder.Services.AddScoped<StatementImportService>();
+builder.Services.AddScoped<SegAccountTypeService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
-
-//  AUTH SERVICE (API Based)
-builder.Services.AddHttpClient<AuthApiService>(client =>
-    client.BaseAddress = new Uri("https://localhost:7069/"));
-
+builder.Services.AddScoped<SegCoaService>();
+builder.Services.AddScoped<SegmentsSetupService>();
+builder.Services.AddScoped<PurchaseReturnService>();
+builder.Services.AddScoped<CreditNoteService>();
+builder.Services.AddScoped<InventoryValuationService>();
+builder.Services.AddHostedService<Primafit_ERP.Services.DepreciationWorker>();
+builder.Services.AddScoped<ReportExportService>();
+builder.Services.AddScoped<OperationalReportingService>();
+builder.Services.AddScoped<FinancialReportingService>();
+builder.Services.AddScoped<AssetCategoryService>();
 var app = builder.Build();
 
-//  DATABASE SEEDING
-using (var scope = app.Services.CreateScope())
-{
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
-
-    if (!await roleManager.RoleExistsAsync("SuperAdmin"))
-    {
-        await roleManager.CreateAsync(new ApplicationRole("SuperAdmin", "System Administrator"));
-    }
-
-    if (await userManager.FindByEmailAsync("admin@primafit.com") == null)
-    {
-        var admin = new ApplicationUser
-        {
-            UserName = "admin@primafit.com",
-            Email = "admin@primafit.com",
-            FirstName = "Super",
-            LastName = "Admin",
-            EmailConfirmed = true
-        };
-        await userManager.CreateAsync(admin, "Password123!");
-        await userManager.AddToRoleAsync(admin, "SuperAdmin");
-    }
-}
-
-//  HTTP REQUEST PIPELINE
+// --- 5. HTTP REQUEST PIPELINE ---
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -92,10 +94,13 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 app.MapStaticAssets();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

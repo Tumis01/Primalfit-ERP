@@ -23,7 +23,6 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        // empty string = success; else error msg
         public async Task<string> SaveTaxAsync(Guid companyId, Tax tax)
         {
             using var context = _dbFactory.CreateDbContext();
@@ -39,15 +38,12 @@ namespace Primafit_ERP.Services
             if (tax.Per < 0 || tax.Per > 100)
                 return "Tax percentage must be between 0 and 100.";
 
-            bool codeExists = await context.Taxes.AnyAsync(t =>
-                t.CompanyId == companyId && t.TaxCode == tax.TaxCode && t.Id != tax.Id);
+            // Check Duplicates
+            bool codeExists = await context.Taxes.AnyAsync(t => t.CompanyId == companyId && t.TaxCode == tax.TaxCode && t.Id != tax.Id);
+            if (codeExists) return $"The Tax Code '{tax.TaxCode}' already exists.";
 
-            if (codeExists) return $"The Tax Code '{tax.TaxCode}' already exists for this company.";
-
-            bool nameExists = await context.Taxes.AnyAsync(t =>
-                t.CompanyId == companyId && t.TaxName == tax.TaxName && t.Id != tax.Id);
-
-            if (nameExists) return $"The Tax Name '{tax.TaxName}' already exists for this company.";
+            bool nameExists = await context.Taxes.AnyAsync(t => t.CompanyId == companyId && t.TaxName == tax.TaxName && t.Id != tax.Id);
+            if (nameExists) return $"The Tax Name '{tax.TaxName}' already exists.";
 
             if (tax.Id == Guid.Empty)
             {
@@ -57,14 +53,14 @@ namespace Primafit_ERP.Services
             }
             else
             {
-                var existing = await context.Taxes.FirstOrDefaultAsync(t =>
-                    t.Id == tax.Id && t.CompanyId == companyId);
-
+                var existing = await context.Taxes.FirstOrDefaultAsync(t => t.Id == tax.Id && t.CompanyId == companyId);
                 if (existing == null) return "Record not found.";
 
                 existing.TaxCode = tax.TaxCode;
                 existing.TaxName = tax.TaxName;
                 existing.Per = tax.Per;
+                // IMPORTANT: Linking to Segmented COA
+                existing.GLAccountId = tax.GLAccountId;
             }
 
             await context.SaveChangesAsync();
@@ -74,12 +70,8 @@ namespace Primafit_ERP.Services
         public async Task<bool> DeleteTaxAsync(Guid companyId, Guid id)
         {
             using var context = _dbFactory.CreateDbContext();
-
-            var tax = await context.Taxes.FirstOrDefaultAsync(t =>
-                t.Id == id && t.CompanyId == companyId);
-
+            var tax = await context.Taxes.FirstOrDefaultAsync(t => t.Id == id && t.CompanyId == companyId);
             if (tax == null) return false;
-
             context.Taxes.Remove(tax);
             return await context.SaveChangesAsync() > 0;
         }

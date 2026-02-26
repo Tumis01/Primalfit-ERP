@@ -14,16 +14,48 @@
     <Routes @rendermode="InteractiveServer" />
     <script>
         window.downloadFileFromStream = async (fileName, contentStreamReference) => {
-            const arrayBuffer = await contentStreamReference.arrayBuffer();
-            const blob = new Blob([arrayBuffer]);
-            const url = URL.createObjectURL(blob);
-            const anchorElement = document.createElement('a');
-            anchorElement.href = url;
-            anchorElement.download = fileName ?? '';
-            anchorElement.click();
-            anchorElement.remove();
-            URL.revokeObjectURL(url);
+        const arrayBuffer = await contentStreamReference.arrayBuffer();
+        const blob = new Blob([arrayBuffer]);
+        const url = URL.createObjectURL(blob);
+        const anchorElement = document.createElement('a');
+        anchorElement.href = url;
+        anchorElement.download = fileName ?? '';
+        anchorElement.click();
+        anchorElement.remove();
+        URL.revokeObjectURL(url);
         }
+    </script>
+    <script>
+        window.downloadReportFile = function (fileName, byteBase64, mimeType) {
+        // Convert Base64 string to a Blob
+        var byteCharacters = atob(byteBase64);
+        var byteNumbers = new Array(byteCharacters.length);
+        for (var i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        var byteArray = new Uint8Array(byteNumbers);
+        var blob = new Blob([byteArray], { type: mimeType });
+
+        // Create a download link and click it
+        var url = URL.createObjectURL(blob);
+        var anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        
+        // Cleanup
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+        };
+        window.downloadFile = (fileName, base64Data, contentType) => {
+        const link = document.createElement('a');
+        link.download = fileName;
+        link.href = `data:${contentType};base64,${base64Data}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        };
     </script>
     <script src="_framework/blazor.web.js"></script>
 </body>

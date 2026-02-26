@@ -1,0 +1,798 @@
+﻿@page "/procurement/purchase-orders"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject NavigationManager Nav
+@inject PurchasingService PurchService
+@inject MasterDataService MasterService
+@inject CompanyApiService CompanyService
+@inject CurrencyService CurrService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 animate-in fade-in duration-500">
+
+    <!-- Header -->
+    <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div class="space-y-1">
+                <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">Purchase Orders</h1>
+                <p class="text-sm text-slate-500">Create commitments and track procurement.</p>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                <button @onclick="CreateNew"
+                        class="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>New Order</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="border-t border-slate-100 px-5 py-3 text-xs text-slate-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
+                    Base: @companyBaseCurrency
+                </span>
+                <span class="text-slate-400">•</span>
+                <span>@orders.Count order(s)</span>
+            </div>
+
+            <div class="text-slate-400">
+                Tip: On small screens, the list switches to cards.
+            </div>
+        </div>
+    </div>
+
+    @if (currentCompanyId == Guid.Empty)
+    {
+        <div class="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p class="text-sm font-bold text-red-700">⚠️ CRITICAL: No Company ID Loaded. Orders cannot be processed.</p>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400 animate-pulse">
+            Loading orders...
+        </div>
+    }
+    else
+    {
+        <!-- Desktop/Tablet Table -->
+        <div class="hidden lg:block rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="min-w-[1050px] w-full text-left text-sm">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
+                        <tr>
+                            <th class="p-4">PO Number</th>
+                            <th class="p-4">Date</th>
+                            <th class="p-4">Vendor</th>
+                            <th class="p-4 w-[28%]">Items (Qty)</th>
+                            <th class="p-4 text-right">Total (Vendor)</th>
+                            <th class="p-4 text-right">Base Value (@companyBaseCurrency)</th>
+                            <th class="p-4 text-center">Status</th>
+                            <th class="p-4 text-center">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var po in orders)
+                        {
+                            var vendorName = vendors.FirstOrDefault(v => v.Id == po.VendorId)?.Name ?? "Unknown";
+                            var vendorTotal = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                            var baseTotal = vendorTotal * po.ExchangeRate;
+
+                            <tr class="hover:bg-slate-50 transition-colors align-top">
+                                <td class="p-4">
+                                    <div class="font-mono font-bold text-slate-800">@po.OrderNumber</div>
+                                    <div class="text-[11px] text-slate-400">Rate: @po.ExchangeRate.ToString("N4")</div>
+                                </td>
+
+                                <td class="p-4 text-slate-600 whitespace-nowrap">@po.OrderDate.ToString("yyyy-MM-dd")</td>
+
+                                <td class="p-4">
+                                    <div class="font-semibold text-slate-900 truncate max-w-[240px]">@vendorName</div>
+                                </td>
+
+                                <td class="p-4">
+                                    @if (po.Lines != null && po.Lines.Any())
+                                    {
+                                        <div class="space-y-1">
+                                            @foreach (var line in po.Lines.Take(3))
+                                            {
+                                                var itemName = items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Unknown Item";
+                                                <div class="flex items-center justify-between gap-3 text-xs text-slate-600 border-b border-slate-50 pb-1 last:border-0">
+                                                    <span class="truncate font-medium">@itemName</span>
+                                                    <span class="shrink-0 font-mono font-bold text-slate-500">
+                                                        @line.QuantityOrdered.ToString("G29")
+                                                    </span>
+                                                </div>
+                                            }
+                                            @if (po.Lines.Count > 3)
+                                            {
+                                                <div class="pt-1 text-[10px] font-bold uppercase text-indigo-500">
+                                                    + @(po.Lines.Count - 3) more
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-400 italic text-xs">No items</span>
+                                    }
+                                </td>
+
+                                <td class="p-4 text-right">
+                                    <div class="font-mono font-bold text-slate-800">@vendorTotal.ToString("N2")</div>
+                                </td>
+
+                                <td class="p-4 text-right">
+                                    <div class="font-mono font-bold text-emerald-700">@baseTotal.ToString("N2")</div>
+                                </td>
+
+                                <td class="p-4 text-center">
+                                    @if (po.IsInvoicePosted)
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-700">Posted</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700">Open</span>
+                                    }
+                                </td>
+
+                                <td class="p-4">
+                                    <div class="flex justify-center gap-2 flex-wrap">
+                                        @if (po.Status == PurchaseOrderStatus.Open && !po.HasReceipt)
+                                        {
+                                            <button @onclick="() => EditOrder(po)"
+                                                    class="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:text-indigo-700 hover:bg-indigo-50 border border-slate-200">
+                                                Edit
+                                            </button>
+                                            <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")'
+                                                    class="rounded-lg px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200">
+                                                Receive
+                                            </button>
+                                        }
+                                        else if (po.Status == PurchaseOrderStatus.Open && po.HasReceipt && !po.IsInvoicePosted)
+                                        {
+                                            <span class="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200">Received</span>
+                                            <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")'
+                                                    class="rounded-lg px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200">
+                                                Post Invoice
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="rounded-lg px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200">
+                                                Invoice Posted
+                                            </span>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!orders.Any())
+            {
+                <div class="p-12 text-center text-slate-400">No orders found.</div>
+            }
+        </div>
+
+        <!-- Mobile/Small Screen Cards -->
+        <div class="lg:hidden space-y-3">
+            @if (!orders.Any())
+            {
+                <div class="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-400">
+                    No orders found.
+                </div>
+            }
+            else
+            {
+                @foreach (var po in orders)
+                {
+                    var vendorName = vendors.FirstOrDefault(v => v.Id == po.VendorId)?.Name ?? "Unknown";
+                    var vendorTotal = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                    var baseTotal = vendorTotal * po.ExchangeRate;
+
+                    <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                        <div class="p-4 space-y-3">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="font-mono font-bold text-slate-900">@po.OrderNumber</div>
+                                    <div class="text-xs text-slate-500">@po.OrderDate.ToString("yyyy-MM-dd")</div>
+                                </div>
+
+                                <div class="shrink-0">
+                                    @if (po.IsInvoicePosted)
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-bold text-green-700">Posted</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center rounded-full bg-indigo-100 px-2 py-1 text-xs font-bold text-indigo-700">Open</span>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="space-y-1">
+                                <div class="text-xs text-slate-500 font-bold uppercase">Vendor</div>
+                                <div class="font-semibold text-slate-900 truncate">@vendorName</div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div class="text-[11px] text-slate-500 font-bold uppercase">Total (Vendor)</div>
+                                    <div class="mt-1 font-mono font-bold text-slate-900">@vendorTotal.ToString("N2")</div>
+                                    <div class="text-[11px] text-slate-400">Rate: @po.ExchangeRate.ToString("N4")</div>
+                                </div>
+
+                                <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                                    <div class="text-[11px] text-emerald-700 font-bold uppercase">Base (@companyBaseCurrency)</div>
+                                    <div class="mt-1 font-mono font-bold text-emerald-800">@baseTotal.ToString("N2")</div>
+                                </div>
+                            </div>
+
+                            <div class="rounded-xl border border-slate-200 p-3">
+                                <div class="text-[11px] text-slate-500 font-bold uppercase mb-2">Items (Top 3)</div>
+
+                                @if (po.Lines != null && po.Lines.Any())
+                                {
+                                    <div class="space-y-2">
+                                        @foreach (var line in po.Lines.Take(3))
+                                        {
+                                            var itemName = items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Unknown Item";
+                                            <div class="flex items-center justify-between gap-3 text-sm">
+                                                <span class="truncate text-slate-700">@itemName</span>
+                                                <span class="shrink-0 font-mono font-bold text-slate-500">@line.QuantityOrdered.ToString("G29")</span>
+                                            </div>
+                                        }
+
+                                        @if (po.Lines.Count > 3)
+                                        {
+                                            <div class="text-[10px] font-bold uppercase text-indigo-500">
+                                                + @(po.Lines.Count - 3) more
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="text-slate-400 italic text-sm">No items</div>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-100 bg-white p-3">
+                            <div class="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                                @if (po.Status == PurchaseOrderStatus.Open && !po.HasReceipt)
+                                {
+                                    <button @onclick="() => EditOrder(po)"
+                                            class="w-full sm:w-auto rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                                        Edit
+                                    </button>
+
+                                    <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{po.Id}")'
+                                            class="w-full sm:w-auto rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100">
+                                        Receive
+                                    </button>
+                                }
+                                else if (po.Status == PurchaseOrderStatus.Open && po.HasReceipt && !po.IsInvoicePosted)
+                                {
+                                    <span class="w-full sm:w-auto text-center rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
+                                        Received
+                                    </span>
+
+                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")'
+                                            class="w-full sm:w-auto rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-800 hover:bg-indigo-100">
+                                        Post Invoice
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="w-full sm:w-auto text-center rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-sm font-bold text-green-800">
+                                        Invoice Posted
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+
+        @if (orders.Any())
+        {
+            <!-- Analytics -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in slide-in-from-bottom-4 fade-in duration-700">
+
+                <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 class="mb-4 flex items-center gap-2 font-bold text-slate-800">
+                        <svg class="h-5 w-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        Top Spending by Vendor
+                    </h3>
+
+                    <div class="space-y-4">
+                        @foreach (var stat in vendorStats.Take(5))
+                        {
+                            <div class="flex items-center gap-3">
+                                <div class="h-9 w-9 rounded-full bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold text-xs border border-indigo-100">
+                                    @stat.VendorInitial
+                                </div>
+
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-baseline justify-between gap-2">
+                                        <span class="truncate font-medium text-slate-700">@stat.VendorName</span>
+                                        <span class="shrink-0 font-mono font-bold text-slate-900">
+                                            @stat.TotalSpent.ToString("N0")
+                                            <span class="text-[10px] text-slate-400">@companyBaseCurrency</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="mt-2 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                                        <div class="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                             style="width: @(Math.Min((stat.TotalSpent / (maxVendorSpend == 0 ? 1 : maxVendorSpend)) * 100, 100))%">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 class="mb-4 flex items-center gap-2 font-bold text-slate-800">
+                        <svg class="h-5 w-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Monthly Purchase Commitments (@companyBaseCurrency)
+                    </h3>
+
+                    <div class="flex items-end justify-between h-44 pt-4 px-2 gap-2">
+                        @foreach (var month in monthlyStats)
+                        {
+                            <div class="flex flex-col items-center flex-1 min-w-0">
+                                <div class="text-[10px] font-mono font-bold text-slate-700 mb-1">
+                                    @month.Total.ToString("N0")
+                                </div>
+
+                                <div class="w-full rounded-t-md bg-emerald-50 overflow-hidden flex flex-col justify-end h-full">
+                                    <div class="w-full bg-emerald-500 transition-all duration-700 ease-out"
+                                         style="height: @(Math.Max((month.Total / (maxMonthlySpend == 0 ? 1 : maxMonthlySpend)) * 100, 5))%">
+                                    </div>
+                                </div>
+
+                                <div class="mt-2 text-[10px] font-bold text-slate-700 uppercase truncate">
+                                    @month.MonthName
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+            </div>
+        }
+    }
+
+    @if (showModal)
+    {
+        <!-- Modal -->
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-5 sm:p-6 my-8 animate-in zoom-in-95 duration-200">
+
+                <div class="flex items-start justify-between gap-4 mb-6">
+                    <div class="min-w-0">
+                        <h3 class="text-lg sm:text-xl font-bold text-slate-900">
+                            @((currentOrder.Id == Guid.Empty) ? "New Purchase Order" : "Edit Purchase Order")
+                        </h3>
+
+                        @if (!string.IsNullOrEmpty(selectedCurrencyCode))
+                        {
+                            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                                <span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 font-bold text-indigo-700">
+                                    Currency: @selectedCurrencyCode
+                                </span>
+                                <span class="text-slate-400">•</span>
+                                <span class="text-slate-600">
+                                    Rate Locked: <span class="font-mono font-bold">@currentOrder.ExchangeRate.ToString("N4")</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+
+                    <button @onclick="() => showModal = false"
+                            class="rounded-xl p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3 mb-6">
+                    <div class="md:col-span-1">
+                        <label class="label">Vendor</label>
+                        <select value="@currentOrder.VendorId" @onchange="OnVendorChanged" class="input-class">
+                            <option value="@Guid.Empty">-- Select Vendor --</option>
+                            @foreach (var v in vendors)
+                            {
+                                <option value="@v.Id">@v.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="md:col-span-1">
+                        <label class="label">Order Date</label>
+                        <input type="date" @bind="currentOrder.OrderDate" class="input-class" />
+                    </div>
+
+                    <div class="md:col-span-1">
+                        <label class="label">Order Number</label>
+                        <input @bind="currentOrder.OrderNumber" class="input-class bg-slate-50 font-mono" readonly />
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-100 pt-4">
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                        <h4 class="font-bold text-slate-700">Order Lines</h4>
+                        <button @onclick="AddLine"
+                                class="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100">
+                            + Add Item
+                        </button>
+                    </div>
+
+                    <!-- Desktop lines table -->
+                    <div class="hidden md:block overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="min-w-[720px] w-full text-sm text-left">
+                            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500">
+                                <tr>
+                                    <th class="p-3 w-[40%]">Item</th>
+                                    <th class="p-3 text-right w-[15%]">Qty</th>
+                                    <th class="p-3 text-right w-[20%]">Unit Cost</th>
+                                    <th class="p-3 text-right w-[20%]">Total</th>
+                                    <th class="p-3 w-[5%]"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @foreach (var line in currentOrder.Lines)
+                                {
+                                    <tr>
+                                        <td class="p-2">
+                                            <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" />
+                                        </td>
+                                        <td class="p-2">
+                                            <input type="number" @bind="line.QuantityOrdered" class="input-class text-right font-bold" />
+                                        </td>
+                                        <td class="p-2">
+                                            <input type="number" @bind="line.UnitCost" class="input-class text-right font-mono" />
+                                        </td>
+                                        <td class="p-2 text-right font-bold text-slate-700">
+                                            @((line.QuantityOrdered * line.UnitCost).ToString("N2"))
+                                        </td>
+                                        <td class="p-2 text-center">
+                                            <button @onclick="() => currentOrder.Lines.Remove(line)" class="text-red-500 hover:text-red-700 font-bold text-lg">×</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="bg-slate-50 border-t border-slate-200">
+                                <tr>
+                                    <td colspan="3" class="p-3 text-right font-bold text-slate-500 uppercase text-xs">
+                                        Total (@(string.IsNullOrEmpty(selectedCurrencyCode) ? "N/A" : selectedCurrencyCode))
+                                    </td>
+                                    <td class="p-3 text-right font-bold text-lg text-slate-900">
+                                        @VendorTotal.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="3" class="p-2 text-right font-bold text-emerald-600 uppercase text-[10px]">
+                                        Total Amount (@companyBaseCurrency)
+                                    </td>
+                                    <td class="p-2 text-right font-mono font-bold text-emerald-700 text-sm">
+                                        @BaseTotal.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- Mobile lines cards -->
+                    <div class="md:hidden space-y-3">
+                        @foreach (var line in currentOrder.Lines)
+                        {
+                            <div class="rounded-2xl border border-slate-200 p-3 bg-white">
+                                <div class="mb-3">
+                                    <div class="text-[11px] font-bold text-slate-500 uppercase mb-1">Item</div>
+                                    <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" />
+                                </div>
+
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <div class="text-[11px] font-bold text-slate-500 uppercase mb-1">Qty</div>
+                                        <input type="number" @bind="line.QuantityOrdered" class="input-class text-right font-bold" />
+                                    </div>
+                                    <div>
+                                        <div class="text-[11px] font-bold text-slate-500 uppercase mb-1">Unit Cost</div>
+                                        <input type="number" @bind="line.UnitCost" class="input-class text-right font-mono" />
+                                    </div>
+                                </div>
+
+                                <div class="mt-3 flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 p-3">
+                                    <div>
+                                        <div class="text-[11px] font-bold text-slate-500 uppercase">Line Total</div>
+                                        <div class="font-mono font-bold text-slate-900">@((line.QuantityOrdered * line.UnitCost).ToString("N2"))</div>
+                                    </div>
+
+                                    <button @onclick="() => currentOrder.Lines.Remove(line)"
+                                            class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-100">
+                                        Remove
+                                    </button>
+                                </div>
+                            </div>
+                        }
+
+                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div class="flex items-center justify-between">
+                                <div class="text-xs font-bold text-slate-600 uppercase">
+                                    Total (@(string.IsNullOrEmpty(selectedCurrencyCode) ? "N/A" : selectedCurrencyCode))
+                                </div>
+                                <div class="font-mono font-bold text-slate-900">@VendorTotal.ToString("N2")</div>
+                            </div>
+                            <div class="mt-2 flex items-center justify-between">
+                                <div class="text-[11px] font-bold text-emerald-700 uppercase">
+                                    Base (@companyBaseCurrency)
+                                </div>
+                                <div class="font-mono font-bold text-emerald-800">@BaseTotal.ToString("N2")</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button @onclick="() => showModal = false"
+                            class="w-full sm:w-auto rounded-xl px-4 py-2 font-bold text-slate-600 hover:bg-slate-50">
+                        Cancel
+                    </button>
+
+                    <button @onclick="SaveOrder" disabled="@isBusy"
+                            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>Save Order</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: .06em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.75rem;
+        font-size: 0.875rem;
+        outline: none;
+        background: #fff;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+        }
+</style>
+
+@code {
+    private List<PurchaseOrder> orders = new();
+    private List<Vendor> vendors = new();
+    private List<Item> items = new();
+    private PurchaseOrder currentOrder = new();
+
+    private bool isLoading = true;
+    private bool showModal = false;
+    private bool isBusy = false;
+    private Guid currentCompanyId;
+    private string selectedCurrencyCode = "";
+    private string companyBaseCurrency = "BASE"; // Default until loaded
+
+    // Analytics Data Properties
+    private List<VendorStat> vendorStats = new();
+    private List<MonthlyStat> monthlyStats = new();
+    private decimal maxVendorSpend = 1;
+    private decimal maxMonthlySpend = 1;
+
+    private decimal VendorTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+    private decimal BaseTotal => VendorTotal * currentOrder.ExchangeRate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+
+            var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            if (company != null)
+            {
+                companyBaseCurrency = company.BaseCurrency ?? "BASE";
+            }
+
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        orders = await PurchService.GetPOsAsync(currentCompanyId);
+        vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+        items = await MasterService.GetItemsAsync(currentCompanyId);
+
+        CalculateAnalytics();
+    }
+
+    private void CalculateAnalytics()
+    {
+        vendorStats = orders
+            .GroupBy(o => o.VendorId)
+            .Select(g => new VendorStat
+            {
+                VendorName = vendors.FirstOrDefault(v => v.Id == g.Key)?.Name ?? "Unknown",
+                TotalSpent = g.Sum(o => o.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * o.ExchangeRate)
+            })
+            .OrderByDescending(x => x.TotalSpent)
+            .ToList();
+
+        if (vendorStats.Any()) maxVendorSpend = vendorStats.Max(x => x.TotalSpent);
+
+        var sixMonthsAgo = DateTime.Today.AddMonths(-5);
+        monthlyStats = orders
+            .Where(o => o.OrderDate >= sixMonthsAgo)
+            .GroupBy(o => new { o.OrderDate.Year, o.OrderDate.Month })
+            .Select(g => new MonthlyStat
+            {
+                MonthName = new DateTime(g.Key.Year, g.Key.Month, 1).ToString("MMM"),
+                Total = g.Sum(o => o.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * o.ExchangeRate)
+            })
+            // Keep as-is (your original logic). If you want true chronological ordering across years, we can store Year/Month too.
+            .OrderBy(x => DateTime.ParseExact(x.MonthName, "MMM", null))
+            .ToList();
+
+        if (monthlyStats.Any()) maxMonthlySpend = monthlyStats.Max(x => x.Total);
+    }
+
+    private void CreateNew()
+    {
+        currentOrder = new PurchaseOrder
+        {
+            CompanyId = currentCompanyId,
+            OrderNumber = $"PO-{DateTime.Now:yyMM}-{new Random().Next(1000, 9999)}",
+            Lines = new List<PurchaseOrderLine> { new() },
+            ExchangeRate = 1
+        };
+        selectedCurrencyCode = "";
+        showModal = true;
+    }
+
+    private async Task OnVendorChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out Guid vendorId))
+        {
+            currentOrder.VendorId = vendorId;
+            var result = await PurchService.GetVendorCurrencyDataAsync(vendorId, currentCompanyId);
+
+            currentOrder.CurrencyId = result.CurrencyId;
+            currentOrder.ExchangeRate = result.Rate;
+            selectedCurrencyCode = result.CurrencyCode;
+        }
+    }
+
+    private async Task EditOrder(PurchaseOrder po)
+    {
+        var result = await PurchService.GetVendorCurrencyDataAsync(po.VendorId, currentCompanyId);
+        selectedCurrencyCode = result.CurrencyCode;
+
+        currentOrder = new PurchaseOrder
+        {
+            Id = po.Id,
+            CompanyId = po.CompanyId,
+            VendorId = po.VendorId,
+            OrderDate = po.OrderDate,
+            OrderNumber = po.OrderNumber,
+            Status = po.Status,
+            CurrencyId = po.CurrencyId,
+            ExchangeRate = po.ExchangeRate,
+            Lines = po.Lines.Select(l => new PurchaseOrderLine
+            {
+                Id = l.Id,
+                ItemId = l.ItemId,
+                QuantityOrdered = l.QuantityOrdered,
+                UnitCost = l.UnitCost
+            }).ToList()
+        };
+        showModal = true;
+    }
+
+    private void AddLine() => currentOrder.Lines.Add(new PurchaseOrderLine());
+
+    private async Task SaveOrder()
+    {
+        isBusy = true;
+        try
+        {
+            if (currentOrder.CurrencyId == Guid.Empty && currentOrder.VendorId != Guid.Empty)
+            {
+                var result = await PurchService.GetVendorCurrencyDataAsync(currentOrder.VendorId, currentCompanyId);
+                currentOrder.CurrencyId = result.CurrencyId;
+                currentOrder.ExchangeRate = result.Rate;
+            }
+
+            string resultStr = await PurchService.SavePurchaseOrderAsync(currentOrder);
+
+            if (string.IsNullOrEmpty(resultStr))
+            {
+                await JS.InvokeVoidAsync("alert", "✅ Order Saved Successfully!");
+                showModal = false;
+                await LoadData();
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "❌ " + resultStr);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", "UI Error: " + ex.Message);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    public class VendorStat
+    {
+        public string VendorName { get; set; } = "";
+        public decimal TotalSpent { get; set; }
+        public string VendorInitial => string.IsNullOrEmpty(VendorName) ? "?" : VendorName.Substring(0, 1).ToUpper();
+    }
+
+    public class MonthlyStat
+    {
+        public string MonthName { get; set; } = "";
+        public decimal Total { get; set; }
+    }
+}

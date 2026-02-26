@@ -1,181 +1,485 @@
 ﻿@page "/gl/journal-entry"
+
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@inject GLOperationsService GLOps
-@inject GLSetupService SetupService
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SegCoaService SetupService
+@inject GLOperationsService GlOps
 @inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
+
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 p-6">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">General Journal Entry</h1>
-            <p class="text-sm text-slate-500">Create a manual double-entry journal.</p>
-        </div>
-        <div class="text-right">
-            <span class="block text-xs uppercase text-slate-500 font-bold">Balance Check</span>
-            <span class="text-xl font-mono font-bold @(Imbalance == 0 ? "text-emerald-600" : "text-red-600")">
-                @Imbalance.ToString("N2")
-            </span>
-        </div>
-    </div>
-
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-            <select class="@InputClass" @bind="selectedCompanyId" @bind:after="OnCompanyChanged">
-                <option value="@Guid.Empty">-- Select --</option>
-                @foreach (var c in companies)
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Journal Entry Batches</h1>
+                @if (!string.IsNullOrEmpty(companyName))
                 {
-                    <option value="@c.CompanyDetailsId">@c.CompanyName</option>
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
                 }
-            </select>
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Create, lock, and post manual adjustments to the General Ledger.</p>
         </div>
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
-            <InputDate class="@InputClass" @bind-Value="journalDate" />
-        </div>
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Batch Name / Ref</label>
-            <InputText class="@InputClass" @bind-Value="batchName" placeholder="e.g. Monthly Accruals" />
-        </div>
-
-        <div>
-            <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
-            <InputText class="@InputClass" @bind-Value="description" placeholder="Narration..." />
-        </div>
+        <button @onclick="CreateBatch" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            <span>New Batch</span>
+        </button>
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <table class="w-full text-left text-sm text-slate-700">
-            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
-                <tr>
-                    <th class="px-5 py-3 w-[40%]">Account Name</th>
-                    <th class="px-5 py-3 w-[25%]">Line Description</th>
-                    <th class="px-5 py-3 w-[15%] text-right">Debit</th>
-                    <th class="px-5 py-3 w-[15%] text-right">Credit</th>
-                    <th class="px-5 py-3 w-[5%]"></th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @for (int i = 0; i < lines.Count; i++)
+    @if (isLoading)
+    {
+        <div class="p-12 text-center text-slate-400 animate-pulse">Loading journal batches...</div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+            <div class="lg:col-span-1 space-y-4 h-[calc(100vh-200px)] overflow-y-auto pr-2">
+                @if (activeBatches.Any())
                 {
-                    var line = lines[i];
-                    <tr class="hover:bg-slate-50">
-                        <td class="px-5 py-2">
-                            <select class="@InputClass" @bind="line.AccountId" disabled="@(!HasCompany)">
-                                <option value="@Guid.Empty">-- Select Account --</option>
-                                @foreach (var a in accounts)
+                    @foreach (var batch in activeBatches)
+                    {
+                        <div @onclick="() => SelectBatch(batch.Id)"
+                             class="p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md @(selectedBatch?.Id == batch.Id ? "bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200" : "bg-white border-slate-200 hover:border-slate-300")">
+
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="text-xs font-bold text-slate-500">@batch.BatchName</span>
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold @GetStatusColor(batch.Status)">
+                                    @batch.Status
+                                </span>
+                            </div>
+
+                            <div class="font-bold text-slate-900 text-sm mb-1 truncate">
+                                @(string.IsNullOrWhiteSpace(batch.Description) ? "Manual Journal" : batch.Description)
+                            </div>
+
+                            <div class="flex justify-between items-end mt-3 border-t border-slate-100 pt-2">
+                                <div>
+                                    <div class="text-[10px] text-slate-400">Date</div>
+                                    <div class="text-xs font-mono font-bold text-slate-700">@batch.Journals.FirstOrDefault()?.TransactionDate.ToString("MMM dd, yyyy")</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-[10px] text-slate-400">Lines</div>
+                                    <div class="text-xs font-bold text-slate-600">@(batch.Journals.FirstOrDefault()?.Lines.Count ?? 0)</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="p-6 text-center border-2 border-dashed border-slate-200 rounded-xl text-slate-400 text-sm">
+                        No active journal batches.
+                    </div>
+                }
+            </div>
+
+            <div class="lg:col-span-3">
+                @if (selectedBatch != null)
+                {
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">
+
+                        <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                            <div>
+                                <h2 class="text-lg font-bold text-slate-900">@selectedBatch.BatchName</h2>
+                                <p class="text-xs text-slate-500 mt-1">@selectedBatch.Description</p>
+                            </div>
+                            <div class="flex gap-2 items-center">
+                                @if (selectedBatch.Status == BatchStatus.Draft)
                                 {
-                                    <option value="@a.Id">@a.AccountName (@a.AccountCode)</option>
+                                    <button @onclick="DeleteBatch" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                                        <svg class="w-4 h-4 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        Delete Draft
+                                    </button>
+
+                                    <button @onclick="SubmitForApproval" disabled="@(!IsBalanced || TotalDebits == 0)" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                        Lock Batch
+                                    </button>
                                 }
-                            </select>
-                        </td>
+                                @if (selectedBatch.Status == BatchStatus.Ready)
+                                {
+                                    <button @onclick="UnlockBatch" class="px-4 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
+                                        Unlock (Edit)
+                                    </button>
 
-                        <td class="px-5 py-2">
-                            <InputText class="@InputClass" @bind-Value="line.Reference" placeholder="Line memo..." />
-                        </td>
+                                    <button @onclick="PostBatch" class="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-700 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        Post to GL
+                                    </button>
+                                }
+                            </div>
+                        </div>
 
-                        <td class="px-5 py-2">
-                            <InputNumber class="@NumberClass" @bind-Value="line.Debit" />
-                        </td>
+                        @if (selectedBatch.Status == BatchStatus.Draft)
+                        {
+                            <EditForm Model="@entryForm" OnValidSubmit="SaveLine" class="p-4 bg-slate-50/50 border-b border-slate-100">
+                                <DataAnnotationsValidator />
+                                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                    <div class="md:col-span-4">
+                                        <SearchableGlAccount Label="GL Account"
+                                                             Placeholder="Search Account..."
+                                                             Accounts="@coaList"
+                                                             @bind-Value="entryForm.SegCoaId"
+                                                             IsInvalid="@(entryForm.SegCoaId == Guid.Empty)" />
+                                    </div>
+                                    <div class="md:col-span-4">
+                                        <label class="label">Details / Reference <span class="text-rose-500">*</span></label>
+                                        <InputText @bind-Value="entryForm.Reference" class="@InputClass" placeholder="Line narration..." />
+                                    </div>
 
-                        <td class="px-5 py-2">
-                            <InputNumber class="@NumberClass" @bind-Value="line.Credit" />
-                        </td>
+                                    <div class="md:col-span-2">
+                                        <label class="label text-emerald-700">Debit</label>
+                                        <InputNumber @bind-Value="entryForm.Debit" @oninput="(e) => entryForm.Credit = 0" class="@($"{InputClass} font-bold text-emerald-700")" placeholder="0.00" />
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="label text-rose-700">Credit</label>
+                                        <InputNumber @bind-Value="entryForm.Credit" @oninput="(e) => entryForm.Debit = 0" class="@($"{InputClass} font-bold text-rose-700")" placeholder="0.00" />
+                                    </div>
 
-                        <td class="px-5 py-2 text-center">
-                            <button @onclick="() => RemoveLine(line)" class="text-red-500 hover:text-red-700 font-bold">×</button>
-                        </td>
-                    </tr>
+                                    <div class="md:col-span-12 flex justify-end gap-2 mt-1">
+                                        @if (isEditing)
+                                        {
+                                            <button type="button" @onclick="CancelEdit" class="px-4 py-2 bg-white border border-slate-300 text-slate-500 rounded-lg text-xs font-bold hover:bg-slate-50">Cancel</button>
+                                            <button type="submit" class="px-6 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold shadow-sm hover:bg-indigo-700">Update Line</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="submit" class="px-6 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold shadow-sm hover:bg-slate-800 flex items-center gap-2">
+                                                <span>+ Add Line</span>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </EditForm>
+                        }
+
+                        <div class="flex-1 overflow-auto p-0">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0 shadow-sm">
+                                    <tr>
+                                        <th class="p-4 w-1/3">Account</th>
+                                        <th class="p-4">Reference / Details</th>
+                                        <th class="p-4 text-right w-32">Debit</th>
+                                        <th class="p-4 text-right w-32">Credit</th>
+                                        <th class="p-4 w-20 text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @if (CurrentLines.Any())
+                                    {
+                                        @foreach (var line in CurrentLines)
+                                        {
+                                            <tr class="hover:bg-slate-50 transition-colors @(line.Id == entryForm.Id ? "bg-indigo-50/50" : "")">
+                                                <td class="p-4 text-xs text-slate-800 font-bold">@GetAccountName(line.SegCoaId)</td>
+                                                <td class="p-4 text-slate-600 text-xs">@line.Reference</td>
+                                                <td class="p-4 text-right font-mono text-emerald-600 font-bold">@(line.Debit > 0 ? line.Debit.ToString("N2") : "-")</td>
+                                                <td class="p-4 text-right font-mono text-rose-600 font-bold">@(line.Credit > 0 ? line.Credit.ToString("N2") : "-")</td>
+                                                <td class="p-4 text-center">
+                                                    @if (selectedBatch.Status == BatchStatus.Draft)
+                                                    {
+                                                        <div class="flex items-center justify-center gap-3">
+                                                            <button @onclick="() => EditLine(line)" class="text-slate-400 hover:text-indigo-600" title="Edit">
+                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                            </button>
+                                                            <button @onclick="() => RemoveLine(line.Id)" class="text-slate-400 hover:text-red-500" title="Delete">
+                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                            </button>
+                                                        </div>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="border-t border-slate-200 p-4 bg-slate-50 flex justify-end items-center gap-8 text-sm">
+                            @if (!IsBalanced)
+                            {
+                                <div class="text-rose-600 font-bold flex items-center gap-2 animate-pulse">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                    Out of Balance: @Math.Abs(TotalDebits - TotalCredits).ToString("N2")
+                                </div>
+                            }
+                            else if (TotalDebits > 0)
+                            {
+                                <div class="text-emerald-600 font-bold flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+                                    Balanced
+                                </div>
+                            }
+                            
+                            <div class="flex items-center gap-6 font-mono font-bold text-lg">
+                                <div><span class="text-xs font-sans text-slate-500 uppercase tracking-wider block leading-none">Total Dr</span> @TotalDebits.ToString("N2")</div>
+                                <div><span class="text-xs font-sans text-slate-500 uppercase tracking-wider block leading-none">Total Cr</span> @TotalCredits.ToString("N2")</div>
+                            </div>
+                        </div>
+                    </div>
                 }
-            </tbody>
-            <tfoot class="bg-slate-50 font-bold text-slate-900">
-                <tr>
-                    <td colspan="2" class="px-5 py-3 text-right">Totals:</td>
-                    <td class="px-5 py-3 text-right">@lines.Sum(x => x.Debit).ToString("N2")</td>
-                    <td class="px-5 py-3 text-right">@lines.Sum(x => x.Credit).ToString("N2")</td>
-                    <td></td>
-                </tr>
-            </tfoot>
-        </table>
-
-        <div class="p-4 border-t border-slate-100 flex justify-between">
-            <button @onclick="AddLine" class="text-indigo-600 font-bold hover:underline">+ Add Line</button>
-
-            <button @onclick="SaveJournal"
-                    disabled="@(!CanSave)"
-                    class="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-indigo-700 shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
-                Post Journal Entry
-            </button>
+                else
+                {
+                    <div class="h-full min-h-[400px] flex flex-col items-center justify-center bg-white border border-slate-200 rounded-2xl text-slate-400">
+                        <svg class="w-16 h-16 opacity-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <p>Select a journal batch to edit or post.</p>
+                    </div>
+                }
+            </div>
         </div>
-    </div>
+    }
+
+    @if (showCreateModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <h3 class="text-lg font-bold text-slate-900 mb-4 border-b border-slate-100 pb-3">Start New Journal Batch</h3>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="label">Posting Date</label>
+                        <InputDate @bind-Value="newBatchDate" class="input-class" />
+                    </div>
+                    <div>
+                        <label class="label">Batch Description / Memo</label>
+                        <textarea @bind="newBatchDescription" class="input-class" rows="3" placeholder="e.g. End of month accruals"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                    <button @onclick="() => showCreateModal = false" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+                    <button @onclick="ConfirmCreateBatch" disabled="@(string.IsNullOrWhiteSpace(newBatchDescription))" class="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-800 disabled:opacity-50">Create Batch</button>
+                </div>
+            </div>
+        </div>
+    }
+
 </div>
 
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
 @code {
-    private const string InputClass = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all";
-    private const string NumberClass = "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-right font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all";
+    private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all";
 
-    private List<CompanyDetails> companies = new();
-    private List<GLChartOfAccount> accounts = new();
+    private Guid currentCompanyId = Guid.Empty;
+    private string currentUserId = "";
+    private string companyName = "";
+    private bool isLoading = true;
+    private bool showCreateModal = false;
+    private bool isEditing = false;
 
-    // Header Data
-    private Guid selectedCompanyId;
-    private DateOnly journalDate = DateOnly.FromDateTime(DateTime.Today);
-    private string batchName = "General Journal"; // Default editable name
-    private string description = "";
+    private List<GLBatch> activeBatches = new();
+    private List<SegChartOfAccount> coaList = new();
 
-    private List<GLJournalLine> lines = new() { new GLJournalLine(), new GLJournalLine() };
+    private GLBatch? selectedBatch;
+    private GLJournalLine entryForm = new();
+    
+    // Create Modal State
+    private DateOnly newBatchDate = DateOnly.FromDateTime(DateTime.Today);
+    private string newBatchDescription = "";
 
-    private bool HasCompany => selectedCompanyId != Guid.Empty;
-    private decimal Imbalance => lines.Sum(l => l.Debit) - lines.Sum(l => l.Credit);
-    private bool CanSave => HasCompany && Imbalance == 0 && lines.Any(l => l.AccountId != Guid.Empty && (l.Debit > 0 || l.Credit > 0));
+    // Computed Properties - Maps directly to the underlying Journal inside the Batch
+    private List<GLJournalLine> CurrentLines => selectedBatch?.Journals?.FirstOrDefault()?.Lines ?? new List<GLJournalLine>();
+    private decimal TotalDebits => CurrentLines.Sum(l => l.Debit);
+    private decimal TotalCredits => CurrentLines.Sum(l => l.Credit);
+    private bool IsBalanced => TotalDebits > 0 && TotalDebits == TotalCredits;
 
     protected override async Task OnInitializedAsync()
     {
-        companies = await CompanyService.GetCompaniesAsync();
-    }
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
 
-    private async Task OnCompanyChanged()
-    {
-        if (selectedCompanyId != Guid.Empty)
+        if (user?.CompanyDetailsId != null)
         {
-            accounts = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
-            // Auto-sort by Name for user convenience
-            accounts = accounts.OrderBy(a => a.AccountName).ToList();
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currentUserId = user.Id;
+
+            var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            if (company != null) companyName = company.CompanyName;
+
+            var allCoa = await SetupService.GetCoaAsync(currentCompanyId);
+            coaList = allCoa.Where(x => x.AllowJournal && x.IsActive).OrderBy(x => x.AccountCode).ToList();
+
+            await LoadBatches();
         }
+        isLoading = false;
     }
 
-    private void AddLine() => lines.Add(new GLJournalLine());
-    private void RemoveLine(GLJournalLine line) => lines.Remove(line);
-
-    private async Task SaveJournal()
+    private async Task LoadBatches()
     {
-        // Call service (Auth disabled internally)
-        var result = await GLOps.CreateJournalEntryAsync(
-            selectedCompanyId,
-            journalDate,
-            batchName,
-            description,
-            lines
-        );
+        activeBatches = await GlOps.GetActiveJournalBatchesAsync(currentCompanyId);
+        if (selectedBatch != null) selectedBatch = await GlOps.GetBatchByIdAsync(selectedBatch.Id);
+    }
 
-        if (string.IsNullOrEmpty(result.error))
+    private async Task SelectBatch(Guid id)
+    {
+        selectedBatch = await GlOps.GetBatchByIdAsync(id);
+        ResetForm();
+    }
+
+    private void CreateBatch()
+    {
+        newBatchDate = DateOnly.FromDateTime(DateTime.Today);
+        newBatchDescription = "";
+        showCreateModal = true;
+    }
+
+    private async Task ConfirmCreateBatch()
+    {
+        var batch = await GlOps.CreateDraftBatchAsync(currentCompanyId, newBatchDate, newBatchDescription, currentUserId);
+        showCreateModal = false;
+        await LoadBatches();
+        await SelectBatch(batch.Id);
+    }
+
+    // --- BATCH ACTIONS ---
+
+    private async Task SubmitForApproval()
+    {
+        if (selectedBatch == null || !IsBalanced) return;
+        var err = await GlOps.SubmitForApprovalAsync(selectedBatch.Id);
+        if (string.IsNullOrEmpty(err)) await LoadBatches(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task UnlockBatch()
+    {
+        if (selectedBatch == null) return;
+        var err = await GlOps.RevertToDraftAsync(selectedBatch.Id);
+        if (string.IsNullOrEmpty(err)) await LoadBatches(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task DeleteBatch()
+    {
+        if (selectedBatch == null) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "Permanently delete this Draft journal?")) return;
+
+        var err = await GlOps.DeleteDraftBatchAsync(selectedBatch.Id);
+        if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Journal Saved Successfully!");
-            // Reset Form
-            lines = new() { new GLJournalLine(), new GLJournalLine() };
-            batchName = "General Journal";
-            description = "";
+            selectedBatch = null;
+            await LoadBatches();
+        }
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task PostBatch()
+    {
+        if (selectedBatch == null || !IsBalanced) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "This will permanently post the journal to the General Ledger. Continue?")) return;
+
+        var err = await GlOps.PostBatchAsync(currentCompanyId, selectedBatch.Id);
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Journal Posted Successfully.");
+            selectedBatch = null;
+            await LoadBatches();
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", $"Error: {result.error}");
+            await JS.InvokeVoidAsync("alert", err);
         }
     }
+
+    // --- LINE ENTRY ACTIONS ---
+
+    private async Task SaveLine()
+    {
+        // STRICT UI VALIDATION
+        if (entryForm.SegCoaId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a GL Account."); return; }
+        if (string.IsNullOrWhiteSpace(entryForm.Reference)) { await JS.InvokeVoidAsync("alert", "Reference / Details is required."); return; }
+        if (entryForm.Debit == 0 && entryForm.Credit == 0) { await JS.InvokeVoidAsync("alert", "You must enter either a Debit or Credit amount."); return; }
+        if (entryForm.Debit > 0 && entryForm.Credit > 0) { await JS.InvokeVoidAsync("alert", "A line cannot have both a Debit and Credit. Use separate lines."); return; }
+
+        string err = isEditing ?
+            await GlOps.UpdateJournalLineAsync(entryForm) :
+            await GlOps.AddJournalLineAsync(selectedBatch!.Id, entryForm);
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadBatches();
+            ResetForm();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private void EditLine(GLJournalLine line)
+    {
+        entryForm = new GLJournalLine
+        {
+            Id = line.Id,
+            HeaderId = line.HeaderId,
+            SegCoaId = line.SegCoaId,
+            Reference = line.Reference,
+            Debit = line.Debit,
+            Credit = line.Credit
+        };
+        isEditing = true;
+    }
+
+    private void CancelEdit() => ResetForm();
+
+    private async Task RemoveLine(Guid lineId)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Remove this line?")) return;
+        await GlOps.RemoveJournalLineAsync(lineId);
+        await LoadBatches();
+    }
+
+    private void ResetForm()
+    {
+        isEditing = false;
+        entryForm = new GLJournalLine();
+    }
+
+    // --- HELPERS ---
+    private string GetAccountName(Guid id) => coaList.FirstOrDefault(a => a.Id == id)?.Description ?? "Unknown Account";
+
+    private string GetStatusColor(BatchStatus status) => status switch
+    {
+        BatchStatus.Draft => "bg-slate-100 text-slate-600 border border-slate-200",
+        BatchStatus.Ready => "bg-amber-100 text-amber-700 border border-amber-200",
+        BatchStatus.Posted => "bg-emerald-100 text-emerald-700 border border-emerald-200",
+        _ => "bg-gray-100"
+    };
 }

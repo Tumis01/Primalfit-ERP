@@ -1,0 +1,288 @@
+﻿@page "/warehouses"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@inject WarehouseService WarehouseService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouses</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Manage physical storage locations.</p>
+        </div>
+
+        <div class="flex gap-2">
+            <button @onclick="ShowCreateForm" disabled="@(!HasCompany)"
+                    class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                Add Warehouse
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading warehouses...
+        </div>
+    }
+    else if (showForm && HasCompany)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50 ring-1 ring-slate-200 animate-in fade-in slide-in-from-top-4 mb-6">
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">@(isEditing ? "Edit Warehouse" : "New Warehouse")</h3>
+                    <p class="text-sm text-slate-500">Define warehouse details.</p>
+                </div>
+                <button @onclick="CancelForm" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <EditForm Model="@currentWarehouse" OnValidSubmit="HandleSubmit">
+                <DataAnnotationsValidator />
+
+                <div class="grid gap-6 md:grid-cols-2 items-start">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="label">Warehouse Name</label>
+                            <InputText @bind-Value="currentWarehouse.Name" class="input-class" placeholder="e.g. Lagos Central Hub" />
+                            <ValidationMessage For="@(() => currentWarehouse.Name)" class="text-xs text-red-500 mt-1" />
+                        </div>
+
+                        <div>
+                            <label class="label">Location / Address</label>
+                            <InputText @bind-Value="currentWarehouse.Location" class="input-class" placeholder="City or Address" />
+                        </div>
+                    </div>
+
+                    <div class="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div>
+                            <label class="label">Assigned Company</label>
+                            <input value="@companyName" disabled class="input-class bg-slate-100 text-slate-500 cursor-not-allowed" />
+                        </div>
+
+                        <div class="text-xs text-slate-500 mt-2 font-medium">
+                            * Warehouses are physical locations. Stock in transit is now tracked via the Transfer module.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+                    <button type="button" @onclick="CancelForm" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" disabled="@isBusy" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                        @(isBusy ? "Saving..." : (isEditing ? "Update Warehouse" : "Save Warehouse"))
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table class="w-full text-left text-sm text-slate-900">
+            <thead class="bg-slate-50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200">
+                <tr>
+                    <th class="px-6 py-4">Name</th>
+                    <th class="px-6 py-4">Location</th>
+                    <th class="px-6 py-4 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @if (warehouses.Any())
+                {
+                    @foreach (var item in warehouses)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
+                            <td class="px-6 py-4 text-slate-600">@(item.Location ?? "-")</td>
+                            <td class="px-6 py-4 text-right">
+                                <div class="flex items-center justify-end gap-3 opacity-100">
+                                    <button @onclick="() => EditWarehouse(item)" class="text-slate-600 hover:text-slate-900 font-bold hover:underline transition-all">Edit</button>
+                                    <button @onclick="() => DeleteWarehouse(item)" class="text-slate-400 hover:text-red-600 font-bold hover:underline transition-all">Delete</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr>
+                        <td colspan="3" class="px-6 py-12 text-center text-slate-400">
+                            No warehouses found for this company.
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
+@code {
+    // --- Context ---
+    private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // --- Data ---
+    private List<Warehouse> warehouses = new();
+    private Warehouse currentWarehouse = new();
+    private bool showForm = false;
+    private bool isEditing = false;
+    private bool isBusy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                await LoadData();
+            }
+        }
+        else
+        {
+            isLoading = false; // Stop loading if not auth (though middleware handles this)
+        }
+    }
+
+    private async Task LoadData()
+    {
+        if (!HasCompany) return;
+        isLoading = true;
+        warehouses = await WarehouseService.GetWarehousesAsync(selectedCompanyId);
+        isLoading = false;
+    }
+
+    private void ShowCreateForm()
+    {
+        currentWarehouse = new Warehouse { CompanyId = selectedCompanyId };
+        isEditing = false;
+        showForm = true;
+    }
+
+    private void EditWarehouse(Warehouse item)
+    {
+        currentWarehouse = new Warehouse
+        {
+            Id = item.Id,
+            CompanyId = item.CompanyId,
+            Name = item.Name,
+            Location = item.Location
+        };
+        isEditing = true;
+        showForm = true;
+    }
+
+    private async Task HandleSubmit()
+    {
+        isBusy = true;
+        try
+        {
+            currentWarehouse.CompanyId = selectedCompanyId;
+            var error = await WarehouseService.SaveWarehouseAsync(currentWarehouse);
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                await JS.InvokeVoidAsync("alert", error);
+                return;
+            }
+
+            await LoadData();
+            showForm = false;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"System Error: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteWarehouse(Warehouse item)
+    {
+        if (await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{item.Name}'?"))
+        {
+            var error = await WarehouseService.DeleteWarehouseAsync(item.Id);
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                await JS.InvokeVoidAsync("alert", error);
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+    }
+
+    private void CancelForm()
+    {
+        showForm = false;
+        currentWarehouse = new();
+    }
+}

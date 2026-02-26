@@ -1,55 +1,65 @@
 ﻿@page "/tax-setup"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
 @inject TaxService Service
+@inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Tax Configuration</h1>
-            <p class="text-sm text-slate-500">Manage tax rates and codes per company.</p>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Tax Configuration</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Manage tax rates and their GL mapping.</p>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 sm:items-end">
-            <div class="min-w-[260px]">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-                <select class="w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
-                        value="@selectedCompanyId"
-                        @onchange="OnCompanyChanged">
-                    @foreach (var c in companies)
-                    {
-                        <option value="@c.CompanyDetailsId">@c.CompanyName</option>
-                    }
-                </select>
-            </div>
-
-            <button @onclick="ShowAddForm" disabled="@(!HasCompany)"
-                    class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50">
-                + Add Tax
-            </button>
+        <div class="flex gap-2">
+            @if (!showForm)
+            {
+                <button @onclick="ShowAddForm" disabled="@(!HasCompany)"
+                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Tax
+                </button>
+            }
         </div>
     </div>
 
-    @if (!HasCompany)
+    @if (isLoading)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
-            Create/select a company to manage taxes.
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading taxes...
         </div>
     }
-
-    @if (showForm && HasCompany)
+    else if (showForm && HasCompany)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="mb-4 border-b border-slate-100 pb-2 flex items-center justify-between">
-                <h3 class="font-semibold text-slate-800">@(isEditing ? "Edit Tax Rate" : "New Tax Rate")</h3>
-                <button type="button"
-                        @onclick="CancelEdit"
-                        class="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">
-                    Close
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-200/50 ring-1 ring-slate-200 animate-in fade-in slide-in-from-top-4 mb-6">
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                <h3 class="text-lg font-bold text-slate-900">@(isEditing ? "Edit Tax Rate" : "New Tax Rate")</h3>
+                <button @onclick="CancelEdit" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                 </button>
             </div>
 
@@ -58,41 +68,41 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
                     <div class="md:col-span-3">
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Tax Code</label>
-                        <InputText @bind-Value="currentTax.TaxCode"
-                                   class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono"
-                                   placeholder="e.g. VAT-7.5" />
+                        <label class="label">Tax Code</label>
+                        <InputText @bind-Value="currentTax.TaxCode" class="input-class font-mono" placeholder="e.g. VAT-7.5" />
                     </div>
 
                     <div class="md:col-span-6">
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Tax Name</label>
-                        <InputText @bind-Value="currentTax.TaxName"
-                                   class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                                   placeholder="e.g. Value Added Tax" />
+                        <label class="label">Tax Name</label>
+                        <InputText @bind-Value="currentTax.TaxName" class="input-class" placeholder="e.g. Value Added Tax" />
                     </div>
 
                     <div class="md:col-span-3">
-                        <label class="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">Percentage (%)</label>
+                        <label class="label">Percentage (%)</label>
                         <div class="relative">
-                            <InputNumber @bind-Value="currentTax.Per"
-                                         class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all pr-8"
-                                         placeholder="0.00" />
+                            <InputNumber @bind-Value="currentTax.Per" class="input-class pr-8" placeholder="0.00" />
                             <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                                 <span class="text-slate-400 text-sm font-bold">%</span>
                             </div>
                         </div>
                     </div>
+
+                    <div class="md:col-span-12 border-t border-slate-100 pt-4 mt-2">
+                        <SearchableGlAccount Label="Mapped GL Account (Liability)"
+                                             Placeholder="Search Liability Accounts..."
+                                             Accounts="@liabilityAccounts"
+                                             @bind-Value="GLAccountIdWrapper"
+                                             IsInvalid="@(GLAccountIdWrapper == Guid.Empty)" />
+
+                        <p class="text-xs text-slate-400 mt-1">This account will be credited when sales invoice is posted (e.g. VAT Payable).</p>
+                    </div>
                 </div>
 
-                <div class="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-5">
-                    <button type="button"
-                            @onclick="CancelEdit"
-                            class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                <div class="mt-8 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
+                    <button type="button" @onclick="CancelEdit" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
                         Cancel
                     </button>
-
-                    <button type="submit"
-                            class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-all active:scale-95">
+                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
                         @(isEditing ? "Update Tax" : "Save Tax")
                     </button>
                 </div>
@@ -101,12 +111,13 @@
     }
 
     <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table class="w-full text-left text-sm text-slate-600">
-            <thead class="bg-slate-50/50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-100">
+        <table class="w-full text-left text-sm text-slate-900">
+            <thead class="bg-slate-50 text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200">
                 <tr>
                     <th class="px-6 py-4">Tax Code</th>
                     <th class="px-6 py-4">Description</th>
                     <th class="px-6 py-4">Rate</th>
+                    <th class="px-6 py-4">Mapped GL Account</th>
                     <th class="px-6 py-4 text-right">Actions</th>
                 </tr>
             </thead>
@@ -115,18 +126,31 @@
                 {
                     @foreach (var item in taxes)
                     {
-                        <tr class="group hover:bg-slate-50/50 transition-colors">
-                            <td class="px-6 py-4 font-mono font-bold text-indigo-600">@item.TaxCode</td>
-                            <td class="px-6 py-4 font-medium text-slate-900">@item.TaxName</td>
+                        var mappedAccount = allAccounts.FirstOrDefault(c => c.Id == item.GLAccountId);
+                        <tr class="group hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-mono font-bold text-slate-900">@item.TaxCode</td>
+                            <td class="px-6 py-4 font-medium text-slate-700">@item.TaxName</td>
                             <td class="px-6 py-4">
-                                <span class="inline-flex items-center rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                                <span class="inline-flex items-center rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-900">
                                     @item.Per.ToString("0.##")%
                                 </span>
                             </td>
+                            <td class="px-6 py-4 text-xs font-mono text-slate-600">
+                                @if (mappedAccount != null)
+                                {
+                                    <span class="text-indigo-600 font-bold">@mappedAccount.AccountCode</span>
+                                    <span class="text-slate-400 mx-1">-</span>
+                                    <span>@mappedAccount.Description</span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 italic">Not Mapped</span>
+                                }
+                            </td>
                             <td class="px-6 py-4 text-right">
-                                <div class="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button @onclick="() => EditTax(item)" class="text-indigo-600 hover:underline px-2">Edit</button>
-                                    <button @onclick="() => DeleteTax(item)" class="text-red-600 hover:underline px-2">Delete</button>
+                                <div class="flex items-center justify-end gap-3 opacity-100">
+                                    <button @onclick="() => EditTax(item)" class="text-slate-600 hover:text-slate-900 font-bold hover:underline transition-all">Edit</button>
+                                    <button @onclick="() => DeleteTax(item)" class="text-slate-400 hover:text-red-600 font-bold hover:underline transition-all">Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -135,7 +159,7 @@
                 else
                 {
                     <tr>
-                        <td colspan="4" class="px-6 py-12 text-center text-slate-400">
+                        <td colspan="5" class="px-6 py-12 text-center text-slate-400">
                             No tax rates configured for this company.
                         </td>
                     </tr>
@@ -143,46 +167,110 @@
             </tbody>
         </table>
     </div>
-
 </div>
 
-@code {
-    private List<CompanyDetails> companies = new();
-    private Guid selectedCompanyId;
-    private bool HasCompany => selectedCompanyId != Guid.Empty;
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
 
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
+
+@code {
+    // --- Context ---
+    private Guid selectedCompanyId;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+
+    // --- Data ---
     private List<Tax> taxes = new();
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> liabilityAccounts = new();
+    private List<SegAccountType> accountTypes = new();
+
     private Tax currentTax = new();
     private bool isEditing = false;
     private bool showForm = false;
 
-    protected override async Task OnInitializedAsync()
+    // Helper for Nullable GUID binding to SearchableGlAccount
+    private Guid GLAccountIdWrapper
     {
-        companies = await CompanyService.GetCompaniesAsync();
-
-        if (companies.Any())
-        {
-            selectedCompanyId = companies.First().CompanyDetailsId;
-            await LoadData();
-        }
+        get => currentTax.GLAccountId ?? Guid.Empty;
+        set => currentTax.GLAccountId = value == Guid.Empty ? null : value;
     }
 
-    private async Task OnCompanyChanged(ChangeEventArgs e)
+    protected override async Task OnInitializedAsync()
     {
-        if (e?.Value is null) return;
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
 
-        if (Guid.TryParse(e.Value.ToString(), out var id))
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
         {
-            selectedCompanyId = id;
-            CancelEdit();
-            await LoadData();
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+
+                await LoadData();
+                await LoadCoa();
+            }
         }
+        isLoading = false;
     }
 
     private async Task LoadData()
     {
         if (!HasCompany) { taxes = new(); return; }
         taxes = await Service.GetTaxesAsync(selectedCompanyId);
+    }
+
+    private async Task LoadCoa()
+    {
+        if (!HasCompany) { allAccounts = new(); return; }
+
+        // 1. Get Account Types to check Flags
+        accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+        // 2. Get All COA
+        allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
+
+        // 3. Filter: Liabilities = BalanceSheet(True) AND Debit(False)
+        // We join SegCoa with AccountType in memory to check flags
+        liabilityAccounts = allAccounts
+            .Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
+            })
+            .OrderBy(x => x.AccountCode)
+            .ToList();
     }
 
     private void ShowAddForm()
@@ -214,7 +302,8 @@
             Id = item.Id,
             TaxCode = item.TaxCode,
             TaxName = item.TaxName,
-            Per = item.Per
+            Per = item.Per,
+            GLAccountId = item.GLAccountId
         };
 
         isEditing = true;

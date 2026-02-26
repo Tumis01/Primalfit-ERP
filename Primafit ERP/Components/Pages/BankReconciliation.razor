@@ -1,130 +1,282 @@
 ﻿@page "/gl/bank-reconciliation"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Globalization
 
 @inject ReconciliationService ReconService
-@inject GLSetupService SetupService
+@inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
-
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 p-6">
+<div class="max-w-full mx-auto px-4 md:px-8 space-y-6 animate-in fade-in duration-500 pb-12">
 
-    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">Bank Reconciliation</h1>
-            <p class="text-sm text-slate-500">Import a statement, match lines, create adjustments, then finalize to lock transactions.</p>
-        </div>
-
-        <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm text-right">
-            <span class="block text-xs uppercase text-slate-500 font-bold">Status</span>
-            <span class="text-sm font-semibold text-slate-800">
-                @(vm?.Reconciliation?.Status.ToString() ?? "Not started")
-            </span>
-
-            <div class="mt-2">
-                <span class="block text-xs uppercase text-slate-500 font-bold">Unmatched Lines</span>
-                <span class="text-xl font-mono font-bold @(UnmatchedCount == 0 ? "text-emerald-600" : "text-red-600")">
-                    @UnmatchedCount
-                </span>
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-slate-900 rounded-lg text-white">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-tight text-slate-900">Bank Reconciliation</h1>
+                    @if (!string.IsNullOrEmpty(companyName))
+                    {
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">@companyName</span>
+                            @if (vm != null)
+                            {
+                                <span class="text-xs text-slate-300">|</span>
+                                <span class="text-xs font-medium text-slate-600">@bankAccounts.FirstOrDefault(b => b.Id == selectedBankAccountId)?.Description</span>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
         </div>
+
+        @if (vm != null)
+        {
+            <div class="flex items-center gap-3">
+                <span class="inline-flex items-center gap-2 text-sm font-bold text-slate-700 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200">
+                    <span class="w-2.5 h-2.5 rounded-full @(vm.Reconciliation.Status == ReconStatus.Draft ? "bg-amber-500 animate-pulse" : "bg-emerald-500")"></span>
+                    @vm.Reconciliation.Status
+                </span>
+
+                <button @onclick="ExitRecon" class="flex items-center gap-2 px-4 py-2 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-colors">
+                    Back to Setup
+                </button>
+            </div>
+        }
     </div>
 
-    @if (reconId == null)
+    @if (isLoading)
     {
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div class="lg:col-span-4">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Company</label>
-                <select class="w-full rounded-xl border-slate-200" @bind="selectedCompanyId" @bind:after="OnCompanyChanged">
-                    <option value="@Guid.Empty">-- Select Company --</option>
-                    @foreach (var c in companies)
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            <div class="flex flex-col items-center gap-3">
+                <div class="w-8 h-8 border-4 border-slate-200 border-t-slate-900 rounded-full animate-spin"></div>
+                <span class="text-sm font-medium">Loading financial data...</span>
+            </div>
+        </div>
+    }
+    else if (reconId == null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden max-w-4xl mx-auto">
+            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                <h3 class="text-lg font-bold text-slate-900">Start New Reconciliation</h3>
+                <p class="text-sm text-slate-500">Select account details and upload statements to begin.</p>
+            </div>
+
+            <div class="p-8 space-y-8">
+                <div>
+                    <label class="label mb-3 block">Reconciliation Method</label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label class="relative flex items-start p-4 cursor-pointer rounded-xl border transition-all @(reconType == ReconType.Manual ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:bg-slate-50")">
+                            <div class="flex items-center h-5">
+                                <input type="radio" name="rtype" checked="@(reconType == ReconType.Manual)" @onchange="@(() => reconType = ReconType.Manual)" class="w-4 h-4 text-slate-900 border-slate-300 focus:ring-slate-900" />
+                            </div>
+                            <div class="ml-3 text-sm">
+                                <span class="block font-bold text-slate-900">Manual Mode</span>
+                                <span class="block text-slate-500 mt-1">Tick items off a paper statement.</span>
+                            </div>
+                        </label>
+                        <label class="relative flex items-start p-4 cursor-pointer rounded-xl border transition-all @(reconType == ReconType.Automatic ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:bg-slate-50")">
+                            <div class="flex items-center h-5">
+                                <input type="radio" name="rtype" checked="@(reconType == ReconType.Automatic)" @onchange="@(() => reconType = ReconType.Automatic)" class="w-4 h-4 text-slate-900 border-slate-300 focus:ring-slate-900" />
+                            </div>
+                            <div class="ml-3 text-sm">
+                                <span class="block font-bold text-slate-900">Auto Import Mode</span>
+                                <span class="block text-slate-500 mt-1">Upload CSV/Excel and auto-match.</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <SearchableGlAccount Label="Bank Account (Cash/Bank)"
+                                             Placeholder="Select bank accounts..."
+                                             Accounts="@bankAccounts"
+                                             @bind-Value="selectedBankAccountId"
+                                             IsInvalid="@(selectedBankAccountId == Guid.Empty)" />
+                    </div>
+                    <div>
+                        <label class="label">Statement Ending Date</label>
+                        <InputDate class="input-class" @bind-Value="statementDate" />
+                    </div>
+                </div>
+
+                <div>
+                    <label class="label">Statement Ending Balance</label>
+                    <div class="relative mt-2">
+                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold">$</span>
+                        <input class="input-class pl-8 font-mono font-bold text-lg"
+                               inputmode="decimal"
+                               placeholder="0.00"
+                               value="@endingBalanceText"
+                               @oninput="OnEndingBalanceInput" />
+                    </div>
+                    @if (!string.IsNullOrEmpty(endingBalanceError))
                     {
-                        <option value="@c.CompanyDetailsId">@c.CompanyName</option>
+                        <div class="mt-1 text-xs font-semibold text-rose-600">@endingBalanceError</div>
                     }
-                </select>
-            </div>
+                </div>
 
-            <div class="lg:col-span-4">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Bank Account</label>
-                <select class="w-full rounded-xl border-slate-200" @bind="selectedBankAccountId" disabled="@(!HasCompany)">
-                    <option value="@Guid.Empty">-- Select Account --</option>
-                    @foreach (var a in bankAccounts)
+                @if (reconType == ReconType.Automatic)
+                {
+                    <div class="bg-indigo-50/50 p-6 rounded-xl border border-indigo-100 border-dashed text-center">
+                        <div class="mx-auto w-12 h-12 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-3">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
+                        </div>
+                        <label class="block text-sm font-bold text-slate-900 mb-1">Upload Statement File</label>
+                        <p class="text-xs text-slate-500 mb-4">Supported formats: .CSV, .XLSX</p>
+                        <InputFile OnChange="HandleFileUpload" class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer" />
+                    </div>
+                }
+
+                <button @onclick="StartRecon"
+                        disabled="@(!CanStartRecon || isBusy)"
+                        class="w-full rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex justify-center items-center gap-2">
+                    @if (isBusy)
                     {
-                        <option value="@a.Id">@a.AccountCode - @a.AccountName</option>
+                        <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Processing...</span>
                     }
-                </select>
-            </div>
-
-            <div class="lg:col-span-2">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Statement Date</label>
-                <InputDate class="w-full rounded-xl border-slate-200" @bind-Value="statementDate" />
-            </div>
-
-            <div class="lg:col-span-2">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Ending Balance</label>
-                <InputNumber class="w-full rounded-xl border-slate-200" @bind-Value="endingBalance" />
-            </div>
-
-            <div class="lg:col-span-8">
-                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Upload CSV</label>
-                <InputFile OnChange="HandleFileUpload" class="w-full text-sm text-slate-500 file:rounded-full file:border-0 file:bg-indigo-50 file:text-indigo-700" />
-            </div>
-
-            <div class="lg:col-span-4 flex items-end justify-end">
-                <button @onclick="StartRecon" disabled="@(!CanStartRecon)" class="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50">
-                    Start Reconciliation
+                    else
+                    {
+                        <span>Start Reconciliation</span>
+                    }
                 </button>
             </div>
         </div>
     }
     else if (vm != null)
     {
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-slate-50 border border-slate-200 rounded-2xl p-4">
-            <div class="flex flex-wrap gap-2">
-                <button @onclick="AutoMatch" class="rounded-xl bg-white border border-slate-200 px-4 py-2 text-sm font-semibold text-indigo-600 shadow-sm hover:bg-slate-50">✨ Auto Match</button>
-                <button @onclick="OpenAdjustment" class="rounded-xl bg-white border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">+ Create Adjustment</button>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-md">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Statement Balance</span>
+                <div class="text-2xl font-mono font-bold mt-1">@vm.Reconciliation.StatementEndingBalance.ToString("N2")</div>
             </div>
-            <button @onclick="Finalize" disabled="@(UnmatchedCount != 0)" class="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">Finalize & Lock</button>
+
+            <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Book Balance (Cleared)</span>
+                <div class="text-2xl font-mono font-bold mt-1 text-indigo-600">@ReconciledBalance.ToString("N2")</div>
+                <div class="text-[10px] text-slate-400 mt-1">Sum of all checked items</div>
+            </div>
+
+            <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Difference</span>
+                <div class="text-2xl font-mono font-bold mt-1 @(Difference == 0 ? "text-emerald-500" : "text-rose-500")">
+                    @Difference.ToString("N2")
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1">Target is 0.00</div>
+            </div>
+
+            <div class="flex flex-col justify-center gap-2">
+                @if (vm.Reconciliation.Type == ReconType.Automatic)
+                {
+                    <button @onclick="AutoMatch" class="w-full py-2 px-4 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-50 shadow-sm transition-colors">
+                        ✨ Auto Match Rules
+                    </button>
+                }
+                <button @onclick="Finalize" class="w-full py-2 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    ✅ Finalize & Close
+                </button>
+            </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <div class="px-5 py-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-800">Bank Statement</div>
-                <div class="overflow-x-auto max-h-[500px]">
-                    <table class="w-full text-left text-sm text-slate-600">
-                        <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-100 sticky top-0">
-                            <tr><th class="px-5 py-3">Date</th><th class="px-5 py-3">Desc</th><th class="px-5 py-3 text-right">Amount</th></tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @foreach (var line in vm.Reconciliation.StatementLines.Where(x => !x.IsMatched))
-                            {
-                                <tr class="hover:bg-slate-50 cursor-pointer @(selectedBankLine?.Id == line.Id ? "bg-indigo-50" : "")" @onclick="() => selectedBankLine = line">
-                                    <td class="px-5 py-3">@line.Date.ToString("yyyy-MM-dd")</td>
-                                    <td class="px-5 py-3">@line.Description</td>
-                                    <td class="px-5 py-3 text-right font-mono">@line.Amount.ToString("N2")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
 
-            <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <div class="px-5 py-4 border-b border-slate-100 bg-slate-50 font-bold text-slate-800">General Ledger</div>
-                <div class="overflow-x-auto max-h-[500px]">
-                    <table class="w-full text-left text-sm text-slate-600">
-                        <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-100 sticky top-0">
-                            <tr><th class="px-5 py-3">Date</th><th class="px-5 py-3">Desc</th><th class="px-5 py-3 text-right">Net</th></tr>
+            @if (vm.Reconciliation.Type == ReconType.Automatic)
+            {
+                <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col h-full">
+                    <div class="px-5 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <span class="font-bold text-sm text-slate-700 uppercase tracking-wide">Bank Statement Lines</span>
+                        <span class="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md font-bold">@UnmatchedCount Unmatched</span>
+                    </div>
+                    <div class="flex-1 overflow-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-white text-slate-500 uppercase font-bold border-b sticky top-0 z-10">
+                                <tr>
+                                    <th class="px-4 py-3">Date</th>
+                                    <th class="px-4 py-3">Details</th>
+                                    <th class="px-4 py-3 text-right">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @foreach (var line in vm.Reconciliation.StatementLines)
+                                {
+                                    <tr class="hover:bg-slate-50 cursor-pointer transition-colors @(selectedBankLine?.Id == line.Id ? "bg-indigo-50 ring-1 ring-indigo-200" : "")"
+                                        @onclick="() => selectedBankLine = line">
+                                        <td class="px-4 py-2 font-mono text-slate-500">@line.Date.ToString("dd/MM")</td>
+                                        <td class="px-4 py-2 font-medium text-slate-700">
+                                            @line.Description
+                                            @if (line.IsMatched)
+                                            {
+                                                <span class="ml-2 text-emerald-600 text-[10px] font-bold border border-emerald-200 px-1 rounded">MATCHED</span>
+                                            }
+                                        </td>
+                                        <td class="px-4 py-2 text-right font-mono font-bold text-slate-900">@line.Amount.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+
+            <div class="@(vm.Reconciliation.Type == ReconType.Automatic ? "" : "lg:col-span-2") bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col h-full">
+                <div class="px-5 py-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <span class="font-bold text-sm text-slate-700 uppercase tracking-wide">Book Transactions (GL)</span>
+                    <div class="flex gap-4 text-xs font-bold">
+                        <span class="text-emerald-600">Deposits: @TotalClearedDeposits.ToString("N0")</span>
+                        <span class="text-rose-600">Payments: @TotalClearedPayments.ToString("N0")</span>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-white text-slate-500 uppercase font-bold border-b sticky top-0 z-10 shadow-sm">
+                            <tr>
+                                <th class="px-4 py-3 bg-slate-50">Date</th>
+                                <th class="px-4 py-3 bg-slate-50">Ref / Journal</th>
+                                <th class="px-4 py-3 bg-slate-50 text-right">Debit</th>
+                                <th class="px-4 py-3 bg-slate-50 text-right">Credit</th>
+                                <th class="px-4 py-3 bg-slate-50 text-center w-16">Clear</th>
+                            </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             @foreach (var txn in vm.CandidateGLTransactions)
                             {
-                                <tr class="hover:bg-slate-50 cursor-pointer @(selectedTxn?.Id == txn.Id ? "bg-indigo-50" : "")" @onclick="() => selectedTxn = txn">
-                                    <td class="px-5 py-3">@txn.PostingDate.ToString("yyyy-MM-dd")</td>
-                                    <td class="px-5 py-3">@txn.Narration</td>
-                                    <td class="px-5 py-3 text-right font-mono">@((txn.Debit - txn.Credit).ToString("N2"))</td>
+                                bool isCleared = txn.BankReconciliationId == vm.Reconciliation.Id;
+
+                                <tr class="hover:bg-slate-50 transition-colors @(isCleared ? "bg-slate-50/60" : "") @(selectedTxn?.Id == txn.Id ? "ring-1 ring-indigo-200 bg-indigo-50" : "")"
+                                    @onclick="() => selectedTxn = txn">
+                                    <td class="px-4 py-2 font-mono text-slate-500">@txn.PostingDate.ToString("dd/MM/yy")</td>
+                                    <td class="px-4 py-2">
+                                        <div class="font-medium text-slate-700">@txn.Narration</div>
+                                        <div class="text-[10px] text-slate-400 font-mono">Jrn: @txn.JournalId.ToString().Substring(0, 8)</div>
+                                    </td>
+                                    <td class="px-4 py-2 text-right font-mono text-emerald-600">@(txn.Debit > 0 ? txn.Debit.ToString("N2") : "-")</td>
+                                    <td class="px-4 py-2 text-right font-mono text-rose-600">@(txn.Credit > 0 ? txn.Credit.ToString("N2") : "-")</td>
+                                    <td class="px-4 py-2 text-center border-l border-slate-100 bg-white" @onclick:stopPropagation="true">
+                                        @if (vm.Reconciliation.Type == ReconType.Manual)
+                                        {
+                                            <input type="checkbox" checked="@isCleared"
+                                                   @onchange="@(e => ToggleCleared(txn, (bool)e.Value!))"
+                                                   class="w-5 h-5 text-slate-900 rounded border-slate-300 focus:ring-slate-900 cursor-pointer" />
+                                        }
+                                        else if (isCleared)
+                                        {
+                                            <span class="text-emerald-500 font-bold text-xs">✓</span>
+                                        }
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -133,103 +285,180 @@
             </div>
         </div>
 
-        @if (selectedBankLine != null && selectedTxn != null)
+        @if (selectedBankLine != null && selectedTxn != null && vm.Reconciliation.Type == ReconType.Automatic)
         {
-            <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-                <button @onclick="ManualMatch" class="rounded-full bg-indigo-600 px-8 py-3 text-sm font-bold text-white shadow-xl hover:bg-indigo-700">Match Selected</button>
+            <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4">
+                <button @onclick="ManualMatch" class="rounded-full bg-slate-900 px-8 py-3 text-white font-bold shadow-2xl hover:scale-105 transition-transform flex items-center gap-2 ring-4 ring-white">
+                    <span>Link Selected Items</span>
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                </button>
             </div>
         }
     }
 </div>
 
-@if (showAdjustment)
-{
-    <div class="fixed inset-0 z-50 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h3 class="text-lg font-bold mb-4">Create Adjustment</h3>
-            <div class="space-y-4">
-                <div>
-                    <label class="text-xs font-bold text-slate-500 uppercase">Description</label>
-                    <InputText class="w-full rounded-xl border-slate-200" @bind-Value="adjDescription" />
-                </div>
-                <div>
-                    <label class="text-xs font-bold text-slate-500 uppercase">Amount</label>
-                    <InputNumber class="w-full rounded-xl border-slate-200" @bind-Value="adjAmount" />
-                </div>
-                <div>
-                    <label class="text-xs font-bold text-slate-500 uppercase">Expense Account</label>
-                    <select class="w-full rounded-xl border-slate-200" @bind="adjExpenseAccountId">
-                        <option value="@Guid.Empty">-- Select --</option>
-                        @foreach (var a in expenseAccounts)
-                        {
-                            <option value="@a.Id">@a.AccountName</option>
-                        }
-                    </select>
-                </div>
-            </div>
-            <div class="mt-6 flex justify-end gap-2">
-                <button @onclick="CloseAdjustment" class="px-4 py-2 border rounded-xl">Cancel</button>
-                <button @onclick="SaveAdjustment" disabled="@(!CanSaveAdjustment)" class="px-4 py-2 bg-indigo-600 text-white rounded-xl disabled:opacity-50">Save</button>
-            </div>
-        </div>
-    </div>
-}
+<style>
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        background-color: #fff;
+        color: #0f172a;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #0f172a;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+</style>
 
 @code {
-    private List<CompanyDetails> companies = new();
+    // Context & State
     private Guid selectedCompanyId = Guid.Empty;
-    private Guid selectedBankAccountId = Guid.Empty;
-    private List<GLChartOfAccount> bankAccounts = new();
-    private List<GLChartOfAccount> expenseAccounts = new();
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
 
+    private List<SegChartOfAccount> bankAccounts = new();
+    private List<SegAccountType> accountTypes = new();
+
+    private Guid selectedBankAccountId = Guid.Empty;
     private DateOnly statementDate = DateOnly.FromDateTime(DateTime.Today);
     private decimal endingBalance;
+    private ReconType reconType = ReconType.Manual;
     private IBrowserFile? uploadedFile;
-
     private Guid? reconId;
-    private ReconViewModel? vm; // View Model
+    private ReconViewModel? vm;
 
+    private string endingBalanceText = "";
+    private string? endingBalanceError;
+
+    // Selection State
     private BankStatementLine? selectedBankLine;
     private GLTransaction? selectedTxn;
 
-    private bool showAdjustment = false;
-    private string adjDescription = "";
-    private decimal adjAmount = 0;
-    private Guid adjExpenseAccountId = Guid.Empty;
-
-    private bool HasCompany => selectedCompanyId != Guid.Empty;
-    private bool CanStartRecon => HasCompany && selectedBankAccountId != Guid.Empty && uploadedFile != null;
+    // Computed Properties
+    private bool CanStartRecon => HasCompany && selectedBankAccountId != Guid.Empty && (reconType == ReconType.Manual || uploadedFile != null);
     private int UnmatchedCount => vm?.Reconciliation?.StatementLines?.Count(l => !l.IsMatched) ?? 0;
-    private bool CanSaveAdjustment => !string.IsNullOrWhiteSpace(adjDescription) && adjAmount > 0 && adjExpenseAccountId != Guid.Empty;
+    private bool isBusy = false;
+    private decimal TotalClearedDeposits => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId == vm.Reconciliation.Id).Sum(t => t.Debit) ?? 0;
+    private decimal TotalClearedPayments => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId == vm.Reconciliation.Id).Sum(t => t.Credit) ?? 0;
+    private decimal ReconciledBalance => (TotalClearedDeposits - TotalClearedPayments);
+    private decimal Difference => (vm?.Reconciliation.StatementEndingBalance ?? 0) - ReconciledBalance;
 
     protected override async Task OnInitializedAsync()
     {
-        companies = await CompanyService.GetCompaniesAsync();
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
+        {
+            var currentUser = await UserManager.GetUserAsync(userPrincipal);
+            if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
+            {
+                selectedCompanyId = currentUser.CompanyDetailsId.Value;
+                var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+                if (company != null) companyName = company.CompanyName;
+                await LoadContextData();
+            }
+        }
+        isLoading = false;
     }
 
-    private async Task OnCompanyChanged()
+    private void OnEndingBalanceInput(ChangeEventArgs e)
     {
-        reconId = null; vm = null; bankAccounts.Clear(); expenseAccounts.Clear();
+        endingBalanceText = e.Value?.ToString() ?? "";
+        endingBalanceError = null;
+        if (string.IsNullOrWhiteSpace(endingBalanceText)) { endingBalance = 0m; return; }
+
+        var cleaned = endingBalanceText.Trim().Replace(" ", "").Replace("₦", "").Replace("$", "").Replace(",", "");
+        if (decimal.TryParse(cleaned, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)) endingBalance = parsed;
+        else endingBalanceError = "Invalid amount format.";
+    }
+
+    private async Task LoadContextData()
+    {
+        reconId = null;
+        vm = null;
+        bankAccounts.Clear();
+        
         if (!HasCompany) return;
-        var coa = await SetupService.GetChartOfAccountsAsync(selectedCompanyId);
-        bankAccounts = coa.Where(a => a.AccountCode.StartsWith("1")).ToList();
-        expenseAccounts = coa.Where(a => a.AccountCode.StartsWith("5") || a.AccountCode.StartsWith("6")).ToList();
+
+        // 1. Get Account Types
+        accountTypes = await SegCoaService.GetAccountTypesAsync();
+
+        // 2. Get All COA
+        var allCoa = await SegCoaService.GetCoaAsync(selectedCompanyId);
+
+        // 3. STRICT FILTER: Only keep "Cash and Cash Equivalents"
+        bankAccounts = allCoa
+            .Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                
+                // We use .Contains to be safe against accidental trailing spaces in your database
+                return type != null &&
+                       !string.IsNullOrEmpty(type.Description) &&
+                       type.Description.Contains("Cash and Cash Equivalent", StringComparison.OrdinalIgnoreCase);
+            })
+            .OrderBy(a => a.AccountCode)
+            .ToList();
+            
+        // Force the UI to re-render with the newly filtered list
+        StateHasChanged();
     }
 
     private void HandleFileUpload(InputFileChangeEventArgs e) => uploadedFile = e.File;
 
+    private void ExitRecon()
+    {
+        reconId = null;
+        vm = null;
+        uploadedFile = null;
+        selectedBankLine = null;
+        selectedTxn = null;
+    }
+
     private async Task StartRecon()
     {
-        if (!CanStartRecon) return;
+        if (isBusy) return;
+        isBusy = true;
 
-        // Pass stream to Service
-        using var stream = uploadedFile!.OpenReadStream(2 * 1024 * 1024);
-        var (err, id) = await ReconService.StartReconciliationAsync(selectedCompanyId, selectedBankAccountId, statementDate, endingBalance, stream);
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = await UserManager.GetUserAsync(authState.User);
+            if (user == null) { await JS.InvokeVoidAsync("alert", "User not found."); return; }
 
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+            var (err, id) = await ReconService.StartReconciliationAsync(
+                selectedCompanyId, selectedBankAccountId, statementDate, endingBalance, reconType, uploadedFile, user.Id);
 
-        reconId = id;
-        await Refresh();
+            if (!string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", err);
+                return;
+            }
+
+            reconId = id;
+            await Refresh();
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
     private async Task Refresh()
@@ -239,10 +468,17 @@
         selectedBankLine = null; selectedTxn = null;
     }
 
+    private async Task ToggleCleared(GLTransaction txn, bool isChecked)
+    {
+        await ReconService.ToggleTransactionClearedAsync(txn.Id, vm!.Reconciliation.Id, isChecked);
+        txn.BankReconciliationId = isChecked ? vm.Reconciliation.Id : null;
+        StateHasChanged();
+    }
+
     private async Task AutoMatch()
     {
-        var count = await ReconService.AutoMatchAsync(selectedCompanyId, reconId!.Value, toleranceDays: 2);
-        await JS.InvokeVoidAsync("alert", $"Matched {count} lines.");
+        var count = await ReconService.AutoMatchAsync(selectedCompanyId, reconId!.Value, 5);
+        await JS.InvokeVoidAsync("alert", $"Matched {count} lines automatically.");
         await Refresh();
     }
 
@@ -254,22 +490,14 @@
         await Refresh();
     }
 
-    private void OpenAdjustment() { adjDescription = ""; adjAmount = 0; adjExpenseAccountId = Guid.Empty; showAdjustment = true; }
-    private void CloseAdjustment() => showAdjustment = false;
-
-    private async Task SaveAdjustment()
-    {
-        var err = await ReconService.CreateAdjustmentAsync(selectedCompanyId, reconId!.Value, adjDescription, adjAmount, adjExpenseAccountId);
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
-        showAdjustment = false;
-        await JS.InvokeVoidAsync("alert", "Draft Batch Created. Post it in GL Batches.");
-        await Refresh();
-    }
-
     private async Task Finalize()
     {
+        if (Difference != 0)
+        {
+            if (!await JS.InvokeAsync<bool>("confirm", $"Difference is {Difference:N2}. Proceed anyway?")) return;
+        }
         var res = await ReconService.FinalizeReconciliationAsync(selectedCompanyId, reconId!.Value);
         await JS.InvokeVoidAsync("alert", res == "Success" ? "Reconciliation Finalized." : res);
-        if (res == "Success") { reconId = null; vm = null; }
+        if (res == "Success") ExitRecon();
     }
 }
