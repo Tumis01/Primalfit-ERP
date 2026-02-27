@@ -119,8 +119,15 @@ namespace Primafit_ERP.Services
                 if (existing == null) return "Order not found.";
                 if (existing.Status == OrderStatus.Invoiced) return "Cannot edit an order that has already been invoiced.";
 
+                // --- NEW: PREVENT EDITING CONVERTED QUOTES ---
+                if (existing.Status == OrderStatus.Quote)
+                {
+                    bool isConverted = await ctx.SalesOrders.AnyAsync(inv => inv.ConvertedFromQuoteNumber == existing.OrderNumber);
+                    if (isConverted) return "Cannot edit a quote that has already been converted to an invoice.";
+                }
+
                 existing.CustomerId = order.CustomerId;
-                existing.WarehouseId = order.WarehouseId;
+                existing.WarehouseId = order.WarehouseId; 
                 existing.CurrencyId = order.CurrencyId;
                 existing.ExchangeRate = order.ExchangeRate;
                 existing.Date = order.Date;
@@ -339,6 +346,13 @@ namespace Primafit_ERP.Services
 
             if (order == null) return "Order not found.";
             if (order.Status == OrderStatus.Invoiced) return "Cannot terminate an order that has already been invoiced.";
+
+            // --- NEW: PREVENT DELETING CONVERTED QUOTES ---
+            if (order.Status == OrderStatus.Quote)
+            {
+                bool isConverted = await ctx.SalesOrders.AnyAsync(inv => inv.ConvertedFromQuoteNumber == order.OrderNumber);
+                if (isConverted) return "Cannot delete a quote that has been converted. It must be kept for auditing.";
+            }
 
             ctx.SalesOrderLines.RemoveRange(order.Lines);
             ctx.SalesOrders.Remove(order);

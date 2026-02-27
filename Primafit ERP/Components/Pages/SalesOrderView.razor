@@ -107,10 +107,6 @@
                                             <div class="text-[10px] text-indigo-500 font-bold uppercase mt-1 tracking-wider">+@(o.Lines.Count - 2) more item(s)</div>
                                         }
                                     }
-                                    else
-                                    {
-                                        <span class="text-slate-400 italic text-xs">No items</span>
-                                    }
                                 </td>
                                 <td class="p-4 text-center">
                                     @if (o.Status == OrderStatus.Quote)
@@ -138,13 +134,14 @@
                                         {
                                             bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
 
-                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                            @if (isConverted)
+                                            if (isConverted)
                                             {
+                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
                                                 <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
                                             }
                                             else
                                             {
+                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
                                                 <button @onclick="() => ConvertQuote(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
                                             }
                                         }
@@ -207,9 +204,9 @@
                     }
                     else
                     {
-                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 flex items-center gap-1">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            Locked Invoice
+                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold @(currentOrder.Status == OrderStatus.Quote ? "bg-slate-100 text-slate-600 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200") ring-1 flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                            @(currentOrder.Status == OrderStatus.Quote ? "Locked (Converted)" : "Locked Invoice")
                         </div>
                     }
                 </div>
@@ -438,9 +435,13 @@
     private bool isLoading = true;
     private int activeTab = 0;
     private string recordFilter = "All"; // All, Quotes, Invoices
-    private bool IsLocked => currentOrder.Status == OrderStatus.Invoiced;
-    private string currencySymbol = "";
     
+    // --- SMART LOCK LOGIC ---
+    private bool IsLocked => 
+        currentOrder.Status == OrderStatus.Invoiced || 
+        (currentOrder.Status == OrderStatus.Quote && orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
+
+    private string currencySymbol = "";
     private string searchTerm = "";
 
     private List<SalesOrder> orders = new();

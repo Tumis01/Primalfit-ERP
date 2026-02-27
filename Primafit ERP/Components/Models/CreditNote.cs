@@ -87,5 +87,12 @@ namespace Primafit_ERP.Components.Models
 
         [NotMapped]
         public decimal LineTotal => Quantity * UnitPrice;
+
+        // --- NEW: UI COMPUTED HELPERS ---
+        [NotMapped]
+        public decimal OriginalSoldQty { get; set; }
+
+        [NotMapped]
+        public decimal MaxReturnableQty { get; set; }
     }
 }
