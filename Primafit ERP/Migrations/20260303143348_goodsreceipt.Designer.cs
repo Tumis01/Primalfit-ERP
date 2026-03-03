@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260303143348_goodsreceipt")]
+    partial class goodsreceipt
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1658,9 +1661,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<bool>("HasReceipt")
                         .HasColumnType("bit");
 
-                    b.Property<bool>("IsFullyReceived")
-                        .HasColumnType("bit");
-
                     b.Property<bool>("IsInvoicePosted")
                         .HasColumnType("bit");
 
@@ -2711,35 +2711,6 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("VendorGroups");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorPayment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("BankGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Reference")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("VendorBillId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("VendorBillId");
-
-                    b.ToTable("VendorPayment");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.WaccHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3369,17 +3340,6 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorPayment", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.VendorBill", "VendorBill")
-                        .WithMany("Payments")
-                        .HasForeignKey("VendorBillId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("VendorBill");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.BankReconciliation", b =>
                 {
                     b.Navigation("StatementLines");
@@ -3448,8 +3408,6 @@ namespace Primafit_ERP.Migrations
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorBill", b =>
                 {
                     b.Navigation("Lines");
-
-                    b.Navigation("Payments");
                 });
 #pragma warning restore 612, 618
         }

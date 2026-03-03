@@ -44,6 +44,7 @@ namespace PrimafitERP.Data
         public DbSet<Vendor> Vendors { get; set; }
         public DbSet<PurchaseOrder> PurchaseOrders { get; set; }
         public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
+        public DbSet<GoodsReceiptLine> GoodsReceiptLines { get; set; }
         public DbSet<SalesInvoice> SalesInvoices { get; set; }
         public DbSet<SalesInvoiceLine> SalesInvoiceLines { get; set; }
         public DbSet<PurchaseOrderLine> PurchaseOrderLines { get; set; }

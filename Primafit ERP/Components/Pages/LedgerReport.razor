@@ -148,6 +148,14 @@
                                         @group.Sum(x => x.Credit).ToString("N2")
                                     </td>
                                 </tr>
+                                <tr class="bg-white border-b-2 border-slate-100">
+                                    <td colspan="3" class="p-2 pr-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        Closing Balance (@group.Key.AccountName)
+                                    </td>
+                                    <td class="p-3 text-center font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
+                                        @((group.Sum(x => x.Debit) - group.Sum(x => x.Credit)).ToString("N2"))
+                                    </td>
+                                </tr>
                             }
 
                             <tr class="bg-slate-50 border-t-2 border-slate-300">

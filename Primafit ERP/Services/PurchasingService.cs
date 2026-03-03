@@ -32,7 +32,6 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SaveVendorBillAsync(VendorBill bill)
         {
-            // 1. Sanitize Inputs
             if (bill.MatchVarianceReason == null) bill.MatchVarianceReason = "";
             if (bill.ExternalInvoiceNumber == null) bill.ExternalInvoiceNumber = "";
 
@@ -42,7 +41,6 @@ namespace Primafit_ERP.Services
 
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 2. Load Existing (Include Lines to handle replacement)
             var existing = await ctx.VendorBills
                 .Include(b => b.Lines)
                 .FirstOrDefaultAsync(b => b.Id == bill.Id);
@@ -51,7 +49,6 @@ namespace Primafit_ERP.Services
             {
                 if (existing == null)
                 {
-                    // --- CREATE NEW ---
                     if (bill.Id == Guid.Empty) bill.Id = Guid.NewGuid();
 
                     foreach (var line in bill.Lines)
@@ -61,42 +58,31 @@ namespace Primafit_ERP.Services
                     }
 
                     ctx.VendorBills.Add(bill);
-                    // Note: EF Core usually handles children automatically if added to parent, 
-                    // but explicit addition is safer in detached scenarios.
                     ctx.VendorBillLines.AddRange(bill.Lines);
                 }
                 else
                 {
-                    // --- UPDATE EXISTING ---
-
-                    // Check if already posted (Safety Guard)
                     if (existing.IsPosted) return "STOP: Cannot edit a bill that has already been posted.";
 
-                    // Preserve critical fields that shouldn't change on edit
                     bill.CompanyId = existing.CompanyId;
                     bill.IsPosted = existing.IsPosted;
                     bill.PostedDate = existing.PostedDate;
 
-                    // Update Header
                     ctx.Entry(existing).CurrentValues.SetValues(bill);
 
-                    // Replace Lines (Clear old, Insert new)
                     ctx.VendorBillLines.RemoveRange(existing.Lines);
 
                     foreach (var line in bill.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
-                        line.VendorBillId = bill.Id; // Ensure Link
+                        line.VendorBillId = bill.Id;
                     }
                     ctx.VendorBillLines.AddRange(bill.Lines);
                 }
 
-                // 3. Integrity Checks
-                // Ensure Vendor exists
                 if (!await ctx.Vendors.AnyAsync(v => v.Id == bill.VendorId))
                     return "STOP: Selected Vendor does not exist.";
 
-                // Ensure PO exists (if linked)
                 if (bill.PurchaseOrderId.HasValue && bill.PurchaseOrderId != Guid.Empty)
                 {
                     if (!await ctx.PurchaseOrders.AnyAsync(p => p.Id == bill.PurchaseOrderId))
@@ -104,7 +90,7 @@ namespace Primafit_ERP.Services
                 }
 
                 await ctx.SaveChangesAsync();
-                return string.Empty; // Success
+                return string.Empty;
             }
             catch (Exception ex)
             {
@@ -112,8 +98,6 @@ namespace Primafit_ERP.Services
             }
         }
 
-        // 2. THREE-WAY MATCH LOGIC
-        // Compares: PO Price vs GRN Quantity vs Bill Amount
         public async Task<string> ValidateThreeWayMatch(Guid billId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -131,7 +115,6 @@ namespace Primafit_ERP.Services
                 return string.Empty;
             }
 
-            // A. Get the PO and Receipts
             var po = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
@@ -143,7 +126,6 @@ namespace Primafit_ERP.Services
                 .Where(g => g.PurchaseOrderId == bill.PurchaseOrderId.Value)
                 .ToListAsync();
 
-            // ✅ Calculate RECEIVED VALUE IN BASE CURRENCY
             decimal totalReceivedValueBase = 0;
 
             foreach (var grn in receipts)
@@ -153,18 +135,13 @@ namespace Primafit_ERP.Services
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
                     if (poLine != null)
                     {
-                        // Vendor currency value
                         decimal receivedForeign = line.QuantityReceived * poLine.UnitCost;
-
-                        // Convert to base using PO exchange rate (locked at PO time)
                         decimal receivedBase = receivedForeign * po.ExchangeRate;
-
                         totalReceivedValueBase += receivedBase;
                     }
                 }
             }
 
-            // B. Compare Bill (BASE) vs Received (BASE)
             decimal tolerance = 1.00m;
             decimal variance = bill.TotalAmount - totalReceivedValueBase;
 
@@ -177,7 +154,7 @@ namespace Primafit_ERP.Services
                 return bill.MatchVarianceReason;
             }
 
-            bill.MatchStatus = BillMatchStatus.Matched; 
+            bill.MatchStatus = BillMatchStatus.Matched;
             bill.MatchVarianceReason = "";
 
             await ctx.SaveChangesAsync();
@@ -188,20 +165,15 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // A. Basic Validation
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
 
-           
-            
-            // 1. Get all Items involved in this PO to find their GL Accounts
             var itemIds = po.Lines.Select(l => l.ItemId).Distinct().ToList();
             var items = await ctx.Items
                 .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
                 .ToListAsync();
 
-            // 2. Map PO Lines to Budget Requests (GL Account + Amount)
             var budgetRequests = new List<(Guid SegCoaId, decimal Amount)>();
 
             foreach (var line in po.Lines)
@@ -215,20 +187,15 @@ namespace Primafit_ERP.Services
                 }
             }
 
-            // 3. Perform the Check
             if (budgetRequests.Any())
             {
-                // Pass CompanyId and the list of (Account, Amount) to the Budget Service
                 string budgetError = await _budgetService.ValidateFundsAsync(po.CompanyId, budgetRequests);
-                
+
                 if (!string.IsNullOrEmpty(budgetError))
                 {
-                    // HARD STOP: Return the error immediately. Do not save.
-                    return $"BUDGET STOP: {budgetError}"; 
+                    return $"BUDGET STOP: {budgetError}";
                 }
             }
-            
-            
 
             var existing = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
@@ -238,9 +205,8 @@ namespace Primafit_ERP.Services
             {
                 if (existing == null)
                 {
-                    // --- CREATE NEW ---
                     if (po.Id == Guid.Empty) po.Id = Guid.NewGuid();
-                    
+
                     foreach (var line in po.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
@@ -251,8 +217,6 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    
-                    
                     po.CompanyId = existing.CompanyId;
                     ctx.Entry(existing).CurrentValues.SetValues(po);
 
@@ -265,95 +229,125 @@ namespace Primafit_ERP.Services
                 }
 
                 await ctx.SaveChangesAsync();
-                return string.Empty; // Success
+                return string.Empty;
             }
             catch (Exception ex)
             {
                 return $"DATABASE ERROR: {ex.Message}";
             }
         }
-
-        // --- GOODS RECEIPT (THE BRIDGE TO INVENTORY) ---
-
         public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var transaction = await ctx.Database.BeginTransactionAsync();
 
             try
             {
-                // 1. Basic Validations
                 if (grn.CompanyId == Guid.Empty) return "STOP: No CompanyId.";
                 if (grn.PurchaseOrderId == Guid.Empty) return "STOP: No Purchase Order selected.";
                 if (warehouseId == Guid.Empty) return "STOP: No Warehouse selected.";
-                if (grn.Lines == null || grn.Lines.Count == 0) return "STOP: GRN has no lines.";
+                if (grn.InventoryGlAccountId == Guid.Empty) return "STOP: You must select a GR/IR Clearing Account.";
 
-                // 2. Fetch PO (Include Lines to avoid database round-trips in the loop)
-                var po = await ctx.PurchaseOrders
-                    .Include(p => p.Lines)
-                    .FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId && p.CompanyId == grn.CompanyId);
-
+                var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
                 if (po == null) return "STOP: PO not found.";
-                if (po.IsInvoicePosted) return "STOP: Invoice already posted. Cannot receive again.";
 
-                // 3. Prepare GRN Header
-                if (grn.Id == Guid.Empty) grn.Id = Guid.NewGuid();
-                if (string.IsNullOrWhiteSpace(grn.GrnNumber))
-                    grn.GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}";
+                // Validate Quantities
+                var poLineIds = po.Lines.Select(l => l.Id).ToList();
+                var pastReceipts = await ctx.GoodsReceiptLines.Where(l => poLineIds.Contains(l.PurchaseOrderLineId)).ToListAsync();
 
-                // 4. Process Lines
                 foreach (var line in grn.Lines)
                 {
-                    if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
-                    line.GoodsReceiptId = grn.Id;
-                    if (line.QuantityReceived < 0) return "STOP: Negative qty not allowed.";
+                    var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                    if (poLine == null) continue;
+
+                    decimal pastQty = pastReceipts.Where(p => p.PurchaseOrderLineId == line.PurchaseOrderLineId).Sum(p => p.QuantityReceived);
+                    decimal maxAllowed = poLine.QuantityOrdered - pastQty;
+
+                    if (line.QuantityReceived > maxAllowed) return $"STOP: Cannot receive more than ordered. Max allowed for {poLine.ItemId} is {maxAllowed}.";
                 }
 
-                // Add GRN to Context
+                if (grn.Id == Guid.Empty) grn.Id = Guid.NewGuid();
+                if (string.IsNullOrWhiteSpace(grn.GrnNumber)) grn.GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}";
+
+                foreach (var line in grn.Lines) line.Id = Guid.NewGuid();
+
                 ctx.GoodsReceipts.Add(grn);
 
-                // 5. Create Stock Ledger Entries (Physical Movement)
+                var glLines = new List<GLJournalLine>();
+                decimal totalReceivedValueBase = 0;
+
+                // Post Inventory & Financials
                 foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
-                    // Find corresponding PO Line (Loaded in memory via Include above)
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
+                    var item = await ctx.Items.FindAsync(poLine.ItemId);
 
-                    if (poLine == null)
-                        return $"STOP: PO line not found for GRN Line ID {grnLine.Id}";
+                    decimal lineValueForeign = grnLine.QuantityReceived * poLine.UnitCost;
+                    decimal lineValueBase = Math.Round(lineValueForeign * po.ExchangeRate, 2);
+                    totalReceivedValueBase += lineValueBase;
 
-                    // Create Ledger Entry
-                    ctx.StockLedgers.Add(new StockLedger
+                    if (!item.IsService)
                     {
-                        Id = Guid.NewGuid(),
-                        CompanyId = grn.CompanyId,
-                        WarehouseId = warehouseId,
-                        ItemId = poLine.ItemId,
-                        Date = grn.DateReceived,
-                        Reference = grn.GrnNumber,
-                        Type = StockMovementType.Purchase,
-                        QuantityChanged = grnLine.QuantityReceived,
+                        ctx.StockLedgers.Add(new StockLedger
+                        {
+                            Id = Guid.NewGuid(),
+                            CompanyId = grn.CompanyId,
+                            WarehouseId = warehouseId,
+                            ItemId = poLine.ItemId,
+                            Date = grn.DateReceived,
+                            Reference = grn.GrnNumber,
+                            Type = StockMovementType.Purchase,
+                            QuantityChanged = grnLine.QuantityReceived,
+                            CostAtTime = poLine.UnitCost
+                        });
 
-                        // IMPORTANT: Set provisional cost to PO Price. 
-                        // The Valuation Engine will update the Item Master WACC shortly.
-                        CostAtTime = poLine.UnitCost
-                    });
+                        if (item.InventoryAssetAccountId != Guid.Empty)
+                        {
+                            glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = lineValueBase, Credit = 0, Reference = $"GRN Recv: {item.Name}" });
+                        }
+                    }
+                    else if (item.CostOfGoodsSoldAccountId != Guid.Empty)
+                    {
+                        glLines.Add(new GLJournalLine { SegCoaId = item.CostOfGoodsSoldAccountId, Debit = lineValueBase, Credit = 0, Reference = $"Service Recv: {item.Name}" });
+                    }
                 }
 
-                
+                // CREDIT GR/IR CLEARING ACCOUNT
+                if (glLines.Any())
+                {
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = grn.InventoryGlAccountId, // Hits the Temp Account!
+                        Debit = 0,
+                        Credit = totalReceivedValueBase,
+                        Reference = $"GR/IR Accrual for {grn.GrnNumber}"
+                    });
+
+                    var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(grn.CompanyId, DateOnly.FromDateTime(grn.DateReceived), "Goods Receipt", $"GRN {grn.GrnNumber}", glLines);
+                    if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+                    if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value);
+                }
+
+                // Update PO Status Tracking
                 po.HasReceipt = true;
+                decimal totalOrdered = po.Lines.Sum(l => l.QuantityOrdered);
+                decimal totalCurrentlyReceiving = grn.Lines.Sum(l => l.QuantityReceived);
+                decimal totalPastReceived = pastReceipts.Sum(l => l.QuantityReceived);
+
+                if ((totalPastReceived + totalCurrentlyReceiving) >= totalOrdered) po.IsFullyReceived = true;
+                po.Status = PurchaseOrderStatus.PartiallyReceived;
+
                 await ctx.SaveChangesAsync();
-                //await _valuationService.RecalculateWACC(grn.Id);
+                await transaction.CommitAsync();
+
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                var msg = ex.Message;
-                var inner = ex.InnerException;
-                while (inner != null) { msg += " --> " + inner.Message; inner = inner.InnerException; }
-                return $"DB ERROR: {msg}";
+                await transaction.RollbackAsync();
+                return $"DB ERROR: {ex.Message}";
             }
         }
-
-
         public async Task<List<PurchaseOrder>> GetOpenPOsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -361,7 +355,7 @@ namespace Primafit_ERP.Services
             return await ctx.PurchaseOrders
                 .AsNoTracking()
                 .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId && p.Status != PurchaseOrderStatus.Closed) // <--- FILTER ADDED
+                .Where(p => p.CompanyId == companyId && p.Status != PurchaseOrderStatus.Closed)
                 .OrderByDescending(p => p.OrderDate)
                 .ToListAsync();
         }
@@ -375,35 +369,27 @@ namespace Primafit_ERP.Services
                 .OrderByDescending(p => p.OrderDate)
                 .ToListAsync();
         }
-
         public async Task<(Guid CurrencyId, string CurrencyCode, decimal Rate)> GetVendorCurrencyDataAsync(Guid vendorId, Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            //  Get Vendor and their Currency
             var vendor = await ctx.Vendors
-                .Include(v => v.DefaultCurrency) // Ensure you have a navigation property or Join manually
+                .Include(v => v.DefaultCurrency)
                 .FirstOrDefaultAsync(v => v.Id == vendorId);
 
             if (vendor == null) return (Guid.Empty, "", 1);
 
-            //  vendor has no specific currency, assume Company Base Currency (Rate 1)
             if (vendor.CurrencyId == Guid.Empty) return (Guid.Empty, "BASE", 1);
 
-            //  Get Company Base Currency Code (for logic check)
             var company = await ctx.CompanyDetails.FindAsync(companyId);
             if (company == null) return (Guid.Empty, "", 1);
 
-            //  Get Latest Exchange Rate
-            // Logic: Find the most recent rate for this Currency linked to this Company
             var latestRateEntry = await ctx.CurrencyManagements
                 .Where(c => c.CompanyId == companyId && c.CurrencyId == vendor.CurrencyId)
                 .OrderByDescending(c => c.Date)
                 .FirstOrDefaultAsync();
 
-            decimal rate = latestRateEntry?.Rate ?? 1.0m; // Default to 1 if no rate found
-
-           
+            decimal rate = latestRateEntry?.Rate ?? 1.0m;
 
             return (vendor.CurrencyId, vendor.DefaultCurrency?.CurrencyCode ?? "???", rate);
         }
@@ -420,7 +406,6 @@ namespace Primafit_ERP.Services
                 .OrderByDescending(p => p.OrderDate)
                 .ToListAsync();
         }
-
         public async Task<bool> CheckIfPoHasReceipts(Guid poId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -438,7 +423,7 @@ namespace Primafit_ERP.Services
             if (bill.IsPosted) return "STOP: This bill has already been posted.";
             if (bill.AccountsPayableGlId == Guid.Empty) return "STOP: The AP Account is not set.";
 
-            // 1. Validate Accounts in SegCOA
+            // Validate Accounts in SegCOA
             bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId && a.CompanyId == bill.CompanyId && a.IsActive);
             if (!apExists) return "STOP: AP Account ID is invalid or Inactive.";
 
@@ -449,14 +434,14 @@ namespace Primafit_ERP.Services
                 if (!expExists) return "STOP: Selected Expense/Asset account is invalid or Inactive.";
             }
 
-            // 2. Validate Period
+            // Validate Period
             DateOnly postDate = DateOnly.FromDateTime(bill.BillDate);
             var period = await ctx.AccountingPeriods
                 .FirstOrDefaultAsync(p => p.CompanyId == bill.CompanyId && p.StartDate <= postDate && p.EndDate >= postDate);
 
             if (period == null || period.IsClosed) return $"STOP: No Open Period for {postDate}.";
 
-            // 3. Prepare GL Lines
+            // Prepare GL Lines
             var glLines = new List<GLJournalLine>();
             var vendorName = (await ctx.Vendors.FindAsync(bill.VendorId))?.Name ?? "Unknown";
 
@@ -482,7 +467,7 @@ namespace Primafit_ERP.Services
                 Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
             });
 
-            // 4. Post to GL
+            // Post to GL
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
                 $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines
@@ -492,23 +477,69 @@ namespace Primafit_ERP.Services
 
             if (batchId.HasValue) await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
 
-            // 5. Update Status
+            // Update Status
             bill.IsPosted = true;
             bill.PostedDate = DateTime.Now;
 
-            // Update PO Status if linked
+            // --- UPDATE PO (But DO NOT close it until paid) ---
             if (bill.PurchaseOrderId.HasValue)
             {
                 var po = await ctx.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
-                if (po != null)
-                {
-                    po.IsInvoicePosted = true;
-                    po.Status = PurchaseOrderStatus.Closed;
-                }
+                if (po != null) po.IsInvoicePosted = true;
             }
+        
 
             await ctx.SaveChangesAsync();
             return string.Empty;
+        }
+        public async Task<string> PostVendorPaymentAsync(VendorPayment payment, Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
+            try
+            {
+                var bill = await ctx.VendorBills.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == payment.VendorBillId);
+                if (bill == null) return "Bill not found.";
+                if (!bill.IsPosted) return "Cannot pay an unposted bill.";
+                if (payment.Amount <= 0) return "Payment amount must be > 0.";
+
+                decimal currentPaid = bill.Payments.Sum(p => p.Amount);
+                if (currentPaid + payment.Amount > bill.TotalAmount)
+                    return $"Payment of {payment.Amount:N2} exceeds remaining balance of {(bill.TotalAmount - currentPaid):N2}.";
+
+                if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
+                ctx.Set<VendorPayment>().Add(payment);
+
+                var glLines = new List<GLJournalLine>
+                {
+                    new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = payment.Amount, Credit = 0, Reference = $"Pay: {bill.ExternalInvoiceNumber}" },
+                    new GLJournalLine { SegCoaId = payment.BankGlAccountId, Debit = 0, Credit = payment.Amount, Reference = $"Pay: {bill.ExternalInvoiceNumber}" }
+                };
+
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(payment.Date), "Vendor Payment", payment.Reference, glLines);
+                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+
+                // --- CLOSE PO ONLY IF FULLY PAID ---
+                if (bill.PurchaseOrderId.HasValue && (currentPaid + payment.Amount) >= bill.TotalAmount)
+                {
+                    var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
+                    if (po != null)
+                    {
+                        po.IsFullyPaid = true;
+                        po.Status = PurchaseOrderStatus.Closed; // Marks as officially closed!
+                    }
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Payment Error: {ex.Message}";
+            }
         }
     }
 }

@@ -395,7 +395,7 @@
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
             originalBill = await ctx.VendorBills.FindAsync(currentRtv.VendorBillId);
-
+            currentRtv.ExchangeRate = originalBill?.ExchangeRate ?? currentRtv.ExchangeRate;
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
             var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId).Select(v => v.Name).FirstOrDefaultAsync();

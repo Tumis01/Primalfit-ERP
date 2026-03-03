@@ -23,8 +23,12 @@ namespace Primafit_ERP.Components.Models
         public decimal ExchangeRate { get; set; }
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
-        public bool HasReceipt { get; set; } = false;  
+        [Required]
+   
+        public bool HasReceipt { get; set; } = false;
+        public bool IsFullyReceived { get; set; } = false;
         public bool IsInvoicePosted { get; set; } = false;
+        public bool IsFullyPaid { get; set; } = false;  
 
     }
 
@@ -59,6 +63,7 @@ namespace Primafit_ERP.Components.Models
         public Guid GoodsReceiptId { get; set; }
         public Guid PurchaseOrderLineId { get; set; } // Link to specific PO Line
         public decimal QuantityReceived { get; set; }
+        [NotMapped] public decimal MaxAllowed { get; set; }
     }
     public class ItemCostHistory
     {
@@ -112,8 +117,25 @@ namespace Primafit_ERP.Components.Models
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
+        public virtual List<VendorPayment> Payments { get; set; } = new();
+        [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount) ?? 0;
+        [NotMapped] public decimal BalanceDue => TotalAmount - AmountPaid;
+        [NotMapped] public bool IsFullyPaid => IsPosted && TotalAmount > 0 && BalanceDue <= 0;
 
+    }
+    public class VendorPayment
+    {
+        [Key] public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid VendorBillId { get; set; }
+        [ForeignKey(nameof(VendorBillId))]
+        public VendorBill? VendorBill { get; set; }
+        public DateTime Date { get; set; } = DateTime.Today;
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal Amount { get; set; } // Amount paid in base currency
+
+        public Guid BankGlAccountId { get; set; }
+        public string Reference { get; set; } = string.Empty;
     }
 
     public class VendorBillLine

@@ -180,8 +180,8 @@ namespace Primafit_ERP.Services
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = entry.OffsetSegCoaId,
-                    Debit = entry.Debit,
-                    Credit = entry.Credit,
+                    Debit = entry.Credit,
+                    Credit = entry.Debit,
                     Reference = $"{entry.Reference}: {entry.Description}",
                 });
 
@@ -189,8 +189,8 @@ namespace Primafit_ERP.Services
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = batch.BankSegCoaId,
-                    Debit = entry.Credit, // Opposite of Offset
-                    Credit = entry.Debit, // Opposite of Offset
+                    Debit = entry.Debit, // Opposite of Offset
+                    Credit = entry.Credit, // Opposite of Offset
                     Reference = $"Cashbook: {entry.Reference}"
                 });
             }
