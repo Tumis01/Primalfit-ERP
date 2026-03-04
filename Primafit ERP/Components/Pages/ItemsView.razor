@@ -55,7 +55,16 @@
 
                     @if (!currentItem.IsService)
                     {
-                        <div><label class="label">UoM</label><InputText @bind-Value="currentItem.UoM" class="input-class" /></div>
+                        <div>
+                            <label class="label">UoM</label>
+                            <InputSelect @bind-Value="currentItem.UoM" class="input-class">
+                                <option value="">-- Select UoM --</option>
+                                @foreach (var u in uoms)
+                                {
+                                    <option value="@u.Name">@u.Name (@u.ConversionFactor)</option>
+                                }
+                            </InputSelect>
+                        </div>
                         <div><label class="label">Reorder Level</label><InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class" /></div>
                     }
                     else
@@ -179,6 +188,7 @@
 
 @code {
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new(); // NEW: List of UOMs
 
     // Segmented COA lists
     private List<SegChartOfAccount> allAccounts = new();
@@ -202,6 +212,9 @@
             currentCompanyId = user.CompanyDetailsId.Value;
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
+            
+            // FETCH UOMS FOR THE DROPDOWN
+            uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
 
             // 1. Get Types for Flags
             accountTypes = await SegCoaService.GetAccountTypesAsync();

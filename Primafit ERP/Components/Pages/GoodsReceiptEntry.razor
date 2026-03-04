@@ -58,10 +58,21 @@
             </div>
 
             <div>
+                <label class="label">Vendor</label>
+                <select @bind="selectedVendorId" class="input-class" disabled="@poId.HasValue">
+                    <option value="@Guid.Empty">-- Select Vendor --</option>
+                    @foreach (var v in vendors)
+                    {
+                        <option value="@v.Id">@v.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div>
                 <label class="label">Purchase Order</label>
-                <select @onchange="OnPoSelected" value="@(selectedPO?.Id.ToString() ?? "")" class="input-class font-mono">
+                <select @onchange="OnPoSelected" value="@(selectedPO?.Id.ToString() ?? "")" class="input-class font-mono" disabled="@(poId.HasValue || selectedVendorId == Guid.Empty)">
                     <option value="">-- Select PO to Receive --</option>
-                    @foreach (var po in openPOs)
+                    @foreach (var po in openPOs.Where(p => p.VendorId == selectedVendorId))
                     {
                         <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("MM/dd"))</option>
                     }
@@ -73,10 +84,10 @@
                 <input type="date" @bind="currentGrn.DateReceived" class="input-class" />
             </div>
 
-            <div class="bg-rose-50 border border-rose-200 p-2 rounded-xl">
+            <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl md:col-span-2">
                 <SearchableGlAccount 
                     Label="GR/IR Clearing Account (Cr)" 
-                    Placeholder="Select Liability Acc..." 
+                    Placeholder="Select Temporary Liability Acc..." 
                     Accounts="@liabilityAccounts" 
                     @bind-Value="currentGrn.InventoryGlAccountId" 
                     IsInvalid="@(currentGrn.InventoryGlAccountId == Guid.Empty)" />
@@ -134,13 +145,132 @@
 
     @if (showLandedCostModal)
     {
-        // (Keep the Landed Cost Modal exactly as it was)
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in zoom-in-95">
+            <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+                
+                <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Step 2: Landed Cost Allocation</h3>
+                        <p class="text-xs text-slate-500">Add Freight, Duty, or Insurance costs to value this stock correctly.</p>
+                    </div>
+                    <div class="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200">
+                        GRN Saved
+                    </div>
+                </div>
+
+                <div class="p-6 space-y-4">
+                    <div class="flex gap-3 items-end p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div class="flex-1">
+                            <label class="label">Cost Type</label>
+                            <select @bind="newCostTypeId" class="input-class">
+                                <option value="@Guid.Empty">-- Select Cost Type --</option>
+                                @foreach (var type in costTypes)
+                                {
+                                    <option value="@type.Id">@type.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="w-32">
+                            <label class="label">Amount</label>
+                            <input type="number" @bind="newCostAmount" class="input-class font-bold" placeholder="0.00" />
+                        </div>
+                        <div class="w-40">
+                            <label class="label">Allocation</label>
+                            <select @bind="newAllocMethod" class="input-class">
+                                <option value="@AllocationMethod.ByValue">By Value</option>
+                                <option value="@AllocationMethod.ByQuantity">By Quantity</option>
+                            </select>
+                        </div>
+                        <button @onclick="AddCostLine" class="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 h-[38px]">
+                            Add
+                        </button>
+                    </div>
+
+                    @if (addedCosts.Any())
+                    {
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-xs text-slate-400 font-bold uppercase border-b border-slate-100">
+                                <tr>
+                                    <th class="py-2">Type</th>
+                                    <th class="py-2">Method</th>
+                                    <th class="py-2 text-right">Amount</th>
+                                    <th class="py-2"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in addedCosts)
+                                {
+                                    <tr class="border-b border-slate-50">
+                                        <td class="py-2 font-medium">@(costTypes.FirstOrDefault(x => x.Id == c.LandedCostTypeId)?.Name)</td>
+                                        <td class="py-2 text-xs text-slate-500">@c.AllocationMethod</td>
+                                        <td class="py-2 text-right font-mono font-bold text-slate-700">@c.Amount.ToString("N2")</td>
+                                        <td class="py-2 text-right">
+                                            <button @onclick="() => RemoveCost(c)" class="text-rose-500 hover:text-rose-700 text-xs font-bold">Remove</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="border-t-2 border-slate-300 bg-slate-50">
+                                @{
+                                    var exchangeRate = selectedPO?.ExchangeRate ?? 1m;
+                                    var goodsTotalBase = currentGrn.Lines.Sum(l => l.QuantityReceived * (selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId)?.UnitCost ?? 0)) * exchangeRate;
+                                    var extrasTotal = addedCosts.Sum(x => x.Amount);
+                                    var totalLandedValue = goodsTotalBase + extrasTotal;
+                                }
+                                <tr>
+                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Goods Value (Base Rate):</td>
+                                    <td class="py-2 text-right font-mono font-bold text-slate-700">
+                                        @goodsTotalBase.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Extra Costs:</td>
+                                    <td class="py-2 text-right font-mono font-bold text-rose-600">
+                                        @extrasTotal.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                                <tr class="bg-indigo-50 border-t border-indigo-100">
+                                    <td colspan="2" class="py-3 font-black text-right text-indigo-900 uppercase text-xs pr-4">Total Landed Value:</td>
+                                    <td class="py-3 text-right font-mono font-black text-indigo-700 text-lg">
+                                        @totalLandedValue.ToString("N2")
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    }
+                    else
+                    {
+                        <div class="text-center py-6 text-slate-400 text-sm border-2 border-dashed border-slate-100 rounded-xl">
+                            No extra costs added. WACC will be based on Purchase Price only.
+                        </div>
+                    }
+                </div>
+
+                <div class="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
+                    <button @onclick="FinalizeValuation" disabled="@isValuationBusy" 
+                            class="w-full px-6 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 disabled:opacity-50 flex justify-center items-center gap-2">
+                        @if(isValuationBusy) 
+                        { 
+                            <span class="animate-spin">↻</span> <span>Calculating WACC...</span> 
+                        } 
+                        else 
+                        { 
+                            <span>Finalize Valuation & Close</span> 
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
     }
 </div>
 
 <style>
     .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
     .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; }
+    .input-class:disabled { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
 </style>
 
 @code {
@@ -162,8 +292,12 @@
     
     private bool isBusy = false;
     private bool showLandedCostModal = false;
+    private bool isValuationBusy = false;
 
-    // ... (Keep Landed Cost variables)
+    private Guid newCostTypeId;
+    private decimal newCostAmount;
+    private AllocationMethod newAllocMethod = AllocationMethod.ByValue;
+    private List<GrnLandedCost> addedCosts = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -206,6 +340,26 @@
                 }
             }
         }
+    }
+
+    private async Task<List<LandedCostType>> GetLandedCostTypes()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var types = await ctx.LandedCostTypes.Where(x => x.CompanyId == currentCompanyId).ToListAsync();
+
+        if (!types.Any())
+        {
+            types = new List<LandedCostType>
+            {
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Freight & Shipping" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Customs Duty & Tariffs" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Transit Insurance" },
+                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Handling Charges" }
+            };
+            ctx.LandedCostTypes.AddRange(types);
+            await ctx.SaveChangesAsync();
+        }
+        return types;
     }
 
     private async Task OnPoSelected(ChangeEventArgs e)
@@ -277,6 +431,20 @@
 
             if (string.IsNullOrEmpty(result))
             {
+                // UI CONFIRMATION MESSAGE
+                var whName = warehouses.FirstOrDefault(w => w.Id == selectedWarehouseId)?.Name ?? "the warehouse";
+                var receivedDetails = currentGrn.Lines
+                    .Where(l => l.QuantityReceived > 0)
+                    .Select(l => 
+                    {
+                        var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
+                        var itemName = items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Item";
+                        return $"{l.QuantityReceived} quantity of {itemName}";
+                    });
+                
+                string msg = string.Join(", ", receivedDetails) + $" has been received in {whName}.";
+                await JS.InvokeVoidAsync("alert", msg);
+
                 showLandedCostModal = true;
             }
             else
@@ -286,5 +454,59 @@
         }
         catch (Exception ex) { await JS.InvokeVoidAsync("alert", "System Error: " + ex.Message); }
         finally { isBusy = false; }
+    }
+
+    private void AddCostLine()
+    {
+        if (newCostTypeId == Guid.Empty || newCostAmount <= 0) return;
+
+        addedCosts.Add(new GrnLandedCost
+        {
+            Id = Guid.NewGuid(),
+            GoodsReceiptId = currentGrn.Id, 
+            LandedCostTypeId = newCostTypeId,
+            Amount = newCostAmount,
+            AllocationMethod = newAllocMethod
+        });
+
+        newCostAmount = 0;
+        newCostTypeId = Guid.Empty;
+    }
+
+    private void RemoveCost(GrnLandedCost c) => addedCosts.Remove(c);
+
+    private async Task FinalizeValuation()
+    {
+        isValuationBusy = true;
+        try
+        {
+            using var ctx = await DbFactory.CreateDbContextAsync();
+
+            if (addedCosts.Any())
+            {
+                ctx.GrnLandedCosts.AddRange(addedCosts);
+                await ctx.SaveChangesAsync();
+            }
+
+            string result = await ValuationService.RecalculateWACC(currentGrn.Id);
+
+            if (string.IsNullOrEmpty(result))
+            {
+                await JS.InvokeVoidAsync("alert", "Receipt & Valuation Completed Successfully!");
+                Nav.NavigateTo("/procurement/purchase-orders");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Valuation Error: " + result);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message);
+        }
+        finally
+        {
+            isValuationBusy = false;
+        }
     }
 }

@@ -94,7 +94,7 @@
                     <div class="pt-2">
                         <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
                         <div class="relative">
-                            <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 @(HasInvoiceSelected ? "cursor-not-allowed opacity-80" : "")" placeholder="0.00" readonly="@HasInvoiceSelected" />
+                            <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
                         </div>
                         
                         @if (HasInvoiceSelected)
@@ -139,22 +139,47 @@
 
             <div class="lg:col-span-8">
                 <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full min-h-[600px]">
-                    <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                            @(SelectedInvoice != null ? $"Order Items: {SelectedInvoice.OrderNumber}" : "Order Items")
-                        </h3>
-                    </div>
+                    
+                    @if (SelectedInvoice != null)
+                    {
+                        <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
+                                Invoice Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedInvoice.OrderNumber</span>
+                            </h3>
+                            
+                            <div class="grid grid-cols-3 gap-4 animate-in slide-in-from-bottom-2">
+                                <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
+                                    <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Invoice (@currencySymbol)</div>
+                                    <div class="text-xl font-mono font-black text-slate-900">@SelectedInvoice.OriginalTotal.ToString("N2")</div>
+                                </div>
+                                <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
+                                    <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
+                                    <div class="text-xl font-mono font-black text-emerald-700">@((SelectedInvoice.OriginalTotal - SelectedInvoice.BalanceDue).ToString("N2"))</div>
+                                </div>
+                                <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
+                                    <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Balance Due</div>
+                                    <div class="text-xl font-mono font-black text-rose-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Order Items</h3>
+                        </div>
+                    }
 
-                    <div class="overflow-x-auto flex-1 p-4">
+                    <div class="overflow-x-auto flex-1 p-6">
                         @if (SelectedInvoice != null)
                         {
                             <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
-                                <thead class="text-xs uppercase font-bold text-slate-500 bg-slate-50 border-b border-slate-200">
+                                <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th class="px-4 py-3">Item</th>
+                                        <th class="px-4 py-3 w-[45%]">Item</th>
                                         <th class="px-4 py-3 text-center">Qty</th>
                                         <th class="px-4 py-3 text-right">Unit Price</th>
-                                        <th class="px-4 py-3 text-right">Total (@currencySymbol)</th>
+                                        <th class="px-4 py-3 text-right pr-6">Total (@currencySymbol)</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
@@ -162,9 +187,9 @@
                                     {
                                         <tr class="hover:bg-slate-50 transition-colors">
                                             <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Unknown Item")</td>
-                                            <td class="px-4 py-3 text-center font-mono font-bold">@line.Quantity</td>
+                                            <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@line.Quantity</td>
                                             <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
-                                            <td class="px-4 py-3 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
+                                            <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -172,8 +197,8 @@
                         }
                         else
                         {
-                            <div class="p-12 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
-                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            <div class="p-16 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
+                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                 Please select a Customer and an Order to view items.
                             </div>
                         }
@@ -181,9 +206,9 @@
                     
                     @if (SelectedInvoice != null)
                     {
-                        <div class="border-t border-slate-200 bg-slate-50 p-4 grid grid-cols-12 gap-4 items-center mt-auto rounded-b-2xl">
-                            <div class="col-span-8 text-right text-xs font-bold text-slate-500 uppercase">Total Payment Applied:</div>
-                            <div class="col-span-4 text-right font-mono font-bold text-emerald-700 text-lg">@currencySymbol@payment.AmountReceived.ToString("N2")</div>
+                        <div class="border-t border-slate-200 bg-slate-50 p-5 grid grid-cols-12 gap-4 items-center mt-auto rounded-b-2xl">
+                            <div class="col-span-8 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">Payment Currently Applying:</div>
+                            <div class="col-span-4 text-right font-mono font-black text-emerald-600 text-2xl">@currencySymbol@payment.AmountReceived.ToString("N2")</div>
                         </div>
                     }
                 </div>
@@ -193,14 +218,13 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
     .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: border-color 0.2s; }
-    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1); }
-    .input-class:disabled, .input-class[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+    .input-class:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+    .input-class:disabled, .input-class[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; border-color: #e2e8f0; }
 </style>
 
 @code {
-    // --- THIS MAGIC PARAMETER CATCHES THE ID FROM THE URL ---
     [SupplyParameterFromQuery]
     public Guid? invoiceId { get; set; }
 
@@ -257,7 +281,6 @@
 
             CreateNew();
 
-            // --- THE AUTO-FILL WIZARDRY ---
             if (invoiceId.HasValue && invoiceId.Value != Guid.Empty)
             {
                 using var ctx = await DbFactory.CreateDbContextAsync();
@@ -323,6 +346,7 @@
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
         
+        // Removed !o.IsFullyPaid. The loop below naturally filters out paid invoices.
         var invoices = await ctx.SalesOrders
             .Include(o => o.Lines).ThenInclude(l => l.Item)
             .Where(o => o.CompanyId == currentCompanyId && o.CustomerId == customerId && o.Status == OrderStatus.Invoiced)
@@ -346,7 +370,8 @@
 
             decimal balanceDue = grandTotal - paidAmount;
 
-            if (balanceDue > 0.01m)
+            // This line automatically hides the invoice if it's already fully paid!
+            if (balanceDue > 0.01m) 
             {
                 openInvoices.Add(new InvoiceRow
                 {
@@ -374,7 +399,7 @@
             
             if (inv != null)
             {
-                payment.AmountReceived = inv.BalanceDue;
+                payment.AmountReceived = inv.BalanceDue; // Pre-fills balance but it's editable
                 payment.ExchangeRate = inv.OriginalRate; 
                 payment.CurrencyId = inv.CurrencyId;
                 payment.Reference = inv.OrderNumber; 
@@ -398,6 +423,13 @@
         if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
         if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Customer does not have a configured AR Account."); return; }
 
+        // --- NEW: OVERPAYMENT VALIDATION ---
+        if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.BalanceDue)
+        {
+            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N2}) cannot exceed the remaining balance due ({SelectedInvoice.BalanceDue:N2}).");
+            return;
+        }
+
         payment.Applications.Clear();
         if (SelectedInvoice != null)
         {
@@ -419,9 +451,10 @@
 
             if (string.IsNullOrEmpty(postErr))
             {
-                await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!");
-                payment.CustomerId = Guid.Empty;
-                openInvoices.Clear();
+                await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!");
+                
+                // Reload customer invoices to update the balance
+                await LoadCustomerInvoices(payment.CustomerId);
                 selectedInvoiceId = Guid.Empty;
                 payment.AmountReceived = 0;
                 payment.Reference = "";

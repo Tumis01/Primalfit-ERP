@@ -46,7 +46,7 @@
                     All Records
                 </button>
                 <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                    New Order/Quote
+                    New Record
                 </button>
             </div>
         </div>
@@ -63,17 +63,18 @@
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                 
                 <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50">
-                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Quotes" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Quotes"'>Quotes</button>
+                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Orders" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Orders"'> Orders</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Invoices" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Invoices"'>Invoices</button>
+                    <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
                 </div>
 
                 <table class="w-full text-left text-sm text-slate-900">
                     <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                         <tr>
                             <th class="p-4 w-28">Date</th>
-                            <th class="p-4">Order #</th>
-                            <th class="p-4">Linked Quote</th>
+                            <th class="p-4">Reference #</th>
+                            <th class="p-4">Linked From</th>
                             <th class="p-4">Customer</th>
                             <th class="p-4">Items (Qty)</th>
                             <th class="p-4 text-center">Status</th>
@@ -87,7 +88,7 @@
                         {
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="p-4 font-mono text-slate-600 text-xs">@o.Date.ToString("dd MMM, yyyy")</td>
-                                <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : "text-indigo-700")">@o.OrderNumber</td>
+                                <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : (o.OrderNumber.StartsWith("ORD") ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
                                 <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
                                 <td class="p-4 font-medium">@o.Customer?.Name</td>
                                 <td class="p-4 text-sm">
@@ -112,6 +113,10 @@
                                     @if (o.Status == OrderStatus.Quote)
                                     {
                                         <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
+                                    }
+                                    else if (o.Status == OrderStatus.Order)
+                                    {
+                                        <span class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider">Order</span>
                                     }
                                     else if (o.Status == OrderStatus.Invoiced)
                                     {
@@ -142,7 +147,22 @@
                                             else
                                             {
                                                 <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => ConvertQuote(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                                <button @onclick="() => ConvertQuoteToOrder(o)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                            }
+                                        }
+                                        else if (o.Status == OrderStatus.Order)
+                                        {
+                                            bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
+
+                                            if (isConverted)
+                                            {
+                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                                <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
+                                            }
+                                            else
+                                            {
+                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                <button @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
                                             }
                                         }
                                         else if (o.Status == OrderStatus.Draft)
@@ -195,18 +215,21 @@
                     {
                         <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
                             <button type="button" @onclick="() => SetStatusType(OrderStatus.Quote)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Quote ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
-                                Quote (Estimate)
+                                Quote
+                            </button>
+                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Order)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Order ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
+                                Sales Order
                             </button>
                             <button type="button" @onclick="() => SetStatusType(OrderStatus.Draft)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Draft ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
-                                Invoice (Actual)
+                                Direct Invoice
                             </button>
                         </div>
                     }
                     else
                     {
-                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold @(currentOrder.Status == OrderStatus.Quote ? "bg-slate-100 text-slate-600 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200") ring-1 flex items-center gap-1">
+                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "bg-slate-100 text-slate-600 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200") ring-1 flex items-center gap-1">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                            @(currentOrder.Status == OrderStatus.Quote ? "Locked (Converted)" : "Locked Invoice")
+                            @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "Locked (Converted)" : "Locked Invoice")
                         </div>
                     }
                 </div>
@@ -235,11 +258,11 @@
                         <div>
                             <label class="label text-indigo-600">
                                 Fulfillment Warehouse
-                                <span class="text-[9px] text-slate-400 block font-normal normal-case">Optional if only services</span>
+                                <span class="text-[9px] text-slate-400 block font-normal normal-case">Optional for Quotes</span>
                             </label>
 
                             <select @bind="currentOrder.WarehouseId" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@IsLocked">
-                                <option value="@Guid.Empty">-- Select (Optional for Services) --</option>
+                                <option value="@Guid.Empty">-- Select Warehouse --</option>
                                 @foreach (var w in warehouses)
                                 {
                                     <option value="@w.Id">@w.Name</option>
@@ -398,6 +421,13 @@
                                         Save Quote
                                     </button>
                                 }
+                                else if (currentOrder.Status == OrderStatus.Order)
+                                {
+                                    <button @onclick="SaveOrder" class="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
+                                        Save Order
+                                    </button>
+                                }
                                 else if (currentOrder.Status == OrderStatus.Draft)
                                 {
                                     <button @onclick="SaveAndPostInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
@@ -434,12 +464,11 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
     private int activeTab = 0;
-    private string recordFilter = "All"; // All, Quotes, Invoices
+    private string recordFilter = "Quotes"; // All, Quotes, Orders, Invoices
     
-    // --- SMART LOCK LOGIC ---
     private bool IsLocked => 
         currentOrder.Status == OrderStatus.Invoiced || 
-        (currentOrder.Status == OrderStatus.Quote && orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
+        ((currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order) && orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
 
     private string currencySymbol = "";
     private string searchTerm = "";
@@ -462,11 +491,11 @@
     private decimal GrandTotalForeign => SubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
-    // Filter Logic: Includes Items, Customers, Quote Numbers, and specific tabs
     private IEnumerable<SalesOrder> FilteredOrders => orders
         .Where(o => recordFilter == "All" 
                  || (recordFilter == "Quotes" && o.Status == OrderStatus.Quote)
-                 || (recordFilter == "Invoices" && o.Status != OrderStatus.Quote))
+                 || (recordFilter == "Orders" && o.Status == OrderStatus.Order)
+                 || (recordFilter == "Invoices" && (o.Status == OrderStatus.Draft || o.Status == OrderStatus.Invoiced)))
         .Where(o => string.IsNullOrWhiteSpace(searchTerm) 
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || (o.ConvertedFromQuoteNumber != null && o.ConvertedFromQuoteNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
@@ -533,18 +562,33 @@
         }
     }
 
-    private async Task ConvertQuote(SalesOrder quote)
+    private async Task ConvertQuoteToOrder(SalesOrder quote)
     {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Clone Quote {quote.OrderNumber} and convert it to a new Invoice Draft?");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Convert Quote {quote.OrderNumber} to a Sales Order?");
         if (!confirm) return;
 
-        var err = await SalesService.ConvertQuoteToInvoiceAsync(quote.Id);
+        var err = await SalesService.ConvertQuoteToOrderAsync(quote.Id);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
-        await JS.InvokeVoidAsync("alert", "Quote Cloned! It is now a Draft Invoice.");
+        await JS.InvokeVoidAsync("alert", "Quote Successfully Converted to Order!");
         await LoadData();
         
-        var newInvoice = orders.FirstOrDefault(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
+        var newOrder = orders.FirstOrDefault(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
+        if (newOrder != null) await EditOrder(newOrder.Id);
+    }
+
+    private async Task ConvertOrderToInvoice(SalesOrder order)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Convert Sales Order {order.OrderNumber} to an Invoice Draft?");
+        if (!confirm) return;
+
+        var err = await SalesService.ConvertOrderToInvoiceAsync(order.Id);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+
+        await JS.InvokeVoidAsync("alert", "Order Successfully Converted to Draft Invoice!");
+        await LoadData();
+        
+        var newInvoice = orders.FirstOrDefault(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
         if (newInvoice != null) await EditOrder(newInvoice.Id);
     }
 
@@ -686,7 +730,7 @@
 
     private async Task TerminateOrder()
     {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", "Delete this order permanently?");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", "Delete this record permanently?");
         if (!confirm) return;
 
         var err = await SalesService.TerminateOrderAsync(currentOrder.Id);

@@ -241,5 +241,55 @@ namespace Primafit_ERP.Services
             if (g != null) { ctx.VendorGroups.Remove(g); await ctx.SaveChangesAsync(); }
             return string.Empty;
         }
+        // --- UNIT OF MEASURE ---
+       
+        public async Task<List<UnitOfMeasure>> GetUnitOfMeasuresAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.UnitOfMeasures
+                .AsNoTracking()
+                .Where(u => u.CompanyId == companyId)
+                .OrderBy(u => u.Name)
+                .ToListAsync();
+        }
+
+        public async Task<string> SaveUnitOfMeasureAsync(UnitOfMeasure uom)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (uom.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
+            if (string.IsNullOrWhiteSpace(uom.Name)) return "UoM Name is required.";
+            if (string.IsNullOrWhiteSpace(uom.ConversionFactor)) return "Conversion Factor is required.";
+
+            // Duplicate Check
+            bool isDuplicate = await ctx.UnitOfMeasures.AnyAsync(u => u.CompanyId == uom.CompanyId && u.Name.ToLower() == uom.Name.ToLower() && u.Id != uom.Id);
+            if (isDuplicate) return $"The UoM '{uom.Name}' already exists.";
+
+            if (uom.Id == Guid.Empty || !await ctx.UnitOfMeasures.AnyAsync(x => x.Id == uom.Id))
+            {
+                if (uom.Id == Guid.Empty) uom.Id = Guid.NewGuid();
+                ctx.UnitOfMeasures.Add(uom);
+            }
+            else
+            {
+                ctx.UnitOfMeasures.Update(uom);
+            }
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteUnitOfMeasureAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var uom = await ctx.UnitOfMeasures.FindAsync(id);
+            if (uom != null)
+            {
+                // Optional: You could check if any Items are currently using this UoM string here
+                ctx.UnitOfMeasures.Remove(uom);
+                await ctx.SaveChangesAsync();
+            }
+            return string.Empty;
+        }
     }
 }

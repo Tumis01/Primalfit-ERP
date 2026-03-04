@@ -145,8 +145,7 @@
                         <table class="w-full text-left text-sm">
                             <thead class="text-xs uppercase font-bold text-slate-500 border-b bg-slate-50/50">
                                 <tr>
-                                    <th class="px-2 py-2 w-[30%]">Debit Account (Asset/Exp)</th>
-                                    <th class="px-2 py-2 w-[25%]">Item (Optional)</th>
+                                    <th class="px-2 py-2 w-[25%]">Item </th>
                                     <th class="px-2 py-2 text-right w-[10%]">Qty</th>
                                     <th class="px-2 py-2 text-right w-[15%]">Cost</th>
                                     <th class="px-2 py-2 text-right w-[15%]">Total</th>
@@ -157,11 +156,11 @@
                                 @foreach (var line in currentBill.Lines)
                                 {
                                     <tr class="group hover:bg-slate-50 transition-colors">
-                                        <td class="px-2 py-2 align-top">
+                                        @* <td class="px-2 py-2 align-top">
                                             <div class="@(IsLocked ? "pointer-events-none opacity-60" : "")">
                                                 <SearchableGlAccount Label="" Placeholder="Select GL..." Accounts="@expenseAccounts" @bind-Value="line.ExpenseGlAccountId" IsInvalid="@(line.ExpenseGlAccountId == Guid.Empty)" />
                                             </div>
-                                        </td>
+                                        </td> *@
                                         <td class="px-2 py-2 align-top">
                                             <div class="@(IsLocked ? "pointer-events-none opacity-60" : "")">
                                                 <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineGl(line))" />
@@ -236,7 +235,7 @@
                                 </div>
                                 <div>
                                     <label class="label">Reference</label>
-                                    <input type="text" @bind="newPayment.Reference" class="input-class" placeholder="Txn ID" />
+                                    <input type="text" @bind="newPayment.Reference" class="input-class" placeholder="" />
                                 </div>
                                 <button @onclick="ProcessPayment" disabled="@isPaymentBusy" class="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-lg shadow-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors h-[42px] flex items-center">
                                     @if(isPaymentBusy) { <span class="animate-spin">↻</span> } else { <span>Pay</span> }
@@ -295,14 +294,17 @@
     
     private bool IsLocked => currentBill.IsPosted || (currentBill.PurchaseOrderId.HasValue && currentBill.PurchaseOrderId != Guid.Empty);
 
+    // === INITIALIZATION ===
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
+        
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             
+            // Parallel Load for Performance
             var t1 = MasterService.GetVendorsAsync(currentCompanyId);
             var t2 = MasterService.GetItemsAsync(currentCompanyId);
             var t3 = PurchService.GetPOsReadyForInvoicingAsync(currentCompanyId);
@@ -317,65 +319,96 @@
             accountTypes = t4.Result;
             allAccounts = t5.Result;
 
+            // 1. Filter AP Accounts (Liabilities: Balance Sheet = True, Debit = False)
             liabilityAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.Description.Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
             }).OrderBy(x => x.AccountCode).ToList();
 
+            // 2. Filter Expense/Asset Accounts (Debits: IsDebit = True)
             expenseAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
                 return type != null && type.IsDebit == true;
             }).OrderBy(x => x.AccountCode).ToList();
             
+            // 3. Filter Bank/Cash Accounts for Payments
             bankAccounts = allAccounts.Where(a => 
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
+                return type != null && type.Description.Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase);
             }).OrderBy(x => x.AccountCode).ToList();
 
+            // --- ROUTING LOGIC ---
             if (Id.HasValue && Id.Value != Guid.Empty)
             {
-                // LOAD EXISTING POSTED BILL
-                using var ctx = await DbFactory.CreateDbContextAsync();
-                currentBill = await ctx.VendorBills
-                    .Include(b => b.Lines)
-                    .Include(b => b.Payments)
-                    .FirstOrDefaultAsync(b => b.Id == Id.Value) ?? new VendorBill();
-
-                if (currentBill.VendorId != Guid.Empty)
-                {
-                    var data = await PurchService.GetVendorCurrencyDataAsync(currentBill.VendorId, currentCompanyId);
-                    currencyCode = data.CurrencyCode;
-                }
-
-                // Pre-fill payment default
-                newPayment.VendorBillId = currentBill.Id;
-                newPayment.Amount = currentBill.BalanceDue; 
+                // ROUTE A: LOAD EXISTING POSTED BILL (Direct ID from URL)
+                await LoadExistingBill(Id.Value);
             }
-            else
+            else if (PoId.HasValue && PoId.Value != Guid.Empty)
             {
-                CreateNew();
+                // ROUTE B: ROUTED FROM PURCHASE ORDER PAGE (Using ?poId=...)
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                
+                // Check if a Bill was already Auto-Posted for this PO
+                var existingBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.PurchaseOrderId == PoId.Value);
 
-                if (PoId.HasValue && PoId.Value != Guid.Empty)
+                if (existingBill != null)
                 {
+                    // Load the existing bill so they can make payments!
+                    await LoadExistingBill(existingBill.Id);
+                }
+                else
+                {
+                    // Fallback to Draft mode if no bill exists yet
+                    CreateNew();
+                    
                     var targetPO = openPOs.FirstOrDefault(p => p.Id == PoId.Value);
                     if (targetPO != null)
                     {
                         currentBill.VendorId = targetPO.VendorId;
                         var data = await PurchService.GetVendorCurrencyDataAsync(targetPO.VendorId, currentCompanyId);
+                        
                         currentBill.CurrencyId = data.CurrencyId;
                         currencyCode = data.CurrencyCode;
-                        
-                        // REQUIREMENT 4: IMPORT EXCHANGE RATE FROM PO
                         currentBill.ExchangeRate = targetPO.ExchangeRate > 0 ? targetPO.ExchangeRate : data.Rate;
 
+                        // Trigger the PO mapping
                         OnPoChanged(new ChangeEventArgs { Value = targetPO.Id.ToString() });
                     }
                 }
             }
+            else
+            {
+                // ROUTE C: COMPLETELY NEW MANUAL BILL
+                CreateNew();
+            }
         }
+    }
+
+    // --- HELPER METHOD TO LOAD EXISTING BILLS & PAYMENTS ---
+    private async Task LoadExistingBill(Guid billId)
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        
+        currentBill = await ctx.VendorBills
+            .Include(b => b.Lines)
+            .Include(b => b.Payments)
+            .FirstOrDefaultAsync(b => b.Id == billId) ?? new VendorBill();
+
+        if (currentBill.VendorId != Guid.Empty)
+        {
+            var data = await PurchService.GetVendorCurrencyDataAsync(currentBill.VendorId, currentCompanyId);
+            currencyCode = data.CurrencyCode;
+        }
+
+        // Pre-fill the payment input with the remaining balance
+        newPayment = new VendorPayment 
+        { 
+            VendorBillId = currentBill.Id, 
+            Amount = currentBill.BalanceDue 
+        }; 
     }
 
     private void CreateNew() 
@@ -387,7 +420,7 @@
             Lines = new List<VendorBillLine> { new VendorBillLine() } 
         }; 
     }
-    
+   
     private void AddLine() => currentBill.Lines.Add(new VendorBillLine());
 
     private async Task OnVendorChanged(ChangeEventArgs e)

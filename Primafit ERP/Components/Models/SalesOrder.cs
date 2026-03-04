@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    public enum OrderStatus { Draft, Confirmed, Quote, Shipped, Invoiced, Cancelled }
+    public enum OrderStatus { Draft, Order, Confirmed, Quote, Shipped, Invoiced, Cancelled }
 
     public class SalesOrder
     {
@@ -46,10 +46,10 @@ namespace Primafit_ERP.Components.Models
 
         public List<SalesOrderLine> Lines { get; set; } = new();
 
-        // --- UI COMPUTED HELPERS (Not saved to DB directly) ---
+        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && GrandTotalForeign > 0 && AmountPaid >= (GrandTotalForeign - 0.01m);
         [NotMapped] public decimal GrandTotalForeign { get; set; }
         [NotMapped] public decimal AmountPaid { get; set; }
-        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && AmountPaid >= GrandTotalForeign && GrandTotalForeign > 0;
+        [NotMapped] public decimal BalanceDue => GrandTotalForeign - AmountPaid;
     }
 
     public class SalesOrderLine

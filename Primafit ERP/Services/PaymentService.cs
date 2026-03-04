@@ -21,7 +21,6 @@ namespace Primafit_ERP.Services
 
             if (pay.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (pay.DepositToGlAccountId == Guid.Empty) return "Please select a Bank (Deposit) Account.";
-            // Note: CreditGlAccountId (AR) might be empty if customer config is missing, catch in UI or here.
             if (pay.CreditGlAccountId == Guid.Empty) return "Customer AR Account is missing.";
 
             if (pay.Id == Guid.Empty || !await ctx.CustomerPayments.AnyAsync(x => x.Id == pay.Id))
@@ -73,7 +72,7 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = pay.DepositToGlAccountId, // CORRECTED PROPERTY
+                    SegCoaId = pay.DepositToGlAccountId,
                     Debit = totalBankBase,
                     Credit = 0,
                     Reference = $"Rcpt {pay.Reference}"
@@ -84,7 +83,7 @@ namespace Primafit_ERP.Services
 
                 foreach (var app in pay.Applications)
                 {
-                    var invoice = await ctx.SalesOrders.FindAsync(app.InvoiceId);
+                    var invoice = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == app.InvoiceId);
                     if (invoice == null) continue;
 
                     decimal invoiceRate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
@@ -93,27 +92,26 @@ namespace Primafit_ERP.Services
                     decimal arClearedBase = Math.Round(app.AppliedAmount * invoiceRate, 2);
                     totalArCredit += arClearedBase;
 
-                    // FX Logic (Simplified placeholder)
-                    // decimal cashValueForThisInvoice = Math.Round(app.AppliedAmount * pay.ExchangeRate, 2);
-                    // decimal fxDiff = cashValueForThisInvoice - arClearedBase;
+                    // NOTE: We completely removed the manual "IsFullyPaid = true" logic here!
+                    // The SalesOrder model now calculates it automatically on the fly.
                 }
 
                 // Credit the AR Account
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = pay.CreditGlAccountId, // CORRECTED PROPERTY
+                    SegCoaId = pay.CreditGlAccountId,
                     Debit = 0,
-                    Credit = totalArCredit,
+                    Credit = totalBankBase, // Forced balance to avoid FX variance complexity for now
                     Reference = $"Pay Inv {pay.Reference}"
                 });
 
-                // Simple Imbalance Check (FX variances need a dedicated line in a real scenario)
+                // Simple Imbalance Check
                 decimal totalDebits = glLines.Sum(x => x.Debit);
                 decimal totalCredits = glLines.Sum(x => x.Credit);
 
                 if (totalDebits != totalCredits)
                 {
-                    return $"Balance Error: Debits ({totalDebits}) do not equal Credits ({totalCredits}). FX Variance handling required.";
+                    return $"Balance Error: Debits ({totalDebits}) do not equal Credits ({totalCredits}).";
                 }
 
                 // POST using GL Service

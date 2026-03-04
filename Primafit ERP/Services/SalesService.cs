@@ -63,6 +63,7 @@ namespace Primafit_ERP.Services
         }
 
         // 3. CREATE / UPDATE ORDER
+        // 3. CREATE / UPDATE ORDER
         public async Task<string> SaveOrderAsync(SalesOrder order)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -76,14 +77,14 @@ namespace Primafit_ERP.Services
 
             bool hasPhysicalItems = order.Lines.Any(l => itemsMap.ContainsKey(l.ItemId) && !itemsMap[l.ItemId].IsService);
 
-            // Do not force warehouse validation if it's just a Quote
-            if (order.Status != OrderStatus.Quote && hasPhysicalItems && order.WarehouseId == Guid.Empty)
+            // 1. Force Warehouse selection for ALL states (Quote, Order, Invoice) if there are physical items
+            if (hasPhysicalItems && order.WarehouseId == Guid.Empty)
             {
                 return "Fulfillment Warehouse is required for physical items.";
             }
 
-            // Only check inventory levels if it's NOT a quote
-            if (order.Status != OrderStatus.Quote)
+            // 2. Enforce Strict Inventory limits for ALL states (Quote, Order, Invoice)
+            if (hasPhysicalItems)
             {
                 foreach (var line in order.Lines)
                 {
@@ -93,7 +94,7 @@ namespace Primafit_ERP.Services
                             order.CompanyId, line.ItemId, order.WarehouseId, order.Id);
 
                         if (line.Quantity > availableToPromise)
-                            return $"Cannot reserve {line.Quantity} of {item.Name}. Only {availableToPromise} available.";
+                            return $"Cannot proceed: You requested {line.Quantity} of '{item.Name}', but only {availableToPromise} are available in the selected warehouse.";
                     }
                 }
             }
@@ -101,8 +102,12 @@ namespace Primafit_ERP.Services
             if (order.Id == Guid.Empty || !await ctx.SalesOrders.AnyAsync(o => o.Id == order.Id))
             {
                 order.Id = Guid.NewGuid();
-                // Set prefix based on status
-                string prefix = order.Status == OrderStatus.Quote ? "QUO" : "INV";
+
+                // --- PREFIX LOGIC UPDATED FOR NEW ORDER TYPE ---
+                string prefix = "INV";
+                if (order.Status == OrderStatus.Quote) prefix = "QUO";
+                else if (order.Status == OrderStatus.Order) prefix = "ORD";
+
                 order.OrderNumber = $"{prefix}-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
 
                 foreach (var line in order.Lines)
@@ -119,15 +124,15 @@ namespace Primafit_ERP.Services
                 if (existing == null) return "Order not found.";
                 if (existing.Status == OrderStatus.Invoiced) return "Cannot edit an order that has already been invoiced.";
 
-                // --- NEW: PREVENT EDITING CONVERTED QUOTES ---
-                if (existing.Status == OrderStatus.Quote)
+                // --- PREVENT EDITING CONVERTED QUOTES/ORDERS ---
+                if (existing.Status == OrderStatus.Quote || existing.Status == OrderStatus.Order)
                 {
                     bool isConverted = await ctx.SalesOrders.AnyAsync(inv => inv.ConvertedFromQuoteNumber == existing.OrderNumber);
-                    if (isConverted) return "Cannot edit a quote that has already been converted to an invoice.";
+                    if (isConverted) return $"Cannot edit a {existing.Status} that has already been converted.";
                 }
 
                 existing.CustomerId = order.CustomerId;
-                existing.WarehouseId = order.WarehouseId; 
+                existing.WarehouseId = order.WarehouseId;
                 existing.CurrencyId = order.CurrencyId;
                 existing.ExchangeRate = order.ExchangeRate;
                 existing.Date = order.Date;
@@ -152,36 +157,72 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // --- CONVERT QUOTE (Creates a new Invoice clone) ---
-        public async Task<string> ConvertQuoteToInvoiceAsync(Guid quoteId)
+        public async Task<string> ConvertQuoteToOrderAsync(Guid quoteId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var quote = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == quoteId);
 
             if (quote == null) return "Quote not found.";
-            if (quote.Status != OrderStatus.Quote) return "Only Quotes can be converted.";
+            if (quote.Status != OrderStatus.Quote) return "Only Quotes can be converted to Orders.";
 
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
-            if (alreadyConverted) return "This quote has already been converted to an invoice.";
+            if (alreadyConverted) return "This quote has already been converted.";
 
-            // Clone to a new Invoice Draft
-            var invoice = new SalesOrder
+            // Clone to a new Sales Order
+            var order = new SalesOrder
             {
                 Id = Guid.NewGuid(),
                 CompanyId = quote.CompanyId,
-                OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
+                OrderNumber = $"ORD-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
                 ConvertedFromQuoteNumber = quote.OrderNumber,
                 TaxId = quote.TaxId,
                 TaxGLAccountId = quote.TaxGLAccountId,
                 CustomerId = quote.CustomerId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
-                Status = OrderStatus.Draft,
+                Status = OrderStatus.Order, // SET TO ORDER
                 CurrencyId = quote.CurrencyId,
                 ExchangeRate = quote.ExchangeRate,
                 WarehouseId = quote.WarehouseId
             };
 
             foreach (var line in quote.Lines)
+            {
+                order.Lines.Add(new SalesOrderLine { Id = Guid.NewGuid(), HeaderId = order.Id, ItemId = line.ItemId, Quantity = line.Quantity, UnitPrice = line.UnitPrice });
+            }
+
+            ctx.SalesOrders.Add(order);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+        public async Task<string> ConvertOrderToInvoiceAsync(Guid orderId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var order = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order == null) return "Order not found.";
+            if (order.Status != OrderStatus.Order) return "Only Confirmed Orders can be converted to Invoices.";
+
+            bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
+            if (alreadyConverted) return "This order has already been converted to an invoice.";
+
+            // Clone to a new Invoice Draft
+            var invoice = new SalesOrder
+            {
+                Id = Guid.NewGuid(),
+                CompanyId = order.CompanyId,
+                OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
+                ConvertedFromQuoteNumber = order.OrderNumber, // Track lineage
+                TaxId = order.TaxId,
+                TaxGLAccountId = order.TaxGLAccountId,
+                CustomerId = order.CustomerId,
+                Date = DateOnly.FromDateTime(DateTime.Today),
+                Status = OrderStatus.Draft, // SET TO DRAFT INVOICE
+                CurrencyId = order.CurrencyId,
+                ExchangeRate = order.ExchangeRate,
+                WarehouseId = order.WarehouseId
+            };
+
+            foreach (var line in order.Lines)
             {
                 invoice.Lines.Add(new SalesOrderLine { Id = Guid.NewGuid(), HeaderId = invoice.Id, ItemId = line.ItemId, Quantity = line.Quantity, UnitPrice = line.UnitPrice });
             }

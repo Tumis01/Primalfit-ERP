@@ -32,6 +32,7 @@ namespace PrimafitERP.Data
 
         // --- SUPPLY CHAIN ---
         public DbSet<Item> Items { get; set; }
+        public DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
