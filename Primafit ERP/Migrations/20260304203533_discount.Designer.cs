@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260304203533_discount")]
+    partial class discount
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1652,15 +1655,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("DiscountAmount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid?>("DiscountGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("DiscountPercentage")
-                        .HasColumnType("decimal(18, 6)");
-
                     b.Property<decimal>("ExchangeRate")
                         .HasColumnType("decimal(18, 6)");
 
@@ -1689,18 +1683,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<Guid?>("TaxGLAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("TaxId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CurrencyId");
 
                     b.ToTable("PurchaseOrders");
                 });
@@ -3193,17 +3179,6 @@ namespace Primafit_ERP.Migrations
                         .HasForeignKey("CustomerPaymentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrder", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.Currency", "Currency")
-                        .WithMany()
-                        .HasForeignKey("CurrencyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Currency");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseOrderLine", b =>

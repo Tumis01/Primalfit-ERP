@@ -161,6 +161,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
+        // 1. SAVE PURCHASE ORDER
         public async Task<string> SavePurchaseOrderAsync(PurchaseOrder po)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -168,33 +169,9 @@ namespace Primafit_ERP.Services
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
 
-            var itemIds = po.Lines.Select(l => l.ItemId).Distinct().ToList();
-            var items = await ctx.Items
-                .AsNoTracking()
-                .Where(i => itemIds.Contains(i.Id))
-                .ToListAsync();
-
-            var budgetRequests = new List<(Guid SegCoaId, decimal Amount)>();
-
-            foreach (var line in po.Lines)
+            if ((po.DiscountAmount > 0 || po.DiscountPercentage > 0) && po.DiscountGlAccountId == null)
             {
-                var item = items.FirstOrDefault(i => i.Id == line.ItemId);
-                if (item != null)
-                {
-                    Guid targetAccount = item.IsService ? item.CostOfGoodsSoldAccountId : item.InventoryAssetAccountId;
-                    decimal lineTotal = line.QuantityOrdered * line.UnitCost;
-                    budgetRequests.Add((targetAccount, lineTotal));
-                }
-            }
-
-            if (budgetRequests.Any())
-            {
-                string budgetError = await _budgetService.ValidateFundsAsync(po.CompanyId, budgetRequests);
-
-                if (!string.IsNullOrEmpty(budgetError))
-                {
-                    return $"BUDGET STOP: {budgetError}";
-                }
+                return "You must select a Discount GL Account (Income/Credit) to apply a discount.";
             }
 
             var existing = await ctx.PurchaseOrders
@@ -207,23 +184,36 @@ namespace Primafit_ERP.Services
                 {
                     if (po.Id == Guid.Empty) po.Id = Guid.NewGuid();
 
+                    // --- FIX: GENERATE PO NUMBER IF IT'S BLANK ---
+                    if (string.IsNullOrWhiteSpace(po.OrderNumber))
+                    {
+                        po.OrderNumber = $"PO-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+                    }
+
                     foreach (var line in po.Lines)
                     {
                         if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.PurchaseOrderId = po.Id;
-                        ctx.PurchaseOrderLines.Add(line);
                     }
                     ctx.PurchaseOrders.Add(po);
                 }
                 else
                 {
+                    if (existing.IsInvoicePosted || existing.HasReceipt)
+                        return "Cannot edit an order that has already been received or invoiced.";
+
                     po.CompanyId = existing.CompanyId;
+
+                    // --- FIX: PRESERVE EXISTING PO NUMBER ON EDIT ---
+                    po.OrderNumber = existing.OrderNumber;
+
                     ctx.Entry(existing).CurrentValues.SetValues(po);
 
                     ctx.PurchaseOrderLines.RemoveRange(existing.Lines);
                     foreach (var line in po.Lines)
                     {
                         line.PurchaseOrderId = po.Id;
+                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         ctx.PurchaseOrderLines.Add(line);
                     }
                 }
@@ -236,7 +226,133 @@ namespace Primafit_ERP.Services
                 return $"DATABASE ERROR: {ex.Message}";
             }
         }
-       
+
+        // 2. AUTO-POST VENDOR BILL (With Tax & Discount Math)
+        public async Task<string> AutoPostVendorBillFromPOAsync(Guid poId, Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == poId);
+                if (po == null) return "PO not found.";
+                if (po.IsInvoicePosted) return "Invoice already posted.";
+
+                // We still check for at least ONE GRN just to extract the GR/IR account routing
+                var grns = await ctx.GoodsReceipts.Include(g => g.Lines).Where(g => g.PurchaseOrderId == poId).ToListAsync();
+                if (!grns.Any()) return "No Goods Receipt found. At least one receipt is required to establish the GR/IR routing.";
+
+                var grIrAccountId = grns.First().InventoryGlAccountId;
+                if (grIrAccountId == Guid.Empty) return "GR/IR Clearing Account was not set on the Goods Receipt.";
+
+                var vendor = await ctx.Vendors.FindAsync(po.VendorId);
+                if (vendor?.PayablesAccountId == null) return "Vendor Payables account missing in Master Data.";
+
+                var bill = new VendorBill
+                {
+                    Id = Guid.NewGuid(),
+                    CompanyId = companyId,
+                    VendorId = po.VendorId,
+                    PurchaseOrderId = po.Id,
+                    AccountsPayableGlId = vendor.PayablesAccountId.Value,
+                    ExternalInvoiceNumber = $"INV-{po.OrderNumber}",
+                    BillDate = DateTime.Today,
+                    CurrencyId = po.CurrencyId,
+                    ExchangeRate = po.ExchangeRate,
+                    IsPosted = true,
+                    PostedDate = DateTime.Now,
+                    MatchStatus = BillMatchStatus.Matched
+                };
+
+                decimal totalGrossForeign = 0;
+
+                // --- THE FIX: ITERATE OVER THE FULL PO LINES INSTEAD OF PARTIAL GRN LINES ---
+                foreach (var poLine in po.Lines)
+                {
+                    if (poLine.QuantityOrdered > 0)
+                    {
+                        bill.Lines.Add(new VendorBillLine
+                        {
+                            Id = Guid.NewGuid(),
+                            VendorBillId = bill.Id,
+                            ItemId = poLine.ItemId,
+                            QuantityBilled = poLine.QuantityOrdered, // Always bill the FULL ordered amount
+                            UnitCostBilled = poLine.UnitCost,
+                            ExpenseGlAccountId = grIrAccountId
+                        });
+                        totalGrossForeign += (poLine.QuantityOrdered * poLine.UnitCost);
+                    }
+                }
+
+                // --- APPLY DISCOUNT & TAX MATH ---
+                decimal discountForeign = po.DiscountAmount;
+                if (po.DiscountPercentage > 0)
+                {
+                    discountForeign = totalGrossForeign * (po.DiscountPercentage / 100);
+                }
+                decimal netForeign = totalGrossForeign - discountForeign;
+
+                decimal taxForeign = 0;
+                if (po.TaxId.HasValue)
+                {
+                    var tax = await ctx.Taxes.FindAsync(po.TaxId);
+                    if (tax != null) taxForeign = netForeign * (tax.Per / 100);
+                }
+
+                bill.TotalAmountForeign = netForeign + taxForeign;
+
+                // Convert to Base Ledger Currency
+                decimal grossBase = Math.Round(totalGrossForeign * po.ExchangeRate, 2);
+                decimal discountBase = Math.Round(discountForeign * po.ExchangeRate, 2);
+                decimal taxBase = Math.Round(taxForeign * po.ExchangeRate, 2);
+                decimal grandTotalBase = (grossBase - discountBase) + taxBase;
+
+                bill.TotalAmount = grandTotalBase;
+
+                ctx.VendorBills.Add(bill);
+                ctx.VendorBillLines.AddRange(bill.Lines);
+
+                // --- CREATE GL JOURNAL ---
+                var glLines = new List<GLJournalLine>
+                {
+                    // 1. DEBIT: GR/IR (Clearing the full PO liability)
+                    new GLJournalLine { SegCoaId = grIrAccountId, Debit = grossBase, Credit = 0, Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}" }
+                };
+
+                // 2. DEBIT: Input Tax (Asset/Receivable from Govt)
+                if (taxBase > 0 && po.TaxGLAccountId.HasValue)
+                {
+                    glLines.Add(new GLJournalLine { SegCoaId = po.TaxGLAccountId.Value, Debit = taxBase, Credit = 0, Reference = $"Input Tax: {bill.ExternalInvoiceNumber}" });
+                }
+
+                // 3. CREDIT: Discount Received (Income / Contra-Expense)
+                if (discountBase > 0 && po.DiscountGlAccountId.HasValue)
+                {
+                    glLines.Add(new GLJournalLine { SegCoaId = po.DiscountGlAccountId.Value, Debit = 0, Credit = discountBase, Reference = $"Discount Received: {bill.ExternalInvoiceNumber}" });
+                }
+
+                // 4. CREDIT: Accounts Payable (The actual net amount we owe the vendor)
+                glLines.Add(new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = 0, Credit = grandTotalBase, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" });
+
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines);
+                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+
+                po.IsInvoicePosted = true;
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Error posting invoice: {ex.Message}";
+            }
+        }
+
         public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -352,102 +468,7 @@ namespace Primafit_ERP.Services
                 return $"DB ERROR: {ex.Message}";
             }
         }
-        public async Task<string> AutoPostVendorBillFromPOAsync(Guid poId, Guid companyId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-
-            try
-            {
-                var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == poId);
-                if (po == null) return "PO not found.";
-                if (po.IsInvoicePosted) return "Invoice already posted.";
-
-                var grns = await ctx.GoodsReceipts.Include(g => g.Lines).Where(g => g.PurchaseOrderId == poId).ToListAsync();
-                if (!grns.Any()) return "No Goods Receipt found. You must receive goods first.";
-
-                // Get the GR/IR account used during Receipt to clear it
-                var grIrAccountId = grns.First().InventoryGlAccountId;
-                if (grIrAccountId == Guid.Empty) return "GR/IR Clearing Account was not set on the Goods Receipt.";
-
-                var vendor = await ctx.Vendors.FindAsync(po.VendorId);
-                if (vendor?.PayablesAccountId == null) return "Vendor Payables account missing in Master Data.";
-
-                var bill = new VendorBill
-                {
-                    Id = Guid.NewGuid(),
-                    CompanyId = companyId,
-                    VendorId = po.VendorId,
-                    PurchaseOrderId = po.Id,
-                    AccountsPayableGlId = vendor.PayablesAccountId.Value,
-                    ExternalInvoiceNumber = $"INV-{po.OrderNumber}",
-                    BillDate = DateTime.Today,
-                    CurrencyId = po.CurrencyId,
-                    ExchangeRate = po.ExchangeRate,
-                    IsPosted = true,
-                    PostedDate = DateTime.Now,
-                    MatchStatus = BillMatchStatus.Matched
-                };
-
-                decimal totalForeign = 0;
-
-                // Aggregate everything received so far
-                var receivedItems = grns.SelectMany(g => g.Lines)
-                                        .GroupBy(l => l.PurchaseOrderLineId)
-                                        .Select(g => new { PoLineId = g.Key, TotalReceived = g.Sum(x => x.QuantityReceived) })
-                                        .ToList();
-
-                foreach (var rec in receivedItems)
-                {
-                    var poLine = po.Lines.FirstOrDefault(l => l.Id == rec.PoLineId);
-                    if (poLine != null && rec.TotalReceived > 0)
-                    {
-                        bill.Lines.Add(new VendorBillLine
-                        {
-                            Id = Guid.NewGuid(),
-                            VendorBillId = bill.Id,
-                            ItemId = poLine.ItemId,
-                            QuantityBilled = rec.TotalReceived,
-                            UnitCostBilled = poLine.UnitCost,
-                            ExpenseGlAccountId = grIrAccountId // We map the Expense to GR/IR so it debits it!
-                        });
-                        totalForeign += (rec.TotalReceived * poLine.UnitCost);
-                    }
-                }
-
-                bill.TotalAmountForeign = totalForeign;
-                bill.TotalAmount = totalForeign * po.ExchangeRate;
-
-                ctx.VendorBills.Add(bill);
-                ctx.VendorBillLines.AddRange(bill.Lines);
-
-                // Create GL Journal
-                var glLines = new List<GLJournalLine>
-                {
-                    // Debit GR/IR (Clearing it)
-                    new GLJournalLine { SegCoaId = grIrAccountId, Debit = bill.TotalAmount, Credit = 0, Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}" },
-                    
-                    // Credit Accounts Payable
-                    new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = 0, Credit = bill.TotalAmount, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" }
-                };
-
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines);
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
-
-                po.IsInvoicePosted = true;
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-                return $"Error posting invoice: {ex.Message}";
-            }
-        }
+       
         public async Task<List<PurchaseOrder>> GetOpenPOsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -639,6 +660,36 @@ namespace Primafit_ERP.Services
             {
                 await tx.RollbackAsync();
                 return $"Payment Error: {ex.Message}";
+            }
+        }
+        public async Task<string> DeletePurchaseOrderAsync(Guid poId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var po = await ctx.PurchaseOrders
+                .Include(p => p.Lines)
+                .FirstOrDefaultAsync(p => p.Id == poId);
+
+            if (po == null) return "Purchase Order not found.";
+
+            // SECURITY PRECAUTION: Prevent deleting POs with financial/inventory impact
+            if (po.HasReceipt || po.IsInvoicePosted)
+            {
+                return "STOP: Cannot delete a Purchase Order that has already received goods or been billed. It must be kept for auditing.";
+            }
+
+            try
+            {
+                // Remove the child line items first, then the header
+                ctx.PurchaseOrderLines.RemoveRange(po.Lines);
+                ctx.PurchaseOrders.Remove(po);
+
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                return $"DATABASE ERROR: {ex.Message}";
             }
         }
     }

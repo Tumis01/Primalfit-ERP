@@ -87,13 +87,41 @@ namespace Primafit_ERP.Services
                     if (invoice == null) continue;
 
                     decimal invoiceRate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
-
-                    // The AR amount we are clearing in BASE currency
                     decimal arClearedBase = Math.Round(app.AppliedAmount * invoiceRate, 2);
                     totalArCredit += arClearedBase;
 
-                    // NOTE: We completely removed the manual "IsFullyPaid = true" logic here!
-                    // The SalesOrder model now calculates it automatically on the fly.
+                    // --- PARTIAL PAYMENT & DISCOUNT TRACKING ---
+                    // 1. Calculate SubTotal
+                    decimal subTotal = invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
+
+                    // 2. Apply Discount
+                    decimal discountValue = invoice.DiscountAmount;
+                    if (invoice.DiscountPercentage > 0)
+                    {
+                        discountValue = subTotal * (invoice.DiscountPercentage / 100);
+                    }
+                    decimal discountedSubTotal = subTotal - discountValue;
+
+                    // 3. Apply Tax to Discounted SubTotal
+                    decimal taxAmount = 0;
+                    if (invoice.TaxId.HasValue)
+                    {
+                        var tax = await ctx.Taxes.FindAsync(invoice.TaxId);
+                        if (tax != null) taxAmount = discountedSubTotal * (tax.Per / 100);
+                    }
+
+                    // 4. Final Grand Total
+                    decimal grandTotal = discountedSubTotal + taxAmount;
+
+                    // 5. Check if Fully Paid
+                    decimal totalPaidSoFar = await ctx.PaymentApplications
+                        .Where(a => a.InvoiceId == invoice.Id)
+                        .SumAsync(a => a.AppliedAmount + a.CashDiscountTaken);
+
+                    // Add CURRENT application
+                    totalPaidSoFar += app.AppliedAmount;
+
+                    // 6. No longer explicitly setting IsFullyPaid here, because the Model is handling it dynamically!
                 }
 
                 // Credit the AR Account
@@ -101,11 +129,10 @@ namespace Primafit_ERP.Services
                 {
                     SegCoaId = pay.CreditGlAccountId,
                     Debit = 0,
-                    Credit = totalBankBase, // Forced balance to avoid FX variance complexity for now
+                    Credit = totalBankBase,
                     Reference = $"Pay Inv {pay.Reference}"
                 });
 
-                // Simple Imbalance Check
                 decimal totalDebits = glLines.Sum(x => x.Debit);
                 decimal totalCredits = glLines.Sum(x => x.Credit);
 
@@ -114,7 +141,6 @@ namespace Primafit_ERP.Services
                     return $"Balance Error: Debits ({totalDebits}) do not equal Credits ({totalCredits}).";
                 }
 
-                // POST using GL Service
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                     pay.CompanyId,
                     DateOnly.FromDateTime(pay.Date),

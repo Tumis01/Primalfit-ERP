@@ -43,6 +43,13 @@ namespace Primafit_ERP.Components.Models
         public Guid? InvoiceBatchId { get; set; }
         [Required]
         public Guid WarehouseId { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountPercentage { get; set; } = 0;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountAmount { get; set; } = 0;
+
+        public Guid? DiscountGlAccountId { get; set; }
 
         public List<SalesOrderLine> Lines { get; set; } = new();
 

@@ -17,7 +17,8 @@ namespace Primafit_ERP.Services
             _invService = invService;
         }
 
-        // 1. GET ORDERS (Now includes Payment Tracking logic!)
+        // 1. GET ORDERS
+        // 1. GET ORDERS
         public async Task<List<SalesOrder>> GetOrdersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -30,7 +31,6 @@ namespace Primafit_ERP.Services
                 .AsNoTracking()
                 .ToListAsync();
 
-            // Fetch Payments to determine if "IsFullyPaid"
             var invoiceIds = orders.Where(o => o.Status == OrderStatus.Invoiced).Select(o => o.Id).ToList();
             var payments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
@@ -43,9 +43,21 @@ namespace Primafit_ERP.Services
             foreach (var o in orders)
             {
                 decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
 
-                o.GrandTotalForeign = subTotal + (subTotal * taxPer / 100);
+                // --- NEW: DISCOUNT MATH ---
+                decimal discountValue = o.DiscountAmount;
+                if (o.DiscountPercentage > 0)
+                {
+                    discountValue = subTotal * (o.DiscountPercentage / 100);
+                }
+
+                decimal discountedSubTotal = subTotal - discountValue;
+
+                decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
+                decimal taxValue = discountedSubTotal * (taxPer / 100);
+
+                // By assigning these two properties, IsFullyPaid will automatically evaluate to true if they match!
+                o.GrandTotalForeign = discountedSubTotal + taxValue;
                 o.AmountPaid = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
             }
 
@@ -56,13 +68,44 @@ namespace Primafit_ERP.Services
         public async Task<SalesOrder?> GetOrderByIdAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.SalesOrders
+            var order = await ctx.SalesOrders
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Include(o => o.Customer)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
+
+            if (order != null)
+            {
+                decimal subTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
+
+                // --- NEW: DISCOUNT MATH ---
+                decimal discountValue = order.DiscountAmount;
+                if (order.DiscountPercentage > 0)
+                {
+                    discountValue = subTotal * (order.DiscountPercentage / 100);
+                }
+
+                decimal discountedSubTotal = subTotal - discountValue;
+
+                decimal taxPer = 0;
+                if (order.TaxId.HasValue)
+                {
+                    var tax = await ctx.Taxes.FindAsync(order.TaxId.Value);
+                    if (tax != null) taxPer = tax.Per;
+                }
+
+                decimal taxValue = discountedSubTotal * (taxPer / 100);
+
+                // By assigning these two properties, IsFullyPaid will automatically evaluate to true if they match!
+                order.GrandTotalForeign = discountedSubTotal + taxValue;
+
+                order.AmountPaid = await ctx.PaymentApplications
+                    .Where(pa => pa.InvoiceId == order.Id)
+                    .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken);
+            }
+
+            return order;
         }
 
-        // 3. CREATE / UPDATE ORDER
         // 3. CREATE / UPDATE ORDER
         public async Task<string> SaveOrderAsync(SalesOrder order)
         {
@@ -72,19 +115,23 @@ namespace Primafit_ERP.Services
             if (order.CustomerId == Guid.Empty) return "Customer is required.";
             if (!order.Lines.Any()) return "Order must have at least one line.";
 
+            // Require Discount GL Account if a discount is applied
+            if ((order.DiscountAmount > 0 || order.DiscountPercentage > 0) && order.DiscountGlAccountId == null)
+            {
+                return "You must select a Discount GL Account (Expense) to apply a discount.";
+            }
+
             var lineItemIds = order.Lines.Select(l => l.ItemId).Distinct().ToList();
             var itemsMap = await ctx.Items.Where(i => lineItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
 
             bool hasPhysicalItems = order.Lines.Any(l => itemsMap.ContainsKey(l.ItemId) && !itemsMap[l.ItemId].IsService);
 
-            // 1. Force Warehouse selection for ALL states (Quote, Order, Invoice) if there are physical items
-            if (hasPhysicalItems && order.WarehouseId == Guid.Empty)
+            if (order.Status != OrderStatus.Quote && hasPhysicalItems && order.WarehouseId == Guid.Empty)
             {
                 return "Fulfillment Warehouse is required for physical items.";
             }
 
-            // 2. Enforce Strict Inventory limits for ALL states (Quote, Order, Invoice)
-            if (hasPhysicalItems)
+            if (order.Status != OrderStatus.Quote)
             {
                 foreach (var line in order.Lines)
                 {
@@ -94,7 +141,7 @@ namespace Primafit_ERP.Services
                             order.CompanyId, line.ItemId, order.WarehouseId, order.Id);
 
                         if (line.Quantity > availableToPromise)
-                            return $"Cannot proceed: You requested {line.Quantity} of '{item.Name}', but only {availableToPromise} are available in the selected warehouse.";
+                            return $"Cannot reserve {line.Quantity} of {item.Name}. Only {availableToPromise} available.";
                     }
                 }
             }
@@ -103,7 +150,6 @@ namespace Primafit_ERP.Services
             {
                 order.Id = Guid.NewGuid();
 
-                // --- PREFIX LOGIC UPDATED FOR NEW ORDER TYPE ---
                 string prefix = "INV";
                 if (order.Status == OrderStatus.Quote) prefix = "QUO";
                 else if (order.Status == OrderStatus.Order) prefix = "ORD";
@@ -124,7 +170,6 @@ namespace Primafit_ERP.Services
                 if (existing == null) return "Order not found.";
                 if (existing.Status == OrderStatus.Invoiced) return "Cannot edit an order that has already been invoiced.";
 
-                // --- PREVENT EDITING CONVERTED QUOTES/ORDERS ---
                 if (existing.Status == OrderStatus.Quote || existing.Status == OrderStatus.Order)
                 {
                     bool isConverted = await ctx.SalesOrders.AnyAsync(inv => inv.ConvertedFromQuoteNumber == existing.OrderNumber);
@@ -137,6 +182,13 @@ namespace Primafit_ERP.Services
                 existing.ExchangeRate = order.ExchangeRate;
                 existing.Date = order.Date;
                 existing.TaxId = order.TaxId;
+                existing.TaxGLAccountId = order.TaxGLAccountId;
+
+                // Save Discount fields
+                existing.DiscountPercentage = order.DiscountPercentage;
+                existing.DiscountAmount = order.DiscountAmount;
+                existing.DiscountGlAccountId = order.DiscountGlAccountId;
+
                 existing.Status = order.Status;
 
                 ctx.SalesOrderLines.RemoveRange(existing.Lines);
@@ -168,7 +220,6 @@ namespace Primafit_ERP.Services
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
             if (alreadyConverted) return "This quote has already been converted.";
 
-            // Clone to a new Sales Order
             var order = new SalesOrder
             {
                 Id = Guid.NewGuid(),
@@ -179,10 +230,14 @@ namespace Primafit_ERP.Services
                 TaxGLAccountId = quote.TaxGLAccountId,
                 CustomerId = quote.CustomerId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
-                Status = OrderStatus.Order, // SET TO ORDER
+                Status = OrderStatus.Order,
                 CurrencyId = quote.CurrencyId,
                 ExchangeRate = quote.ExchangeRate,
-                WarehouseId = quote.WarehouseId
+                WarehouseId = quote.WarehouseId,
+                // Inherit Discounts
+                DiscountPercentage = quote.DiscountPercentage,
+                DiscountAmount = quote.DiscountAmount,
+                DiscountGlAccountId = quote.DiscountGlAccountId
             };
 
             foreach (var line in quote.Lines)
@@ -194,6 +249,7 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+
         public async Task<string> ConvertOrderToInvoiceAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -205,21 +261,24 @@ namespace Primafit_ERP.Services
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
             if (alreadyConverted) return "This order has already been converted to an invoice.";
 
-            // Clone to a new Invoice Draft
             var invoice = new SalesOrder
             {
                 Id = Guid.NewGuid(),
                 CompanyId = order.CompanyId,
                 OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
-                ConvertedFromQuoteNumber = order.OrderNumber, // Track lineage
+                ConvertedFromQuoteNumber = order.OrderNumber,
                 TaxId = order.TaxId,
                 TaxGLAccountId = order.TaxGLAccountId,
                 CustomerId = order.CustomerId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
-                Status = OrderStatus.Draft, // SET TO DRAFT INVOICE
+                Status = OrderStatus.Draft,
                 CurrencyId = order.CurrencyId,
                 ExchangeRate = order.ExchangeRate,
-                WarehouseId = order.WarehouseId
+                WarehouseId = order.WarehouseId,
+                // Inherit Discounts
+                DiscountPercentage = order.DiscountPercentage,
+                DiscountAmount = order.DiscountAmount,
+                DiscountGlAccountId = order.DiscountGlAccountId
             };
 
             foreach (var line in order.Lines)
@@ -286,6 +345,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
+        // --- UPDATED: POST INVOICE WITH DISCOUNT GL LOGIC ---
         public async Task<string> InvoiceOrderAsync(Guid orderId, Guid? warehouseId = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -300,7 +360,7 @@ namespace Primafit_ERP.Services
 
                 if (order == null) return "Order not found.";
                 if (order.Status == OrderStatus.Invoiced) return "Order is already invoiced.";
-                if (order.Status == OrderStatus.Quote) return "Quotes cannot be invoiced directly. Please convert it to an Invoice first.";
+                if (order.Status == OrderStatus.Quote) return "Quotes cannot be invoiced directly.";
 
                 var glLines = new List<GLJournalLine>();
                 bool hasPhysicalItems = order.Lines.Any(l => l.Item != null && !l.Item.IsService);
@@ -317,6 +377,7 @@ namespace Primafit_ERP.Services
                 decimal rate = order.ExchangeRate > 0 ? order.ExchangeRate : 1;
                 decimal totalRevenueBase = 0;
 
+                // 1. CREDIT SALES REVENUE
                 foreach (var line in order.Lines)
                 {
                     if (line.Item == null || line.Quantity == 0) continue;
@@ -327,17 +388,41 @@ namespace Primafit_ERP.Services
                     if (line.Item.SalesIncomeAccountId == Guid.Empty)
                         return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
 
+                    // Credit Revenue for the FULL gross amount of the item
                     glLines.Add(new GLJournalLine { SegCoaId = line.Item.SalesIncomeAccountId, Debit = 0, Credit = lineTotalBase, Reference = $"Rev {line.Item.Name}" });
                     totalRevenueBase += lineTotalBase;
                 }
 
+                // 2. DEBIT DISCOUNT ALLOWED EXPENSE (Reduces the Net Revenue impact)
+                decimal discountForeign = order.DiscountAmount;
+                if (order.DiscountPercentage > 0)
+                {
+                    // Recalculate Foreign SubTotal to get exact percentage discount
+                    decimal foreignSubTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                    discountForeign = foreignSubTotal * (order.DiscountPercentage / 100);
+                }
+
+                decimal discountBase = Math.Round(discountForeign * rate, 2);
+
+                if (discountBase > 0)
+                {
+                    if (order.DiscountGlAccountId == null || order.DiscountGlAccountId == Guid.Empty)
+                        return "A discount was applied, but no Discount GL Account was selected.";
+
+                    glLines.Add(new GLJournalLine { SegCoaId = order.DiscountGlAccountId.Value, Debit = discountBase, Credit = 0, Reference = $"Discount {order.OrderNumber}" });
+                }
+
+                // 3. CREDIT TAX PAYABLE
+                decimal discountedRevenueBase = totalRevenueBase - discountBase;
                 decimal totalTaxBase = 0;
+
                 if (order.TaxId.HasValue)
                 {
                     var taxDef = await ctx.Taxes.FindAsync(order.TaxId);
                     if (taxDef != null && taxDef.Per > 0)
                     {
-                        decimal taxAmountBase = totalRevenueBase * (taxDef.Per / 100);
+                        // Tax is calculated on the Post-Discount amount!
+                        decimal taxAmountBase = discountedRevenueBase * (taxDef.Per / 100);
                         totalTaxBase = Math.Round(taxAmountBase, 2);
 
                         Guid targetGlId = order.TaxGLAccountId ?? taxDef.GLAccountId ?? Guid.Empty;
@@ -347,12 +432,14 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                decimal grandTotalBase = totalRevenueBase + totalTaxBase;
+                // 4. DEBIT ACCOUNTS RECEIVABLE (The Net Amount the Customer actually owes)
+                decimal grandTotalBase = discountedRevenueBase + totalTaxBase;
 
                 if (order.Customer?.ReceivablesAccountId == null) return "Customer AR Account is missing.";
 
                 glLines.Add(new GLJournalLine { SegCoaId = order.Customer.ReceivablesAccountId.Value, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
 
+                // POST BATCH
                 if (glLines.Any())
                 {
                     var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Sales Invoice", $"Inv {order.OrderNumber}", glLines);
@@ -388,7 +475,6 @@ namespace Primafit_ERP.Services
             if (order == null) return "Order not found.";
             if (order.Status == OrderStatus.Invoiced) return "Cannot terminate an order that has already been invoiced.";
 
-            // --- NEW: PREVENT DELETING CONVERTED QUOTES ---
             if (order.Status == OrderStatus.Quote)
             {
                 bool isConverted = await ctx.SalesOrders.AnyAsync(inv => inv.ConvertedFromQuoteNumber == order.OrderNumber);

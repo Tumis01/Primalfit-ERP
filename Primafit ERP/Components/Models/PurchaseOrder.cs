@@ -9,27 +9,44 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public Guid CompanyId { get; set; } // <--- ADDED
+        public Guid CompanyId { get; set; }
+        [ForeignKey(nameof(CurrencyId))]
+        public Currency? Currency { get; set; }
 
         [Required]
         public Guid VendorId { get; set; }
-        public string OrderNumber { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
         public DateTime OrderDate { get; set; } = DateTime.Today;
         public Guid? LinkedSalesOrderId { get; set; }
+
         [Required]
-        public Guid CurrencyId { get; set; } // The Vendor's Currency
+        public Guid CurrencyId { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
-        public decimal ExchangeRate { get; set; }
+        public decimal ExchangeRate { get; set; } = 1;
+
+        // --- NEW: TAX & DISCOUNT PROPERTIES ---
+        public Guid? TaxId { get; set; }
+        public Guid? TaxGLAccountId { get; set; } // Maps to Input VAT / Tax Receivable (Asset)
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountPercentage { get; set; } = 0;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountAmount { get; set; } = 0;
+
+        public Guid? DiscountGlAccountId { get; set; } // Maps to Discount Received (Income/Credit)
+
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
-        [Required]
-   
+
         public bool HasReceipt { get; set; } = false;
         public bool IsFullyReceived { get; set; } = false;
         public bool IsInvoicePosted { get; set; } = false;
-        public bool IsFullyPaid { get; set; } = false;  
+        public bool IsFullyPaid { get; set; } = false;
 
+        // --- UI COMPUTED HELPERS ---
+        [NotMapped] public decimal GrandTotalForeign { get; set; }
     }
 
     public class PurchaseOrderLine

@@ -193,6 +193,31 @@
                                         </tr>
                                     }
                                 </tbody>
+                                
+                                <tfoot class="bg-slate-50 border-t-2 border-slate-200 text-right text-slate-600">
+                                    <tr>
+                                        <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Subtotal:</td>
+                                        <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-700">@SelectedInvoice.SubTotal.ToString("N2")</td>
+                                    </tr>
+                                    @if (SelectedInvoice.DiscountValue > 0)
+                                    {
+                                        <tr class="text-rose-600">
+                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Discount:</td>
+                                            <td class="px-4 py-2 pr-6 font-mono font-bold">- @SelectedInvoice.DiscountValue.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                    @if (SelectedInvoice.TaxAmount > 0)
+                                    {
+                                        <tr>
+                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">@SelectedInvoice.TaxDescription:</td>
+                                            <td class="px-4 py-2 pr-6 font-mono font-bold">+ @SelectedInvoice.TaxAmount.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                    <tr class="text-slate-900 border-t border-slate-200 bg-slate-100/50">
+                                        <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Invoice Grand Total:</td>
+                                        <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-indigo-700">@currencySymbol@SelectedInvoice.OriginalTotal.ToString("N2")</td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         }
                         else
@@ -255,6 +280,12 @@
         public decimal OriginalRate { get; set; }
         public Guid CurrencyId { get; set; }
         public List<SalesOrderLine> Lines { get; set; } = new();
+
+        // --- NEW PROPERTIES FOR BREAKDOWN ---
+        public decimal SubTotal { get; set; }
+        public decimal DiscountValue { get; set; }
+        public decimal TaxAmount { get; set; }
+        public string TaxDescription { get; set; } = "Tax";
     }
 
     private List<InvoiceRow> openInvoices = new();
@@ -346,7 +377,6 @@
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
         
-        // Removed !o.IsFullyPaid. The loop below naturally filters out paid invoices.
         var invoices = await ctx.SalesOrders
             .Include(o => o.Lines).ThenInclude(l => l.Item)
             .Where(o => o.CompanyId == currentCompanyId && o.CustomerId == customerId && o.Status == OrderStatus.Invoiced)
@@ -356,13 +386,27 @@
         foreach (var inv in invoices)
         {
             decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
+            
+            decimal discountValue = inv.DiscountAmount;
+            if (inv.DiscountPercentage > 0)
+            {
+                discountValue = subTotal * (inv.DiscountPercentage / 100);
+            }
+            decimal discountedSubTotal = subTotal - discountValue;
+
             decimal taxAmount = 0;
+            string taxDesc = "Tax";
             if (inv.TaxId.HasValue)
             {
                 var tax = await ctx.Taxes.FindAsync(inv.TaxId.Value);
-                if (tax != null) taxAmount = subTotal * (tax.Per / 100);
+                if (tax != null) 
+                {
+                    taxAmount = discountedSubTotal * (tax.Per / 100);
+                    taxDesc = $"{tax.TaxName} ({tax.Per}%)";
+                }
             }
-            decimal grandTotal = subTotal + taxAmount;
+            
+            decimal grandTotal = discountedSubTotal + taxAmount;
 
             decimal paidAmount = await ctx.PaymentApplications
                 .Where(a => a.InvoiceId == inv.Id)
@@ -370,7 +414,6 @@
 
             decimal balanceDue = grandTotal - paidAmount;
 
-            // This line automatically hides the invoice if it's already fully paid!
             if (balanceDue > 0.01m) 
             {
                 openInvoices.Add(new InvoiceRow
@@ -382,7 +425,12 @@
                     BalanceDue = balanceDue,
                     OriginalRate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1,
                     CurrencyId = inv.CurrencyId,
-                    Lines = inv.Lines.ToList()
+                    Lines = inv.Lines.ToList(),
+                    // --- MAP THE NEW PROPERTIES ---
+                    SubTotal = subTotal,
+                    DiscountValue = discountValue,
+                    TaxAmount = taxAmount,
+                    TaxDescription = taxDesc
                 });
             }
         }
