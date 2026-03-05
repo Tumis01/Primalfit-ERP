@@ -23,4 +23,14 @@
         Net30 = 30,
         Net60 = 60
     }
+    public enum StockEntryType
+    {
+        DirectReceipt,          // Vendor Purchase
+        QuantityIncrease,       // Found stock (Free)
+        QuantityDecrease,       // Shrinkage / Damaged
+        CostIncrease,           // Revaluation 
+        CostDecrease,           // Devaluation 
+        BothIncrease,           // Found stock + Value
+        BothDecrease            // Lost stock + Value
+    }
 }
