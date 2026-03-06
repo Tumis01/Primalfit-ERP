@@ -24,8 +24,14 @@
         anchorElement.remove();
         URL.revokeObjectURL(url);
         }
-    </script>
-    <script>
+        window.downloadFileFromStream = async (fileName, base64Content) => {
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = "data:text/csv;base64," + base64Content;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
         window.downloadReportFile = function (fileName, byteBase64, mimeType) {
         // Convert Base64 string to a Blob
         var byteCharacters = atob(byteBase64);
@@ -43,7 +49,7 @@
         anchor.download = fileName;
         document.body.appendChild(anchor);
         anchor.click();
-        
+
         // Cleanup
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
@@ -57,6 +63,7 @@
         document.body.removeChild(link);
         };
     </script>
+   
     <script src="_framework/blazor.web.js"></script>
 </body>
 </html>

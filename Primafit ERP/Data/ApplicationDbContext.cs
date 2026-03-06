@@ -82,6 +82,8 @@ namespace PrimafitERP.Data
         public DbSet<GrnLandedCost> GrnLandedCosts { get; set; }
         public DbSet<AssetCategory> AssetCategories { get; set; }
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }
+        public DbSet<SalesShipment> SalesShipments { get; set; }
+        public DbSet<SalesShipmentLine> SalesShipmentLines { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

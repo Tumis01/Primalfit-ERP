@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using PrimafitERP.Data;
 using Primafit_ERP.Components.Models;
+using PrimafitERP.Data;
+using System.Text;
 
 namespace Primafit_ERP.Services
 {
@@ -411,6 +412,123 @@ namespace Primafit_ERP.Services
             return await q
                 .OrderBy(c => c.AccountCode)
                 .ToListAsync();
+        }
+        // --- NEW: CSV PARSER HELPER ---
+        private List<string> ParseCsvLine(string line)
+        {
+            var result = new List<string>();
+            bool inQuotes = false;
+            var currentToken = new System.Text.StringBuilder();
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (c == '\"') { inQuotes = !inQuotes; }
+                else if (c == ',' && !inQuotes)
+                {
+                    result.Add(currentToken.ToString().Trim());
+                    currentToken.Clear();
+                }
+                else { currentToken.Append(c); }
+            }
+            result.Add(currentToken.ToString().Trim());
+            return result;
+        }
+
+        // --- NEW: IMPORT FULL COA ---
+        public async Task<string> ImportFullCoaAsync(Guid companyId, Stream fileStream, string fileName)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // 1. Load Segment Mappings into memory for lightning-fast lookup
+            var seg0Map = await ctx.Segment0s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+            var seg1Map = await ctx.Segment1s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+            var seg2Map = await ctx.Segment2s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+            var seg3Map = await ctx.Segment3s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+            var seg4Map = await ctx.Segment4s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+            var seg5Map = await ctx.Segment5s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
+
+            var typesMap = await ctx.Set<SegAccountType>().ToDictionaryAsync(x => x.Description.Trim().ToLower(), x => x.Id);
+            // 3. Load existing COA to prevent duplicates
+            var existingCoaCodes = await ctx.SegChartOfAccounts
+                .Where(c => c.CompanyId == companyId)
+                .Select(x => x.AccountCode.ToLower())
+                .ToListAsync();
+            var existingSet = new HashSet<string>(existingCoaCodes);
+
+            var newAccounts = new List<SegChartOfAccount>();
+            int added = 0, skipped = 0;
+
+            using var reader = new StreamReader(fileStream);
+            bool isFirstRow = true;
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                if (isFirstRow)
+                {
+                    isFirstRow = false; // Skip the CSV header row
+                    continue;
+                }
+
+                var parts = ParseCsvLine(line);
+
+                // EXPECTED CSV FORMAT:
+                // 0:Seg0, 1:Seg1, 2:Seg2, 3:Seg3, 4:Seg4, 5:Seg5, 6:Description, 7:AccountType, 8:AllowJournal, 9:IsActive
+                if (parts.Count < 8) { skipped++; continue; }
+
+                string s0Code = parts[0];
+                string typeDesc = parts[7];
+
+                if (string.IsNullOrWhiteSpace(s0Code) || string.IsNullOrWhiteSpace(typeDesc)) { skipped++; continue; }
+
+                // Validate Seg0 and Account Type (Required fields)
+                if (!seg0Map.TryGetValue(s0Code.ToLower(), out Guid s0Id)) { skipped++; continue; }
+                if (!typesMap.TryGetValue(typeDesc.ToLower(), out int typeId)) { skipped++; continue; }
+
+                // Build the Account Object
+                var acc = new SegChartOfAccount
+                {
+                    Id = Guid.NewGuid(),
+                    CompanyId = companyId,
+                    Segment0Id = s0Id,
+                    Description = parts[6],
+                    SegAccountTypeId = typeId,
+                    AllowJournal = parts.Count > 8 && bool.TryParse(parts[8], out bool aj) ? aj : true,
+                    IsActive = parts.Count > 9 && bool.TryParse(parts[9], out bool ia) ? ia : true
+                };
+
+                var codeParts = new List<string> { s0Code };
+
+                // Map Optional Segments (if provided in the CSV)
+                if (parts.Count > 1 && !string.IsNullOrWhiteSpace(parts[1]) && seg1Map.TryGetValue(parts[1].ToLower(), out Guid s1Id)) { acc.Segment1Id = s1Id; codeParts.Add(parts[1]); }
+                if (parts.Count > 2 && !string.IsNullOrWhiteSpace(parts[2]) && seg2Map.TryGetValue(parts[2].ToLower(), out Guid s2Id)) { acc.Segment2Id = s2Id; codeParts.Add(parts[2]); }
+                if (parts.Count > 3 && !string.IsNullOrWhiteSpace(parts[3]) && seg3Map.TryGetValue(parts[3].ToLower(), out Guid s3Id)) { acc.Segment3Id = s3Id; codeParts.Add(parts[3]); }
+                if (parts.Count > 4 && !string.IsNullOrWhiteSpace(parts[4]) && seg4Map.TryGetValue(parts[4].ToLower(), out Guid s4Id)) { acc.Segment4Id = s4Id; codeParts.Add(parts[4]); }
+                if (parts.Count > 5 && !string.IsNullOrWhiteSpace(parts[5]) && seg5Map.TryGetValue(parts[5].ToLower(), out Guid s5Id)) { acc.Segment5Id = s5Id; codeParts.Add(parts[5]); }
+
+                acc.AccountCode = string.Join("-", codeParts); // e.g. "1000-10-20"
+
+                if (!existingSet.Contains(acc.AccountCode.ToLower()))
+                {
+                    newAccounts.Add(acc);
+                    existingSet.Add(acc.AccountCode.ToLower());
+                    added++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+
+            if (newAccounts.Any())
+            {
+                ctx.SegChartOfAccounts.AddRange(newAccounts);
+                await ctx.SaveChangesAsync();
+            }
+
+            return $"Import Complete! Successfully added {added} accounts. Skipped {skipped} rows (duplicates or invalid data).";
         }
     }
 }

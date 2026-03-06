@@ -1,0 +1,54 @@
+﻿@page "/reports/customer-transactions"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SalesService SalesService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6 space-y-4">
+
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-end gap-4 animate-in fade-in">
+        <div class="w-80">
+            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Filter by Customer</label>
+            <input type="text" @bind="customerSearchTerm" class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" placeholder="Enter customer name (optional)..." />
+        </div>
+        <button @onclick="ApplyFilter" class="px-6 py-2.5 bg-slate-900 text-white font-bold text-sm rounded-xl shadow-md hover:bg-slate-800 transition-all active:scale-95">
+            Filter
+        </button>
+    </div>
+
+    <ReportViewer @key="reportKey"
+                  CompanyId="companyId"
+                  Title="Customer Transaction Report"
+                  Description="Detailed breakdown of items purchased and amounts paid by customers."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+    private string customerSearchTerm = "";
+    private Guid reportKey = Guid.NewGuid(); // Used to force the ReportViewer component to reload data
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    private void ApplyFilter()
+    {
+        // Changing the key forces the ReportViewer to completely re-render and call GetData again
+        reportKey = Guid.NewGuid();
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await SalesService.GenerateCustomerTransactionReportAsync(companyId, start, end, customerSearchTerm);
+    }
+}

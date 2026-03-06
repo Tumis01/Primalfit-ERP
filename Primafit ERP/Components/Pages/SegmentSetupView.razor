@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.IO
+@using System.Text
 
 @inject SegmentsSetupService Service
 @inject CompanyApiService CompanyService
@@ -15,7 +16,7 @@
 
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
@@ -39,7 +40,7 @@
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a6 6 0 100 12m0-12a6 6 0 010 12m0 0v2m0-2a6 6 0 01-6-6m6 6a6 6 0 006-6" />
                 </svg>
-                Configure
+                Configure Structure
             </button>
 
             <button @onclick="ToggleAddValue"
@@ -68,27 +69,27 @@
     {
         @if (showConfig)
         {
-             <div class="rounded-2xl border border-slate-200 bg-white shadow-sm mb-6 animate-in slide-in-from-top-2">
+            <div class="rounded-2xl border border-slate-200 bg-white shadow-sm mb-6 animate-in slide-in-from-top-2">
                 <div class="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                     <div>
                         <h3 class="text-lg font-bold text-slate-900">Segment Configuration</h3>
-                        <p class="text-sm text-slate-500 mt-1">Define which segments are active for your COA.</p>
+                        <p class="text-sm text-slate-500 mt-1">Define which segments are active for your Chart of Accounts.</p>
                     </div>
                     <div class="flex gap-2">
-                        <button @onclick="CancelConfig" class="rounded-xl px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100">Cancel</button>
-                        <button @onclick="SaveConfig" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">Save Config</button>
+                        <button @onclick="CancelConfig" class="rounded-xl px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+                        <button @onclick="SaveConfig" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 transition-colors shadow-sm">Save Config</button>
                     </div>
                 </div>
 
-                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="space-y-1.5">
-                        <label class="label">Segment 0 Name (Required)</label>
+                <div class="p-6">
+                    <div class="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100 max-w-xl">
+                        <label class="label text-indigo-700">Segment 0 Name (Primary / Required)</label>
                         <InputText @bind-Value="cfg.Segment0Name" class="@InputClass" />
-                        <div class="text-xs text-slate-400">This is the main account segment (e.g. Natural Account).</div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-2">This is the main natural account segment.</div>
                     </div>
 
-                    <div class="space-y-4">
-                        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide border-b pb-1">Optional Segments</div>
+                    <div class="text-xs font-black text-slate-500 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">Optional Segments</div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
                         @ConfigRow("Segment 1", cfg.Segment1Name, v => cfg.Segment1Name = v, cfg.Segment1Active, v => cfg.Segment1Active = v)
                         @ConfigRow("Segment 2", cfg.Segment2Name, v => cfg.Segment2Name = v, cfg.Segment2Active, v => cfg.Segment2Active = v)
                         @ConfigRow("Segment 3", cfg.Segment3Name, v => cfg.Segment3Name = v, cfg.Segment3Active, v => cfg.Segment3Active = v)
@@ -100,38 +101,61 @@
         }
 
         <div class="rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col min-h-[500px]">
-            
+
             <div class="p-4 border-b border-slate-100 bg-slate-50/30">
                 <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-4">
                     <div>
                         <h3 class="text-lg font-bold text-slate-900">@GetCurrentSegmentName() Values</h3>
                         <div class="text-xs text-slate-500 mt-1 flex items-center gap-1">
                             <span>Manages values for: </span>
-                            <span class="font-mono font-bold bg-slate-100 px-1 rounded">@GetCurrentSegmentName()</span>
+                            <span class="font-mono font-bold bg-slate-100 px-1 rounded border border-slate-200">@GetCurrentSegmentName()</span>
                         </div>
                     </div>
 
                     <div class="flex flex-wrap gap-2">
                         <button @onclick="() => SelectTab(0)" class="@TabClass(activeTab == 0)">@(string.IsNullOrWhiteSpace(cfg.Segment0Name) ? "Seg 0" : cfg.Segment0Name)</button>
-                        @if (cfg.Segment1Active) { <button @onclick="() => SelectTab(1)" class="@TabClass(activeTab == 1)">@cfg.Segment1Name</button> }
-                        @if (cfg.Segment2Active) { <button @onclick="() => SelectTab(2)" class="@TabClass(activeTab == 2)">@cfg.Segment2Name</button> }
-                        @if (cfg.Segment3Active) { <button @onclick="() => SelectTab(3)" class="@TabClass(activeTab == 3)">@cfg.Segment3Name</button> }
-                        @if (cfg.Segment4Active) { <button @onclick="() => SelectTab(4)" class="@TabClass(activeTab == 4)">@cfg.Segment4Name</button> }
-                        @if (cfg.Segment5Active) { <button @onclick="() => SelectTab(5)" class="@TabClass(activeTab == 5)">@cfg.Segment5Name</button> }
+                        @if (cfg.Segment1Active)
+                        {
+                            <button @onclick="() => SelectTab(1)" class="@TabClass(activeTab == 1)">@cfg.Segment1Name</button>
+                        }
+                        @if (cfg.Segment2Active)
+                        {
+                            <button @onclick="() => SelectTab(2)" class="@TabClass(activeTab == 2)">@cfg.Segment2Name</button>
+                        }
+                        @if (cfg.Segment3Active)
+                        {
+                            <button @onclick="() => SelectTab(3)" class="@TabClass(activeTab == 3)">@cfg.Segment3Name</button>
+                        }
+                        @if (cfg.Segment4Active)
+                        {
+                            <button @onclick="() => SelectTab(4)" class="@TabClass(activeTab == 4)">@cfg.Segment4Name</button>
+                        }
+                        @if (cfg.Segment5Active)
+                        {
+                            <button @onclick="() => SelectTab(5)" class="@TabClass(activeTab == 5)">@cfg.Segment5Name</button>
+                        }
                     </div>
                 </div>
-                
-                <div class="flex justify-between items-center pt-2 border-t border-slate-200/50">
-                    <span class="text-xs font-bold text-slate-400 uppercase">Actions for @GetCurrentSegmentName()</span>
-                    
-                    <div>
-                        <label for="csvImport" class="cursor-pointer inline-flex items-center gap-2 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors border border-indigo-200">
+
+                <div class="flex justify-between items-center pt-3 border-t border-slate-200/50">
+                    <span class="text-xs font-black text-slate-400 uppercase tracking-wider">Data Actions</span>
+
+                    <div class="flex items-center gap-2">
+                        
+
+                        <label for="csvImport" class="cursor-pointer inline-flex items-center gap-2 text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-4 py-2 rounded-lg transition-colors border border-indigo-200 shadow-sm active:scale-95">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                             </svg>
-                            Import @GetCurrentSegmentName() (CSV/Excel)
+                            Import
                         </label>
                         <InputFile id="csvImport" OnChange="HandleFileImport" class="hidden" accept=".csv, .xlsx, .xls" />
+                        <button @onclick="ExportToExcel" class="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-lg transition-colors border border-emerald-200 shadow-sm active:scale-95">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Export
+                        </button>
                     </div>
                 </div>
             </div>
@@ -171,11 +195,11 @@
 
             <div class="flex-1 overflow-auto">
                 <table class="w-full text-left text-sm text-slate-900">
-                    <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0 z-10">
+                    <thead class="bg-white text-[10px] uppercase tracking-wider font-extrabold text-slate-500 border-b border-slate-200 sticky top-0 z-10">
                         <tr>
-                            <th class="px-6 py-3 w-32 bg-slate-50/50">Code</th>
-                            <th class="px-6 py-3 bg-slate-50/50">Description</th>
-                            <th class="px-6 py-3 text-right bg-slate-50/50">Actions</th>
+                            <th class="px-6 py-4 w-32 bg-slate-50/50">Code</th>
+                            <th class="px-6 py-4 bg-slate-50/50">Description</th>
+                            <th class="px-6 py-4 text-right bg-slate-50/50">Actions</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -183,9 +207,9 @@
                         {
                             <tr class="group hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-3">
-                                    <span class="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">@row.Code</span>
+                                    <span class="inline-flex items-center rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono font-bold text-slate-700 shadow-sm">@row.Code</span>
                                 </td>
-                                <td class="px-6 py-3 font-medium text-slate-600">@row.Description</td>
+                                <td class="px-6 py-3 font-bold text-slate-700">@row.Description</td>
                                 <td class="px-6 py-3 text-right">
                                     <div class="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button @onclick="() => BeginEdit(row)" class="text-indigo-600 font-bold hover:underline text-xs">Edit</button>
@@ -197,10 +221,10 @@
                         @if (!GetPagedRows().Any())
                         {
                             <tr>
-                                <td colspan="3" class="px-6 py-12 text-center text-slate-400">
+                                <td colspan="3" class="px-6 py-16 text-center text-slate-400">
                                     <div class="flex flex-col items-center">
                                         <svg class="w-12 h-12 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
-                                        <p>No values found.</p>
+                                        <p class="font-bold">No values found.</p>
                                         <p class="text-xs mt-1">Add manually or Import CSV.</p>
                                     </div>
                                 </td>
@@ -209,8 +233,8 @@
                     </tbody>
                 </table>
             </div>
-            
-            <div class="p-3 border-t border-slate-100 bg-slate-50 text-xs flex items-center justify-between">
+
+            <div class="p-3 border-t border-slate-200 bg-slate-50 text-xs flex items-center justify-between rounded-b-2xl">
                 <div class="text-slate-500">
                     Showing <strong>@GetPagedRows().Count()</strong> of <strong>@GetAllRowsForTab().Count()</strong>
                 </div>
@@ -218,11 +242,11 @@
                 @if (TotalPages > 1)
                 {
                     <div class="flex items-center gap-2">
-                        <button @onclick="PrevPage" disabled="@(currentPage == 1)" class="px-2 py-1 rounded border bg-white disabled:opacity-50 hover:bg-slate-100 text-slate-600">
+                        <button @onclick="PrevPage" disabled="@(currentPage == 1)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white font-bold disabled:opacity-50 hover:bg-slate-100 text-slate-600 transition-colors">
                             Prev
                         </button>
-                        <span class="font-bold text-slate-700">Page @currentPage of @TotalPages</span>
-                        <button @onclick="NextPage" disabled="@(currentPage == TotalPages)" class="px-2 py-1 rounded border bg-white disabled:opacity-50 hover:bg-slate-100 text-slate-600">
+                        <span class="font-bold text-slate-700 px-2">Page @currentPage of @TotalPages</span>
+                        <button @onclick="NextPage" disabled="@(currentPage == TotalPages)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white font-bold disabled:opacity-50 hover:bg-slate-100 text-slate-600 transition-colors">
                             Next
                         </button>
                     </div>
@@ -235,55 +259,57 @@
 <style>
     .label {
         display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
+        font-size: 0.70rem;
+        font-weight: 800;
         color: #475569;
         text-transform: uppercase;
-        margin-bottom: 0.25rem;
-        letter-spacing: 0.025em;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
     }
+
     .input-class {
         display: block;
         width: 100%;
         border-radius: 0.75rem;
         border: 1px solid #cbd5e1;
         background-color: #fff;
-        padding: 0.6rem 0.75rem;
+        padding: 0.6rem 0.8rem;
         font-size: 0.875rem;
         color: #0f172a;
         transition: all 0.2s;
-    }
-    .input-class:focus {
-        border-color: #0f172a;
         outline: none;
-        box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
     }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
-    private const string InputClass = "block w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400";
-    
+    private const string InputClass = "block w-full rounded-xl border border-slate-200 bg-white py-2 px-3 text-sm font-bold text-slate-900 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none";
+
     // State
     private Guid selectedCompanyId;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
     private bool isImporting = false;
-    
+
     // Pagination State
     private int currentPage = 1;
-    private int pageSize = 20;
-    
+    private int pageSize = 15;
+
     // Config & Data
     private SegCoaConfig cfg = new();
     private SegCoaConfig cfgSnapshot = new();
     private int activeTab = 0;
-    
+
     // UI State
     private bool showConfig = false;
     private bool showValueForm = false;
     private SegmentEditVm editModel = new();
-    
+
     // Data Containers
     private List<Segment0> seg0 = new();
     private List<Segment1> seg1 = new();
@@ -319,19 +345,19 @@
         seg4 = await Service.GetSegmentsAsync<Segment4>(selectedCompanyId);
         seg5 = await Service.GetSegmentsAsync<Segment5>(selectedCompanyId);
     }
-    
+
     // --- CSV/Excel IMPORT LOGIC ---
     private async Task HandleFileImport(InputFileChangeEventArgs e)
     {
         if (e.File == null) return;
-        
+
         isImporting = true;
         string resultMsg = "";
 
         try
         {
             using var stream = e.File.OpenReadStream(5 * 1024 * 1024);
-            
+
             resultMsg = activeTab switch
             {
                 0 => await Service.ImportSegmentValuesAsync<Segment0>(selectedCompanyId, stream, e.File.Name),
@@ -354,6 +380,36 @@
         {
             isImporting = false;
         }
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportToExcel()
+    {
+        var rows = GetAllRowsForTab().ToList();
+        if (!rows.Any())
+        {
+            await JS.InvokeVoidAsync("alert", "No data to export.");
+            return;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Code,Description"); // CSV Header
+
+        foreach (var row in rows)
+        {
+            // Escape quotes to prevent CSV breakage if description contains commas
+            string code = $"\"{row.Code.Replace("\"", "\"\"")}\"";
+            string desc = $"\"{row.Description.Replace("\"", "\"\"")}\"";
+            sb.AppendLine($"{code},{desc}");
+        }
+
+        var fileName = $"{GetCurrentSegmentName().Replace(" ", "_")}_Export_{DateTime.Now:yyyyMMdd}.csv";
+        var fileContent = sb.ToString();
+        var bytes = Encoding.UTF8.GetBytes(fileContent);
+        var base64 = Convert.ToBase64String(bytes);
+
+        // Natively trigger download via JS
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, base64);
     }
 
     // --- PAGINATION HELPERS ---
@@ -386,9 +442,9 @@
 
     private string GetCurrentSegmentName() => activeTab switch { 0 => cfg.Segment0Name ?? "Segment 0", 1 => cfg.Segment1Name, 2 => cfg.Segment2Name, 3 => cfg.Segment3Name, 4 => cfg.Segment4Name, 5 => cfg.Segment5Name, _ => "" };
 
-    private string TabClass(bool isActive) => isActive 
-        ? "rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-md transition-all scale-105" 
-        : "rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all";
+    private string TabClass(bool isActive) => isActive
+        ? "rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-all scale-105"
+        : "rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all";
 
     private void SelectTab(int tab)
     {
@@ -403,89 +459,51 @@
         CancelEdit();
     }
 
-    private void ToggleConfig() { showConfig = !showConfig; if(showConfig) cfgSnapshot = CloneCfg(cfg); }
+    private void ToggleConfig() { showConfig = !showConfig; if (showConfig) cfgSnapshot = CloneCfg(cfg); }
     private void CancelConfig() { cfg = CloneCfg(cfgSnapshot); showConfig = false; }
-    
-    private async Task SaveConfig() 
-    { 
+
+    private async Task SaveConfig()
+    {
         cfg.CompanyId = selectedCompanyId;
         var err = await Service.SaveConfigAsync(cfg);
-        if(!string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", err);
+        if (!string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", err);
         else { cfgSnapshot = CloneCfg(cfg); showConfig = false; }
     }
 
     private void ToggleAddValue() { showValueForm = true; CancelEdit(); }
     private void CancelValueForm() { CancelEdit(); showValueForm = false; }
 
-    private void BeginEdit((Guid Id, string Code, string Description) row) 
-    { 
-        editModel = new SegmentEditVm { Id = row.Id, Code = row.Code, Description = row.Description }; 
-        showValueForm = true; 
+    private void BeginEdit((Guid Id, string Code, string Description) row)
+    {
+        editModel = new SegmentEditVm { Id = row.Id, Code = row.Code, Description = row.Description };
+        showValueForm = true;
     }
-    
+
     private void CancelEdit() => editModel = new SegmentEditVm();
 
     private async Task SaveSegmentRow()
     {
         string? err = "";
 
-        // We instantiate the specific class and include 'Id = editModel.Id'.
-        // The Service.SaveSegmentAsync checks if Id is Empty (Create) or populated (Update).
         switch (activeTab)
         {
             case 0:
-                err = await Service.SaveSegmentAsync(new Segment0
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment0 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             case 1:
-                err = await Service.SaveSegmentAsync(new Segment1
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment1 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             case 2:
-                err = await Service.SaveSegmentAsync(new Segment2
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment2 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             case 3:
-                err = await Service.SaveSegmentAsync(new Segment3
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment3 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             case 4:
-                err = await Service.SaveSegmentAsync(new Segment4
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment4 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             case 5:
-                err = await Service.SaveSegmentAsync(new Segment5
-                {
-                    Id = editModel.Id,
-                    CompanyId = selectedCompanyId,
-                    Code = editModel.Code,
-                    Description = editModel.Description
-                });
+                err = await Service.SaveSegmentAsync(new Segment5 { Id = editModel.Id, CompanyId = selectedCompanyId, Code = editModel.Code, Description = editModel.Description });
                 break;
             default:
                 err = "Invalid segment selected.";
@@ -522,22 +540,22 @@
 
     private RenderFragment ConfigRow(string label, string name, Action<string> setName, bool active, Action<bool> setActive) => builder =>
     {
-        builder.OpenElement(0, "div"); builder.AddAttribute(1, "class", "flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100");
+        builder.OpenElement(0, "div"); builder.AddAttribute(1, "class", "flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200");
         builder.OpenElement(2, "div"); builder.AddAttribute(3, "class", "flex-1");
-        builder.OpenElement(4, "label"); builder.AddAttribute(5, "class", "text-xs font-bold text-slate-500 uppercase"); builder.AddContent(6, label); builder.CloseElement();
-        builder.OpenElement(7, "input"); builder.AddAttribute(8, "class", "block w-full text-sm font-bold text-slate-900 bg-transparent border-0 border-b border-slate-300 focus:ring-0 px-0 py-1");
+        builder.OpenElement(4, "label"); builder.AddAttribute(5, "class", "text-[10px] font-black text-slate-400 uppercase tracking-widest"); builder.AddContent(6, label); builder.CloseElement();
+        builder.OpenElement(7, "input"); builder.AddAttribute(8, "class", "block w-full text-sm font-bold text-slate-900 bg-transparent border-0 border-b-2 border-slate-300 focus:border-indigo-500 focus:ring-0 px-0 py-1 transition-colors");
         builder.AddAttribute(9, "value", name);
         builder.AddAttribute(10, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => setName(e.Value?.ToString() ?? "")));
         builder.CloseElement(); builder.CloseElement();
-        builder.OpenElement(11, "div"); builder.AddAttribute(12, "class", "flex items-center gap-2");
-        builder.OpenElement(13, "input"); builder.AddAttribute(14, "type", "checkbox"); builder.AddAttribute(15, "class", "rounded text-slate-900 focus:ring-slate-900 h-5 w-5");
+        builder.OpenElement(11, "div"); builder.AddAttribute(12, "class", "flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm");
+        builder.OpenElement(13, "input"); builder.AddAttribute(14, "type", "checkbox"); builder.AddAttribute(15, "class", "rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 h-4 w-4");
         builder.AddAttribute(16, "checked", active);
         builder.AddAttribute(17, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, e => setActive((bool)e.Value!)));
         builder.CloseElement();
-        builder.AddMarkupContent(18, "<span class='text-sm font-bold text-slate-700'>Active</span>");
+        builder.AddMarkupContent(18, "<span class='text-xs font-bold text-slate-700'>ON</span>");
         builder.CloseElement(); builder.CloseElement();
     };
-    
+
     private sealed class SegmentEditVm { public Guid Id { get; set; } public string Code { get; set; } = ""; public string Description { get; set; } = ""; }
     private static SegCoaConfig CloneCfg(SegCoaConfig c) => new() { Id = c.Id, CompanyId = c.CompanyId, Segment0Name = c.Segment0Name, Segment1Name = c.Segment1Name, Segment1Active = c.Segment1Active, Segment2Name = c.Segment2Name, Segment2Active = c.Segment2Active, Segment3Name = c.Segment3Name, Segment3Active = c.Segment3Active, Segment4Name = c.Segment4Name, Segment4Active = c.Segment4Active, Segment5Name = c.Segment5Name, Segment5Active = c.Segment5Active };
 }

@@ -82,6 +82,7 @@ builder.Services.AddScoped<ReportExportService>();
 builder.Services.AddScoped<OperationalReportingService>();
 builder.Services.AddScoped<FinancialReportingService>();
 builder.Services.AddScoped<AssetCategoryService>();
+builder.Services.AddScoped<ShipmentService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---

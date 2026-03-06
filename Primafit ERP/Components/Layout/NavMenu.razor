@@ -78,7 +78,7 @@
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Core Modules</div>
 
-            @* 1. GENERAL LEDGER *@
+            @* 1. FINANCE & GL *@
             <div class="space-y-1">
                 <button @onclick="ToggleFinanceMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -87,97 +87,174 @@
                         </svg>
                         <span class="flex-1 text-left font-medium">Finance & GL</span>
                     </div>
-                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_financeMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_financeMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </button>
                 @if (_financeMenuOpen)
                 {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
                         <div class="space-y-1 pt-1">
-                            <NavLink href="/seg-account-types" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Account Types
-                            </NavLink>
-                            <NavLink href="/finance/segments-setup" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Segments
-                            </NavLink>
-                            <NavLink href="/finance/segmented-coa" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Chart of Accounts
-                            </NavLink>
-                            <NavLink href="gl/journal-entry" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Journal Entry
-                            </NavLink>
-                            <NavLink href="gl/batches" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Batches
-                            </NavLink>
-                            <NavLink href="gl/cashbook" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> CashBook Batches
-                            </NavLink>
+
+                            <button @onclick="() => _financeSetupOpen = !_financeSetupOpen" class="@SubNavFolderBase">
+                                <span>Setup</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_financeSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_financeSetupOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
+                                    <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
+                                    <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _financeTransOpen = !_financeTransOpen" class="@SubNavFolderBase">
+                                <span>Transaction</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_financeTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_financeTransOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
+                                    <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
+                                    <NavLink href="gl/bank-reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation</NavLink>
+                                    <NavLink href="finance/budget" class="@NestedNavLink" activeClass="@NestedNavActive">Budgets</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _financeReportOpen = !_financeReportOpen" class="@SubNavFolderBase">
+                                <span>Report</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_financeReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
+                                    <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
+                                    <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
+                                    <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
+                                    <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
+                                    <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
             </div>
 
-            @* 2. SALES & RECEIVABLES *@
+            @* 2. AR & SALES *@
             <div class="space-y-1">
                 <button @onclick="ToggleSalesMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
                         <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
                         </svg>
-                        <span class="flex-1 text-left font-medium">Sales & Invoicing</span>
+                        <span class="flex-1 text-left font-medium">AR & Sales</span>
                     </div>
-                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_salesMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_salesMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </button>
                 @if (_salesMenuOpen)
                 {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
                         <div class="space-y-1 pt-1">
-                            <NavLink href="sc/sales-orders" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Sales Orders
-                            </NavLink>
-                            <NavLink href="ar/payment-entry" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Customer Receipt
-                            </NavLink>
-                            <NavLink href="sales/credit-notes" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Credit Notes
-                            </NavLink>
+
+                            <button @onclick="() => _salesSetupOpen = !_salesSetupOpen" class="@SubNavFolderBase">
+                                <span>Setup</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_salesSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_salesSetupOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
+                                    <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _salesTransOpen = !_salesTransOpen" class="@SubNavFolderBase">
+                                <span>Transaction</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_salesTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_salesTransOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="sc/sales-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Orders</NavLink>
+                                    <NavLink href="ar/payment-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Receipt</NavLink>
+                                    <NavLink href="sales/credit-notes" class="@NestedNavLink" activeClass="@NestedNavActive">Credit Notes</NavLink>
+                                    <NavLink href="wh/shipments" class="@NestedNavLink" activeClass="@NestedNavActive">Shipments</NavLink>
+
+                                </div>
+                            }
+
+                            <button @onclick="() => _salesReportOpen = !_salesReportOpen" class="@SubNavFolderBase">
+                                <span>Report</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_salesReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_salesReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
+                                    <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
+                                    <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
             </div>
 
-            @* 3. PURCHASING & PAYABLES *@
+            @* 3. AP & PURCHASING *@
             <div class="space-y-1">
                 <button @onclick="TogglePurchasingMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
                         <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
                         </svg>
-                        <span class="flex-1 text-left font-medium">Purchasing & AP</span>
+                        <span class="flex-1 text-left font-medium">AP & Purchasing</span>
                     </div>
-                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_purchasingMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_purchasingMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </button>
                 @if (_purchasingMenuOpen)
                 {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
                         <div class="space-y-1 pt-1">
-                            <NavLink href="procurement/purchase-orders" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Purchase Orders
-                            </NavLink>
-                            <NavLink href="ap/bill-entry" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Vendor Bills
-                            </NavLink>
-                            <NavLink href="purchases/returns" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Returns to Vendor
-                            </NavLink>
+
+                            <button @onclick="() => _purchasingSetupOpen = !_purchasingSetupOpen" class="@SubNavFolderBase">
+                                <span>Setup</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_purchasingSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_purchasingSetupOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
+                                    <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _purchasingTransOpen = !_purchasingTransOpen" class="@SubNavFolderBase">
+                                <span>Transaction</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_purchasingTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_purchasingTransOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="procurement/purchase-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase Orders</NavLink>
+                                    <NavLink href="ap/bill-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Bills</NavLink>
+                                    <NavLink href="purchases/returns" class="@NestedNavLink" activeClass="@NestedNavActive">Returns to Vendor</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _purchasingReportOpen = !_purchasingReportOpen" class="@SubNavFolderBase">
+                                <span>Report</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_purchasingReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_purchasingReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <span class="block px-6 py-1.5 text-[10px] text-slate-400 italic">Coming Soon</span>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
@@ -192,132 +269,61 @@
                         </svg>
                         <span class="flex-1 text-left font-medium">Inventory & Stock</span>
                     </div>
-                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_inventoryMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_inventoryMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
                 </button>
                 @if (_inventoryMenuOpen)
                 {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
                         <div class="space-y-1 pt-1">
-                            <NavLink href="sc/stock-list" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Stock List
-                            </NavLink>
-                            <NavLink href="sc/stock-entry" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Stock Entry
-                            </NavLink>
-                            <NavLink href="sc/transfers" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Stock Transfer
-                            </NavLink>
-                            <NavLink href="supply-chain/issue-to-project" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Issue to Project
-                            </NavLink>
+
+                            <button @onclick="() => _inventorySetupOpen = !_inventorySetupOpen" class="@SubNavFolderBase">
+                                <span>Setup</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_inventorySetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_inventorySetupOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="sc/items" class="@NestedNavLink" activeClass="@NestedNavActive">Items & Services</NavLink>
+                                    <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
+                                    <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _inventoryTransOpen = !_inventoryTransOpen" class="@SubNavFolderBase">
+                                <span>Transaction</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_inventoryTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_inventoryTransOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="sc/stock-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Entry & Adj.</NavLink>
+                                    <NavLink href="sc/transfers" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Transfer</NavLink>
+                                    <NavLink href="supply-chain/issue-to-project" class="@NestedNavLink" activeClass="@NestedNavActive">Issue to Project</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _inventoryReportOpen = !_inventoryReportOpen" class="@SubNavFolderBase">
+                                <span>Report</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_inventoryReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_inventoryReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
+                                    <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
+                                    <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
+                                    <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
+                                </div>
+                            }
                         </div>
                     </div>
                 }
             </div>
 
-            @* 5. MASTER DATA (Standalone Category) *@
-            <div class="space-y-4 py-4">
-
-                <div>
-                    <div class="px-4 text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                        Master Data
-                    </div>
-
-                    <div class="space-y-1 px-2">
-            
-                        <div>
-                            <button @onclick="() => showCustomers = !showCustomers"
-                                    class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all">
-                                <div class="flex items-center gap-3">
-                                    <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                    </svg>
-                                    <span>Customers</span>
-                                </div>
-                                <svg class="h-4 w-4 text-slate-400 transition-transform duration-200 @(showCustomers ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            @if (showCustomers)
-                            {
-                                <div class="mt-1 ml-10 space-y-1 border-l-2 border-slate-100 pl-2 animate-in slide-in-from-top-1 fade-in duration-200">
-                                    <NavLink class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                             href="md/customers" Match="NavLinkMatch.All">
-                                        Customer Setup
-                                    </NavLink>
-                                    <NavLink class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                             href="md/customer-groups" Match="NavLinkMatch.All">
-                                        Customer Groups
-                                    </NavLink>
-                                </div>
-                            }
-                        </div>
-
-                        <div>
-                            <button @onclick="() => showVendors = !showVendors"
-                                    class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all">
-                                <div class="flex items-center gap-3">
-                                    <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                    </svg>
-                                    <span>Vendors</span>
-                                </div>
-                                <svg class="h-4 w-4 text-slate-400 transition-transform duration-200 @(showVendors ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            @if (showVendors)
-                            {
-                                <div class="mt-1 ml-10 space-y-1 border-l-2 border-slate-100 pl-2 animate-in slide-in-from-top-1 fade-in duration-200">
-                                    <NavLink class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                             href="md/vendors" Match="NavLinkMatch.All">
-                                        Vendor Setup
-                                    </NavLink>
-                                    <NavLink class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
-                                             href="md/vendor-groups" Match="NavLinkMatch.All">
-                                        Vendor Groups
-                                    </NavLink>
-                                </div>
-                            }
-                        </div>
-
-                        <NavLink class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
-                                 href="sc/items">
-                            <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                            </svg>
-                            <span>Items & Services</span>
-                        </NavLink>
-
-                        <NavLink class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
-                                 href="sc/uom">
-                            <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
-                            </svg>
-                            <span>Units of Measure</span>
-                        </NavLink>
-
-                        <NavLink class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all"
-                                 href="warehouses">
-                            <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h6m-6 4h6m-6 4h6m-6 4h6m-6 4h6" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 21v-6a2 2 0 012-2h2a2 2 0 012 2v6" />
-                            </svg>
-                            <span>Warehouses</span>
-                        </NavLink>
-
-                    </div>
-                </div>
-            </div>
-
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Specialized</div>
 
-            @* 6. PROJECTS *@
+            @* 5. PROJECTS *@
             <NavLink href="/projects" class="@NavBase" activeClass="@NavActive">
                 <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -325,7 +331,7 @@
                 <span class="flex-1 font-medium">Projects</span>
             </NavLink>
 
-            @* 7. FIXED ASSETS (NEW STRUCTURED MODULE) *@
+            @* 6. FIXED ASSETS *@
             <div class="space-y-1">
                 <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -357,80 +363,9 @@
                 }
             </div>
 
-            @* 8. BUDGET *@
-            <NavLink href="finance/budget" class="@NavBase" activeClass="@NavActive">
-                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-                </svg>
-                <span class="flex-1 font-medium">Budget</span>
-            </NavLink>
+            <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Tools & Config</div>
 
-            <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Tools</div>
-
-            @* 9. RECONCILIATION *@
-            <NavLink href="gl/bank-reconciliation" class="@NavBase" activeClass="@NavActive">
-                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span class="flex-1 font-medium">Reconciliation</span>
-            </NavLink>
-
-            @* 10. REPORTS & ANALYTICS *@
-            <div class="space-y-1">
-                <button @onclick="ToggleReportMenu" class="@NavBase w-full justify-between">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium">Reports & Analytics</span>
-                    </div>
-                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_reportMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                </button>
-                @if (_reportMenuOpen)
-                {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
-    
-                        <div class="space-y-1 pt-1">
-                            <NavLink href="/reports/trial-balance" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Trial Balance
-                            </NavLink>
-                            <NavLink href="gl/general-ledger" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Ledger Report
-                            </NavLink>
-        
-                            <NavLink href="reports/profit-and-loss" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Profit & Loss
-                            </NavLink>
-        
-                            <NavLink href="reports/balance-sheet" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Balance Sheet
-                            </NavLink>
-        
-                            <NavLink href="reports/budget-variance" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Budget Variance
-                            </NavLink>
-
-                            <NavLink href="reports/inventory-valuation" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Inventory Valuation
-                            </NavLink>
-
-                            <NavLink href="reports/consumption-log" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Consumption Log
-                            </NavLink>
-
-                            <NavLink href="reports/stock-aging" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Stock Aging
-                            </NavLink>
-                        </div>
-                    </div>
-                }
-            </div>
-
-            @* 11. CONFIGURATION *@
+            @* 7. SYSTEM SETUP *@
             <div class="space-y-1">
                 <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -472,6 +407,7 @@
                 }
             </div>
 
+            @* 8. SETTINGS *@
             <NavLink href="/settings" class="@NavBase" activeClass="@NavActive">
                 <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -495,16 +431,32 @@
 
 @code {
     private bool _sidebarOpen;
+
+    // Main Module Toggles
     private bool _financeMenuOpen;
     private bool _salesMenuOpen;
     private bool _purchasingMenuOpen;
     private bool _inventoryMenuOpen;
-    private bool _masterDataMenuOpen;
-    private bool _assetsMenuOpen; // NEW: Added Asset Menu State
-    private bool _reportMenuOpen;
+    private bool _assetsMenuOpen;
     private bool _setupMenuOpen;
-    private bool showCustomers = false;
-    private bool showVendors = false;
+
+    // Sub-Folder Toggles
+    private bool _financeSetupOpen;
+    private bool _financeTransOpen;
+    private bool _financeReportOpen;
+
+    private bool _salesSetupOpen;
+    private bool _salesTransOpen;
+    private bool _salesReportOpen;
+
+    private bool _purchasingSetupOpen;
+    private bool _purchasingTransOpen;
+    private bool _purchasingReportOpen;
+
+    private bool _inventorySetupOpen;
+    private bool _inventoryTransOpen;
+    private bool _inventoryReportOpen;
+
     private string userName = "Guest";
     private string userInitial = "G";
 
@@ -513,11 +465,19 @@
             ? "fixed inset-y-0 left-0 z-40 w-[280px] bg-white shadow-[4px_0_24px_-12px_rgba(0,0,0,0.18)] transition-transform duration-300 ease-out lg:translate-x-0"
             : "fixed inset-y-0 left-0 z-40 w-[280px] bg-white shadow-none -translate-x-full transition-transform duration-300 ease-out lg:translate-x-0";
 
+    // Main module styles
     private const string NavBase = "group relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-all cursor-pointer";
     private const string NavActive = "bg-slate-900 text-white shadow-sm hover:text-white";
     private const string IconBase = "h-5 w-5 opacity-70 group-hover:opacity-100 transition-opacity [.active_&]:opacity-100";
+
+    // Standard Subnav styles (for single depth)
     private const string SubNavBase = "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-all ml-3.5";
     private const string SubNavActive = "text-slate-900 bg-slate-100 font-semibold shadow-sm ring-1 ring-slate-200/50";
+
+    // Nested Subnav styles (for the Setup/Trans/Report folders)
+    private const string SubNavFolderBase = "flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all ml-2";
+    private const string NestedNavLink = "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all ml-6 relative before:content-[''] before:absolute before:left-[-12px] before:top-1/2 before:-translate-y-1/2 before:w-1.5 before:h-1.5 before:rounded-full before:bg-slate-300 hover:before:bg-slate-500";
+    private const string NestedNavActive = "text-slate-900 bg-slate-100 font-bold shadow-sm ring-1 ring-slate-200/50 before:bg-slate-800";
 
     protected override async Task OnInitializedAsync()
     {
@@ -530,39 +490,56 @@
             userInitial = userName.Substring(0, 1).ToUpperInvariant();
         }
 
-        // Auto-open Menus based on current path
+        // --- INTELLIGENT AUTO-EXPAND LOGIC ---
         var path = new Uri(Nav.Uri).AbsolutePath.Trim('/').ToLowerInvariant();
 
-        _reportMenuOpen = path.StartsWith("reports/") || path.StartsWith("gl/general-ledger") || path.StartsWith("gl/trial-balance");
+        // 1. Finance & GL Routing
+        if (path.StartsWith("seg-account-types") || path.StartsWith("finance/segments-setup") || path.StartsWith("finance/segmented-coa"))
+        { _financeMenuOpen = true; _financeSetupOpen = true; }
 
-        _financeMenuOpen = (path.StartsWith("finance/") || path.StartsWith("gl/") || path.StartsWith("seg-"))
-            && !_reportMenuOpen
-            && !path.Contains("bank-reconciliation")
-            && !path.Contains("budget");
+        if (path.StartsWith("gl/journal-entry") || path.StartsWith("gl/batches") || path.StartsWith("gl/cashbook") || path.StartsWith("finance/budget"))
+        { _financeMenuOpen = true; _financeTransOpen = true; }
 
-        _salesMenuOpen = path.StartsWith("sc/sales") || path.StartsWith("ar/") || path.StartsWith("sales/");
+        if (path.StartsWith("gl/general-ledger") || path.StartsWith("reports/profit-and-loss") || path.StartsWith("reports/balance-sheet") || path.StartsWith("reports/budget-variance") || path.StartsWith("gl/bank-reconciliation"))
+        { _financeMenuOpen = true; _financeReportOpen = true; }
 
-        _purchasingMenuOpen = path.StartsWith("procurement/") || path.StartsWith("ap/") || path.StartsWith("purchases/");
+        // 2. AR & Sales Routing
+        if (path.StartsWith("md/customers") || path.StartsWith("md/customer-groups"))
+        { _salesMenuOpen = true; _salesSetupOpen = true; }
 
-        _inventoryMenuOpen = (path.StartsWith("sc/") || path.StartsWith("supply-chain/"))
-            && !path.Contains("sales") && !path.Contains("items");
+        if (path.StartsWith("sc/sales-orders") || path.StartsWith("ar/payment-entry") || path.StartsWith("sales/credit-notes"))
+        { _salesMenuOpen = true; _salesTransOpen = true; }
 
-        _masterDataMenuOpen = path.StartsWith("md/") || path == "warehouses" || path.Contains("items");
+        // 3. AP & Purchasing Routing
+        if (path.StartsWith("md/vendors") || path.StartsWith("md/vendor-groups"))
+        { _purchasingMenuOpen = true; _purchasingSetupOpen = true; }
 
-        _assetsMenuOpen = path.StartsWith("assets/"); // NEW: Auto-open if navigating anywhere inside the assets module
+        if (path.StartsWith("procurement/purchase-orders") || path.StartsWith("ap/bill-entry") || path.StartsWith("purchases/returns"))
+        { _purchasingMenuOpen = true; _purchasingTransOpen = true; }
 
+        // 4. Inventory & Stock Routing
+        if (path.StartsWith("sc/items") || path.StartsWith("sc/uom") || path == "warehouses")
+        { _inventoryMenuOpen = true; _inventorySetupOpen = true; }
+
+        if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("supply-chain/issue-to-project") || path.StartsWith("wh/shipments"))
+        { _inventoryMenuOpen = true; _inventoryTransOpen = true; }
+
+        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging"))
+        { _inventoryMenuOpen = true; _inventoryReportOpen = true; }
+
+        // Others
+        _assetsMenuOpen = path.StartsWith("assets/");
         _setupMenuOpen = path is "companies" or "users" or "roles" or "tax-setup" or "accounting-periods" or "currency-setup";
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
     private void CloseSidebar() => _sidebarOpen = false;
 
+    // Main Toggles
     private void ToggleFinanceMenu() => _financeMenuOpen = !_financeMenuOpen;
     private void ToggleSalesMenu() => _salesMenuOpen = !_salesMenuOpen;
     private void TogglePurchasingMenu() => _purchasingMenuOpen = !_purchasingMenuOpen;
     private void ToggleInventoryMenu() => _inventoryMenuOpen = !_inventoryMenuOpen;
-    private void ToggleMasterDataMenu() => _masterDataMenuOpen = !_masterDataMenuOpen;
-    private void ToggleAssetsMenu() => _assetsMenuOpen = !_assetsMenuOpen; // NEW: Toggle Method
-    private void ToggleReportMenu() => _reportMenuOpen = !_reportMenuOpen;
+    private void ToggleAssetsMenu() => _assetsMenuOpen = !_assetsMenuOpen;
     private void ToggleSetupMenu() => _setupMenuOpen = !_setupMenuOpen;
 }

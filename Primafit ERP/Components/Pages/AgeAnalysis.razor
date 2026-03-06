@@ -1,0 +1,35 @@
+﻿@page "/reports/ar-age-analysis"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject SalesService SalesService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Accounts Receivable Age Analysis"
+                  Description="Tracks outstanding customer balances, partial payments, and invoice age in days."
+                  ShowAsOfDate="true"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        // AR Aging is a historical snapshot, so it relies entirely on the 'End Date' (As Of Date)
+        return await SalesService.GenerateAgeAnalysisReportAsync(companyId, end);
+    }
+}

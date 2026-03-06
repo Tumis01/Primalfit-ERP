@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
+using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
 
 namespace Primafit_ERP.Services
@@ -346,7 +347,7 @@ namespace Primafit_ERP.Services
         }
 
         // --- UPDATED: POST INVOICE WITH DISCOUNT GL LOGIC ---
-        public async Task<string> InvoiceOrderAsync(Guid orderId, Guid? warehouseId = null)
+        public async Task<string> InvoiceOrderAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
@@ -359,47 +360,55 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(o => o.Id == orderId);
 
                 if (order == null) return "Order not found.";
-                if (order.Status == OrderStatus.Invoiced) return "Order is already invoiced.";
+                if (order.Status == OrderStatus.Invoiced) return "Order is already fully invoiced.";
                 if (order.Status == OrderStatus.Quote) return "Quotes cannot be invoiced directly.";
 
                 var glLines = new List<GLJournalLine>();
-                bool hasPhysicalItems = order.Lines.Any(l => l.Item != null && !l.Item.IsService);
-
-                if (hasPhysicalItems)
-                {
-                    if (warehouseId == null || warehouseId == Guid.Empty)
-                        return "Select a warehouse to fulfill physical items.";
-
-                    string shipErr = await ShipOrderAsync(order.Id, warehouseId ?? Guid.Empty);
-                    if (!string.IsNullOrEmpty(shipErr)) return shipErr;
-                }
-
                 decimal rate = order.ExchangeRate > 0 ? order.ExchangeRate : 1;
-                decimal totalRevenueBase = 0;
 
-                // 1. CREDIT SALES REVENUE
+                decimal foreignSubTotalToInvoice = 0;
+                decimal totalRevenueBase = 0;
+                bool itemsInvoicedInThisRun = false;
+
+                // 1. CREDIT SALES REVENUE (Independent of QtyShipped)
                 foreach (var line in order.Lines)
                 {
-                    if (line.Item == null || line.Quantity == 0) continue;
+                    if (line.Item == null) continue;
 
-                    decimal lineTotalForeign = line.Quantity * line.UnitPrice;
+                    // ALWAYS invoice up to the ordered quantity, regardless of what has shipped
+                    decimal qtyToInvoice = line.Quantity - line.QtyInvoiced;
+
+                    if (qtyToInvoice <= 0) continue; // Nothing left to bill on this line
+                    itemsInvoicedInThisRun = true;
+
+                    decimal lineTotalForeign = qtyToInvoice * line.UnitPrice;
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
+
+                    foreignSubTotalToInvoice += lineTotalForeign;
 
                     if (line.Item.SalesIncomeAccountId == Guid.Empty)
                         return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
 
-                    // Credit Revenue for the FULL gross amount of the item
                     glLines.Add(new GLJournalLine { SegCoaId = line.Item.SalesIncomeAccountId, Debit = 0, Credit = lineTotalBase, Reference = $"Rev {line.Item.Name}" });
                     totalRevenueBase += lineTotalBase;
+
+                    // Update the line's invoiced tracker
+                    line.QtyInvoiced += qtyToInvoice;
                 }
 
-                // 2. DEBIT DISCOUNT ALLOWED EXPENSE (Reduces the Net Revenue impact)
-                decimal discountForeign = order.DiscountAmount;
+                if (!itemsInvoicedInThisRun) return "No unbilled quantities found to invoice.";
+
+                // 2. DEBIT DISCOUNT ALLOWED EXPENSE
+                decimal discountForeign = 0;
                 if (order.DiscountPercentage > 0)
                 {
-                    // Recalculate Foreign SubTotal to get exact percentage discount
-                    decimal foreignSubTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                    discountForeign = foreignSubTotal * (order.DiscountPercentage / 100);
+                    discountForeign = foreignSubTotalToInvoice * (order.DiscountPercentage / 100);
+                }
+                else if (order.DiscountAmount > 0)
+                {
+                    decimal originalTotalOrdered = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                    decimal proportion = originalTotalOrdered > 0 ? (foreignSubTotalToInvoice / originalTotalOrdered) : 1;
+                    discountForeign = order.DiscountAmount * proportion;
                 }
 
                 decimal discountBase = Math.Round(discountForeign * rate, 2);
@@ -421,7 +430,6 @@ namespace Primafit_ERP.Services
                     var taxDef = await ctx.Taxes.FindAsync(order.TaxId);
                     if (taxDef != null && taxDef.Per > 0)
                     {
-                        // Tax is calculated on the Post-Discount amount!
                         decimal taxAmountBase = discountedRevenueBase * (taxDef.Per / 100);
                         totalTaxBase = Math.Round(taxAmountBase, 2);
 
@@ -432,9 +440,8 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                // 4. DEBIT ACCOUNTS RECEIVABLE (The Net Amount the Customer actually owes)
+                // 4. DEBIT ACCOUNTS RECEIVABLE
                 decimal grandTotalBase = discountedRevenueBase + totalTaxBase;
-
                 if (order.Customer?.ReceivablesAccountId == null) return "Customer AR Account is missing.";
 
                 glLines.Add(new GLJournalLine { SegCoaId = order.Customer.ReceivablesAccountId.Value, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
@@ -454,7 +461,9 @@ namespace Primafit_ERP.Services
                     order.OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
                 }
 
-                order.Status = OrderStatus.Invoiced;
+                bool fullyInvoiced = order.Lines.All(l => l.QtyInvoiced >= l.Quantity);
+                order.Status = fullyInvoiced ? OrderStatus.Invoiced : OrderStatus.PartiallyInvoiced;
+
                 await ctx.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -466,6 +475,7 @@ namespace Primafit_ERP.Services
                 return $"Invoice Error: {ex.Message}";
             }
         }
+
 
         public async Task<string> TerminateOrderAsync(Guid orderId)
         {
@@ -485,6 +495,262 @@ namespace Primafit_ERP.Services
             ctx.SalesOrders.Remove(order);
             await ctx.SaveChangesAsync();
             return string.Empty;
+        }
+        // ==========================================
+        // REPORT 1: CUSTOMER TRANSACTION REPORT
+        // ==========================================
+        public async Task<StandardReportData> GenerateCustomerTransactionReportAsync(Guid companyId, DateOnly start, DateOnly end, string customerSearch)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // 1. Fetch Taxes for accurate calculation
+            var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
+
+            // 2. Query ONLY Invoices (Exclude Quotes and Orders)
+            var query = ctx.SalesOrders
+                .Include(o => o.Customer)
+                .Include(o => o.Currency)
+                .Include(o => o.Lines).ThenInclude(l => l.Item)
+                .Where(o => o.CompanyId == companyId
+                         && o.Date >= start
+                         && o.Date <= end
+                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.Status == OrderStatus.Draft));
+
+            // Apply optional customer filter
+            if (!string.IsNullOrWhiteSpace(customerSearch))
+            {
+                query = query.Where(o => o.Customer != null && o.Customer.Name.Contains(customerSearch));
+            }
+
+            var orders = await query.OrderByDescending(o => o.Date).ToListAsync();
+
+            // 3. Fetch all related payments to calculate Amount Paid
+            var invoiceIds = orders.Select(o => o.Id).ToList();
+            var payments = await ctx.PaymentApplications
+                .Where(pa => invoiceIds.Contains(pa.InvoiceId))
+                .GroupBy(pa => pa.InvoiceId)
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
+
+            var reportData = new StandardReportData
+            {
+                ReportName = "Customer Transaction Report",
+                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
+                Headers = new List<string> {
+                    "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
+                    "Order Discount", "Order Tax", "Amount Paid (Foreign)", "Amount Paid (Base)"
+                },
+                Rows = new List<List<string>>()
+            };
+
+            foreach (var o in orders)
+            {
+                // Calculate Header-level Math
+                decimal subTotalForeign = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                decimal discountForeign = o.DiscountPercentage > 0 ? subTotalForeign * (o.DiscountPercentage / 100) : o.DiscountAmount;
+                decimal netForeign = subTotalForeign - discountForeign;
+
+                decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
+                decimal taxForeign = netForeign * (taxPer / 100);
+
+                decimal paidForeign = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
+
+                decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1;
+                decimal paidBase = paidForeign * rate;
+
+                string curr = o.Currency?.CurrencyCode ?? "";
+
+                bool isFirstLine = true;
+                foreach (var line in o.Lines)
+                {
+                    // To keep the report clean, Header-level info (Discount, Tax, Total Paid) 
+                    // is only displayed on the FIRST line of the invoice.
+                    var row = new List<string>
+                    {
+                        isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
+                        isFirstLine ? o.OrderNumber : "",
+                        isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
+                        line.Item?.Name ?? "Unknown",
+                        line.Quantity.ToString("N2"),
+                        line.UnitPrice.ToString("N2"),
+                        (line.Quantity * line.UnitPrice).ToString("N2"),
+                        isFirstLine ? discountForeign.ToString("N2") : "",
+                        isFirstLine ? taxForeign.ToString("N2") : "",
+                        isFirstLine ? $"{curr} {paidForeign:N2}" : "",
+                        isFirstLine ? paidBase.ToString("N2") : ""
+                    };
+                    reportData.Rows.Add(row);
+                    isFirstLine = false;
+                }
+            }
+
+            return reportData;
+        }
+        // ==========================================
+        // REPORT 2: AR AGE ANALYSIS REPORT
+        // ==========================================
+        public async Task<StandardReportData> GenerateAgeAnalysisReportAsync(Guid companyId, DateOnly asOfDate)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // Fetch ONLY Invoiced orders up to the As-Of Date
+            var orders = await ctx.SalesOrders
+                .Include(o => o.Customer)
+                .Include(o => o.Lines)
+                .Where(o => o.CompanyId == companyId && o.Date <= asOfDate && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
+                .ToListAsync();
+
+            var invoiceIds = orders.Select(o => o.Id).ToList();
+
+            // Strictly fetch payments made ON OR BEFORE the As-Of Date for accurate historical aging
+            // Note: If you don't have Payment.Date mapped in PaymentApplication, we fetch standard applications.
+            var payments = await ctx.PaymentApplications
+                .Where(pa => invoiceIds.Contains(pa.InvoiceId))
+                .GroupBy(pa => pa.InvoiceId)
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
+
+            var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
+
+            var reportData = new StandardReportData
+            {
+                ReportName = "AR Age Analysis (Outstanding Invoices)",
+                ReportingPeriod = $"As of {asOfDate:MMM dd, yyyy}",
+                Headers = new List<string> { "Customer", "Invoice #", "Date", "Age (Days)", "Invoice Total", "Amount Paid", "Balance Due" },
+                Rows = new List<List<string>>()
+            };
+
+            decimal totalOutstanding = 0;
+
+            // Group by Customer for professional sub-totaling
+            var groupedOrders = orders.GroupBy(o => o.Customer?.Name ?? "Unknown").OrderBy(g => g.Key);
+
+            foreach (var group in groupedOrders)
+            {
+                decimal customerBalance = 0;
+
+                foreach (var o in group.OrderBy(x => x.Date))
+                {
+                    // Recreate total value math
+                    decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                    decimal discount = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
+                    decimal net = subTotal - discount;
+                    decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
+                    decimal grandTotal = net + (net * (taxPer / 100));
+
+                    decimal paid = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
+                    decimal balance = grandTotal - paid;
+
+                    // If they still owe money, add it to the report!
+                    if (balance > 0.01m)
+                    {
+                        int ageDays = (asOfDate.ToDateTime(TimeOnly.MinValue) - o.Date.ToDateTime(TimeOnly.MinValue)).Days;
+
+                        reportData.Rows.Add(new List<string>
+                        {
+                            group.Key,
+                            o.OrderNumber,
+                            o.Date.ToString("yyyy-MM-dd"),
+                            ageDays.ToString(),
+                            grandTotal.ToString("N2"),
+                            paid.ToString("N2"),
+                            balance.ToString("N2")
+                        });
+
+                        customerBalance += balance;
+                        totalOutstanding += balance;
+                    }
+                }
+
+                if (customerBalance > 0)
+                {
+                    // Inject a bold Subtotal row for the customer (The PDF/Excel exporter will auto-format this because Column 2 has "SUMMARY")
+                    reportData.Rows.Add(new List<string> { "", $"SUMMARY: {group.Key}", "", "", "", "", customerBalance.ToString("N2") });
+                }
+            }
+
+            // Inject Grand Total row
+            reportData.Rows.Add(new List<string> { "", "GRAND TOTAL", "", "", "", "", totalOutstanding.ToString("N2") });
+
+            return reportData;
+        }
+        
+        // ==========================================
+        // REPORT 3: SALES ANALYSIS BY ITEM
+        // ==========================================
+        public async Task<StandardReportData> GenerateSalesAnalysisReportAsync(Guid companyId, DateOnly start, DateOnly end)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // FIX: Only include actual Invoices. 
+            // Including 'Order' status causes double-counting because the system 
+            // preserves the original Order document when an Invoice is generated.
+            var validStatuses = new[] {
+                OrderStatus.PartiallyInvoiced,
+                OrderStatus.Invoiced
+            };
+
+            var lines = await ctx.SalesOrderLines
+                .Include(l => l.Header)
+                .Include(l => l.Item)
+                .Where(l => l.Header != null
+                         && l.Header.CompanyId == companyId
+                         && l.Header.Date >= start
+                         && l.Header.Date <= end
+                         && validStatuses.Contains(l.Header.Status))
+                .ToListAsync();
+
+            var reportData = new StandardReportData
+            {
+                ReportName = "Sales Analysis by Item",
+                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
+                Headers = new List<string> { "Item Name", "Item Type", "Qty Sold", "Avg Unit Price (Base)", "Gross Revenue (Base)" },
+                Rows = new List<List<string>>()
+            };
+
+            // Group by item and aggregate totals using the Order's Exchange Rate
+            var groupedItems = lines
+                .GroupBy(l => l.Item)
+                .Select(g => new
+                {
+                    Item = g.Key,
+                    TotalQty = g.Sum(x => x.Quantity),
+                    GrossRevenueBase = g.Sum(x => (x.Quantity * x.UnitPrice) * (x.Header.ExchangeRate > 0 ? x.Header.ExchangeRate : 1))
+                })
+                .OrderByDescending(x => x.GrossRevenueBase) // Sort top sellers first
+                .ToList();
+
+            decimal grandTotalRevenueBase = 0;
+            decimal grandTotalQty = 0;
+
+            foreach (var row in groupedItems)
+            {
+                decimal avgPriceBase = row.TotalQty > 0 ? row.GrossRevenueBase / row.TotalQty : 0;
+
+                reportData.Rows.Add(new List<string>
+                {
+                    row.Item?.Name ?? "Unknown Item",
+                    row.Item?.IsService == true ? "Service" : "Physical",
+                    row.TotalQty.ToString("N2"),
+                    avgPriceBase.ToString("N2"),
+                    row.GrossRevenueBase.ToString("N2")
+                });
+
+                grandTotalQty += row.TotalQty;
+                grandTotalRevenueBase += row.GrossRevenueBase;
+            }
+
+            // Bold Summary Row at the bottom
+            reportData.Rows.Add(new List<string>
+            {
+                "",
+                "GRAND TOTAL",
+                grandTotalQty.ToString("N2"),
+                "",
+                grandTotalRevenueBase.ToString("N2")
+            });
+
+            return reportData;
         }
     }
 }
