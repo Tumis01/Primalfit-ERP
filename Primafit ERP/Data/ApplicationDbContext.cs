@@ -78,7 +78,6 @@ namespace PrimafitERP.Data
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<CustomerGroup> CustomerGroups { get; set; }
         public DbSet<VendorGroup> VendorGroups { get; set; }
-        public DbSet<LandedCostType> LandedCostTypes { get; set; }
         public DbSet<GrnLandedCost> GrnLandedCosts { get; set; }
         public DbSet<AssetCategory> AssetCategories { get; set; }
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }

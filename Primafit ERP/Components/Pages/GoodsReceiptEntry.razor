@@ -162,11 +162,11 @@
                     <div class="flex gap-3 items-end p-4 bg-slate-50 rounded-xl border border-slate-100">
                         <div class="flex-1">
                             <label class="label">Cost Type</label>
-                            <select @bind="newCostTypeId" class="input-class">
-                                <option value="@Guid.Empty">-- Select Cost Type --</option>
-                                @foreach (var type in costTypes)
+                            <select @bind="newCostType" class="input-class">
+                                <option value="">-- Select Cost Type --</option>
+                                @foreach (LandedCostType type in Enum.GetValues(typeof(LandedCostType)))
                                 {
-                                    <option value="@type.Id">@type.Name</option>
+                                    <option value="@type">@FormatCostType(type)</option>
                                 }
                             </select>
                         </div>
@@ -201,7 +201,7 @@
                                 @foreach (var c in addedCosts)
                                 {
                                     <tr class="border-b border-slate-50">
-                                        <td class="py-2 font-medium">@(costTypes.FirstOrDefault(x => x.Id == c.LandedCostTypeId)?.Name)</td>
+                                        <td class="py-2 font-medium">@FormatCostType(c.CostType)</td>
                                         <td class="py-2 text-xs text-slate-500">@c.AllocationMethod</td>
                                         <td class="py-2 text-right font-mono font-bold text-slate-700">@c.Amount.ToString("N2")</td>
                                         <td class="py-2 text-right">
@@ -284,7 +284,6 @@
     private List<Item> items = new();
     
     private List<SegChartOfAccount> liabilityAccounts = new();
-    private List<LandedCostType> costTypes = new();
 
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
@@ -294,7 +293,7 @@
     private bool showLandedCostModal = false;
     private bool isValuationBusy = false;
 
-    private Guid newCostTypeId;
+    private LandedCostType? newCostType;
     private decimal newCostAmount;
     private AllocationMethod newAllocMethod = AllocationMethod.ByValue;
     private List<GrnLandedCost> addedCosts = new();
@@ -309,7 +308,7 @@
             
             var t1 = MasterService.GetVendorsAsync(currentCompanyId);
             var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId);
-            var t3 = PurchService.GetOpenPOsAsync(currentCompanyId); // Fetches Open & Partially Received
+            var t3 = PurchService.GetOpenPOsAsync(currentCompanyId); 
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
             var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
             var t6 = SegCoaService.GetAccountTypesAsync();
@@ -342,25 +341,14 @@
         }
     }
 
-    private async Task<List<LandedCostType>> GetLandedCostTypes()
+    private string FormatCostType(LandedCostType type) => type switch
     {
-        using var ctx = await DbFactory.CreateDbContextAsync();
-        var types = await ctx.LandedCostTypes.Where(x => x.CompanyId == currentCompanyId).ToListAsync();
-
-        if (!types.Any())
-        {
-            types = new List<LandedCostType>
-            {
-                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Freight & Shipping" },
-                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Customs Duty & Tariffs" },
-                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Transit Insurance" },
-                new LandedCostType { Id = Guid.NewGuid(), CompanyId = currentCompanyId, Name = "Handling Charges" }
-            };
-            ctx.LandedCostTypes.AddRange(types);
-            await ctx.SaveChangesAsync();
-        }
-        return types;
-    }
+        LandedCostType.HandlingCharges => "Handling Charges",
+        LandedCostType.FreightAndShipping => "Freight & Shipping",
+        LandedCostType.CustomsDutyAndTariffs => "Customs Duty & Tariffs",
+        LandedCostType.TransitInsurance => "Transit Insurance",
+        _ => type.ToString()
+    };
 
     private async Task OnPoSelected(ChangeEventArgs e)
     {
@@ -431,7 +419,6 @@
 
             if (string.IsNullOrEmpty(result))
             {
-                // UI CONFIRMATION MESSAGE
                 var whName = warehouses.FirstOrDefault(w => w.Id == selectedWarehouseId)?.Name ?? "the warehouse";
                 var receivedDetails = currentGrn.Lines
                     .Where(l => l.QuantityReceived > 0)
@@ -458,19 +445,19 @@
 
     private void AddCostLine()
     {
-        if (newCostTypeId == Guid.Empty || newCostAmount <= 0) return;
+        if (newCostType == null || newCostAmount <= 0) return;
 
         addedCosts.Add(new GrnLandedCost
         {
             Id = Guid.NewGuid(),
             GoodsReceiptId = currentGrn.Id, 
-            LandedCostTypeId = newCostTypeId,
+            CostType = newCostType.Value,
             Amount = newCostAmount,
             AllocationMethod = newAllocMethod
         });
 
         newCostAmount = 0;
-        newCostTypeId = Guid.Empty;
+        newCostType = null;
     }
 
     private void RemoveCost(GrnLandedCost c) => addedCosts.Remove(c);

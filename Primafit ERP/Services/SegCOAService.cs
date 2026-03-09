@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using ExcelDataReader;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System.Text;
@@ -434,101 +435,288 @@ namespace Primafit_ERP.Services
             return result;
         }
 
-        // --- NEW: IMPORT FULL COA ---
+        // --- UPDATED: IMPORT FULL COA (STRICT SEGMENT 0, FORGIVING SUB-SEGMENTS) ---
         public async Task<string> ImportFullCoaAsync(Guid companyId, Stream fileStream, string fileName)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            // 1. Load Segment Mappings into memory for lightning-fast lookup
-            var seg0Map = await ctx.Segment0s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-            var seg1Map = await ctx.Segment1s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-            var seg2Map = await ctx.Segment2s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-            var seg3Map = await ctx.Segment3s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-            var seg4Map = await ctx.Segment4s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-            var seg5Map = await ctx.Segment5s.Where(c => c.CompanyId == companyId).ToDictionaryAsync(x => x.Code.Trim().ToLower(), x => x.Id);
-
-            var typesMap = await ctx.Set<SegAccountType>().ToDictionaryAsync(x => x.Description.Trim().ToLower(), x => x.Id);
-            // 3. Load existing COA to prevent duplicates
-            var existingCoaCodes = await ctx.SegChartOfAccounts
-                .Where(c => c.CompanyId == companyId)
-                .Select(x => x.AccountCode.ToLower())
-                .ToListAsync();
-            var existingSet = new HashSet<string>(existingCoaCodes);
-
-            var newAccounts = new List<SegChartOfAccount>();
-            int added = 0, skipped = 0;
-
-            using var reader = new StreamReader(fileStream);
-            bool isFirstRow = true;
-
-            while (!reader.EndOfStream)
+            try
             {
-                var line = await reader.ReadLineAsync();
-                if (string.IsNullOrWhiteSpace(line)) continue;
+                // ── 1. Buffer stream (Blazor streams are forward-only; ExcelDataReader needs seek) ──
+                using var ms = new MemoryStream();
+                await fileStream.CopyToAsync(ms);
+                ms.Position = 0;
 
-                if (isFirstRow)
+                // ── 2. Load segment lookup maps (Code → Guid) ──
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+
+                var seg0Map = await ctx.Segment0s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                var seg1Map = await ctx.Segment1s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                var seg2Map = await ctx.Segment2s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                var seg3Map = await ctx.Segment3s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                var seg4Map = await ctx.Segment4s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                var seg5Map = await ctx.Segment5s
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.Code.Trim().ToUpperInvariant(), x => x.Id);
+
+                // Account Types map (Description → Id), case-insensitive
+                var typesMap = await ctx.Set<SegAccountType>()
+                    .ToDictionaryAsync(x => x.Description.Trim().ToUpperInvariant(), x => x.Id);
+
+                // Existing COA codes so we can skip duplicates
+                var existingCodes = new HashSet<string>(
+                    await ctx.SegChartOfAccounts
+                        .Where(x => x.CompanyId == companyId)
+                        .Select(x => x.AccountCode.ToUpperInvariant())
+                        .ToListAsync(),
+                    StringComparer.OrdinalIgnoreCase
+                );
+
+                // ── 3. Parse rows from file ──
+                // Each row: (accountCode, description, accountType)
+                var parsedRows = new List<(string Code, string Description, string TypeRaw)>();
+                string ext = Path.GetExtension(fileName).ToLowerInvariant();
+
+                if (ext == ".xlsx" || ext == ".xls")
                 {
-                    isFirstRow = false; // Skip the CSV header row
-                    continue;
+                    // ExcelDataReader requires this for non-Unicode encodings
+                    System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+                    using var reader = ExcelReaderFactory.CreateReader(ms);
+                    var dataset = reader.AsDataSet(new ExcelDataSetConfiguration
+                    {
+                        ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+                    });
+
+                    if (dataset.Tables.Count == 0)
+                        return "Error: The Excel file appears to be empty.";
+
+                    var table = dataset.Tables[0];
+                    for (int i = 0; i < table.Rows.Count; i++)
+                    {
+                        var raw0 = table.Rows[i][0]?.ToString()?.Trim() ?? "";
+                        var raw1 = table.Rows[i].ItemArray.Length > 1 ? table.Rows[i][1]?.ToString()?.Trim() ?? "" : "";
+                        var raw2 = table.Rows[i].ItemArray.Length > 2 ? table.Rows[i][2]?.ToString()?.Trim() ?? "" : "";
+
+                        // Skip header row (contains "Account Code" or similar)
+                        if (i == 0 && (raw0.Equals("Account Code", StringComparison.OrdinalIgnoreCase)
+                                    || raw0.Equals("Code", StringComparison.OrdinalIgnoreCase)))
+                            continue;
+
+                        // Skip obviously empty or metadata rows
+                        if (string.IsNullOrWhiteSpace(raw0)) continue;
+
+                        parsedRows.Add((raw0, raw1, raw2));
+                    }
                 }
-
-                var parts = ParseCsvLine(line);
-
-                // EXPECTED CSV FORMAT:
-                // 0:Seg0, 1:Seg1, 2:Seg2, 3:Seg3, 4:Seg4, 5:Seg5, 6:Description, 7:AccountType, 8:AllowJournal, 9:IsActive
-                if (parts.Count < 8) { skipped++; continue; }
-
-                string s0Code = parts[0];
-                string typeDesc = parts[7];
-
-                if (string.IsNullOrWhiteSpace(s0Code) || string.IsNullOrWhiteSpace(typeDesc)) { skipped++; continue; }
-
-                // Validate Seg0 and Account Type (Required fields)
-                if (!seg0Map.TryGetValue(s0Code.ToLower(), out Guid s0Id)) { skipped++; continue; }
-                if (!typesMap.TryGetValue(typeDesc.ToLower(), out int typeId)) { skipped++; continue; }
-
-                // Build the Account Object
-                var acc = new SegChartOfAccount
+                else if (ext == ".csv")
                 {
-                    Id = Guid.NewGuid(),
-                    CompanyId = companyId,
-                    Segment0Id = s0Id,
-                    Description = parts[6],
-                    SegAccountTypeId = typeId,
-                    AllowJournal = parts.Count > 8 && bool.TryParse(parts[8], out bool aj) ? aj : true,
-                    IsActive = parts.Count > 9 && bool.TryParse(parts[9], out bool ia) ? ia : true
-                };
+                    ms.Position = 0;
+                    using var reader = new StreamReader(ms);
+                    bool firstLine = true;
+                    string? line;
+                    while ((line = await reader.ReadLineAsync()) != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+                        var parts = ParseCsvLine(line);
 
-                var codeParts = new List<string> { s0Code };
+                        // Skip header
+                        if (firstLine && parts.Count > 0 &&
+                            (parts[0].Equals("Account Code", StringComparison.OrdinalIgnoreCase)
+                          || parts[0].Equals("Code", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            firstLine = false;
+                            continue;
+                        }
+                        firstLine = false;
 
-                // Map Optional Segments (if provided in the CSV)
-                if (parts.Count > 1 && !string.IsNullOrWhiteSpace(parts[1]) && seg1Map.TryGetValue(parts[1].ToLower(), out Guid s1Id)) { acc.Segment1Id = s1Id; codeParts.Add(parts[1]); }
-                if (parts.Count > 2 && !string.IsNullOrWhiteSpace(parts[2]) && seg2Map.TryGetValue(parts[2].ToLower(), out Guid s2Id)) { acc.Segment2Id = s2Id; codeParts.Add(parts[2]); }
-                if (parts.Count > 3 && !string.IsNullOrWhiteSpace(parts[3]) && seg3Map.TryGetValue(parts[3].ToLower(), out Guid s3Id)) { acc.Segment3Id = s3Id; codeParts.Add(parts[3]); }
-                if (parts.Count > 4 && !string.IsNullOrWhiteSpace(parts[4]) && seg4Map.TryGetValue(parts[4].ToLower(), out Guid s4Id)) { acc.Segment4Id = s4Id; codeParts.Add(parts[4]); }
-                if (parts.Count > 5 && !string.IsNullOrWhiteSpace(parts[5]) && seg5Map.TryGetValue(parts[5].ToLower(), out Guid s5Id)) { acc.Segment5Id = s5Id; codeParts.Add(parts[5]); }
+                        if (parts.Count < 2) continue;
+                        string code = parts[0].Trim();
+                        string desc = parts.Count > 1 ? parts[1].Trim() : "";
+                        string type = parts.Count > 2 ? parts[2].Trim() : "";
 
-                acc.AccountCode = string.Join("-", codeParts); // e.g. "1000-10-20"
-
-                if (!existingSet.Contains(acc.AccountCode.ToLower()))
-                {
-                    newAccounts.Add(acc);
-                    existingSet.Add(acc.AccountCode.ToLower());
-                    added++;
+                        if (!string.IsNullOrEmpty(code))
+                            parsedRows.Add((code, desc, type));
+                    }
                 }
                 else
                 {
-                    skipped++;
+                    return "Unsupported file format. Please upload a .csv, .xls, or .xlsx file.";
                 }
-            }
 
-            if (newAccounts.Any())
+                if (parsedRows.Count == 0)
+                    return "No data rows found in the file. Please check the file content.";
+
+                // ── 4. Process each row ──
+                var newAccounts = new List<SegChartOfAccount>();
+                var errors = new List<string>(); // Hard failures (segment 0 missing, type missing)
+                var warnings = new List<string>(); // Soft notices (sub-segment not found but still imported)
+                int added = 0, skipped = 0;
+
+                foreach (var (rawCode, rawDesc, rawType) in parsedRows)
+                {
+                    // ── 4a. Resolve Account Type (required) ──
+                    string typeKey = rawType.Trim().ToUpperInvariant();
+                    if (!typesMap.TryGetValue(typeKey, out int typeId))
+                    {
+                        // Fuzzy: check if any known type contains this string or vice-versa
+                        var fuzzy = typesMap.FirstOrDefault(t =>
+                            t.Key.Contains(typeKey, StringComparison.OrdinalIgnoreCase) ||
+                            typeKey.Contains(t.Key, StringComparison.OrdinalIgnoreCase));
+
+                        if (fuzzy.Key != null)
+                        {
+                            typeId = fuzzy.Value;
+                        }
+                        else
+                        {
+                            errors.Add($"[{rawCode}] Account Type \"{rawType}\" not found. Row skipped.");
+                            skipped++;
+                            continue;
+                        }
+                    }
+
+                    // ── 4b. Split account code into segment parts using "/" ONLY ──
+                    // We deliberately avoid splitting on "-" because account codes may contain hyphens.
+                    var segParts = rawCode.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                                          .Select(p => p.Trim().ToUpperInvariant())
+                                          .ToArray();
+
+                    if (segParts.Length == 0)
+                    {
+                        errors.Add($"[{rawCode}] Account code is empty after parsing. Row skipped.");
+                        skipped++;
+                        continue;
+                    }
+
+                    // ── 4c. Segment 0 — STRICT (must exist) ──
+                    string s0Code = segParts[0];
+                    if (!seg0Map.TryGetValue(s0Code, out Guid s0Id))
+                    {
+                        errors.Add($"[{rawCode}] Segment 0 code \"{s0Code}\" not found in your Segment 0 list. Row skipped.");
+                        skipped++;
+                        continue;
+                    }
+
+                    // ── 4d. Duplicate check ──
+                    string upperCode = rawCode.Trim().ToUpperInvariant();
+                    if (existingCodes.Contains(upperCode))
+                    {
+                        warnings.Add($"[{rawCode}] Account code already exists. Skipped.");
+                        skipped++;
+                        continue;
+                    }
+
+                    // ── 4e. Build account record ──
+                    var acc = new SegChartOfAccount
+                    {
+                        Id = Guid.NewGuid(),
+                        CompanyId = companyId,
+                        Segment0Id = s0Id,
+                        AccountCode = rawCode.Trim(),
+                        Description = string.IsNullOrWhiteSpace(rawDesc) ? rawCode.Trim() : rawDesc.Trim(),
+                        SegAccountTypeId = typeId,
+                        AllowJournal = true,
+                        IsActive = true
+                    };
+
+                    // ── 4f. Optional segments — LENIENT (warn if missing, don't block) ──
+                    if (segParts.Length > 1)
+                    {
+                        string code1 = segParts[1];
+                        if (seg1Map.TryGetValue(code1, out Guid s1Id))
+                            acc.Segment1Id = s1Id;
+                        else
+                            warnings.Add($"[{rawCode}] Sub-segment 1 code \"{code1}\" not found — left blank.");
+                    }
+
+                    if (segParts.Length > 2)
+                    {
+                        string code2 = segParts[2];
+                        if (seg2Map.TryGetValue(code2, out Guid s2Id))
+                            acc.Segment2Id = s2Id;
+                        else
+                            warnings.Add($"[{rawCode}] Sub-segment 2 code \"{code2}\" not found — left blank.");
+                    }
+
+                    if (segParts.Length > 3)
+                    {
+                        string code3 = segParts[3];
+                        if (seg3Map.TryGetValue(code3, out Guid s3Id))
+                            acc.Segment3Id = s3Id;
+                        else
+                            warnings.Add($"[{rawCode}] Sub-segment 3 code \"{code3}\" not found — left blank.");
+                    }
+
+                    if (segParts.Length > 4)
+                    {
+                        string code4 = segParts[4];
+                        if (seg4Map.TryGetValue(code4, out Guid s4Id))
+                            acc.Segment4Id = s4Id;
+                        else
+                            warnings.Add($"[{rawCode}] Sub-segment 4 code \"{code4}\" not found — left blank.");
+                    }
+
+                    if (segParts.Length > 5)
+                    {
+                        string code5 = segParts[5];
+                        if (seg5Map.TryGetValue(code5, out Guid s5Id))
+                            acc.Segment5Id = s5Id;
+                        else
+                            warnings.Add($"[{rawCode}] Sub-segment 5 code \"{code5}\" not found — left blank.");
+                    }
+
+                    newAccounts.Add(acc);
+                    existingCodes.Add(upperCode); // Guard against duplicates within the file itself
+                    added++;
+                }
+
+                // ── 5. Bulk save ──
+                if (newAccounts.Count > 0)
+                {
+                    ctx.SegChartOfAccounts.AddRange(newAccounts);
+                    await ctx.SaveChangesAsync();
+                }
+
+                // ── 6. Build result summary ──
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Import complete. Added: {added} | Skipped: {skipped} | Total rows read: {parsedRows.Count}");
+
+                if (errors.Any())
+                {
+                    sb.AppendLine($"\n⛔ ERRORS ({errors.Count} rows skipped):");
+                    foreach (var e in errors)
+                        sb.AppendLine($"  • {e}");
+                }
+
+                if (warnings.Any())
+                {
+                    sb.AppendLine($"\n⚠️ NOTICES ({warnings.Count}):");
+                    foreach (var w in warnings.Take(20))
+                        sb.AppendLine($"  • {w}");
+                    if (warnings.Count > 20)
+                        sb.AppendLine($"  ...and {warnings.Count - 20} more notices.");
+                }
+
+                return sb.ToString().TrimEnd();
+            }
+            catch (Exception ex)
             {
-                ctx.SegChartOfAccounts.AddRange(newAccounts);
-                await ctx.SaveChangesAsync();
+                return $"Import failed unexpectedly: {ex.Message}";
             }
-
-            return $"Import Complete! Successfully added {added} accounts. Skipped {skipped} rows (duplicates or invalid data).";
         }
     }
 }

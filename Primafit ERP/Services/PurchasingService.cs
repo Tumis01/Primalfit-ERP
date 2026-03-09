@@ -162,6 +162,7 @@ namespace Primafit_ERP.Services
         }
 
         // 1. SAVE PURCHASE ORDER
+        // 1. SAVE PURCHASE ORDER / REQUEST
         public async Task<string> SavePurchaseOrderAsync(PurchaseOrder po)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -184,10 +185,11 @@ namespace Primafit_ERP.Services
                 {
                     if (po.Id == Guid.Empty) po.Id = Guid.NewGuid();
 
-                    // --- FIX: GENERATE PO NUMBER IF IT'S BLANK ---
+                    // --- GENERATE NUMBER BASED ON STATUS ---
                     if (string.IsNullOrWhiteSpace(po.OrderNumber))
                     {
-                        po.OrderNumber = $"PO-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+                        string prefix = po.Status == PurchaseOrderStatus.Request ? "REQ" : "PO";
+                        po.OrderNumber = $"{prefix}-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
                     }
 
                     foreach (var line in po.Lines)
@@ -202,9 +204,13 @@ namespace Primafit_ERP.Services
                     if (existing.IsInvoicePosted || existing.HasReceipt)
                         return "Cannot edit an order that has already been received or invoiced.";
 
-                    po.CompanyId = existing.CompanyId;
+                    if (existing.Status == PurchaseOrderStatus.Request)
+                    {
+                        bool isConverted = await ctx.PurchaseOrders.AnyAsync(p => p.ConvertedFromRequestNumber == existing.OrderNumber);
+                        if (isConverted) return "Cannot edit a Request that has already been converted to an Order.";
+                    }
 
-                    // --- FIX: PRESERVE EXISTING PO NUMBER ON EDIT ---
+                    po.CompanyId = existing.CompanyId;
                     po.OrderNumber = existing.OrderNumber;
 
                     ctx.Entry(existing).CurrentValues.SetValues(po);
@@ -225,6 +231,54 @@ namespace Primafit_ERP.Services
             {
                 return $"DATABASE ERROR: {ex.Message}";
             }
+        }
+
+        // 1B. CONVERT REQUEST TO PO
+        public async Task<string> ConvertRequestToOrderAsync(Guid requestId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var req = await ctx.PurchaseOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == requestId);
+
+            if (req == null) return "Request not found.";
+            if (req.Status != PurchaseOrderStatus.Request) return "Only Requests can be converted to Purchase Orders.";
+
+            bool alreadyConverted = await ctx.PurchaseOrders.AnyAsync(o => o.ConvertedFromRequestNumber == req.OrderNumber);
+            if (alreadyConverted) return "This Request has already been converted.";
+
+            var order = new PurchaseOrder
+            {
+                Id = Guid.NewGuid(),
+                CompanyId = req.CompanyId,
+                OrderNumber = $"PO-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
+                ConvertedFromRequestNumber = req.OrderNumber,
+                TaxId = req.TaxId,
+                TaxGLAccountId = req.TaxGLAccountId,
+                VendorId = req.VendorId,
+                OrderDate = DateTime.Today,
+                Status = PurchaseOrderStatus.Open,
+                CurrencyId = req.CurrencyId,
+                ExchangeRate = req.ExchangeRate,
+                // Inherit Discounts
+                DiscountPercentage = req.DiscountPercentage,
+                DiscountAmount = req.DiscountAmount,
+                DiscountGlAccountId = req.DiscountGlAccountId
+            };
+
+            foreach (var line in req.Lines)
+            {
+                order.Lines.Add(new PurchaseOrderLine
+                {
+                    Id = Guid.NewGuid(),
+                    PurchaseOrderId = order.Id,
+                    ItemId = line.ItemId,
+                    QuantityOrdered = line.QuantityOrdered,
+                    UnitCost = line.UnitCost
+                });
+            }
+
+            ctx.PurchaseOrders.Add(order);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
         }
 
         // 2. AUTO-POST VENDOR BILL (With Tax & Discount Math)

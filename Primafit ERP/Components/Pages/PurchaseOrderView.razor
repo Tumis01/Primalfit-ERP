@@ -42,7 +42,7 @@
                 </div>
                 <div class="relative w-full sm:w-64">
                     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search PO, Vendor, Item..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search Reference, Vendor..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
                 </div>
             }
 
@@ -70,7 +70,7 @@
         {
             <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden animate-in fade-in">
                 <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Purchase Requests (Drafts)</h3>
+                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Purchase Requests</h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm whitespace-nowrap">
@@ -81,127 +81,74 @@
                                 <th class="px-6 py-4">Vendor</th>
                                 <th class="px-6 py-4 w-[25%]">Items (Qty)</th>
                                 <th class="px-6 py-4 text-right">Total (Foreign)</th>
-                                <th class="px-6 py-4 text-right border-l border-slate-200">Total (Base)</th>
-                                <th class="px-6 py-4 text-center">Status</th>
+                                <th class="px-6 py-4 text-right border-r border-slate-100">Total (Base)</th>
+                                <th class="px-6 py-4 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
+                            @foreach (var req in FilteredRequests)
+                            {
+                                var vendorName = vendors.FirstOrDefault(v => v.Id == req.VendorId)?.Name ?? "Unknown";
 
-                            <tr class="hover:bg-slate-50/80 transition-colors group align-top">
-                                <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">PO-2603-1567</div></td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">Mar 05, 2026</td>
-                                <td class="px-6 py-4"><div class="font-bold text-slate-800">Venture Demo</div></td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-between gap-3 text-xs">
-                                        <span class="truncate text-slate-600 font-medium">Blue Chair</span>
-                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x100)</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">1,935,000.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">NGN</div>
-                                </td>
-                                <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                    <div class="font-mono font-bold text-emerald-700">1,935,000.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Invoiced</span>
-                                </td>
-                            </tr>
+                                <tr class="hover:bg-slate-50/80 transition-colors group align-top">
+                                    <td class="px-6 py-4">
+                                        <div class="font-mono font-bold text-slate-900">@req.OrderNumber</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-slate-500 font-medium">@req.OrderDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="px-6 py-4">
+                                        <div class="font-bold text-slate-800 truncate max-w-[200px]" title="@vendorName">@vendorName</div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        @if (req.Lines != null && req.Lines.Any())
+                                        {
+                                            <div class="space-y-1.5">
+                                                @foreach (var line in req.Lines.Take(2))
+                                                {
+                                                    var itemName = items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Unknown Item";
+                                                    <div class="flex items-center justify-between gap-3 text-xs">
+                                                        <span class="truncate text-slate-600 font-medium">@itemName</span>
+                                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x@(line.QuantityOrdered.ToString("G29")))</span>
+                                                    </div>
+                                                }
+                                                @if (req.Lines.Count > 2)
+                                                {
+                                                    <div class="text-[10px] font-bold uppercase tracking-wider text-indigo-500 pt-1">+ @(req.Lines.Count - 2) more item(s)</div>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <div class="font-mono font-bold text-slate-900">@req.GrandTotalForeign.ToString("N2")</div>
+                                        <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@req.Currency?.CurrencyCode</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
+                                        <div class="font-mono font-bold text-emerald-700">@((req.GrandTotalForeign * (req.ExchangeRate > 0 ? req.ExchangeRate : 1)).ToString("N2"))</div>
+                                        <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-center">
+                                        <div class="flex items-center justify-center gap-2">
+                                            @{
+                                                bool isConverted = orders.Any(inv => inv.ConvertedFromRequestNumber == req.OrderNumber);
+                                            }
 
-                            <tr class="hover:bg-slate-50/80 transition-colors group align-top">
-                                <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">PO-2603-2885</div></td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">Mar 05, 2026</td>
-                                <td class="px-6 py-4"><div class="font-bold text-slate-800">Tunmise</div></td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-between gap-3 text-xs">
-                                        <span class="truncate text-slate-600 font-medium">Demo Item</span>
-                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x4)</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">77.40</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">NGN</div>
-                                </td>
-                                <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                    <div class="font-mono font-bold text-emerald-700">116,100.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Invoiced</span>
-                                </td>
-                            </tr>
-
-                            <tr class="hover:bg-slate-50/80 transition-colors group align-top">
-                                <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">PO-2603-6530</div></td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">Mar 05, 2026</td>
-                                <td class="px-6 py-4"><div class="font-bold text-slate-800">Demo vendor</div></td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-between gap-3 text-xs">
-                                        <span class="truncate text-slate-600 font-medium">Demo Item</span>
-                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x5)</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">120,937.50</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">NGN</div>
-                                </td>
-                                <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                    <div class="font-mono font-bold text-emerald-700">120,937.50</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Invoiced</span>
-                                </td>
-                            </tr>
-
-                            <tr class="hover:bg-slate-50/80 transition-colors group align-top">
-                                <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">PO-2603-6138</div></td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">Mar 05, 2026</td>
-                                <td class="px-6 py-4"><div class="font-bold text-slate-800">Ad Agency Corp</div></td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-between gap-3 text-xs">
-                                        <span class="truncate text-slate-600 font-medium">Goods A</span>
-                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x210)</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">3,047,625.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">NGN</div>
-                                </td>
-                                <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                    <div class="font-mono font-bold text-emerald-700">3,047,625.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Invoiced</span>
-                                </td>
-                            </tr>
-
-                            <tr class="hover:bg-slate-50/80 transition-colors group align-top">
-                                <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">PO-2603-9791</div></td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">Mar 05, 2026</td>
-                                <td class="px-6 py-4"><div class="font-bold text-slate-800">Tunmise</div></td>
-                                <td class="px-6 py-4">
-                                    <div class="flex items-center justify-between gap-3 text-xs">
-                                        <span class="truncate text-slate-600 font-medium">white chair</span>
-                                        <span class="shrink-0 font-mono font-bold text-slate-500">(x100)</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">1,935.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">NGN</div>
-                                </td>
-                                <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                    <div class="font-mono font-bold text-emerald-700">2,999,250.00</div>
-                                    <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
-                                </td>
-                                <td class="px-6 py-4 text-center">
-                                    <span class="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Invoiced</span>
-                                </td>
-                            </tr>
-
+                                            @if (isConverted)
+                                            {
+                                                <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                                <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
+                                            }
+                                            else
+                                            {
+                                                <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                <button @onclick="() => ConvertRequestToOrder(req)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            @if (!FilteredRequests.Any())
+                            {
+                                <tr><td colspan="7" class="p-16 text-center text-slate-400">No requests found matching your criteria.</td></tr>
+                            }
                         </tbody>
                     </table>
                 </div>
@@ -232,6 +179,10 @@
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4">
                                         <div class="font-mono font-bold text-slate-900">@po.OrderNumber</div>
+                                        @if (!string.IsNullOrEmpty(po.ConvertedFromRequestNumber))
+                                        {
+                                            <div class="text-[9px] text-slate-400 font-mono mt-1">From: @po.ConvertedFromRequestNumber</div>
+                                        }
                                     </td>
                                     <td class="px-6 py-4 text-slate-500 font-medium">@po.OrderDate.ToString("MMM dd, yyyy")</td>
                                     <td class="px-6 py-4">
@@ -295,7 +246,7 @@
                                                 @if (!po.IsInvoicePosted && po.HasReceipt)
                                                 {
                                                     <button @onclick="() => AutoPostInvoice(po)" disabled="@(isPostingId == po.Id)" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
-                                                        @(isPostingId == po.Id ? "Posting..." : "Post Bill")
+                                                        @(isPostingId == po.Id ? "Posting..." : "Post Invoice")
                                                     </button>
                                                 }
                                                 else if (po.IsInvoicePosted && !po.IsFullyPaid)
@@ -328,7 +279,19 @@
                             <span class="px-2 py-0.5 bg-slate-200 text-slate-700 font-mono text-xs rounded font-bold">@currentOrder.OrderNumber</span>
                         }
                     </div>
-                    @if (IsLocked)
+
+                    @if (!IsLocked)
+                    {
+                        <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                            <button type="button" @onclick="() => SetStatusType(PurchaseOrderStatus.Request)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.Request ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
+                                Request (Draft)
+                            </button>
+                            <button type="button" @onclick="() => SetStatusType(PurchaseOrderStatus.Open)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status != PurchaseOrderStatus.Request ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
+                                Purchase Order
+                            </button>
+                        </div>
+                    }
+                    else
                     {
                         <div class="px-4 py-1.5 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 ring-slate-200 ring-1 flex items-center gap-1">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -570,7 +533,7 @@
                                 {
                                     <span class="animate-spin">↻</span>
                                 }
-                                Save Purchase Order
+                                @(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")
                             </button>
                         }
                         else
@@ -629,7 +592,7 @@
     private bool isLoading = true;
     private int activeTab = 0; // 0 = All Orders, 1 = New/Edit, 2 = Requests
 
-    private bool IsLocked => currentOrder.HasReceipt || currentOrder.IsInvoicePosted;
+    private bool IsLocked => currentOrder.HasReceipt || currentOrder.IsInvoicePosted || (currentOrder.Status == PurchaseOrderStatus.Request && orders.Any(o => o.ConvertedFromRequestNumber == currentOrder.OrderNumber));
 
     // Filters
     private string searchTerm = "";
@@ -667,7 +630,6 @@
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
-    // Nullable Guid bridge for component
     private Guid SelectedDiscountGlAccountId
     {
         get => currentOrder.DiscountGlAccountId ?? Guid.Empty;
@@ -681,11 +643,19 @@
     }
 
     private IEnumerable<PurchaseOrder> FilteredOrders => orders
+        .Where(o => o.Status != PurchaseOrderStatus.Request) // Exclude Requests from the Orders tab
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || vendors.FirstOrDefault(v => v.Id == o.VendorId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true
                  || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
+
+    private IEnumerable<PurchaseOrder> FilteredRequests => orders
+        .Where(o => o.Status == PurchaseOrderStatus.Request) // Only Requests
+        .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
+        .Where(o => string.IsNullOrWhiteSpace(searchTerm)
+                 || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                 || vendors.FirstOrDefault(v => v.Id == o.VendorId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true);
 
     protected override async Task OnInitializedAsync()
     {
@@ -717,10 +687,8 @@
         warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToListAsync();
 
-        // Fetch Orders and Calculate Totals
         var rawOrders = await PurchService.GetPOsAsync(currentCompanyId);
 
-        // Dynamic PO Math (Since POs don't store GrandTotal in DB)
         foreach (var po in rawOrders)
         {
             decimal st = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
@@ -737,25 +705,21 @@
         }
         orders = rawOrders;
 
-        // GL Accounts Setup
         accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-        // Liabilities (for standard Tax mapping)
         liabilityAccounts = allAccounts.Where(a =>
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        // Tax Input can be an Asset (Debit) or mapped to the main VAT Liability (Credit)
         taxAccounts = allAccounts.Where(a =>
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == true && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        // Discount Received is Income / Credit
         discountAccounts = allAccounts.Where(a =>
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
@@ -765,11 +729,16 @@
 
     private void CreateNew()
     {
-        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Today, ExchangeRate = 1 };
+        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Today, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
         currencySymbol = "";
         selectedCurrencyCode = "";
         currentOrder.Lines.Add(new PurchaseOrderLine());
         activeTab = 1;
+    }
+
+    private void SetStatusType(PurchaseOrderStatus status)
+    {
+        currentOrder.Status = status;
     }
 
     private async Task EditOrder(PurchaseOrder po)
@@ -804,6 +773,21 @@
             }).ToList()
         };
         activeTab = 1;
+    }
+
+    private async Task ConvertRequestToOrder(PurchaseOrder req)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Convert Request {req.OrderNumber} to a Purchase Order?");
+        if (!confirm) return;
+
+        var err = await PurchService.ConvertRequestToOrderAsync(req.Id);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+
+        await JS.InvokeVoidAsync("alert", "Request Successfully Converted to Purchase Order!");
+        await LoadData();
+
+        var newOrder = orders.FirstOrDefault(o => o.ConvertedFromRequestNumber == req.OrderNumber);
+        if (newOrder != null) await EditOrder(newOrder);
     }
 
     private async Task OnVendorChanged(ChangeEventArgs e)
@@ -868,8 +852,6 @@
         var item = items.FirstOrDefault(x => x.Id == line.ItemId);
         if (item != null)
         {
-            // Always default the unit cost to 0 when an item is selected
-            // so the purchasing manager is forced to enter the newly negotiated rate.
             line.UnitCost = 0;
         }
     }
@@ -893,7 +875,7 @@
             var err = await PurchService.SavePurchaseOrderAsync(currentOrder);
             if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
-            await JS.InvokeVoidAsync("alert", "PO Saved Successfully.");
+            await JS.InvokeVoidAsync("alert", "Saved Successfully.");
             await LoadData();
             activeTab = 0;
         }
@@ -924,7 +906,7 @@
     {
         if (currentOrder.Id == Guid.Empty)
         {
-            activeTab = 0; // Just cancel if it's a new, unsaved PO
+            activeTab = 0;
             return;
         }
 
@@ -942,12 +924,8 @@
                 return;
             }
 
-            // Success
             await LoadData();
             activeTab = 0;
-
-            // Optional: small success toast/alert
-            await JS.InvokeVoidAsync("alert", "Purchase Order deleted successfully.");
         }
         catch (Exception ex)
         {

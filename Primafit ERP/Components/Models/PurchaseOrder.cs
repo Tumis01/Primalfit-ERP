@@ -24,6 +24,8 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,6)")]
         public decimal ExchangeRate { get; set; } = 1;
+        public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
+        public string? ConvertedFromRequestNumber { get; set; }
 
         // --- NEW: TAX & DISCOUNT PROPERTIES ---
         public Guid? TaxId { get; set; }
@@ -38,7 +40,6 @@ namespace Primafit_ERP.Components.Models
         public Guid? DiscountGlAccountId { get; set; } // Maps to Discount Received (Income/Credit)
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
-        public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
 
         public bool HasReceipt { get; set; } = false;
         public bool IsFullyReceived { get; set; } = false;
@@ -204,6 +205,7 @@ namespace Primafit_ERP.Components.Models
     public enum PurchaseOrderStatus
     {
         Open,
+        Request,
         PartiallyReceived,
         Closed,
         Cancelled
