@@ -3,11 +3,14 @@ using Microsoft.EntityFrameworkCore;
 using PrimafitERP.Data;
 using Primafit_ERP.Components.Models; // Your models namespace
 using PrimafitERP.Api.DTOs;
+using Microsoft.AspNetCore.Authorization;
 
 namespace PrimafitERP.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
+
     public class ChartOfAccountsController : ControllerBase
     {
         private readonly AppDbContext _context;

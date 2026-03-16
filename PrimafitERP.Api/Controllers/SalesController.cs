@@ -35,7 +35,6 @@ namespace PrimafitERP.Api.Controllers
 
                 // Map API DateTime to Entity DateOnly
                 Date = DateOnly.FromDateTime(dto.OrderDate),
-                OrderNumber = dto.OrderNumber,
 
                 // Defaulting to Order instead of Draft so it actively reserves stock
                 Status = OrderStatus.Order,
@@ -69,6 +68,23 @@ namespace PrimafitERP.Api.Controllers
                 orderId = newOrder.Id,
                 orderNumber = newOrder.OrderNumber
             });
+        }
+        [HttpPost("{orderId:guid}/convert-to-invoice")]
+        public async Task<IActionResult> ConvertToInvoice(Guid orderId)
+        {
+            var error = await _salesService.ConvertOrderToInvoiceAsync(orderId);
+            if (!string.IsNullOrEmpty(error)) return BadRequest(new { message = error });
+
+            return Ok(new { message = "Order successfully converted to Invoice draft." });
+        }
+
+        [HttpPost("{invoiceId:guid}/post-invoice")]
+        public async Task<IActionResult> PostInvoice(Guid invoiceId)
+        {
+            var error = await _salesService.InvoiceOrderAsync(invoiceId);
+            if (!string.IsNullOrEmpty(error)) return BadRequest(new { message = error });
+
+            return Ok(new { message = "Invoice posted to General Ledger successfully." });
         }
     }
 }

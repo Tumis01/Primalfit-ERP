@@ -346,7 +346,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // --- UPDATED: POST INVOICE WITH DISCOUNT GL LOGIC ---
+
         public async Task<string> InvoiceOrderAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -450,10 +450,19 @@ namespace Primafit_ERP.Services
                 if (glLines.Any())
                 {
                     var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Sales Invoice", $"Inv {order.OrderNumber}", glLines);
-                    if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+                    if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Batch Creation Error: {err}");
 
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value);
-                    order.InvoiceBatchId = batchId;
+                    if (batchId.HasValue)
+                    {
+                        // CAPTURE THE ERROR
+                        var postErr = await _glOps.PostBatchAsync(order.CompanyId, batchId.Value);
+
+                        // IF IT FAILS, THROW IT SO THE TRANSACTION ROLLS BACK!
+                        if (!string.IsNullOrEmpty(postErr))
+                            throw new Exception($"GL Engine Rejected Posting: {postErr}");
+
+                        order.InvoiceBatchId = batchId;
+                    }
                 }
 
                 if (!order.OrderNumber.StartsWith("INV"))
@@ -463,7 +472,16 @@ namespace Primafit_ERP.Services
 
                 bool fullyInvoiced = order.Lines.All(l => l.QtyInvoiced >= l.Quantity);
                 order.Status = fullyInvoiced ? OrderStatus.Invoiced : OrderStatus.PartiallyInvoiced;
+                if (!string.IsNullOrEmpty(order.ConvertedFromQuoteNumber))
+                {
+                    var parentOrder = await ctx.SalesOrders
+                        .FirstOrDefaultAsync(o => o.OrderNumber == order.ConvertedFromQuoteNumber);
 
+                    if (parentOrder != null)
+                    {
+                        parentOrder.Status = order.Status; // Syncs the parent to 'Invoiced'
+                    }
+                }
                 await ctx.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -674,7 +692,7 @@ namespace Primafit_ERP.Services
 
             return reportData;
         }
-        
+
         // ==========================================
         // REPORT 3: SALES ANALYSIS BY ITEM
         // ==========================================

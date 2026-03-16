@@ -9,11 +9,11 @@ namespace PrimafitERP.Api.Controllers
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
-    public class GeneralLedgerController : ControllerBase
+    public class JournalEntryController : ControllerBase
     {
         private readonly GLOperationsService _glOps;
 
-        public GeneralLedgerController(GLOperationsService glOps)
+        public JournalEntryController(GLOperationsService glOps)
         {
             _glOps = glOps;
         }

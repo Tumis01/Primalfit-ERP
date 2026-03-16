@@ -9,7 +9,6 @@ namespace PrimafitERP.Api.DTOs
         [Required] public Guid WarehouseId { get; set; }
         [Required] public Guid CurrencyId { get; set; }
 
-        public string OrderNumber { get; set; } = string.Empty;
         public DateTime OrderDate { get; set; } = DateTime.UtcNow;
         public decimal ExchangeRate { get; set; } = 1;
 

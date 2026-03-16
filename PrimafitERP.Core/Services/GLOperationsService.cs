@@ -25,25 +25,38 @@ namespace Primafit_ERP.Services
 
         private async Task<AccountingPeriod> ResolvePeriodOrThrow(AppDbContext ctx, Guid companyId, DateOnly txnDate)
         {
-            var periods = await ctx.AccountingPeriods
+            // 1. THE HAPPY PATH: Let the SQL Database do the heavy lifting.
+            // We only request exactly one matching period, not the whole list.
+            var period = await ctx.AccountingPeriods
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.CompanyId == companyId
+                                       && !p.IsClosed
+                                       && p.StartDate <= txnDate
+                                       && p.EndDate >= txnDate);
+
+            // If we found it, return immediately. Fast and lightweight!
+            if (period != null) return period;
+
+            // 2. THE SAD PATH: We only run this extra query if the user made a mistake.
+            // Fetch ONLY the dates to build a highly readable, user-friendly error message.
+            var openPeriods = await ctx.AccountingPeriods
                 .AsNoTracking()
                 .Where(p => p.CompanyId == companyId && !p.IsClosed)
+                .OrderBy(p => p.StartDate)
+                .Select(p => $"{p.StartDate:MMM dd, yyyy} to {p.EndDate:MMM dd, yyyy}")
                 .ToListAsync();
 
-            var period = periods.FirstOrDefault(p => p.StartDate <= txnDate && p.EndDate >= txnDate);
-
-            if (period == null)
+            if (!openPeriods.Any())
             {
-                var availableRanges = string.Join(", ",
-                    periods.Select(p => $"{p.StartDate:yyyy-MM-dd} to {p.EndDate:yyyy-MM-dd}"));
-
-                throw new InvalidOperationException(
-                    $"No active accounting period found for {txnDate:yyyy-MM-dd}. Open periods are: [{availableRanges}]");
+                // User POV: Clean, non-technical explanation
+                throw new Exception("Cannot process transaction: There are no open accounting periods available for this company. Please open a new period in the Ledger settings.");
             }
 
-            return period;
-        }
+            var availableRanges = string.Join(" | ", openPeriods);
 
+            // User POV: Tell them exactly what they did wrong, and exactly what their options are.
+            throw new Exception($"Cannot process transaction: The date {txnDate:MMM dd, yyyy} is closed or invalid. Please select a date within the following open periods: {availableRanges}");
+        }
         private async Task<string?> ValidateSegmentedAccountsAsync(
             AppDbContext ctx,
             Guid companyId,
@@ -248,6 +261,14 @@ namespace Primafit_ERP.Services
                 if (batch == null) return "Batch not found.";
                 if (batch.Status == BatchStatus.Posted) return "Batch is already posted.";
 
+                // THE FIX: Strict validation that the Accounting Period is still open BEFORE posting
+                var targetPeriod = await ctx.AccountingPeriods
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == batch.AccountingPeriodId);
+
+                if (targetPeriod == null) return "Fatal Error: The accounting period linked to this batch no longer exists.";
+                if (targetPeriod.IsClosed) return $"STOP: Cannot post. The accounting period ({targetPeriod.StartDate:yyyy-MM-dd} to {targetPeriod.EndDate:yyyy-MM-dd}) is currently CLOSED.";
+
                 if (batch.Status == BatchStatus.Draft)
                 {
                     foreach (var j in batch.Journals)
@@ -256,7 +277,7 @@ namespace Primafit_ERP.Services
                     batch.Status = BatchStatus.Ready;
                     batch.ReleasedByUserId = "SYSTEM_AUTO";
                     batch.ReleasedAt = DateTime.UtcNow;
-                    await ctx.SaveChangesAsync();
+                    await ctx.SaveChangesAsync(); // Save state change before proceeding
                 }
 
                 if (batch.Status != BatchStatus.Ready)

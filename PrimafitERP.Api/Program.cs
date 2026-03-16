@@ -5,7 +5,6 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Services;
-using PrimafitERP.Core.Services;
 using PrimafitERP.Data;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -27,6 +26,10 @@ builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<WarehouseService>();
 builder.Services.AddScoped<SegCoaService>();
 builder.Services.AddScoped<CompanyApiService>();
+builder.Services.AddScoped<ShipmentService>();
+builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<CreditNoteService>();
+builder.Services.AddScoped<InventoryValuationService>();
 
 // Configure Identity
 builder.Services.AddIdentityCore<ApplicationUser>()

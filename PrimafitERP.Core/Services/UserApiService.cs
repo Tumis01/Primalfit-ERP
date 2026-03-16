@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
-namespace PrimafitERP.Core.Services
+namespace Primafit_ERP.Services
 {
     public class UserApiService
     {

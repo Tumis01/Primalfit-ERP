@@ -364,10 +364,18 @@
 
     private async Task ConfirmCreateBatch()
     {
-        var batch = await GlOps.CreateDraftBatchAsync(currentCompanyId, newBatchDate, newBatchDescription, currentUserId);
-        showCreateModal = false;
-        await LoadBatches();
-        await SelectBatch(batch.Id);
+        try
+        {
+            var batch = await GlOps.CreateDraftBatchAsync(currentCompanyId, newBatchDate, newBatchDescription, currentUserId);
+
+            showCreateModal = false;
+            await LoadBatches();
+            await SelectBatch(batch.Id);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", ex.Message);
+        }
     }
 
     // --- BATCH ACTIONS ---

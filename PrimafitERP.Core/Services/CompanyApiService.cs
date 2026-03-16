@@ -1,9 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
-using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting; 
 
-namespace PrimafitERP.Core.Services
+namespace Primafit_ERP.Services
 {
     public class CompanyApiService
     {

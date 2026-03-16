@@ -12,10 +12,13 @@ namespace PrimafitERP.Api.Controllers
     public class ProcurementController : ControllerBase
     {
         private readonly PurchasingService _purchasingService;
+        private readonly InventoryValuationService _valuationService; 
 
-        public ProcurementController(PurchasingService purchasingService)
+        // injected via constructor here!
+        public ProcurementController(PurchasingService purchasingService, InventoryValuationService valuationService)
         {
             _purchasingService = purchasingService;
+            _valuationService = valuationService;
         }
 
         [HttpPost("create-po")]
@@ -24,7 +27,6 @@ namespace PrimafitERP.Api.Controllers
             if (!ModelState.IsValid || !dto.Lines.Any())
                 return BadRequest("Invalid PO data or missing line items.");
 
-            // Map the DTO strictly to your Entity Model
             var newPo = new PurchaseOrder
             {
                 Id = Guid.NewGuid(),
@@ -32,18 +34,15 @@ namespace PrimafitERP.Api.Controllers
                 VendorId = dto.VendorId,
                 CurrencyId = dto.CurrencyId,
                 ExchangeRate = dto.ExchangeRate > 0 ? dto.ExchangeRate : 1,
-                OrderNumber = dto.OrderNumber,
                 OrderDate = dto.OrderDate,
-                Status = PurchaseOrderStatus.Open, // API orders default to Open status
+                Status = PurchaseOrderStatus.Open,
 
-                // Map Tax & Discounts
                 TaxId = dto.TaxId,
                 TaxGLAccountId = dto.TaxGLAccountId,
                 DiscountPercentage = dto.DiscountPercentage,
                 DiscountAmount = dto.DiscountAmount,
                 DiscountGlAccountId = dto.DiscountGlAccountId,
 
-                // Map the Lines
                 Lines = dto.Lines.Select(l => new PurchaseOrderLine
                 {
                     Id = Guid.NewGuid(),
@@ -53,7 +52,6 @@ namespace PrimafitERP.Api.Controllers
                 }).ToList()
             };
 
-            // Hand off to your existing business logic!
             var error = await _purchasingService.SavePurchaseOrderAsync(newPo);
 
             if (!string.IsNullOrEmpty(error))
@@ -65,6 +63,49 @@ namespace PrimafitERP.Api.Controllers
                 poId = newPo.Id,
                 orderNumber = newPo.OrderNumber
             });
+        }
+        [HttpPost("auto-invoice/{poId:guid}")]
+        public async Task<IActionResult> AutoPostBillFromPo(Guid poId, [FromQuery] Guid companyId)
+        {
+            if (companyId == Guid.Empty) return BadRequest("CompanyId query parameter is required.");
+
+            // This hits your brilliant AutoPostVendorBillFromPOAsync method which handles Tax, Discounts, and the GR/IR clearing!
+            var err = await _purchasingService.AutoPostVendorBillFromPOAsync(poId, companyId);
+
+            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+
+            return Ok(new { message = "Vendor Bill auto-generated and posted to GL successfully." });
+        }
+        [HttpPost("{poId:guid}/receive-goods")]
+        public async Task<IActionResult> ReceiveGoods(Guid poId, [FromBody] CreateGoodsReceiptDto dto)
+        {
+            if (!ModelState.IsValid || !dto.Lines.Any()) return BadRequest("Invalid GRN data.");
+
+            var grn = new GoodsReceipt
+            {
+                Id = Guid.NewGuid(),
+                CompanyId = dto.CompanyId,
+                PurchaseOrderId = poId,
+                InventoryGlAccountId = dto.CreditLiabilityGlAccountId,
+                GrnNumber = dto.GrnNumber,
+                DateReceived = dto.DateReceived,
+                Lines = dto.Lines.Select(l => new GoodsReceiptLine
+                {
+                    Id = Guid.NewGuid(),
+                    PurchaseOrderLineId = l.PurchaseOrderLineId,
+                    QuantityReceived = l.QuantityReceived
+                }).ToList()
+            };
+
+            // 1. Save GRN & Post initial Stock/GL Impact
+            var err = await _purchasingService.SaveGoodsReceiptAsync(grn, dto.WarehouseId);
+            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+
+            // 2. Automatically recalculate WACC based on the new receipt
+            var waccErr = await _valuationService.RecalculateWACC(grn.Id);
+            if (!string.IsNullOrEmpty(waccErr)) return BadRequest(new { message = $"Goods Received, but WACC calculation failed: {waccErr}" });
+
+            return Ok(new { message = "Goods received and WACC recalculated successfully.", grnId = grn.Id });
         }
     }
 }
