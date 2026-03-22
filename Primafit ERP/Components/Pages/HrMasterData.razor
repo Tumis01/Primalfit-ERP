@@ -1,0 +1,384 @@
+﻿@page "/hr/master-data"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject HrSetupService SetupService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">HR Master Data</h1>
+            <p class="text-sm text-slate-500 mt-1">Configure branches, organizational structure, and compensation bands.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading setup data...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[600px]">
+            
+            <!-- Horizontal Tabs -->
+            <div class="flex overflow-x-auto border-b border-slate-200 bg-slate-50 scrollbar-hide">
+                <button @onclick="() => activeTab = 0" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap @(activeTab == 0 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100")">
+                    Branches
+                </button>
+                <button @onclick="() => activeTab = 1" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap @(activeTab == 1 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100")">
+                    Departments
+                </button>
+                <button @onclick="() => activeTab = 2" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap @(activeTab == 2 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100")">
+                    Job Roles
+                </button>
+                <button @onclick="() => activeTab = 3" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors whitespace-nowrap @(activeTab == 3 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100")">
+                    Compensation Bands
+                </button>
+            </div>
+
+            <!-- Content Area -->
+            <div class="flex-1 p-6 lg:p-8 bg-white overflow-x-auto">
+                
+                <!-- TAB 0: BRANCHES -->
+                @if (activeTab == 0)
+                {
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-bold text-slate-800">Company Branches</h2>
+                        <button @onclick="() => EditBranch(new Branch())" class="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-slate-800">+ Add Branch</button>
+                    </div>
+                    <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 pl-4">Branch Name</th>
+                                <th class="p-3 pr-4 text-right w-32">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @if(!branches.Any()) { <tr><td colspan="2" class="p-8 text-center text-slate-400">No branches configured.</td></tr> }
+                            @foreach (var b in branches)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-3 pl-4 font-bold text-slate-800">@b.Name</td>
+                                    <td class="p-3 pr-4 text-right opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @onclick="() => EditBranch(b)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs mr-3">Edit</button>
+                                        <button @onclick="() => DeleteBranch(b.Id)" class="text-rose-500 hover:text-rose-700 font-bold text-xs">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <!-- TAB 1: DEPARTMENTS -->
+                @if (activeTab == 1)
+                {
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-bold text-slate-800">Departments</h2>
+                        <button @onclick="() => EditDept(new Department())" class="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-slate-800">+ Add Dept</button>
+                    </div>
+                    <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 pl-4">Department Name</th>
+                                <th class="p-3 pr-4 text-right w-32">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @if(!departments.Any()) { <tr><td colspan="2" class="p-8 text-center text-slate-400">No departments configured.</td></tr> }
+                            @foreach (var d in departments)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-3 pl-4 font-bold text-slate-800">@d.Name</td>
+                                    <td class="p-3 pr-4 text-right opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @onclick="() => EditDept(d)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs mr-3">Edit</button>
+                                        <button @onclick="() => DeleteDept(d.Id)" class="text-rose-500 hover:text-rose-700 font-bold text-xs">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <!-- TAB 2: JOB ROLES -->
+                @if (activeTab == 2)
+                {
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-bold text-slate-800">Job Roles</h2>
+                        <button @onclick="() => EditRole(new JobRole())" class="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-slate-800">+ Add Role</button>
+                    </div>
+                    <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 pl-4">Department</th>
+                                <th class="p-3">Job Title</th>
+                                <th class="p-3 pr-4 text-right w-32">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @if(!jobRoles.Any()) { <tr><td colspan="3" class="p-8 text-center text-slate-400">No job roles configured.</td></tr> }
+                            @foreach (var r in jobRoles)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-3 pl-4 text-slate-500 font-medium">@r.Department?.Name</td>
+                                    <td class="p-3 font-bold text-slate-800">@r.Title</td>
+                                    <td class="p-3 pr-4 text-right opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @onclick="() => EditRole(r)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs mr-3">Edit</button>
+                                        <button @onclick="() => DeleteRole(r.Id)" class="text-rose-500 hover:text-rose-700 font-bold text-xs">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <!-- TAB 3: COMPENSATION BANDS (SALARY STRUCTURES) -->
+                @if (activeTab == 3)
+                {
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-lg font-bold text-slate-800">Salary Structures (Bands)</h2>
+                        <button @onclick="() => EditStructure(new EmployeeSalaryStructure())" class="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-slate-800">+ Add Band</button>
+                    </div>
+                    <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden whitespace-nowrap">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-3 pl-4">Band Name</th>
+                                <th class="p-3">Gross (Monthly)</th>
+                                <th class="p-3 text-right">Basic</th>
+                                <th class="p-3 text-right">Housing</th>
+                                <th class="p-3 text-right">Transport</th>
+                                <th class="p-3 text-center">Config</th>
+                                <th class="p-3 pr-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @if(!salaryStructures.Any()) { <tr><td colspan="7" class="p-8 text-center text-slate-400">No salary structures configured.</td></tr> }
+                            @foreach (var s in salaryStructures)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-3 pl-4 font-bold text-slate-900">@s.Name</td>
+                                    <td class="p-3 font-bold text-emerald-600">@s.GrossMonthlyPay.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.BasicSalary.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.HousingAllowance.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.TransportAllowance.ToString("N2")</td>
+                                    <td class="p-3 text-center">
+                                        <div class="flex flex-col items-center gap-1 text-[10px] uppercase font-bold">
+                                            @if(s.IsTaxable) { <span class="text-rose-500">PAYE ✓</span> } else { <span class="text-slate-300">NO PAYE</span> }
+                                            @if(s.IsPensionable) { <span class="text-amber-600">Pension ✓</span> } else { <span class="text-slate-300">NO PENS</span> }
+                                        </div>
+                                    </td>
+                                    <td class="p-3 pr-4 text-right opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button @onclick="() => EditStructure(s)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs mr-3">Edit</button>
+                                        <button @onclick="() => DeleteStructure(s.Id)" class="text-rose-500 hover:text-rose-700 font-bold text-xs">Delete</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- UNIFIED MODAL FOR ALL ENTITIES -->
+    @if (showModal)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+                <h3 class="text-lg font-bold text-slate-900 mb-6 border-b border-slate-100 pb-3">@modalTitle</h3>
+
+                <EditForm Model="modalModel" OnValidSubmit="SaveCurrentEntity">
+                    <DataAnnotationsValidator />
+                    <div class="space-y-4">
+                        
+                        @if (activeTab == 0) // Branch
+                        {
+                            <div>
+                                <label class="label">Branch Name</label>
+                                <InputText @bind-Value="editingBranch.Name" class="input-class" placeholder="e.g. Lagos HQ" />
+                            </div>
+                        }
+                        else if (activeTab == 1) // Department
+                        {
+                            <div>
+                                <label class="label">Department Name</label>
+                                <InputText @bind-Value="editingDept.Name" class="input-class" placeholder="e.g. Finance" />
+                            </div>
+                        }
+                        else if (activeTab == 2) // Job Role
+                        {
+                            <div>
+                                <label class="label">Department</label>
+                                <InputSelect @bind-Value="editingRole.DepartmentId" class="input-class">
+                                    <option value="@Guid.Empty">-- Select Dept --</option>
+                                    @foreach(var d in departments) { <option value="@d.Id">@d.Name</option> }
+                                </InputSelect>
+                            </div>
+                            <div>
+                                <label class="label">Job Title</label>
+                                <InputText @bind-Value="editingRole.Title" class="input-class" placeholder="e.g. Senior Accountant" />
+                            </div>
+                        }
+                        else if (activeTab == 3) // Salary Structure
+                        {
+                            <div>
+                                <label class="label">Band Name / Level</label>
+                                <InputText @bind-Value="editingStructure.Name" class="input-class" placeholder="e.g. Level 1 - Junior" />
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="label">Basic Salary</label><InputNumber @bind-Value="editingStructure.BasicSalary" class="input-class font-mono" /></div>
+                                <div><label class="label">Housing</label><InputNumber @bind-Value="editingStructure.HousingAllowance" class="input-class font-mono" /></div>
+                                <div><label class="label">Transport</label><InputNumber @bind-Value="editingStructure.TransportAllowance" class="input-class font-mono" /></div>
+                                <div><label class="label">Utility</label><InputNumber @bind-Value="editingStructure.UtilityAllowance" class="input-class font-mono" /></div>
+                                <div><label class="label">Meal</label><InputNumber @bind-Value="editingStructure.MealAllowance" class="input-class font-mono" /></div>
+                            </div>
+                            <div class="flex gap-6 mt-4 pt-4 border-t border-slate-100">
+                                <label class="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                                    <InputCheckbox @bind-Value="editingStructure.IsTaxable" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" /> Apply PAYE
+                                </label>
+                                <label class="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                                    <InputCheckbox @bind-Value="editingStructure.IsPensionable" class="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500" /> Apply Pension
+                                </label>
+                            </div>
+                        }
+
+                    </div>
+
+                    <div class="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                        <button type="button" @onclick="() => showModal = false" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+                        <button type="submit" disabled="@isBusy" class="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-800 disabled:opacity-50">
+                            @if(isBusy) { <span>...</span> } else { <span>Save</span> }
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+    /* Hide scrollbar for clean horizontal tabs */
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private bool isLoading = true;
+    private bool isBusy = false;
+    private int activeTab = 0;
+
+    private List<Branch> branches = new();
+    private List<Department> departments = new();
+    private List<JobRole> jobRoles = new();
+    private List<EmployeeSalaryStructure> salaryStructures = new();
+
+    // Modal State
+    private bool showModal = false;
+    private string modalTitle = "";
+    private object modalModel = new();
+
+    // Editing Entities
+    private Branch editingBranch = new();
+    private Department editingDept = new();
+    private JobRole editingRole = new();
+    private EmployeeSalaryStructure editingStructure = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        branches = await SetupService.GetBranchesAsync(currentCompanyId);
+        departments = await SetupService.GetDepartmentsAsync(currentCompanyId);
+        jobRoles = await SetupService.GetJobRolesAsync(currentCompanyId);
+        salaryStructures = await SetupService.GetSalaryStructuresAsync(currentCompanyId);
+    }
+
+    // Edit Triggers
+    private void EditBranch(Branch b) { b.CompanyId = currentCompanyId; editingBranch = b; modalModel = b; modalTitle = b.Id == Guid.Empty ? "Add Branch" : "Edit Branch"; showModal = true; }
+    private void EditDept(Department d) { d.CompanyId = currentCompanyId; editingDept = d; modalModel = d; modalTitle = d.Id == Guid.Empty ? "Add Department" : "Edit Department"; showModal = true; }
+    private void EditRole(JobRole r) { r.CompanyId = currentCompanyId; editingRole = r; modalModel = r; modalTitle = r.Id == Guid.Empty ? "Add Job Role" : "Edit Job Role"; showModal = true; }
+    private void EditStructure(EmployeeSalaryStructure s) { s.CompanyId = currentCompanyId; editingStructure = s; modalModel = s; modalTitle = s.Id == Guid.Empty ? "Add Salary Band" : "Edit Salary Band"; showModal = true; }
+
+    // Save Logic
+    private async Task SaveCurrentEntity()
+    {
+        isBusy = true;
+        string err = string.Empty;
+
+        if (activeTab == 0) err = await SetupService.SaveBranchAsync(editingBranch);
+        else if (activeTab == 1) err = await SetupService.SaveDepartmentAsync(editingDept);
+        else if (activeTab == 2)
+        {
+            if (editingRole.DepartmentId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a department"); isBusy = false; return; }
+            err = await SetupService.SaveJobRoleAsync(editingRole);
+        }
+        else if (activeTab == 3)
+        {
+            if(string.IsNullOrWhiteSpace(editingStructure.Name)) { await JS.InvokeVoidAsync("alert", "Band Name is required."); isBusy = false; return; }
+            err = await SetupService.SaveSalaryStructureAsync(editingStructure);
+        }
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadData();
+            showModal = false;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+
+    // Delete Logic
+    private async Task DeleteBranch(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this branch?")) return;
+        var err = await SetupService.DeleteBranchAsync(id, currentCompanyId);
+        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task DeleteDept(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this department?")) return;
+        var err = await SetupService.DeleteDepartmentAsync(id, currentCompanyId);
+        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task DeleteRole(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this job role?")) return;
+        var err = await SetupService.DeleteJobRoleAsync(id, currentCompanyId);
+        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task DeleteStructure(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to delete this compensation band?")) return;
+        var err = await SetupService.DeleteSalaryStructureAsync(id, currentCompanyId);
+        if (string.IsNullOrEmpty(err)) await LoadData(); else await JS.InvokeVoidAsync("alert", err);
+    }
+}

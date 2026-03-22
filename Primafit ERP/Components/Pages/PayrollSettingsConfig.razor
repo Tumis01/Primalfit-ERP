@@ -1,0 +1,180 @@
+﻿@page "/hr/settings"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@* Make sure to add the using statement for wherever your SearchableGlAccount is located, e.g., *@
+@* @using Primafit_ERP.Components.Shared *@
+
+@inject PayrollSettingsService SettingsService
+@inject SegCoaService GLService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Payroll Configuration</h1>
+            <p class="text-sm text-slate-500 mt-1">Map General Ledger accounts and configure statutory rates.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading configuration...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <EditForm Model="config" OnValidSubmit="SaveSettings" class="p-8">
+                <DataAnnotationsValidator />
+
+                <div class="space-y-10">
+                    
+                    <!-- Section 1: GL Mappings -->
+                    <div class="space-y-6">
+                        <div class="border-b border-slate-100 pb-2">
+                            <h3 class="text-sm font-black uppercase tracking-widest text-indigo-900">General Ledger Mapping</h3>
+                            <p class="text-xs text-slate-500 mt-1">These accounts are used during the automated payroll accrual (GL Journal Posting).</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <SearchableGlAccount 
+                                    Label="Salaries Expense Account (Dr) *" 
+                                    Placeholder="Search Expense Account..." 
+                                    Accounts="allAccounts" 
+                                    @bind-Value="config.SalariesExpenseAccountId" />
+                                <div class="text-[10px] text-slate-400 mt-1">Used to record Gross Pay and Employer Pension.</div>
+                            </div>
+                            
+                            <div>
+                                <SearchableGlAccount 
+                                    Label="Salaries Payable Account (Cr) *" 
+                                    Placeholder="Search Liability Account..." 
+                                    Accounts="allAccounts" 
+                                    @bind-Value="config.SalariesPayableAccountId" />
+                                <div class="text-[10px] text-slate-400 mt-1">Used to accrue Net Pay owed to employees.</div>
+                            </div>
+
+                            <div>
+                                <SearchableGlAccount 
+                                    Label="PAYE Tax Payable (Cr) *" 
+                                    Placeholder="Search Tax Account..." 
+                                    Accounts="allAccounts" 
+                                    @bind-Value="config.PAYEPayableAccountId" />
+                                <div class="text-[10px] text-slate-400 mt-1">Accrues tax withheld on behalf of State IRS.</div>
+                            </div>
+
+                            <div>
+                                <SearchableGlAccount 
+                                    Label="Pension Payable (Cr) *" 
+                                    Placeholder="Search Pension Account..." 
+                                    Accounts="allAccounts" 
+                                    @bind-Value="config.PensionPayableAccountId" />
+                                <div class="text-[10px] text-slate-400 mt-1">Accrues Employee (8%) + Employer (10%) pension funds.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Statutory Rates -->
+                    <div class="space-y-6">
+                        <div class="border-b border-slate-100 pb-2">
+                            <h3 class="text-sm font-black uppercase tracking-widest text-emerald-900">Statutory Rates</h3>
+                            <p class="text-xs text-slate-500 mt-1">Configure compliance percentages (represented as decimals, e.g., 0.08 = 8%).</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="label">Employee Pension Deduction Rate</label>
+                                <InputNumber step="0.01" @bind-Value="config.PensionEmployeeRate" class="input-class font-mono" />
+                                <div class="text-[10px] text-slate-400 mt-1">Standard PENCOM rate is 8% (0.08).</div>
+                            </div>
+                            
+                            <div>
+                                <label class="label">Employer Pension Contribution Rate</label>
+                                <InputNumber step="0.01" @bind-Value="config.PensionEmployerRate" class="input-class font-mono" />
+                                <div class="text-[10px] text-slate-400 mt-1">Standard PENCOM rate is 10% (0.10).</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Footer Actions -->
+                <div class="flex justify-end gap-3 mt-10 pt-6 border-t border-slate-100">
+                    <button type="submit" disabled="@isBusy" class="px-8 py-3 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-2">
+                        @if(isBusy) { <span class="animate-spin">↻</span> }
+                        <span>Save Configuration</span>
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private bool isLoading = true;
+    private bool isBusy = false;
+
+    private PayrollSetting config = new();
+    private List<SegChartOfAccount> allAccounts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            
+            // Load Chart of Accounts for the dropdowns            
+            allAccounts = await GLService.GetActiveCoaAsync(currentCompanyId);
+            allAccounts = allAccounts.OrderBy(a => a.AccountCode).ToList();            
+            
+            // Load Existing Settings            
+            config = await SettingsService.GetSettingsAsync(currentCompanyId);
+        }
+        isLoading = false;
+    }
+
+    private async Task SaveSettings()
+    {        
+        // Simple Validation        
+        if (config.SalariesExpenseAccountId == Guid.Empty || 
+            config.SalariesPayableAccountId == Guid.Empty || 
+            config.PAYEPayableAccountId == Guid.Empty || 
+            config.PensionPayableAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please map all 4 General Ledger accounts before saving.");
+            return;
+        }
+
+        isBusy = true;
+        var err = await SettingsService.SaveSettingsAsync(config);
+        
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Payroll Configuration Saved Successfully!");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+}

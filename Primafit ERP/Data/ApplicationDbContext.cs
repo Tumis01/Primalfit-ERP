@@ -83,6 +83,17 @@ namespace PrimafitERP.Data
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }
         public DbSet<SalesShipment> SalesShipments { get; set; }
         public DbSet<SalesShipmentLine> SalesShipmentLines { get; set; }
+        // HR & Payroll
+        public DbSet<Branch> Branches { get; set; }
+        public DbSet<Department> Departments { get; set; }
+        public DbSet<JobRole> JobRoles { get; set; }
+        public DbSet<EmployeeSalaryStructure> SalaryStructures { get; set; }
+        public DbSet<Employee> Employees { get; set; }
+        public DbSet<PayrollRun> PayrollRuns { get; set; }
+        public DbSet<PayrollItem> PayrollItems { get; set; }
+        public DbSet<PayrollSetting> PayrollSettings { get; set; }
+        public DbSet<PayrollEarning> PayrollEarnings { get; set; }
+        public DbSet<PayrollDeduction> PayrollDeductions { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

@@ -1,0 +1,201 @@
+﻿@page "/hr/payslips"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PayrollService PayrollService
+@inject PayslipService PayslipService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Payslips & Exports</h1>
+            <p class="text-sm text-slate-500 mt-1">View employee payslips, download PDFs, and export bank upload files.</p>
+        </div>
+
+        <div class="flex gap-3 items-center">
+            <select class="input-class w-48 font-bold" @onchange="OnRunSelected">
+                <option value="@Guid.Empty">-- Select Payroll Run --</option>
+                @foreach (var run in runs)
+                {
+                    <option value="@run.Id">@run.Period (@run.Status)</option>
+                }
+            </select>
+            
+            @if (selectedRunId != Guid.Empty)
+            {
+                <button @onclick="ExportBankFile" disabled="@isBusy" class="px-5 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-md hover:bg-emerald-700 transition-all flex items-center gap-2 disabled:opacity-50 h-[42px]">
+                    @if (isBusy) { <span class="animate-spin">↻</span> }
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Bank Excel Export
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading data...</div>
+    }
+    else if (selectedRunId != Guid.Empty && payrollItems.Any())
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Col: Employee List -->
+            <div class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-[600px] flex flex-col">
+                <div class="p-4 border-b border-slate-100 bg-slate-50">
+                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search employee..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-indigo-500" />
+                </div>
+                <div class="overflow-y-auto flex-1 p-2 space-y-1">
+                    @foreach (var item in payrollItems.Where(i => string.IsNullOrEmpty(searchTerm) || (i.Employee?.FirstName + " " + i.Employee?.LastName).Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        <div @onclick="() => SelectEmployee(item.Id)" class="p-3 rounded-xl cursor-pointer transition-colors border @(selectedPayrollItemId == item.Id ? "bg-indigo-50 border-indigo-200" : "border-transparent hover:bg-slate-50")">
+                            <div class="font-bold text-slate-900 text-sm">@item.Employee?.FirstName @item.Employee?.LastName</div>
+                            <div class="flex justify-between items-center mt-1">
+                                <span class="text-[10px] text-slate-500 font-mono">@item.Employee?.EmployeeCode</span>
+                                <span class="text-xs font-bold text-emerald-600">@item.NetPay.ToString("N2")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Right Col: HTML Preview & PDF Button -->
+            <div class="lg:col-span-2 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col items-center justify-center min-h-[600px]">
+                @if (selectedPayrollItemId == Guid.Empty)
+                {
+                    <div class="text-slate-400 flex flex-col items-center gap-2">
+                        <svg class="w-12 h-12 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <p>Select an employee from the list to preview their payslip.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="w-full flex justify-end mb-4">
+                        <button @onclick="DownloadPdf" disabled="@isPdfBusy" class="px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg shadow-sm hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2">
+                            @if (isPdfBusy) { <span class="animate-spin">↻</span> }
+                            Download PDF
+                        </button>
+                    </div>
+                    
+                    <div class="w-full bg-white shadow-xl rounded-xl overflow-hidden self-start">
+                        @((MarkupString)htmlPreview)
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (selectedRunId != Guid.Empty)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">No employees found in this payroll run.</div>
+    }
+</div>
+
+<style>
+    .input-class { border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool isLoading = true;
+    private bool isBusy = false;
+    private bool isPdfBusy = false;
+
+    private List<PayrollRun> runs = new();
+    private Guid selectedRunId = Guid.Empty;
+    private List<PayrollItem> payrollItems = new();
+    
+    private string searchTerm = "";
+    private Guid selectedPayrollItemId = Guid.Empty;
+    private string htmlPreview = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            var comp = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            if (comp != null) companyName = comp.CompanyName;
+
+            var allRuns = await PayrollService.GetPayrollRunsAsync(currentCompanyId);
+            // FILTER: Only show runs that are NOT in Draft status
+            runs = allRuns.Where(r => r.Status != PayrollRunStatus.Draft).ToList();
+        }
+        isLoading = false;
+    }
+
+    private async Task OnRunSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id))
+        {
+            selectedRunId = id;
+            var runDetails = await PayrollService.GetPayrollRunDetailsAsync(id, currentCompanyId);
+            payrollItems = runDetails?.PayrollItems ?? new List<PayrollItem>();
+            
+            selectedPayrollItemId = Guid.Empty;
+            htmlPreview = "";
+        }
+    }
+
+    private async Task SelectEmployee(Guid itemId)
+    {
+        selectedPayrollItemId = itemId;
+        var fullItemData = await PayslipService.GetPayslipDataAsync(itemId, currentCompanyId);
+        if (fullItemData != null)
+        {
+            htmlPreview = PayslipService.GenerateHtmlPayslip(fullItemData, companyName);
+        }
+    }
+
+    private async Task DownloadPdf()
+    {
+        isPdfBusy = true;
+        try
+        {
+            var fullItemData = await PayslipService.GetPayslipDataAsync(selectedPayrollItemId, currentCompanyId);
+            if (fullItemData != null)
+            {
+                var pdfBytes = PayslipService.GeneratePdfPayslip(fullItemData, companyName);
+                var fileName = $"Payslip_{fullItemData.PayrollRun?.Period}_{fullItemData.Employee?.EmployeeCode}.pdf";
+                
+                using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
+                await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+            }
+        }
+        finally
+        {
+            isPdfBusy = false;
+        }
+    }
+
+    private async Task ExportBankFile()
+    {
+        if (selectedRunId == Guid.Empty) return;
+        isBusy = true;
+        try
+        {
+            var excelBytes = await PayslipService.ExportPayrollToExcelAsync(selectedRunId, currentCompanyId);
+            var run = runs.First(r => r.Id == selectedRunId);
+            var fileName = $"Bank_Upload_{run.Period}.xlsx";
+
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(excelBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}

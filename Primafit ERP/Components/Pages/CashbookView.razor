@@ -129,9 +129,7 @@
 
                                     <div class="md:col-span-2">
                                         <label class="label">Date</label>
-                                        <div class="input-class py-2 bg-slate-100 text-slate-500 font-mono text-xs flex items-center justify-center">
-                                            @entryForm.TransactionDate.ToString("yyyy-MM-dd")
-                                        </div>
+                                        <input type="date" @bind="entryForm.TransactionDate" class="input-class font-mono text-xs" />
                                     </div>
 
                                     <div class="md:col-span-3">

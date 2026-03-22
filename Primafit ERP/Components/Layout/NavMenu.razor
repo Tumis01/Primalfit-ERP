@@ -323,7 +323,64 @@
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Specialized</div>
 
-            @* 5. PROJECTS *@
+            @* 5. HR & PAYROLL (NEW ADD-ON MODULE) *@
+            <div class="space-y-1">
+                <button @onclick="ToggleHrMenu" class="@NavBase w-full justify-between">
+                    <div class="flex items-center gap-3">
+                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        <span class="flex-1 text-left font-medium">HR & Payroll</span>
+                    </div>
+                    <svg class="h-3.5 w-3.5 text-slate-400 transition-transform duration-300 @(_hrMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                </button>
+                @if (_hrMenuOpen)
+                {
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                        <div class="space-y-1 pt-1">
+
+                            <button @onclick="() => _hrSetupOpen = !_hrSetupOpen" class="@SubNavFolderBase">
+                                <span>Setup</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_hrSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_hrSetupOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="hr/master-data" class="@NestedNavLink" activeClass="@NestedNavActive">HR Master Data Setup</NavLink>
+                                    <NavLink href="hr/employees" class="@NestedNavLink" activeClass="@NestedNavActive">Employee Directory</NavLink>
+                                    <NavLink href="hr/settings" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Configuration</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _hrTransOpen = !_hrTransOpen" class="@SubNavFolderBase">
+                                <span>Transaction</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_hrTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_hrTransOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="hr/payroll-manager" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Engine</NavLink>
+                                </div>
+                            }
+
+                            <button @onclick="() => _hrReportOpen = !_hrReportOpen" class="@SubNavFolderBase">
+                                <span>Report</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_hrReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_hrReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="hr/payslips" class="@NestedNavLink" activeClass="@NestedNavActive">Payslips & Exports</NavLink>
+                                    <NavLink href="hr/compliance-reports" class="@NestedNavLink" activeClass="@NestedNavActive">Compliance Reports</NavLink>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* 6. PROJECTS *@
             <NavLink href="/projects" class="@NavBase" activeClass="@NavActive">
                 <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
@@ -331,7 +388,7 @@
                 <span class="flex-1 font-medium">Projects</span>
             </NavLink>
 
-            @* 6. FIXED ASSETS *@
+            @* 7. FIXED ASSETS *@
             <div class="space-y-1">
                 <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -365,7 +422,7 @@
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Tools & Config</div>
 
-            @* 7. SYSTEM SETUP *@
+            @* 8. SYSTEM SETUP *@
             <div class="space-y-1">
                 <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between">
                     <div class="flex items-center gap-3">
@@ -407,7 +464,7 @@
                 }
             </div>
 
-            @* 8. SETTINGS *@
+            @* 9. SETTINGS *@
             <NavLink href="/settings" class="@NavBase" activeClass="@NavActive">
                 <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
@@ -437,6 +494,7 @@
     private bool _salesMenuOpen;
     private bool _purchasingMenuOpen;
     private bool _inventoryMenuOpen;
+    private bool _hrMenuOpen;
     private bool _assetsMenuOpen;
     private bool _setupMenuOpen;
 
@@ -456,6 +514,10 @@
     private bool _inventorySetupOpen;
     private bool _inventoryTransOpen;
     private bool _inventoryReportOpen;
+
+    private bool _hrSetupOpen;
+    private bool _hrTransOpen;
+    private bool _hrReportOpen;
 
     private string userName = "Guest";
     private string userInitial = "G";
@@ -510,6 +572,9 @@
         if (path.StartsWith("sc/sales-orders") || path.StartsWith("ar/payment-entry") || path.StartsWith("sales/credit-notes"))
         { _salesMenuOpen = true; _salesTransOpen = true; }
 
+        if (path.StartsWith("reports/customer-transactions") || path.StartsWith("reports/ar-age-analysis") || path.StartsWith("reports/sales-analysis"))
+        { _salesMenuOpen = true; _salesReportOpen = true; }
+
         // 3. AP & Purchasing Routing
         if (path.StartsWith("md/vendors") || path.StartsWith("md/vendor-groups"))
         { _purchasingMenuOpen = true; _purchasingSetupOpen = true; }
@@ -524,8 +589,18 @@
         if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("supply-chain/issue-to-project") || path.StartsWith("wh/shipments"))
         { _inventoryMenuOpen = true; _inventoryTransOpen = true; }
 
-        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging"))
+        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging") || path.StartsWith("reports/inventory-valuation"))
         { _inventoryMenuOpen = true; _inventoryReportOpen = true; }
+
+        // 5. HR & Payroll Routing
+        if (path.StartsWith("hr/settings") || path.StartsWith("hr/employees"))
+        { _hrMenuOpen = true; _hrSetupOpen = true; }
+
+        if (path.StartsWith("hr/payroll-manager"))
+        { _hrMenuOpen = true; _hrTransOpen = true; }
+
+        if (path.StartsWith("hr/payslips") || path.StartsWith("hr/compliance-reports"))
+        { _hrMenuOpen = true; _hrReportOpen = true; }
 
         // Others
         _assetsMenuOpen = path.StartsWith("assets/");
@@ -540,6 +615,7 @@
     private void ToggleSalesMenu() => _salesMenuOpen = !_salesMenuOpen;
     private void TogglePurchasingMenu() => _purchasingMenuOpen = !_purchasingMenuOpen;
     private void ToggleInventoryMenu() => _inventoryMenuOpen = !_inventoryMenuOpen;
+    private void ToggleHrMenu() => _hrMenuOpen = !_hrMenuOpen;
     private void ToggleAssetsMenu() => _assetsMenuOpen = !_assetsMenuOpen;
     private void ToggleSetupMenu() => _setupMenuOpen = !_setupMenuOpen;
 }
