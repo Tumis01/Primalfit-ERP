@@ -68,9 +68,9 @@ namespace Primafit_ERP.Services
                     {
                         Id = Guid.NewGuid(),
                         HeaderId = creditNote.Id,
-                        ItemId = soLine.ItemId,
+                        ItemId = soLine.ItemId ?? Guid.Empty,
                         SalesOrderLineId = soLine.Id,
-                        Quantity = 0, // Default to 0 so the user explicitly types what they are returning
+                        Quantity = 0, 
                         UnitPrice = soLine.UnitPrice,
                         OriginalSoldQty = soLine.Quantity,
                         MaxReturnableQty = maxReturnable

@@ -122,24 +122,27 @@ namespace Primafit_ERP.Services
                 return "You must select a Discount GL Account (Expense) to apply a discount.";
             }
 
-            var lineItemIds = order.Lines.Select(l => l.ItemId).Distinct().ToList();
+            // Map items ONLY for lines that actually have an ItemId
+            var lineItemIds = order.Lines.Where(l => l.ItemId.HasValue).Select(l => l.ItemId!.Value).Distinct().ToList();
             var itemsMap = await ctx.Items.Where(i => lineItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
 
-            bool hasPhysicalItems = order.Lines.Any(l => itemsMap.ContainsKey(l.ItemId) && !itemsMap[l.ItemId].IsService);
+            // Ensure warehouse is selected ONLY if there are actual physical items
+            bool hasPhysicalItems = order.Lines.Any(l => l.ItemId.HasValue && itemsMap.ContainsKey(l.ItemId.Value) && !itemsMap[l.ItemId.Value].IsService);
 
             if (order.Status != OrderStatus.Quote && hasPhysicalItems && order.WarehouseId == Guid.Empty)
             {
                 return "Fulfillment Warehouse is required for physical items.";
             }
 
+            // Check ATP (Available to Promise) ONLY for physical inventory items
             if (order.Status != OrderStatus.Quote)
             {
                 foreach (var line in order.Lines)
                 {
-                    if (itemsMap.TryGetValue(line.ItemId, out var item) && !item.IsService)
+                    if (line.ItemId.HasValue && itemsMap.TryGetValue(line.ItemId.Value, out var item) && !item.IsService)
                     {
                         decimal availableToPromise = await _invService.GetAvailableToPromiseAsync(
-                            order.CompanyId, line.ItemId, order.WarehouseId, order.Id);
+                            order.CompanyId, line.ItemId.Value, order.WarehouseId, order.Id);
 
                         if (line.Quantity > availableToPromise)
                             return $"Cannot reserve {line.Quantity} of {item.Name}. Only {availableToPromise} available.";
@@ -200,6 +203,7 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = existing.Id,
                         ItemId = line.ItemId,
+                        Description = line.Description, // SAVE DESCRIPTION
                         Quantity = line.Quantity,
                         UnitPrice = line.UnitPrice
                     });
@@ -292,6 +296,9 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
+
+
+        // 4. SHIP ORDER
         public async Task<string> ShipOrderAsync(Guid orderId, Guid warehouseId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -305,9 +312,10 @@ namespace Primafit_ERP.Services
 
             foreach (var line in order.Lines)
             {
-                if (line.Item == null || line.Item.IsService) continue;
+                // SKIP lines that are Services OR Free-Text lines (ItemId is null)
+                if (!line.ItemId.HasValue || line.Item == null || line.Item.IsService) continue;
 
-                decimal currentStock = await _invService.GetStockLevel(line.ItemId, warehouseId);
+                decimal currentStock = await _invService.GetStockLevel(line.ItemId.Value, warehouseId);
                 if (currentStock < line.Quantity)
                     return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Need: {line.Quantity}";
 
@@ -315,7 +323,7 @@ namespace Primafit_ERP.Services
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = order.CompanyId,
-                    ItemId = line.ItemId,
+                    ItemId = line.ItemId.Value,
                     WarehouseId = warehouseId,
                     QuantityChanged = -line.Quantity,
                     Type = StockMovementType.Sale,
@@ -514,6 +522,111 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+
+        // ==========================================
+        // DIRECT AR INVOICE (NON-INVENTORY)
+        // ==========================================
+        public async Task<string> PostDirectInvoiceAsync(SalesOrder invoice)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var transaction = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                if (invoice.CompanyId == Guid.Empty) return "Company ID is missing.";
+                if (invoice.CustomerId == Guid.Empty) return "Customer is required.";
+                if (invoice.DirectIncomeGlAccountId == null || invoice.DirectIncomeGlAccountId == Guid.Empty) return "Income/Revenue GL Account is required.";
+                if (!invoice.Lines.Any()) return "Invoice must have at least one line.";
+
+                var customer = await ctx.Customers.FindAsync(invoice.CustomerId);
+                if (customer?.ReceivablesAccountId == null) return "Customer is missing an AR (Receivables) GL Account.";
+
+                // Calculate Totals
+                decimal rate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
+                decimal subTotalForeign = invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
+
+                decimal discountForeign = invoice.DiscountPercentage > 0
+                    ? subTotalForeign * (invoice.DiscountPercentage / 100)
+                    : invoice.DiscountAmount;
+
+                decimal netForeign = subTotalForeign - discountForeign;
+
+                decimal taxPer = 0;
+                if (invoice.TaxId.HasValue)
+                {
+                    var tax = await ctx.Taxes.FindAsync(invoice.TaxId.Value);
+                    if (tax != null) taxPer = tax.Per;
+                }
+
+                decimal taxForeign = netForeign * (taxPer / 100);
+                invoice.GrandTotalForeign = netForeign + taxForeign;
+
+                // Base Currency Values for GL
+                decimal subTotalBase = Math.Round(subTotalForeign * rate, 2);
+                decimal discountBase = Math.Round(discountForeign * rate, 2);
+                decimal taxBase = Math.Round(taxForeign * rate, 2);
+                decimal grandTotalBase = Math.Round(invoice.GrandTotalForeign * rate, 2);
+
+                // Build GL Lines
+                var glLines = new List<GLJournalLine>();
+
+                // 1. Credit Revenue (Using the user's selected account)
+                glLines.Add(new GLJournalLine { SegCoaId = invoice.DirectIncomeGlAccountId.Value, Debit = 0, Credit = subTotalBase, Reference = "Direct AR Revenue" });
+
+                // 2. Debit Discount (If applicable)
+                if (discountBase > 0)
+                {
+                    if (invoice.DiscountGlAccountId == null || invoice.DiscountGlAccountId == Guid.Empty) return "Discount Expense GL Account is required.";
+                    glLines.Add(new GLJournalLine { SegCoaId = invoice.DiscountGlAccountId.Value, Debit = discountBase, Credit = 0, Reference = "Discount Allowed" });
+                }
+
+                // 3. Credit Tax (If applicable)
+                if (taxBase > 0)
+                {
+                    if (invoice.TaxGLAccountId == null || invoice.TaxGLAccountId == Guid.Empty) return "Tax GL Account is required.";
+                    glLines.Add(new GLJournalLine { SegCoaId = invoice.TaxGLAccountId.Value, Debit = 0, Credit = taxBase, Reference = "Tax Payable" });
+                }
+
+                // 4. Debit AR
+                glLines.Add(new GLJournalLine { SegCoaId = customer.ReceivablesAccountId.Value, Debit = grandTotalBase, Credit = 0, Reference = "Accounts Receivable" });
+
+                // Generate Invoice Number
+                invoice.Id = Guid.NewGuid();
+                invoice.OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+                invoice.Status = OrderStatus.Invoiced; // Automatically fully invoiced
+                invoice.IsDirectInvoice = true; // Flag it so UI knows it's free-text
+
+                foreach (var line in invoice.Lines)
+                {
+                    line.Id = Guid.NewGuid();
+                    line.HeaderId = invoice.Id;
+                    line.QtyInvoiced = line.Quantity; // Fully billed
+                }
+
+                // Post GL Batch
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(invoice.CompanyId, invoice.Date, "Direct AR Invoice", invoice.OrderNumber, glLines);
+                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+
+                if (batchId.HasValue)
+                {
+                    var postErr = await _glOps.PostBatchAsync(invoice.CompanyId, batchId.Value);
+                    if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Failed: {postErr}");
+                    invoice.InvoiceBatchId = batchId;
+                }
+
+                ctx.SalesOrders.Add(invoice);
+                await ctx.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return $"Direct Invoice Error: {ex.Message}";
+            }
+        }
+
         // ==========================================
         // REPORT 1: CUSTOMER TRANSACTION REPORT
         // ==========================================

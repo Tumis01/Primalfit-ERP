@@ -1,0 +1,37 @@
+@page "/reports/vendor-payment-history"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchasingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Vendor Payment History"
+                  Description="A complete record of all payments made to vendors within the selected period. Includes bill references, bank accounts used, and payment amounts for audit and reconciliation purposes."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync(
+            (await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
+        if (user?.CompanyDetailsId != null)
+            companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await PurchasingService.GenerateVendorPaymentHistoryReportAsync(companyId, start, end);
+    }
+}

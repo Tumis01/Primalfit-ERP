@@ -1,0 +1,37 @@
+@page "/reports/po-aging"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchasingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Purchase Order Aging Report"
+                  Description="Identifies open purchase orders bucketed by how long they have been outstanding. Use this to track overdue orders and follow up with vendors."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync(
+            (await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
+        if (user?.CompanyDetailsId != null)
+            companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await PurchasingService.GeneratePOAgingReportAsync(companyId, start, end);
+    }
+}

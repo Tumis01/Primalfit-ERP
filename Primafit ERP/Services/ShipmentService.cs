@@ -86,7 +86,7 @@ namespace Primafit_ERP.Services
                     shipmentLines.Add(new SalesShipmentLine
                     {
                         SalesOrderLineId = line.Id,
-                        ItemId = line.ItemId,
+                        ItemId = line.ItemId ?? Guid.Empty,
                         QtyOrdered = remainingToShip,
                         QtyShipped = remainingToShip
                     });

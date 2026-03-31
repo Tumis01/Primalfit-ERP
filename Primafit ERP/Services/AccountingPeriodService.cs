@@ -46,8 +46,13 @@ namespace Primafit_ERP.Services
             if (company == null)
                 throw new InvalidOperationException("Company not found. Check that the selected ID is the CompanyDetails primary key.");
 
-            var fiscalStart = company.FiscalStartYear;
-            var fiscalEnd = company.FiscalEndYear;
+            // --- THE FIX: Check for nulls and extract the exact .Value ---
+            if (company.FiscalStartYear == null || company.FiscalEndYear == null)
+                throw new InvalidOperationException("Fiscal dates are missing. Please complete the company setup first.");
+
+            DateOnly fiscalStart = company.FiscalStartYear.Value;
+            DateOnly fiscalEnd = company.FiscalEndYear.Value;
+            // -------------------------------------------------------------
 
             if (fiscalEnd <= fiscalStart)
                 throw new InvalidOperationException($"Invalid fiscal dates. Fiscal end ({fiscalEnd:yyyy-MM-dd}) must be after fiscal start ({fiscalStart:yyyy-MM-dd}).");
@@ -62,11 +67,12 @@ namespace Primafit_ERP.Services
 
             // Generate monthly periods with inclusive EndDate
             var periodsToAdd = new List<AccountingPeriod>();
-            var iterator = fiscalStart;
+            var iterator = fiscalStart; // This is now safely a non-nullable DateOnly
             int periodCount = 1;
 
             while (iterator <= fiscalEnd)
             {
+                // AddMonths and AddDays will now work perfectly
                 var endOfThisPeriod = iterator.AddMonths(1).AddDays(-1);
 
                 if (endOfThisPeriod > fiscalEnd)

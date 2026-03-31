@@ -16,6 +16,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ReportExportService ReportExportService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -353,7 +354,7 @@
 
                             @if (currentOrder.TaxId != null && !IsLocked)
                             {
-                                <div class="lg:col-span-2 animate-in fade-in slide-in-from-left-2">
+                                <div class=" hidden lg:col-span-2 animate-in fade-in slide-in-from-left-2">
                                     <SearchableGlAccount Label="Tax GL Account (Asset/Input)"
                                                          Placeholder="Search Tax GL..."
                                                          Accounts="@taxAccounts"
@@ -363,10 +364,10 @@
                             }
                             else if (currentOrder.TaxId != null && IsLocked)
                             {
-                                <div class="lg:col-span-2">
+                                <div class=" hidden lg:col-span-2">
                                     <label class="label text-slate-600">Tax GL Account (Asset/Input)</label>
                                     <div class="text-xs text-slate-500 font-bold bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                                        GL Acc: @(taxAccounts.FirstOrDefault(a => a.Id == currentOrder.TaxGLAccountId)?.AccountCode ?? "Unknown")
+                                       @(taxAccounts.FirstOrDefault(a => a.Id == currentOrder.TaxGLAccountId)?.Description ?? "Unknown")
                                     </div>
                                 </div>
                             }
@@ -520,6 +521,18 @@
                     </div>
 
                     <div class="flex items-center justify-end gap-3 mt-8 pt-5 border-t border-slate-200">
+                        @if (currentOrder.Id != Guid.Empty && currentOrder.Status != PurchaseOrderStatus.Request)
+                        {
+                            <button type="button" @onclick="DownloadPO" disabled="@isExporting" class="px-6 py-2.5 rounded-xl border border-emerald-200 text-emerald-700 bg-emerald-50 font-bold text-sm hover:bg-emerald-100 transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm mr-auto">
+                                @if (isExporting)
+                                {
+                                    <span class="animate-spin">↻</span>
+                                }
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Download PO
+                            </button>
+                        }
+                        
                         @if (!IsLocked)
                         {
                             <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
@@ -618,7 +631,7 @@
     private string selectedCurrencyCode = "";
     private Guid isPostingId = Guid.Empty;
     private bool isBusy = false;
-
+    private bool isExporting = false;
     // --- COMPUTED MATH ---
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
     private decimal DiscountValue => currentOrder.DiscountPercentage > 0
@@ -902,6 +915,52 @@
         }
     }
 
+    private async Task DownloadPO()
+    {
+        if (currentOrder == null || currentOrder.Id == Guid.Empty) return;
+        
+        isExporting = true;
+        try
+        {
+            var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            if (company == null) return;
+
+            // Fetch clean data from DB (Without the broken ThenInclude)
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var printOrder = await ctx.PurchaseOrders
+                .Include(p => p.Lines) // Removed the bad .ThenInclude(l => l.Item)
+                .Include(p => p.Currency)
+                .FirstOrDefaultAsync(p => p.Id == currentOrder.Id);
+
+            if (printOrder == null) return;
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == printOrder.VendorId);
+            
+            // Map our pre-loaded items into a dictionary to pass to the PDF generator
+            var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
+
+            // Recalculate GrandTotal to ensure it prints properly
+            decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+            decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
+            decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
+            printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));
+
+            // Generate the PDF, passing in the itemNamesMap!
+            var pdfBytes = ReportExportService.GeneratePurchaseOrderPdf(printOrder, company, vendor?.Name ?? "Vendor", vendor?.Email ?? "", itemNamesMap);
+            var fileName = $"{printOrder.OrderNumber}_{vendor?.Name?.Replace(" ", "_")}.pdf";
+            
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
     private async Task TerminateOrder()
     {
         if (currentOrder.Id == Guid.Empty)

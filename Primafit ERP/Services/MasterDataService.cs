@@ -86,7 +86,7 @@ namespace Primafit_ERP.Services
         public async Task<List<Item>> GetItemsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Items.Where(i => i.CompanyId == companyId).ToListAsync();
+            return await ctx.Items.Include(i => i.Category).Where(i => i.CompanyId == companyId).ToListAsync();
         }
 
         public async Task<string> SaveItemAsync(Item item)
@@ -290,6 +290,62 @@ namespace Primafit_ERP.Services
                 await ctx.SaveChangesAsync();
             }
             return string.Empty;
+        }
+        public async Task<List<ItemCategory>> GetItemCategoriesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.ItemCategories
+                .Where(c => c.CompanyId == companyId)
+                .OrderBy(c => c.Name)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+        public async Task<string> SaveItemCategoryAsync(ItemCategory category)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (await ctx.ItemCategories.AnyAsync(c => c.CompanyId == category.CompanyId && c.Name.ToLower() == category.Name.ToLower() && c.Id != category.Id))
+                return "A category with this name already exists.";
+
+            if (category.IsService)
+            {
+                category.InventoryAssetAccountId = null;
+                category.AdjustmentExpenseAccountId = null;
+            }
+
+            // Check if it's an empty Guid OR if the record simply doesn't exist in the DB yet
+            bool exists = category.Id != Guid.Empty && await ctx.ItemCategories.AnyAsync(c => c.Id == category.Id);
+
+            if (!exists)
+            {
+                if (category.Id == Guid.Empty) category.Id = Guid.NewGuid();
+                ctx.ItemCategories.Add(category);
+            }
+            else
+            {
+                ctx.ItemCategories.Update(category);
+            }
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteItemCategoryAsync(Guid id)
+        {
+            try
+            {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+                var entity = await ctx.ItemCategories.FindAsync(id);
+                if (entity == null) return "Not found.";
+
+                ctx.ItemCategories.Remove(entity);
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch
+            {
+                return "Cannot delete this category. It is currently assigned to one or more items in your inventory.";
+            }
         }
     }
 }

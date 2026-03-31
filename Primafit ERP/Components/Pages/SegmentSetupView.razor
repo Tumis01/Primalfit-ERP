@@ -383,6 +383,7 @@
     }
 
     // --- CSV EXPORT LOGIC ---
+    // --- CSV EXPORT LOGIC ---
     private async Task ExportToExcel()
     {
         var rows = GetAllRowsForTab().ToList();
@@ -406,10 +407,10 @@
         var fileName = $"{GetCurrentSegmentName().Replace(" ", "_")}_Export_{DateTime.Now:yyyyMMdd}.csv";
         var fileContent = sb.ToString();
         var bytes = Encoding.UTF8.GetBytes(fileContent);
-        var base64 = Convert.ToBase64String(bytes);
 
-        // Natively trigger download via JS
-        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, base64);
+        // THE FIX: Wrap the bytes in a stream instead of converting to Base64
+        using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+        await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
     }
 
     // --- PAGINATION HELPERS ---

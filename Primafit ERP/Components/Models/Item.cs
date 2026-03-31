@@ -20,6 +20,8 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal SellingPrice { get; set; } = 0;
+        public Guid? CategoryId { get; set; }
+        public virtual ItemCategory? Category { get; set; }
 
         // --- GL MAPPING (Where does the money go?) ---
         public Guid InventoryAssetAccountId { get; set; } // Dr Inventory (Asset)
@@ -27,5 +29,21 @@ namespace Primafit_ERP.Components.Models
         public Guid SalesIncomeAccountId { get; set; }    // Cr Revenue (Income)
         public Guid AdjustmentExpenseAccountId { get; set; } // Dr Theft/Damage (Expense)
         public virtual List<ItemCostHistory> CostHistory { get; set; } = new();
+    }
+    public class ItemCategory
+    {
+        [Key] public Guid Id { get; set; } 
+        [Required] public Guid CompanyId { get; set; }
+
+        [Required, StringLength(100)] public string Name { get; set; } = string.Empty;
+        public bool IsService { get; set; }
+
+        // --- GL TEMPLATE MAPPING ---
+        public Guid SalesIncomeAccountId { get; set; } // Cr Revenue (Income)
+        public Guid CostOfGoodsSoldAccountId { get; set; } // Dr COGS (Expense)
+
+        // These will only be used if IsService == false
+        public Guid? InventoryAssetAccountId { get; set; } // Dr Inventory (Asset)
+        public Guid? AdjustmentExpenseAccountId { get; set; } // Dr Theft/Damage (Expense)
     }
 }

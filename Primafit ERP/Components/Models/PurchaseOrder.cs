@@ -117,7 +117,7 @@ namespace Primafit_ERP.Components.Models
         public Guid CompanyId { get; set; }
         public Guid? PurchaseOrderId { get; set; } 
         public Guid AccountsPayableGlId { get; set; }
-
+        public bool IsDirectBill { get; set; } = false;
         public string ExternalInvoiceNumber { get; set; } = "";
         public DateTime BillDate { get; set; }
         public Guid CurrencyId { get; set; } 
@@ -131,6 +131,7 @@ namespace Primafit_ERP.Components.Models
         // 3-WAY MATCH STATUS
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
         public string MatchVarianceReason { get; set; } = "";
+        public string? Description { get; set; }
 
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
@@ -160,7 +161,7 @@ namespace Primafit_ERP.Components.Models
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid VendorBillId { get; set; }
-        public Guid ItemId { get; set; }
+        public Guid? ItemId { get; set; }
 
         // FLEXIBILITY: User selects the Expense/Asset Account per line
         public Guid ExpenseGlAccountId { get; set; }

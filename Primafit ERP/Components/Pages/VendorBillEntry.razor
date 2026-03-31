@@ -163,7 +163,11 @@
                                         </td> *@
                                         <td class="px-2 py-2 align-top">
                                             <div class="@(IsLocked ? "pointer-events-none opacity-60" : "")">
-                                                <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineGl(line))" />
+                                                <SearchableItem Label="" 
+                                                    Items="@items" 
+                                                    Value="@(line.ItemId ?? Guid.Empty)" 
+                                                    ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => line.ItemId = val == Guid.Empty ? null : val))"
+                                                    OnSelectionChanged="@(() => UpdateLineGl(line))" />
                                             </div>
                                         </td>
                                         <td class="px-0 py-2 align-top pt-3">

@@ -1,0 +1,381 @@
+﻿@page "/ap/direct-bills"
+
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchService
+@inject MasterDataService MasterService
+@inject CompanyApiService CompanyService
+@inject CurrencyService CurrService
+@inject SegCoaService SegCoaService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ReportExportService ExportService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Direct Vendor Bill</h1>
+            <p class="text-sm text-slate-500 mt-1">Record non-PO expenses (like rent, utilities, or services) directly to your General Ledger.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading AP setup data...</div>
+    }
+    else if (HasCompany)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible">
+            
+            <EditForm Model="bill" OnValidSubmit="PostBill">
+                <DataAnnotationsValidator />
+
+                <div class="p-6 md:p-8 space-y-8">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                        
+                        <div>
+                            <label class="label">Vendor <span class="text-rose-500">*</span></label>
+                            <select value="@bill.VendorId" @onchange="OnVendorChanged" class="input-class font-bold text-slate-800 bg-white" disabled="@IsLocked">
+                                <option value="@Guid.Empty">-- Select Vendor --</option>
+                                @foreach (var v in vendors)
+                                {
+                                    <option value="@v.Id">@v.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="label">Bill / Invoice Date</label>
+                            <input type="date" value="@bill.BillDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
+                        </div>
+
+                        <div class="hidden">
+                            <label class="label">Vendor Invoice #</label>
+                            <InputText @bind-Value="bill.ExternalInvoiceNumber" class="input-class bg-white font-mono" placeholder="Leave blank to auto-generate" disabled="@IsLocked" />
+                        </div>
+
+                        <div class="lg:col-span-2">
+                            <label class="label">Header Description / Memo <span class="text-rose-500">*</span></label>
+                            <InputText @bind-Value="bill.Description" class="input-class bg-white" placeholder="e.g., Office Electricity Bill - March 2026" disabled="@IsLocked" />
+                            <p class="text-[9px] text-slate-400 mt-1 uppercase tracking-wider font-bold">This will appear on your General Ledger lines.</p>
+                        </div>
+
+                        <div>
+                            <label class="label text-rose-700">Accounts Payable GL (Liability) <span class="text-rose-500">*</span></label>
+                            <select @bind="bill.AccountsPayableGlId" class="input-class bg-white border-rose-200 font-bold text-rose-800 focus:border-rose-500" disabled="@IsLocked">
+                                <option value="@Guid.Empty">-- Select AP Account --</option>
+                                @foreach (var acc in apAccounts)
+                                {
+                                    <option value="@acc.Id">@acc.AccountCode - @acc.Description</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="label">Currency & Rate</label>
+                            <div class="flex gap-2">
+                                <select value="@bill.CurrencyId" class="input-class w-1/3 bg-slate-100 text-slate-500 font-bold cursor-not-allowed px-2" disabled>
+                                    <option value="@Guid.Empty">N/A</option>
+                                    @foreach (var c in currencies)
+                                    {
+                                        <option value="@c.Id">@c.CurrencyCode</option>
+                                    }
+                                </select>
+                                <input type="number" step="0.01" @bind="bill.ExchangeRate" class="input-class w-2/3 text-right font-mono font-bold bg-white" disabled="@IsLocked" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border border-slate-200 rounded-xl shadow-sm overflow-visible">
+                        <table class="w-full text-sm text-left overflow-visible">
+                            <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
+                                <tr>
+                                    <th class="p-3 pl-4 w-[50%]">Expense GL Account (Debit) <span class="text-rose-500">*</span></th>
+                                    <th class="p-3 w-[15%] text-center">Qty</th>
+                                    <th class="p-3 w-[15%] text-right">Unit Cost</th>
+                                    <th class="p-3 w-[15%] text-right pr-4">Total</th>
+                                    <th class="p-3 w-[5%]"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 overflow-visible min-h-[150px]">
+                                @foreach (var line in bill.Lines)
+                                {
+                                    <tr class="hover:bg-slate-50 transition-colors overflow-visible">
+                                        <td class="p-2 pl-4 align-top pt-3 overflow-visible z-50">
+                                            @if (IsLocked)
+                                            {
+                                                <div class="p-2 font-bold text-slate-700 bg-slate-50 rounded-lg border border-slate-200">
+                                                    @(expenseAccounts.FirstOrDefault(a => a.Id == line.ExpenseGlAccountId)?.Description ?? "Unknown Account")
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <SearchableGlAccount Label="" 
+                                                                     Placeholder="Search Expense GL..." 
+                                                                     Accounts="@expenseAccounts" 
+                                                                     @bind-Value="line.ExpenseGlAccountId" 
+                                                                     IsInvalid="@(line.ExpenseGlAccountId == Guid.Empty)" />
+                                            }
+                                        </td>
+                                        <td class="p-2 align-top pt-3">
+                                            <input type="number" step="0.01" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                        </td>
+                                        <td class="p-2 align-top pt-3">
+                                            <input type="number" step="0.01" @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                        </td>
+                                        <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
+                                            @((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))
+                                        </td>
+                                        <td class="p-2 text-center align-top pt-5">
+                                            @if (!IsLocked)
+                                            {
+                                                <button type="button" @onclick="() => bill.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        
+                        @if (!IsLocked)
+                        {
+                            <div class="p-2 bg-slate-50 border-t border-slate-200 rounded-b-xl">
+                                <button type="button" @onclick="AddLine" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 flex items-center gap-1 px-2 py-1 uppercase tracking-wide">
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg> Add Expense Line
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="flex justify-end pt-4">
+                        <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
+                            <div class="flex justify-between border-b border-slate-200 pb-3 text-slate-900 text-lg">
+                                <span class="font-bold">Total (@currencySymbol):</span>
+                                <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                            </div>
+                            <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
+                                <span>Ledger Base Liability:</span>
+                                <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 rounded-b-2xl">
+                    @if (IsLocked)
+                    {
+                        <div class="mr-auto flex items-center gap-2">
+                            <span class="px-3 py-1.5 bg-emerald-100 text-emerald-800 font-bold text-xs rounded-lg border border-emerald-200 uppercase tracking-wider flex items-center gap-1.5">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Posted
+                            </span>
+                            
+                            <button type="button" @onclick="DownloadBill" disabled="@isExporting" class="px-5 py-1.5 rounded-lg border border-slate-300 text-slate-700 bg-white font-bold text-xs hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm">
+                                @if (isExporting) { <span class="animate-spin">↻</span> }
+                                Print Bill
+                            </button>
+                        </div>
+                    }
+
+                    <button type="button" @onclick="ResetForm" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-white transition-colors">
+                        Clear
+                    </button>
+
+                    @if (!IsLocked)
+                    {
+                        <button type="submit" disabled="@isBusy" class="px-8 py-2.5 bg-rose-600 text-white rounded-xl font-bold text-sm hover:bg-rose-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                            @if (isBusy) { <span class="animate-spin">↻</span> }
+                            Post AP Bill
+                        </button>
+                    }
+                </div>
+            </EditForm>
+
+        </div>
+    }
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: border-color 0.2s; }
+    .input-class:focus { border-color: #f43f5e; box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.15); }
+    .input-class:disabled { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; border-color: #e2e8f0; }
+</style>
+
+@code {
+    private Guid selectedCompanyId;
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+    private bool isBusy = false;
+    private bool isExporting = false;
+
+    private VendorBill bill = new();
+    private List<Vendor> vendors = new();
+    private List<Currency> currencies = new();
+    
+    // GL Accounts
+    private List<SegChartOfAccount> apAccounts = new();
+    private List<SegChartOfAccount> expenseAccounts = new();
+    
+    private string currencySymbol = "";
+    private bool IsLocked => bill.IsPosted;
+
+    // Math logic (Since Direct Bills bypass Tax/Discount fields in the model, Subtotal = Grand Total)
+    private decimal GrandTotalForeign => bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+    private decimal GrandTotalBase => bill.ExchangeRate == 0 ? 0 : GrandTotalForeign * bill.ExchangeRate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            selectedCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        await using var ctx = await DbFactory.CreateDbContextAsync(); 
+        
+        vendors = await ctx.Vendors.Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
+        currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
+
+        // Fetch GL Accounts safely
+        var accountTypes = await SegCoaService.GetAccountTypesAsync();
+        var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
+        
+        // AP Accounts (Liability: Balance Sheet = True, Debit = False)
+        apAccounts = allAccounts.Where(a => 
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
+        }).OrderBy(x => x.AccountCode).ToList();
+
+        // Expense Accounts (P&L: Balance Sheet = False, Debit = True)
+        expenseAccounts = allAccounts.Where(a => 
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == false && type.IsDebit == true && a.IsActive;
+        }).OrderBy(x => x.AccountCode).ToList();
+
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        bill = new VendorBill 
+        { 
+            CompanyId = selectedCompanyId, 
+            BillDate = DateTime.Today,
+            ExchangeRate = 1
+        };
+        AddLine();
+    }
+
+    private void AddLine() => bill.Lines.Add(new VendorBillLine { QuantityBilled = 1 });
+
+    private async Task OnVendorChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var venId))
+        {
+            bill.VendorId = venId;
+            var vendor = vendors.FirstOrDefault(c => c.Id == venId);
+            
+            if (vendor != null)
+            {
+                // Auto-fill default AP Account if the vendor has one mapped
+                if (vendor.PayablesAccountId.HasValue)
+                {
+                    bill.AccountsPayableGlId = vendor.PayablesAccountId.Value;
+                }
+
+                if (vendor.CurrencyId != Guid.Empty)
+                {
+                    bill.CurrencyId = vendor.CurrencyId;
+                    currencySymbol = vendor.DefaultCurrency?.CurrencyCode ?? "";
+                    bill.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(selectedCompanyId, bill.CurrencyId);
+                }
+            }
+        }
+        else
+        {
+            bill.VendorId = Guid.Empty;
+            currencySymbol = "";
+        }
+    }
+
+    private async Task PostBill()
+    {
+        if (string.IsNullOrWhiteSpace(bill.Description))
+        {
+            await JS.InvokeVoidAsync("alert", "Header Description is strictly required to label the GL Journal.");
+            return;
+        }
+
+        if (bill.Lines.Any(l => l.ExpenseGlAccountId == Guid.Empty))
+        {
+            await JS.InvokeVoidAsync("alert", "All lines must be assigned an Expense GL Account.");
+            return;
+        }
+
+        isBusy = true;
+        var err = await PurchService.PostDirectBillAsync(bill);
+        
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!");
+            // Note: We don't reset the form here so they can immediately hit "Print Bill" if they want to.
+            // bill.IsPosted automatically switches the UI to Locked state.
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+
+    private async Task DownloadBill()
+    {
+        if (bill == null || bill.Id == Guid.Empty || !bill.IsPosted) return;
+        
+        isExporting = true;
+        try
+        {
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+            if (company == null) return;
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
+            string currCode = currencies.FirstOrDefault(c => c.Id == bill.CurrencyId)?.CurrencyCode ?? "BASE";
+
+            var pdfBytes = ExportService.GenerateVendorBillPdf(bill, company, vendor?.Name ?? "Vendor", currCode);
+            var fileName = $"Direct_Bill_{bill.ExternalInvoiceNumber}.pdf";
+            
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+}

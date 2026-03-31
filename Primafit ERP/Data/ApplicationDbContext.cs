@@ -67,17 +67,15 @@ namespace PrimafitERP.Data
         public DbSet<Segment5> Segment5s { get; set; }
         public DbSet<PurchaseReturn> PurchaseReturns { get; set; }
         public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
-
-        // --- CREDIT NOTES (New) ---
         public DbSet<CreditNote> CreditNotes { get; set; }
         public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
-        //public DbSet<SegAccountType> SegAccountTypes { get; set; }
 
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<CustomerGroup> CustomerGroups { get; set; }
         public DbSet<VendorGroup> VendorGroups { get; set; }
+        public DbSet<ItemCategory> ItemCategories { get; set; }
         public DbSet<GrnLandedCost> GrnLandedCosts { get; set; }
         public DbSet<AssetCategory> AssetCategories { get; set; }
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }

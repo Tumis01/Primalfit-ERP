@@ -50,7 +50,8 @@ namespace Primafit_ERP.Components.Models
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
-
+        public bool IsDirectInvoice { get; set; } = false;
+        public Guid? DirectIncomeGlAccountId { get; set; } 
         public List<SalesOrderLine> Lines { get; set; } = new();
 
         [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && GrandTotalForeign > 0 && AmountPaid >= (GrandTotalForeign - 0.01m);
@@ -70,7 +71,7 @@ namespace Primafit_ERP.Components.Models
         public SalesOrder? Header { get; set; }
 
         [Required]
-        public Guid ItemId { get; set; }
+        public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
@@ -86,6 +87,7 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal QtyInvoiced { get; set; } = 0;
+        public string? Description { get; set; }
     }
     public class SalesInvoice
     {

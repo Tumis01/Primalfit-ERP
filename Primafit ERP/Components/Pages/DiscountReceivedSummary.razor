@@ -1,0 +1,37 @@
+@page "/reports/discount-received-summary"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchasingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Discount Received Summary"
+                  Description="Shows every purchase order where a vendor discount was applied — both flat amount and percentage discounts. Displays gross value, discount amount, and net value to support GL account reconciliation."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync(
+            (await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
+        if (user?.CompanyDetailsId != null)
+            companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await PurchasingService.GenerateDiscountReceivedSummaryReportAsync(companyId, start, end);
+    }
+}

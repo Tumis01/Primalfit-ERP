@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260331120415_regist")]
+    partial class regist
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -727,6 +730,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<string>("country")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("CompanyDetailsId");
@@ -2249,9 +2253,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
 
-                    b.Property<Guid?>("DirectIncomeGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<decimal>("DiscountAmount")
                         .HasColumnType("decimal(18, 6)");
 
@@ -2266,9 +2267,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid?>("InvoiceBatchId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsDirectInvoice")
-                        .HasColumnType("bit");
 
                     b.Property<string>("OrderNumber")
                         .IsRequired()
@@ -2306,9 +2304,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("HeaderId")
                         .HasColumnType("uniqueidentifier");
@@ -3120,18 +3115,12 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<decimal>("ExchangeRate")
                         .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("ExternalInvoiceNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsDirectBill")
-                        .HasColumnType("bit");
 
                     b.Property<bool>("IsPosted")
                         .HasColumnType("bit");
@@ -3172,7 +3161,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("ExpenseGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("ItemId")
+                    b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QuantityBilled")
