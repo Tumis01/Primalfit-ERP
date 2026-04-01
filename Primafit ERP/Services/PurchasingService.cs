@@ -766,8 +766,12 @@ namespace Primafit_ERP.Services
                 var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
                 if (vendor == null) return "Selected vendor does not exist.";
 
+                if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
+                    bill.ExternalInvoiceNumber = $"DIR-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1;
                 decimal totalGrossForeign = 0;
+                decimal grossBaseForLedger = 0;
                 var glLines = new List<GLJournalLine>();
 
                 // 1. Process Lines (DEBIT EXPENSES)
@@ -779,28 +783,52 @@ namespace Primafit_ERP.Services
                     totalGrossForeign += lineTotalForeign;
 
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
+                    grossBaseForLedger += lineTotalBase;
 
                     glLines.Add(new GLJournalLine
                     {
                         SegCoaId = line.ExpenseGlAccountId,
                         Debit = lineTotalBase,
                         Credit = 0,
-                        // Using the header-level Description since your lines don't have one
                         Reference = $"Direct Bill: {bill.Description ?? "Expense"}"
                     });
                 }
 
-                // 2. Accounts Payable (CREDIT AP LIABILITY)
-                bill.TotalAmountForeign = totalGrossForeign;
-                decimal grandTotalBase = Math.Round(totalGrossForeign * rate, 2);
-                bill.TotalAmount = grandTotalBase;
+                // 2. Process Tax (DEBIT TAX ASSET)
+                decimal taxForeign = 0;
+                decimal taxBaseForLedger = 0;
+
+                if (bill.TaxId.HasValue && bill.TaxGLAccountId.HasValue)
+                {
+                    var tax = await ctx.Taxes.FindAsync(bill.TaxId);
+                    if (tax != null)
+                    {
+                        taxForeign = totalGrossForeign * (tax.Per / 100);
+                        taxBaseForLedger = Math.Round(taxForeign * rate, 2);
+
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = bill.TaxGLAccountId.Value,
+                            Debit = taxBaseForLedger,
+                            Credit = 0,
+                            Reference = $"Input Tax: {bill.ExternalInvoiceNumber}"
+                        });
+                    }
+                }
+
+                // 3. Accounts Payable (CREDIT AP LIABILITY)
+                bill.TotalAmountForeign = totalGrossForeign + taxForeign;
+
+                // We calculate base by summing the precise ledger debits to avoid rounding imbalances!
+                decimal actualCreditBase = grossBaseForLedger + taxBaseForLedger;
+                bill.TotalAmount = actualCreditBase;
 
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = bill.AccountsPayableGlId,
                     Debit = 0,
-                    Credit = grandTotalBase,
-                    Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber ?? "REF"}"
+                    Credit = actualCreditBase,
+                    Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}"
                 });
 
                 // Generate IDs and finalize status
@@ -809,9 +837,6 @@ namespace Primafit_ERP.Services
                 bill.IsPosted = true;
                 bill.PostedDate = DateTime.Now;
                 bill.MatchStatus = BillMatchStatus.NoPoLinked;
-
-                if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
-                    bill.ExternalInvoiceNumber = $"DIR-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
 
                 foreach (var line in bill.Lines)
                 {
@@ -842,6 +867,18 @@ namespace Primafit_ERP.Services
                 await tx.RollbackAsync();
                 return $"Direct Bill Error: {ex.Message}";
             }
+        }
+        public async Task<List<VendorBill>> GetDirectBillsAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            return await ctx.VendorBills
+                .AsNoTracking()
+                .Include(b => b.Lines)
+                .Include(b => b.Payments) // <--- Add this line!
+                .Where(b => b.CompanyId == companyId && b.IsDirectBill == true)
+                .OrderByDescending(b => b.BillDate)
+                .ToListAsync();
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -1497,6 +1534,7 @@ namespace Primafit_ERP.Services
 
             return reportData;
         }
-    
+        
+
     }
 }

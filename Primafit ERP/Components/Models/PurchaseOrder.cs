@@ -132,7 +132,8 @@ namespace Primafit_ERP.Components.Models
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
         public string MatchVarianceReason { get; set; } = "";
         public string? Description { get; set; }
-
+        public Guid? TaxId { get; set; }
+        public Guid? TaxGLAccountId { get; set; } 
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }

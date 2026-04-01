@@ -522,6 +522,18 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+        public async Task<List<SalesOrder>> GetDirectInvoicesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            return await ctx.SalesOrders
+                .AsNoTracking()
+                .Include(o => o.Customer)
+                .Include(o => o.Lines)
+                .Where(o => o.CompanyId == companyId && o.IsDirectInvoice == true)
+                .OrderByDescending(o => o.Date)
+                .ToListAsync();
+        }
 
         // ==========================================
         // DIRECT AR INVOICE (NON-INVENTORY)
@@ -540,6 +552,13 @@ namespace Primafit_ERP.Services
 
                 var customer = await ctx.Customers.FindAsync(invoice.CustomerId);
                 if (customer?.ReceivablesAccountId == null) return "Customer is missing an AR (Receivables) GL Account.";
+
+                // --- FIX 1: SATISFY WAREHOUSE CONSTRAINT ---
+                // Even though this is non-inventory, the DB requires a valid WarehouseId.
+                invoice.WarehouseId = await ctx.Warehouses
+                    .Where(w => w.CompanyId == invoice.CompanyId)
+                    .Select(w => w.Id)
+                    .FirstOrDefaultAsync();
 
                 // Calculate Totals
                 decimal rate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
@@ -570,60 +589,67 @@ namespace Primafit_ERP.Services
                 // Build GL Lines
                 var glLines = new List<GLJournalLine>();
 
-                // 1. Credit Revenue (Using the user's selected account)
                 glLines.Add(new GLJournalLine { SegCoaId = invoice.DirectIncomeGlAccountId.Value, Debit = 0, Credit = subTotalBase, Reference = "Direct AR Revenue" });
 
-                // 2. Debit Discount (If applicable)
                 if (discountBase > 0)
                 {
                     if (invoice.DiscountGlAccountId == null || invoice.DiscountGlAccountId == Guid.Empty) return "Discount Expense GL Account is required.";
                     glLines.Add(new GLJournalLine { SegCoaId = invoice.DiscountGlAccountId.Value, Debit = discountBase, Credit = 0, Reference = "Discount Allowed" });
                 }
 
-                // 3. Credit Tax (If applicable)
                 if (taxBase > 0)
                 {
                     if (invoice.TaxGLAccountId == null || invoice.TaxGLAccountId == Guid.Empty) return "Tax GL Account is required.";
                     glLines.Add(new GLJournalLine { SegCoaId = invoice.TaxGLAccountId.Value, Debit = 0, Credit = taxBase, Reference = "Tax Payable" });
                 }
 
-                // 4. Debit AR
                 glLines.Add(new GLJournalLine { SegCoaId = customer.ReceivablesAccountId.Value, Debit = grandTotalBase, Credit = 0, Reference = "Accounts Receivable" });
 
                 // Generate Invoice Number
                 invoice.Id = Guid.NewGuid();
                 invoice.OrderNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
-                invoice.Status = OrderStatus.Invoiced; // Automatically fully invoiced
-                invoice.IsDirectInvoice = true; // Flag it so UI knows it's free-text
+                invoice.Status = OrderStatus.Invoiced;
+                invoice.IsDirectInvoice = true;
 
                 foreach (var line in invoice.Lines)
                 {
                     line.Id = Guid.NewGuid();
                     line.HeaderId = invoice.Id;
-                    line.QtyInvoiced = line.Quantity; // Fully billed
+                    line.QtyInvoiced = line.Quantity;
+                    line.ItemId = null; // Explicitly ensure this is null for free-text
                 }
 
-                // Post GL Batch
+                // --- FIX 2: SAFE EXECUTION ORDER ---
+
+                // 1. Create the GL Batch (BUT DO NOT POST IT YET)
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(invoice.CompanyId, invoice.Date, "Direct AR Invoice", invoice.OrderNumber, glLines);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
+                invoice.InvoiceBatchId = batchId;
+                ctx.SalesOrders.Add(invoice);
+
+                // 2. Attempt to save the Invoice FIRST
+                // If this crashes, the catch block triggers, the transaction rolls back, and the GL is never posted.
+                await ctx.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // 3. Only Post the GL Batch after the Invoice is successfully secured in the database
                 if (batchId.HasValue)
                 {
                     var postErr = await _glOps.PostBatchAsync(invoice.CompanyId, batchId.Value);
-                    if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Failed: {postErr}");
-                    invoice.InvoiceBatchId = batchId;
+                    if (!string.IsNullOrEmpty(postErr))
+                    {
+                        return $"Invoice Saved, but GL Post Failed: {postErr}";
+                    }
                 }
-
-                ctx.SalesOrders.Add(invoice);
-                await ctx.SaveChangesAsync();
-                await transaction.CommitAsync();
 
                 return string.Empty;
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return $"Direct Invoice Error: {ex.Message}";
+                // Added InnerException logging so if it crashes again, the UI will tell you exactly which DB column caused it.
+                return $"Direct Invoice Error: {ex.InnerException?.Message ?? ex.Message}";
             }
         }
 

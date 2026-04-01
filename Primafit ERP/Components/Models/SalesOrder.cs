@@ -69,8 +69,6 @@ namespace Primafit_ERP.Components.Models
         public Guid HeaderId { get; set; }
         [ForeignKey(nameof(HeaderId))]
         public SalesOrder? Header { get; set; }
-
-        [Required]
         public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
