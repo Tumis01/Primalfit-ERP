@@ -43,7 +43,7 @@ namespace Primafit_ERP.Services
             return batch!;
         }
 
-        public async Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId)
+        public async Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId, bool isForeign, Guid? currencyId, decimal exchangeRate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -65,7 +65,11 @@ namespace Primafit_ERP.Services
                 BatchReference = $"CB-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(100, 999)}",
                 CreatedByUserId = userId,
                 OpeningBalance = openingBal,
-                Status = BatchStatus.Draft
+                Status = BatchStatus.Draft,
+                // Map the new fields
+                IsForeignCurrency = isForeign,
+                CurrencyId = isForeign ? currencyId : null,
+                ExchangeRate = isForeign && exchangeRate > 0 ? exchangeRate : 1
             };
 
             ctx.CashbookBatches.Add(batch);

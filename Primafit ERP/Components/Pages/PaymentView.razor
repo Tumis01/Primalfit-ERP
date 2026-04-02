@@ -305,10 +305,14 @@
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            bankAccounts = allAccounts.Where(a => {
+            bankAccounts = allAccounts.Where(a => 
+            {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true;
-            }).ToList();
+                return type != null && 
+                       type.Description.Trim().Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase) && 
+                       type.IsBalanceSheet == true && 
+                       type.IsDebit == true;
+            }).OrderBy(x => x.AccountCode).ToList();
 
             CreateNew();
 

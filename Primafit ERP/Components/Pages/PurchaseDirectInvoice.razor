@@ -74,10 +74,16 @@
                                 <InputText @bind-Value="bill.ExternalInvoiceNumber" class="input-class bg-white font-mono" placeholder="Leave blank to auto-generate" disabled="@IsLocked" />
                             </div>
 
-                            <div class="lg:col-span-2">
-                                <label class="label">Header Description / Memo <span class="text-rose-500">*</span></label>
-                                <InputText @bind-Value="bill.Description" class="input-class bg-white" placeholder="e.g., Office Electricity Bill - March 2026" disabled="@IsLocked" />
-                                <p class="text-[9px] text-slate-400 mt-1 uppercase tracking-wider font-bold">This will appear on your General Ledger lines.</p>
+                            <div class="lg:col-span-2 relative z-50">
+                                <label class="label text-emerald-700">Expense GL Account (Debit) <span class="text-rose-500">*</span></label>
+                                <div class="@(IsLocked ? "pointer-events-none opacity-70" : "")">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Search Expense GL..."
+                                                         Accounts="@expenseAccounts"
+                                                         @bind-Value="headerExpenseGlId"
+                                                         IsInvalid="@(headerExpenseGlId == Guid.Empty)" />
+                                </div>
+                                <p class="text-[9px] text-slate-400 mt-1 uppercase tracking-wider font-bold">This account applies to all line items below.</p>
                             </div>
 
                             <div class="hidden">
@@ -120,20 +126,20 @@
                             {
                                 <div class="hidden">
                                     <SearchableGlAccount Label="Tax GL Account (Asset/Input)"
-                                         Placeholder="Search Tax GL..."
-                                         Accounts="@taxAccounts"
-                                         Value="@(bill.TaxGLAccountId ?? Guid.Empty)"
-                                         ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => bill.TaxGLAccountId = val == Guid.Empty ? null : val))"
-                                         IsInvalid="@(bill.TaxGLAccountId == null || bill.TaxGLAccountId == Guid.Empty)" />
+                                                         Placeholder="Search Tax GL..."
+                                                         Accounts="@taxAccounts"
+                                                         Value="@(bill.TaxGLAccountId ?? Guid.Empty)"
+                                                         ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => bill.TaxGLAccountId = val == Guid.Empty ? (Guid?)null : val))"
+                                                         IsInvalid="@(bill.TaxGLAccountId == null || bill.TaxGLAccountId == Guid.Empty)" />
                                 </div>
                             }
                         </div>
 
-                        <div class="border border-slate-200 rounded-xl shadow-sm overflow-visible">
+                        <div class="border border-slate-200 rounded-xl shadow-sm overflow-visible z-10 relative">
                             <table class="w-full text-sm text-left overflow-visible">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
                                     <tr>
-                                        <th class="p-3 pl-4 w-[50%]">Expense GL Account (Debit) <span class="text-rose-500">*</span></th>
+                                        <th class="p-3 pl-4 w-[50%]">Description / Memo <span class="text-rose-500">*</span></th>
                                         <th class="p-3 w-[15%] text-center">Qty</th>
                                         <th class="p-3 w-[15%] text-right">Unit Cost</th>
                                         <th class="p-3 w-[15%] text-right pr-4">Total</th>
@@ -144,21 +150,8 @@
                                     @foreach (var line in bill.Lines)
                                     {
                                         <tr class="hover:bg-slate-50 transition-colors overflow-visible">
-                                            <td class="p-2 pl-4 align-top pt-3 overflow-visible z-50">
-                                                @if (IsLocked)
-                                                {
-                                                    <div class="p-2 font-bold text-slate-700 bg-slate-50 rounded-lg border border-slate-200">
-                                                        @(expenseAccounts.FirstOrDefault(a => a.Id == line.ExpenseGlAccountId)?.Description ?? "Unknown Account")
-                                                    </div>
-                                                }
-                                                else
-                                                {
-                                                    <SearchableGlAccount Label="" 
-                                                                         Placeholder="Search Expense GL..." 
-                                                                         Accounts="@expenseAccounts" 
-                                                                         @bind-Value="line.ExpenseGlAccountId" 
-                                                                         IsInvalid="@(line.ExpenseGlAccountId == Guid.Empty)" />
-                                                }
+                                            <td class="p-2 pl-4 align-top pt-3">
+                                                <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Office Electricity Bill" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
                                                 <input type="number" step="0.01" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
@@ -351,6 +344,9 @@
     
     private string currencySymbol = "";
     private bool IsLocked => bill.IsPosted;
+    
+    // Tracker for the single header GL Account
+    private Guid headerExpenseGlId = Guid.Empty;
 
     // Math logic 
     private decimal SubTotalForeign => bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
@@ -383,32 +379,27 @@
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
 
-        // Fetch GL Accounts safely
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
         
-        // AP Accounts (Liability: Balance Sheet = True, Debit = False)
         apAccounts = allAccounts.Where(a => 
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        // Expense Accounts (P&L: Balance Sheet = False, Debit = True)
         expenseAccounts = allAccounts.Where(a => 
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == false && type.IsDebit == true && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        // Tax Accounts (Asset/Input: Balance Sheet = True)
         taxAccounts = allAccounts.Where(a => 
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == true && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        // Fetch Past Bills
         pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
 
         ResetForm();
@@ -434,6 +425,7 @@
             ExchangeRate = 1
         };
         currencySymbol = "";
+        headerExpenseGlId = Guid.Empty;
         AddLine();
     }
 
@@ -441,7 +433,6 @@
 
     private async Task OnVendorChanged(ChangeEventArgs e)
     {
-        // 1. Always reset the AP Account to prevent stale data bleed-over
         bill.AccountsPayableGlId = Guid.Empty;
 
         if (Guid.TryParse(e.Value?.ToString(), out var venId))
@@ -451,7 +442,6 @@
             
             if (vendor != null)
             {
-                // 2. Auto-fill default AP Account ONLY if the new vendor has one mapped
                 if (vendor.PayablesAccountId.HasValue)
                 {
                     bill.AccountsPayableGlId = vendor.PayablesAccountId.Value;
@@ -492,9 +482,9 @@
 
     private async Task PostBill()
     {
-        if (string.IsNullOrWhiteSpace(bill.Description))
+        if (bill.VendorId == Guid.Empty)
         {
-            await JS.InvokeVoidAsync("alert", "Header Description is strictly required to label the GL Journal.");
+            await JS.InvokeVoidAsync("alert", "Please select a Vendor.");
             return;
         }
 
@@ -504,17 +494,42 @@
             return;
         }
 
+        // NEW: Check header Expense GL
+        if (headerExpenseGlId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select an Expense GL Account for this bill.");
+            return;
+        }
+
         if (bill.TaxId.HasValue && (bill.TaxGLAccountId == null || bill.TaxGLAccountId == Guid.Empty))
         {
             await JS.InvokeVoidAsync("alert", "A Tax GL Account is required if a Tax is selected. Please check your system Tax setup.");
             return;
         }
 
-        if (bill.Lines.Any(l => l.ExpenseGlAccountId == Guid.Empty))
+        if (!bill.Lines.Any())
         {
-            await JS.InvokeVoidAsync("alert", "All lines must be assigned an Expense GL Account.");
+            await JS.InvokeVoidAsync("alert", "Please add at least one line item.");
             return;
         }
+
+        // NEW: Ensure descriptions are filled on lines
+        if (bill.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description)))
+        {
+            await JS.InvokeVoidAsync("alert", "All lines must have a Description / Memo.");
+            return;
+        }
+
+        // MAP: Assign the header GL to all lines before saving
+        foreach(var line in bill.Lines)
+        {
+            line.ExpenseGlAccountId = headerExpenseGlId;
+        }
+
+        // MAP: Concatenate all line descriptions into the header Description for GL Posting Engine
+        var descriptions = bill.Lines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d));
+        bill.Description = string.Join(" | ", descriptions);
+        if (bill.Description.Length > 200) bill.Description = bill.Description.Substring(0, 197) + "..."; // Safeguard max length
 
         isBusy = true;
         var err = await PurchService.PostDirectBillAsync(bill);
@@ -523,6 +538,7 @@
         {
             await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!");
             pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
+            ResetForm(); // Optional: clears form after successful post
         }
         else
         {
@@ -564,6 +580,9 @@
     {
         bill = selectedBill;
         
+        // Extract the GL account used on the lines and set it to the header for the UI View
+        headerExpenseGlId = bill.Lines.FirstOrDefault()?.ExpenseGlAccountId ?? Guid.Empty;
+
         var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
         if (vendor != null)
         {

@@ -293,7 +293,8 @@ namespace Primafit_ERP.Services
         // ==========================================
         // 3. ERP INVOICE GENERATOR (PDF)
         // ==========================================
-        public byte[] GenerateInvoicePdf(SalesOrder order, CompanyDetails company)
+        // 1. Add "string currencyCode" to the parameters
+        public byte[] GenerateInvoicePdf(SalesOrder order, CompanyDetails company, string currencyCode)
         {
             using var stream = new MemoryStream();
             using var writer = new PdfWriter(stream);
@@ -343,8 +344,9 @@ namespace Primafit_ERP.Services
             // --- LINE ITEMS TABLE ---
             var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
 
-            // Table Headers
-            string curr = order.Currency?.CurrencyCode ?? "";
+            // 2. Use the passed-in currencyCode instead of order.Currency
+            string curr = string.IsNullOrEmpty(currencyCode) ? "" : currencyCode;
+
             string[] headers = { "Item Description", "Qty", $"Unit Price ({curr})", $"Total ({curr})" };
             foreach (var h in headers)
             {
@@ -430,7 +432,7 @@ namespace Primafit_ERP.Services
             headerTable.AddCell(companyInfo);
 
             var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
-            docDetails.Add(new Paragraph("TAX INVOICE").SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
+            docDetails.Add(new Paragraph("AR INVOICE").SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
             docDetails.Add(new Paragraph($"Invoice #: {order.OrderNumber}").SetFont(fontBold));
             docDetails.Add(new Paragraph($"Date: {order.Date:dd MMM, yyyy}"));
             headerTable.AddCell(docDetails);
@@ -646,7 +648,7 @@ namespace Primafit_ERP.Services
             // --- LINE ITEMS ---
             var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
 
-            string[] headers = { "Description / Service", "Qty", $"Unit Cost ({currencyCode})", $"Total ({currencyCode})" };
+            string[] headers = { "Description", "Qty", $"Unit Cost ({currencyCode})", $"Total ({currencyCode})" };
             foreach (var h in headers)
             {
                 itemTable.AddHeaderCell(new Cell().Add(new Paragraph(h).SetFont(fontBold)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(5).SetTextAlignment(h.Contains("Description") ? TextAlignment.LEFT : TextAlignment.RIGHT));
@@ -655,24 +657,33 @@ namespace Primafit_ERP.Services
             decimal subTotal = 0;
             foreach (var line in bill.Lines)
             {
-                // Use the Bill's header description since Direct Bills don't map to inventory items
-                string itemName = string.IsNullOrWhiteSpace(bill.Description) ? "Expense / Ad-Hoc Service" : bill.Description;
+                // FIX: Look at the line description directly, since it was moved from the header
+                string lineDescription = string.IsNullOrWhiteSpace(line.Description) ? "Expense / Ad-Hoc Service" : line.Description;
 
                 decimal lineTotal = line.QuantityBilled * line.UnitCostBilled;
                 subTotal += lineTotal;
 
-                itemTable.AddCell(new Cell().Add(new Paragraph(itemName)).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineDescription)).SetPadding(5));
                 itemTable.AddCell(new Cell().Add(new Paragraph(line.QuantityBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
                 itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitCostBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
                 itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
             }
             document.Add(itemTable);
 
-            // --- TOTALS (Since Direct Bills have no tax/discount in the model, Subtotal = Grand Total) ---
+            // --- TOTALS AND TAX ---
             var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
 
-            totalsTable.AddCell(new Cell().Add(new Paragraph("Total:").SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3)));
-            totalsTable.AddCell(new Cell().Add(new Paragraph(subTotal.ToString("N2")).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3)));
+            // Since we added Tax fields to VendorBill, we must calculate the tax difference for the summary section
+            decimal taxAmount = bill.TotalAmountForeign - subTotal;
+
+            void AddTotalRow(string label, decimal amount, bool isBold = false)
+            {
+                totalsTable.AddCell(new Cell().Add(new Paragraph(label)).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+                totalsTable.AddCell(new Cell().Add(new Paragraph(amount.ToString("N2"))).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+            }
+
+            AddTotalRow("Subtotal:", subTotal);
+            if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
 
             totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({currencyCode}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
             totalsTable.AddCell(new Cell().Add(new Paragraph(bill.TotalAmountForeign.ToString("N2")).SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));

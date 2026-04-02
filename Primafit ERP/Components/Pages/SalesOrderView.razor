@@ -912,7 +912,7 @@
     private async Task DownloadInvoice()
     {
         if (currentOrder == null || currentOrder.Id == Guid.Empty) return;
-        
+    
         isExporting = true;
         try
         {
@@ -924,13 +924,12 @@
                 return;
             }
 
-            // Because the currentOrder in state might be slightly mutated by the UI bindings,
-            // it is safest to fetch the pristine order from the database before printing.
             var printOrder = await SalesService.GetOrderByIdAsync(currentOrder.Id);
-            
-            var pdfBytes = ReportExportService.GenerateInvoicePdf(printOrder, company);
+        
+            // 3. PASS THE CURRENCY SYMBOL HERE!
+            var pdfBytes = ReportExportService.GenerateInvoicePdf(printOrder, company, currencySymbol);
             var fileName = $"{printOrder.OrderNumber}_{printOrder.Customer?.Name?.Replace(" ", "_")}.pdf";
-            
+        
             using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
             await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
         }

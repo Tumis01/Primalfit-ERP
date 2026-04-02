@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject ICashbookService CashService
+@inject CurrencyService CurrService
 @inject SegCoaService SegCoaService
 @inject GLSetupService GLService
 @inject UserManager<ApplicationUser> UserManager
@@ -13,7 +14,7 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
@@ -53,9 +54,16 @@
                                 @(GetAccountName(batch.BankSegCoaId))
                             </div>
 
+                            @if (batch.IsForeignCurrency)
+                            {
+                                <div class="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">
+                                    Foreign Currency (@(currencies.FirstOrDefault(c => c.Id == batch.CurrencyId)?.CurrencyCode ?? "??"))
+                                </div>
+                            }
+
                             <div class="flex justify-between items-end mt-3 border-t border-slate-100 pt-2">
                                 <div>
-                                    <div class="text-[10px] text-slate-400">Balance</div>
+                                    <div class="text-[10px] text-slate-400">Base Balance</div>
                                     <div class="text-sm font-mono font-bold text-slate-700">@batch.ClosingBalance.ToString("N2")</div>
                                 </div>
                                 <div class="text-right">
@@ -81,9 +89,17 @@
 
                         <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                             <div>
-                                <h2 class="text-lg font-bold text-slate-900">@selectedBatch.BatchReference</h2>
-                                <p class="text-xs text-slate-500">
-                                    Opening Balance: <span class="font-mono font-bold">@selectedBatch.OpeningBalance.ToString("N2")</span>
+                                <div class="flex items-center gap-3">
+                                    <h2 class="text-lg font-bold text-slate-900">@selectedBatch.BatchReference</h2>
+                                    @if (selectedBatch.IsForeignCurrency)
+                                    {
+                                        <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase rounded">
+                                            Rate: @selectedBatch.ExchangeRate.ToString("N4")
+                                        </span>
+                                    }
+                                </div>
+                                <p class="text-xs text-slate-500 mt-1">
+                                    Base Opening Balance: <span class="font-mono font-bold">@selectedBatch.OpeningBalance.ToString("N2")</span>
                                 </p>
                             </div>
                             <div class="flex gap-2">
@@ -99,13 +115,6 @@
                                         Lock Batch
                                     </button>
                                 }
-                                @* @if (selectedBatch.Status == BatchStatus.Draft)
-                                {
-                                    <button @onclick="SubmitForApproval" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2">
-                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                        Lock Batch
-                                    </button>
-                                } *@
                                 @if (selectedBatch.Status == BatchStatus.Ready)
                                 {
                                     <button @onclick="UnlockBatch" class="px-4 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 flex items-center gap-2">
@@ -125,6 +134,20 @@
                         {
                             <EditForm Model="@entryForm" OnValidSubmit="SaveEntry" class="p-4 bg-slate-50/50 border-b border-slate-100">
                                 <DataAnnotationsValidator />
+                                
+                                @if (selectedBatch.IsForeignCurrency)
+                                {
+                                    <div class="flex items-center gap-2 mb-4 p-2 bg-indigo-50 border border-indigo-100 rounded-lg w-fit">
+                                        <span class="text-xs font-bold text-indigo-800 uppercase tracking-wider pl-2 pr-4">Input Mode:</span>
+                                        <button type="button" @onclick="() => inputForeignAmount = true" class="px-3 py-1.5 rounded text-xs font-bold transition-colors @(inputForeignAmount ? "bg-white text-indigo-700 shadow-sm" : "text-indigo-400 hover:text-indigo-600")">
+                                            Foreign Currency
+                                        </button>
+                                        <button type="button" @onclick="() => inputForeignAmount = false" class="px-3 py-1.5 rounded text-xs font-bold transition-colors @(!inputForeignAmount ? "bg-white text-indigo-700 shadow-sm" : "text-indigo-400 hover:text-indigo-600")">
+                                            Base Ledger
+                                        </button>
+                                    </div>
+                                }
+
                                 <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
 
                                     <div class="md:col-span-2">
@@ -150,17 +173,40 @@
                                         <InputText @bind-Value="entryForm.Description" class="input-class py-2" placeholder="e.g. Sales, Expenses" />
                                     </div>
 
-                                    <div class="md:col-span-2">
-                                        <label class="label text-rose-700">Debit </label>
-                                        <InputNumber @bind-Value="entryForm.Debit" @oninput="(e) => entryForm.Credit = 0" class="input-class py-2 font-bold text-rose-700" placeholder="0.00" />
-                                    </div>
+                                    @if (selectedBatch.IsForeignCurrency)
+                                    {
+                                        <div class="md:col-span-3">
+                                            <label class="label text-indigo-600">Foreign Debit (In)</label>
+                                            <input type="number" step="0.01" @bind="ForeignDebitInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@(!inputForeignAmount)" />
+                                        </div>
+                                        <div class="md:col-span-3">
+                                            <label class="label text-indigo-600">Foreign Credit (Out)</label>
+                                            <input type="number" step="0.01" @bind="ForeignCreditInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@(!inputForeignAmount)" />
+                                        </div>
+                                        
+                                        <div class="md:col-span-3">
+                                            <label class="label text-rose-700">Base Debit (In)</label>
+                                            <input type="number" step="0.01" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@inputForeignAmount" />
+                                        </div>
+                                        <div class="md:col-span-3">
+                                            <label class="label text-emerald-700">Base Credit (Out)</label>
+                                            <input type="number" step="0.01" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@inputForeignAmount" />
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="md:col-span-6"></div>
+                                        <div class="md:col-span-3">
+                                            <label class="label text-rose-700">Debit (Money In)</label>
+                                            <input type="number" step="0.01" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700" placeholder="0.00" />
+                                        </div>
+                                        <div class="md:col-span-3">
+                                            <label class="label text-emerald-700">Credit (Money Out)</label>
+                                            <input type="number" step="0.01" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700" placeholder="0.00" />
+                                        </div>
+                                    }
 
-                                    <div class="md:col-span-2">
-                                        <label class="label text-emerald-700">Credit </label>
-                                        <InputNumber @bind-Value="entryForm.Credit" @oninput="(e) => entryForm.Debit = 0" class="input-class py-2 font-bold text-emerald-700" placeholder="0.00" />
-                                    </div>
-
-                                    <div class="md:col-span-8 flex justify-end gap-2 mt-2">
+                                    <div class="md:col-span-12 flex justify-end gap-2 mt-4">
                                         @if (isEditing)
                                         {
                                             <button type="button" @onclick="CancelEdit" class="px-4 py-2 bg-white border border-slate-300 text-slate-500 rounded-lg text-xs font-bold hover:bg-slate-50">Cancel</button>
@@ -179,15 +225,19 @@
 
                         <div class="flex-1 overflow-auto p-0">
                             <table class="w-full text-left text-sm">
-                                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0">
+                                <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 sticky top-0">
                                     <tr>
                                         <th class="p-4 w-24">Date</th>
                                         <th class="p-4">Offset Account</th>
-                                        <th class="p-4 w-16 text-center">Module</th>
                                         <th class="p-4 w-32">Reference</th>
                                         <th class="p-4">Description</th>
-                                        <th class="p-4 text-right">Debit</th>
-                                        <th class="p-4 text-right">Credit</th>
+                                        @if (selectedBatch.IsForeignCurrency)
+                                        {
+                                            <th class="p-4 text-right text-indigo-600 bg-indigo-50/30">Foreign Dr</th>
+                                            <th class="p-4 text-right text-indigo-600 bg-indigo-50/30">Foreign Cr</th>
+                                        }
+                                        <th class="p-4 text-right">Base Debit</th>
+                                        <th class="p-4 text-right">Base Credit</th>
                                         <th class="p-4 w-16 text-center">Action</th>
                                     </tr>
                                 </thead>
@@ -197,13 +247,17 @@
                                         <tr class="hover:bg-slate-50 transition-colors @(entry.Id == entryForm.Id ? "bg-indigo-50/50" : "")">
                                             <td class="p-4 text-slate-500 text-xs font-mono">@entry.TransactionDate.ToString("MM/dd")</td>
                                             <td class="p-4 text-xs text-slate-600 font-medium">@GetAccountName(entry.OffsetSegCoaId)</td>
-                                            <td class="p-4 text-center">
-                                                <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">GL</span>
-                                            </td>
                                             <td class="p-4 text-xs font-mono text-slate-700">@entry.Reference</td>
-                                            <td class="p-4 text-slate-900">@entry.Description</td>
-                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold">@(entry.Debit > 0 ? entry.Debit.ToString("N2") : "-")</td>
-                                            <td class="p-4 text-right font-mono text-rose-600 font-bold">@(entry.Credit > 0 ? entry.Credit.ToString("N2") : "-")</td>
+                                            <td class="p-4 text-slate-900 text-xs">@entry.Description</td>
+                                            
+                                            @if (selectedBatch.IsForeignCurrency)
+                                            {
+                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignDebit > 0 ? entry.ForeignDebit.ToString("N2") : "-")</td>
+                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignCredit > 0 ? entry.ForeignCredit.ToString("N2") : "-")</td>
+                                            }
+
+                                            <td class="p-4 text-right font-mono text-rose-600 font-bold text-xs">@(entry.Debit > 0 ? entry.Debit.ToString("N2") : "-")</td>
+                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold text-xs">@(entry.Credit > 0 ? entry.Credit.ToString("N2") : "-")</td>
                                             <td class="p-4 text-center">
                                                 @if (selectedBatch.Status == BatchStatus.Draft)
                                                 {
@@ -220,7 +274,7 @@
                                         </tr>
                                     }
                                     <tr class="bg-slate-50 border-t border-slate-200">
-                                        <td colspan="5" class="p-4 text-right font-bold text-slate-600 text-xs uppercase">Closing Balance</td>
+                                        <td colspan="@(selectedBatch.IsForeignCurrency ? 6 : 4)" class="p-4 text-right font-bold text-slate-600 text-xs uppercase">Base Closing Balance</td>
                                         <td colspan="2" class="p-4 text-right font-mono font-bold text-slate-900 text-lg">@selectedBatch.ClosingBalance.ToString("N2")</td>
                                         <td></td>
                                     </tr>
@@ -253,14 +307,41 @@
                                          @bind-Value="newBatchAccountId"
                                          IsInvalid="@(newBatchAccountId == Guid.Empty)" />
 
+                    <div class="pt-4 border-t border-slate-100">
+                        <div class="flex items-center gap-2 mb-3">
+                            <input type="checkbox" id="foreignToggle" @bind="newBatchIsForeign" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
+                            <label for="foreignToggle" class="text-sm font-bold text-slate-700 cursor-pointer">Foreign Currency Batch</label>
+                        </div>
+
+                        @if (newBatchIsForeign)
+                        {
+                            <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100 space-y-3 animate-in slide-in-from-top-2">
+                                <div>
+                                    <label class="label text-indigo-700">Currency</label>
+                                    <select value="@newBatchCurrencyId" @onchange="OnCurrencyChanged" class="input-class border-indigo-200">
+                                        <option value="@Guid.Empty">-- Select Currency --</option>
+                                        @foreach(var c in currencies)
+                                        {
+                                            <option value="@c.Id">@c.CurrencyCode</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="label text-indigo-700">Exchange Rate</label>
+                                    <input type="number" step="0.0001" @bind="newBatchExchangeRate" class="input-class font-mono border-indigo-200" />
+                                </div>
+                            </div>
+                        }
+                    </div>
+
                     <div class="text-xs text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-100">
-                        This creates a new page in the cashbook. The opening balance will be fetched from the General Ledger automatically.
+                        This creates a new page in the cashbook. The base opening balance will be fetched from the General Ledger automatically.
                     </div>
                 </div>
 
                 <div class="flex justify-end gap-3 mt-6">
                     <button @onclick="() => showCreateModal = false" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-                    <button @onclick="ConfirmCreateBatch" disabled="@(newBatchAccountId == Guid.Empty)" class="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-800 disabled:opacity-50">Start Batch</button>
+                    <button @onclick="ConfirmCreateBatch" disabled="@(newBatchAccountId == Guid.Empty || (newBatchIsForeign && newBatchCurrencyId == Guid.Empty))" class="px-5 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-800 disabled:opacity-50">Start Batch</button>
                 </div>
             </div>
         </div>
@@ -269,30 +350,10 @@
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        margin-bottom: 0.25rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.5rem;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #6366f1;
-            outline: none;
-            ring: 2px;
-            ring-color: #e0e7ff;
-        }
+    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.25rem; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem; font-size: 0.875rem; transition: all 0.2s; }
+    .input-class:focus { border-color: #6366f1; outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+    .input-class:disabled { background-color: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
 </style>
 
 @code {
@@ -302,19 +363,76 @@
     private bool showCreateModal = false;
     private bool isEditing = false;
 
+    // View state for Foreign toggles
+    private bool newBatchIsForeign = false;
+    private Guid newBatchCurrencyId = Guid.Empty;
+    private decimal newBatchExchangeRate = 1;
+    private bool inputForeignAmount = true; // Determines which fields are active
+
     private List<CashbookBatch> activeBatches = new();
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
     private List<AccountingPeriod> openPeriods = new();
+    private List<Currency> currencies = new();
 
     private CashbookBatch? selectedBatch;
     private CashbookEntry entryForm = new();
     private Guid newBatchAccountId;
 
-    // RULE 2: A dynamic list that strips the selected bank out of the offset options
     private List<SegChartOfAccount> AvailableOffsetAccounts =>
         allAccounts.Where(a => selectedBatch == null || a.Id != selectedBatch.BankSegCoaId).ToList();
+
+    // === BULLETPROOF PROPERTY WRAPPERS FOR INPUT CALCULATION ===
+    // These properties ensure that editing one field zeroes out its opposite (Debit vs Credit)
+    // and automatically calculates the exchange rate perfectly without buggy Javascript loops.
+
+    private decimal ForeignDebitInput
+    {
+        get => entryForm.ForeignDebit;
+        set {
+            entryForm.ForeignDebit = value;
+            entryForm.ForeignCredit = 0;
+            entryForm.Credit = 0;
+            entryForm.Debit = Math.Round(value * (selectedBatch?.ExchangeRate ?? 1), 2);
+        }
+    }
+
+    private decimal ForeignCreditInput
+    {
+        get => entryForm.ForeignCredit;
+        set {
+            entryForm.ForeignCredit = value;
+            entryForm.ForeignDebit = 0;
+            entryForm.Debit = 0;
+            entryForm.Credit = Math.Round(value * (selectedBatch?.ExchangeRate ?? 1), 2);
+        }
+    }
+
+    private decimal BaseDebitInput
+    {
+        get => entryForm.Debit;
+        set {
+            entryForm.Debit = value;
+            entryForm.Credit = 0;
+            entryForm.ForeignCredit = 0;
+            if (selectedBatch != null && selectedBatch.ExchangeRate > 0)
+                entryForm.ForeignDebit = Math.Round(value / selectedBatch.ExchangeRate, 2);
+        }
+    }
+
+    private decimal BaseCreditInput
+    {
+        get => entryForm.Credit;
+        set {
+            entryForm.Credit = value;
+            entryForm.Debit = 0;
+            entryForm.ForeignDebit = 0;
+            if (selectedBatch != null && selectedBatch.ExchangeRate > 0)
+                entryForm.ForeignCredit = Math.Round(value / selectedBatch.ExchangeRate, 2);
+        }
+    }
+    // ==========================================================
 
     protected override async Task OnInitializedAsync()
     {
@@ -328,8 +446,8 @@
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+            currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
 
-            // RULE 1: Filter to ONLY "Cash and Cash Equivalents"
             bankAccounts = allAccounts.Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
@@ -340,6 +458,15 @@
             activeBatches = await CashService.GetActiveBatchesAsync(currentCompanyId);
         }
         isLoading = false;
+    }
+
+    private async Task OnCurrencyChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var cId))
+        {
+            newBatchCurrencyId = cId;
+            newBatchExchangeRate = await CurrService.GetLatestExchangeRateAsync(currentCompanyId, cId);
+        }
     }
 
     private async Task LoadBatches()
@@ -354,11 +481,17 @@
         ResetForm();
     }
 
-    private void CreateBatch() => showCreateModal = true;
+    private void CreateBatch() 
+    {
+        newBatchIsForeign = false;
+        newBatchCurrencyId = Guid.Empty;
+        newBatchExchangeRate = 1;
+        showCreateModal = true;
+    }
 
     private async Task ConfirmCreateBatch()
     {
-        var batch = await CashService.CreateBatchAsync(currentCompanyId, newBatchAccountId, currentUserId);
+        var batch = await CashService.CreateBatchAsync(currentCompanyId, newBatchAccountId, currentUserId, newBatchIsForeign, newBatchCurrencyId, newBatchExchangeRate);
         showCreateModal = false;
         await LoadBatches();
         await SelectBatch(batch.Id);
@@ -421,6 +554,8 @@
             Description = entry.Description,
             Debit = entry.Debit,
             Credit = entry.Credit,
+            ForeignDebit = entry.ForeignDebit,
+            ForeignCredit = entry.ForeignCredit,
             OffsetSegCoaId = entry.OffsetSegCoaId,
             Reference = entry.Reference
         };
@@ -439,31 +574,32 @@
     private void ResetForm()
     {
         isEditing = false;
+        inputForeignAmount = true; // Default back to foreign input if applicable
         entryForm = new CashbookEntry
         {
             CashbookBatchId = selectedBatch?.Id ?? Guid.Empty,
             TransactionDate = DateTime.Today
         };
     }
+
     private async Task DeleteBatch()
     {
         if (selectedBatch == null) return;
-    
-        // Safety prompt before deleting
         if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to permanently delete this Draft batch and all its entries? This cannot be undone.")) return;
 
         var err = await CashService.DeleteDraftBatchAsync(selectedBatch.Id);
-    
+        
         if (string.IsNullOrEmpty(err))
         {
-            selectedBatch = null; // Clear the selected view
-            await LoadBatches();  // Refresh the left-hand list
+            selectedBatch = null; 
+            await LoadBatches();  
         }
         else
         {
             await JS.InvokeVoidAsync("alert", err);
         }
     }
+
     private string GetAccountName(Guid id) => allAccounts.FirstOrDefault(a => a.Id == id)?.Description ?? "Unknown";
 
     private string GetStatusColor(BatchStatus status) => status switch

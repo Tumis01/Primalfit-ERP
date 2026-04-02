@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260401224305_correctingdpo")]
+    partial class correctingdpo
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -584,75 +587,6 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("BudgetHeaderId");
 
                     b.ToTable("BudgetLines");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetPeriodAllocation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("AccountingPeriodId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal?>("Amount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("BudgetLineId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BudgetLineId");
-
-                    b.ToTable("BudgetPeriodAllocation");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetTransferLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("BudgetHeaderId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("FromGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("LimitAmount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("ToGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BudgetHeaderId");
-
-                    b.ToTable("BudgetTransferLine");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetTransferPeriodAllocation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("AccountingPeriodId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal?>("Amount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("BudgetTransferLineId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BudgetTransferLineId");
-
-                    b.ToTable("BudgetTransferPeriodAllocation");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookBatch", b =>
@@ -3498,33 +3432,6 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetPeriodAllocation", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.BudgetLine", null)
-                        .WithMany("PeriodAllocations")
-                        .HasForeignKey("BudgetLineId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetTransferLine", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.BudgetHeader", null)
-                        .WithMany("TransferLines")
-                        .HasForeignKey("BudgetHeaderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetTransferPeriodAllocation", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.BudgetTransferLine", null)
-                        .WithMany("PeriodAllocations")
-                        .HasForeignKey("BudgetTransferLineId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookEntry", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.CashbookBatch", null)
@@ -4134,18 +4041,6 @@ namespace Primafit_ERP.Migrations
             modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetHeader", b =>
                 {
                     b.Navigation("Lines");
-
-                    b.Navigation("TransferLines");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetLine", b =>
-                {
-                    b.Navigation("PeriodAllocations");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.BudgetTransferLine", b =>
-                {
-                    b.Navigation("PeriodAllocations");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CashbookBatch", b =>

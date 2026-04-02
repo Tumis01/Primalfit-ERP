@@ -166,6 +166,7 @@ namespace Primafit_ERP.Components.Models
 
         // FLEXIBILITY: User selects the Expense/Asset Account per line
         public Guid ExpenseGlAccountId { get; set; }
+        public string? Description { get; set; }
 
         public decimal QuantityBilled { get; set; }
         public decimal UnitCostBilled { get; set; }

@@ -617,29 +617,60 @@ namespace Primafit_ERP.Services
 
             if (period == null || period.IsClosed) return $"STOP: No Open Period for {postDate}.";
 
-            // Prepare GL Lines
             var glLines = new List<GLJournalLine>();
             var vendorName = (await ctx.Vendors.FindAsync(bill.VendorId))?.Name ?? "Unknown";
 
-            // DEBITS (Expense/Asset)
+            decimal totalDebitsBase = 0;
+
+            // 1. DEBITS (Expense/Asset Lines)
             foreach (var line in bill.Lines)
             {
-                decimal lineTotalBase = (line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate;
+                decimal lineTotalBase = Math.Round((line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate, 2);
+                totalDebitsBase += lineTotalBase;
+
+                // NEW: Use the individual line Description if available!
+                string glRef = !string.IsNullOrWhiteSpace(line.Description) ? line.Description : $"Bill: {bill.ExternalInvoiceNumber}";
+
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = line.ExpenseGlAccountId,
                     Debit = lineTotalBase,
                     Credit = 0,
-                    Reference = $"Bill: {bill.ExternalInvoiceNumber}"
+                    Reference = glRef
                 });
             }
 
-            // CREDIT (AP Liability)
+            // 2. DEBIT TAX ASSET (If Applicable)
+            if (bill.TaxId.HasValue && bill.TaxGLAccountId.HasValue)
+            {
+                var tax = await ctx.Taxes.FindAsync(bill.TaxId);
+                if (tax != null)
+                {
+                    decimal subTotalForeign = bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+                    decimal taxForeign = subTotalForeign * (tax.Per / 100);
+                    decimal taxBase = Math.Round(taxForeign * bill.ExchangeRate, 2);
+
+                    totalDebitsBase += taxBase;
+
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = bill.TaxGLAccountId.Value,
+                        Debit = taxBase,
+                        Credit = 0,
+                        Reference = $"Input Tax: {bill.ExternalInvoiceNumber}"
+                    });
+                }
+            }
+
+            // 3. CREDIT AP LIABILITY
+            // Force the exact debit sum into the TotalAmount to prevent rounding fraction crashes in the GL Engine
+            bill.TotalAmount = totalDebitsBase;
+
             glLines.Add(new GLJournalLine
             {
                 SegCoaId = bill.AccountsPayableGlId,
                 Debit = 0,
-                Credit = bill.TotalAmount,
+                Credit = totalDebitsBase,
                 Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
             });
 
@@ -651,19 +682,22 @@ namespace Primafit_ERP.Services
 
             if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
 
-            if (batchId.HasValue) await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
+            if (batchId.HasValue)
+            {
+                var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
+                if (!string.IsNullOrEmpty(postErr)) return $"GL Engine Rejected Posting: {postErr}";
+            }
 
             // Update Status
             bill.IsPosted = true;
             bill.PostedDate = DateTime.Now;
 
-            // --- UPDATE PO (But DO NOT close it until paid) ---
+            // --- UPDATE PO ---
             if (bill.PurchaseOrderId.HasValue)
             {
                 var po = await ctx.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
                 if (po != null) po.IsInvoicePosted = true;
             }
-        
 
             await ctx.SaveChangesAsync();
             return string.Empty;
@@ -785,12 +819,17 @@ namespace Primafit_ERP.Services
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
                     grossBaseForLedger += lineTotalBase;
 
+                    // UPDATED: Use the specific line Description for the GL Journal Reference!
+                    string glRef = !string.IsNullOrWhiteSpace(line.Description)
+                        ? line.Description
+                        : $"Direct Bill: {bill.ExternalInvoiceNumber ?? "Expense"}";
+
                     glLines.Add(new GLJournalLine
                     {
                         SegCoaId = line.ExpenseGlAccountId,
                         Debit = lineTotalBase,
                         Credit = 0,
-                        Reference = $"Direct Bill: {bill.Description ?? "Expense"}"
+                        Reference = glRef
                     });
                 }
 
