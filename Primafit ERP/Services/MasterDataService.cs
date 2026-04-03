@@ -93,29 +93,22 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Security & Basic Validation
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
-            if (string.IsNullOrWhiteSpace(item.SKU)) return "SKU is required.";
+            if (string.IsNullOrWhiteSpace(item.SKU)) return "Code is required.";
 
-            // 2. Validate Seg COA Accounts (Only if it's a physical good)
-            if (!item.IsService)
-            {
-                if (item.InventoryAssetAccountId == Guid.Empty)
-                    return "Inventory Asset Account is required for physical goods.";
-            }
+            if (!item.IsService && item.InventoryAssetAccountId == Guid.Empty)
+                return "Inventory Asset Account is required for physical goods.";
 
             if (item.SalesIncomeAccountId == Guid.Empty) return "Sales Income Account is required.";
             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return "COGS/Expense Account is required.";
 
-            // 3. Check for Duplicate SKU or Name
             bool isSkuDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.SKU == item.SKU && i.Id != item.Id);
             if (isSkuDuplicate) return ($"The SKU '{item.SKU}' is already in use.");
 
             bool isNameDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.Name == item.Name && i.Id != item.Id);
             if (isNameDuplicate) return ($"The Item Name '{item.Name}' is already in use.");
 
-            // 4. Save Logic
             if (item.Id == Guid.Empty || !await ctx.Items.AnyAsync(x => x.Id == item.Id))
             {
                 if (item.Id == Guid.Empty) item.Id = Guid.NewGuid();
@@ -123,16 +116,20 @@ namespace Primafit_ERP.Services
             }
             else
             {
-                ctx.Items.Update(item);
+                // THE FIX: Protect system-calculated costs from being overwritten by the UI!
+                var existingItem = await ctx.Items.FindAsync(item.Id);
+                if (existingItem != null)
+                {
+                    item.WeightedAverageCost = existingItem.WeightedAverageCost;
+                    item.MostRecentCost = existingItem.MostRecentCost;
+
+                    ctx.Entry(existingItem).CurrentValues.SetValues(item);
+                }
             }
 
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-
-       
-        
-
         public async Task<string> DeleteVendorAsync(Guid id)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();

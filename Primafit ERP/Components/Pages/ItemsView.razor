@@ -4,7 +4,6 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
@@ -29,14 +28,18 @@
     @if (showForm)
     {
         <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl mb-6 animate-in slide-in-from-top-4">
-            <h3 class="text-lg font-bold text-slate-900 mb-6">@(isEditing ? "Edit Item" : "New Item")</h3>
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-slate-900">@(isEditing ? "Edit Item" : "New Item")</h3>
+                @if (isEditing)
+                {
+                    <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold font-mono border border-slate-200">Current Cost: @currentItem.CurrentDisplayCost.ToString("N2")</span>
+                }
+            </div>
 
             <EditForm Model="@currentItem" OnValidSubmit="SaveItem">
                 <DataAnnotationsValidator />
 
-                
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 items-start">
                     <div>
                         <label class="label">Code <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentItem.SKU" class="input-class font-mono uppercase" placeholder="PROD-001" />
@@ -47,7 +50,7 @@
                     </div>
                     <div>
                         <label class="label">Type</label>
-                        <div class="flex items-center gap-3 mt-2">
+                        <div class="flex items-center gap-3 mt-2 h-[42px]">
                             <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
                                 <InputCheckbox @bind-Value="currentItem.IsService" class="w-4 h-4 rounded text-slate-900 focus:ring-slate-900" />
                                 <span class="text-sm font-bold text-slate-700">Is Service?</span>
@@ -71,35 +74,64 @@
                             <label class="label">Reorder Level</label>
                             <InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class font-mono" />
                         </div>
+                        
+                        <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-3">
+                            <div>
+                                <label class="label text-indigo-700">Costing Method <span class="text-rose-500">*</span></label>
+                                <InputSelect @bind-Value="currentItem.CostingType" class="input-class bg-white font-bold text-indigo-900 border-indigo-200">
+                                    <option value="@CostingMethod.WACC">Weighted Avg Cost (WACC)</option>
+                                    <option value="@CostingMethod.StandardCosting">Standard Costing</option>
+                                    <option value="@CostingMethod.UserSpecified">User Specified</option>
+                                    <option value="@CostingMethod.FIFO">FIFO (First-In, First-Out)</option>
+                                    <option value="@CostingMethod.LIFO">LIFO (Last-In, First-Out)</option>
+                                    <option value="@CostingMethod.MostRecentCost">Most Recent Cost</option>
+                                </InputSelect>
+                            </div>
+
+                            @if (currentItem.CostingType == CostingMethod.UserSpecified)
+                            {
+                                <div class="animate-in fade-in slide-in-from-top-2">
+                                    <label class="label text-indigo-700">User Specified Cost</label>
+                                    <InputNumber @bind-Value="currentItem.UserSpecifiedCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                </div>
+                            }
+                            else if (currentItem.CostingType == CostingMethod.StandardCosting)
+                            {
+                                <div class="animate-in fade-in slide-in-from-top-2">
+                                    <label class="label text-indigo-700">Standard Cost</label>
+                                    <InputNumber @bind-Value="currentItem.StandardCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                </div>
+                            }
+                        </div>
                     }
                     else
                     {
-                        <div class="md:col-span-2"></div>
+                        <div class="md:col-span-3 border-t border-slate-100 my-2"></div>
                     }
 
                     <div>
-                        <label class="label">Selling Price</label>
+                        <label class="label">Default Selling Price</label>
                         <InputNumber @bind-Value="currentItem.SellingPrice" class="input-class font-mono text-emerald-700 font-bold" />
                     </div>
-
                 </div>
+                
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <div class="mb-8 bg-50 border border-100 p-5 rounded-xl shadow-sm">
-                    <label class="label text-indigo-900">Item Category </label>
-                    <select class="input-class border-200   bg-white" @onchange="OnCategorySelected">
-                        <option value="@Guid.Empty">-- Select Item Category --</option>
-                        @foreach (var cat in categories)
-                        {
-                            <option value="@cat.Id" selected="@(currentItem.CategoryId == cat.Id)">
-                                @cat.Name @(cat.IsService ? "(Service)" : "(Physical Goods)")
-                            </option>
-                        }
-                    </select>
-                    <p class="text-xs text-indigo-700 mt-2 font-medium flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        Selecting a category will automatically apply its predefined General Ledger mapping and item type below.
-                    </p>
-                </div>
+                    <div class="mb-8 bg-slate-50 border border-slate-100 p-5 rounded-xl shadow-sm">
+                        <label class="label text-indigo-900">Item Category </label>
+                        <select class="input-class border-slate-200 bg-white" @onchange="OnCategorySelected">
+                            <option value="@Guid.Empty">-- Select Item Category --</option>
+                            @foreach (var cat in categories)
+                            {
+                                <option value="@cat.Id" selected="@(currentItem.CategoryId == cat.Id)">
+                                    @cat.Name @(cat.IsService ? "(Service)" : "(Physical Goods)")
+                                </option>
+                            }
+                        </select>
+                        <p class="text-xs text-indigo-700 mt-2 font-medium flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Selecting a category will automatically apply its predefined General Ledger mapping and item type below.
+                        </p>
+                    </div>
                 </div>
                 
                 <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
@@ -154,8 +186,9 @@
                         <th class="p-4 pl-6">CODE</th>
                         <th class="p-4">Item Name</th>
                         <th class="p-4 text-center">Type</th>
+                        <th class="p-4">Costing Method</th>
                         <th class="p-4 text-right">Selling Price</th>
-                        <th class="p-4 text-right">Avg Cost (WACC)</th>
+                        <th class="p-4 text-right">Cost</th>
                         <th class="p-4 text-right pr-6">Actions</th>
                     </tr>
                 </thead>
@@ -172,8 +205,20 @@
                                         @(i.IsService ? "Service" : "Goods")
                                     </span>
                                 </td>
+                                <td class="p-4">
+                                    @if (!i.IsService)
+                                    {
+                                        <span class="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-1 rounded">@i.CostingType.ToString()</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs text-slate-400 italic">N/A</span>
+                                    }
+                                </td>
                                 <td class="p-4 text-right font-mono font-bold text-emerald-600">@i.SellingPrice.ToString("N2")</td>
-                                <td class="p-4 text-right font-mono text-slate-500">@i.WeightedAverageCost.ToString("N2")</td>
+                                
+                                <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N2")</td>
+                                
                                 <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
                                     <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
@@ -200,9 +245,8 @@
 @code {
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new(); 
-    private List<ItemCategory> categories = new(); // NEW: List of GL Templates
+    private List<ItemCategory> categories = new(); 
 
-    // Segmented COA lists
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> assetAccounts = new();
     private List<SegChartOfAccount> revenueAccounts = new();
@@ -223,19 +267,16 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
 
-            // Fetch Master Data
             items = await MasterService.GetItemsAsync(currentCompanyId);
             uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
-            categories = await MasterService.GetItemCategoriesAsync(currentCompanyId); // FETCH CATEGORIES
+            categories = await MasterService.GetItemCategoriesAsync(currentCompanyId); 
 
-            // Fetch Financial Data
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            // Filter Accounts for the dropdowns
-            assetAccounts = FilterAccounts(true, true);   // Assets: BS=True, Dr=True
-            revenueAccounts = FilterAccounts(false, false); // Revenue: BS=False, Dr=False
-            expenseAccounts = FilterAccounts(false, true);  // Expense: BS=False, Dr=True
+            assetAccounts = FilterAccounts(true, true);   
+            revenueAccounts = FilterAccounts(false, false); 
+            expenseAccounts = FilterAccounts(false, true);  
         }
     }
 
@@ -253,7 +294,7 @@
 
     private void CreateNew()
     {
-        currentItem = new Item { CompanyId = currentCompanyId };
+        currentItem = new Item { CompanyId = currentCompanyId, CostingType = CostingMethod.WACC };
         showForm = true;
         isEditing = false;
     }
@@ -264,13 +305,18 @@
         {
             Id = i.Id,
             CompanyId = i.CompanyId,
-            CategoryId = i.CategoryId, // Preserve selected category
+            CategoryId = i.CategoryId, 
             Name = i.Name,
             SKU = i.SKU,
             IsService = i.IsService,
             SellingPrice = i.SellingPrice,
             UoM = i.UoM,
             ReorderLevel = i.ReorderLevel,
+            CostingType = i.CostingType, 
+            WeightedAverageCost = i.WeightedAverageCost, 
+            StandardCost = i.StandardCost,
+            UserSpecifiedCost = i.UserSpecifiedCost,
+            MostRecentCost = i.MostRecentCost,
             InventoryAssetAccountId = i.InventoryAssetAccountId,
             SalesIncomeAccountId = i.SalesIncomeAccountId,
             CostOfGoodsSoldAccountId = i.CostOfGoodsSoldAccountId,
@@ -280,7 +326,6 @@
         isEditing = true;
     }
 
-    // --- NEW: THE GL TEMPLATE AUTO-POPULATION LOGIC ---
     private void OnCategorySelected(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var catId) && catId != Guid.Empty)
@@ -291,7 +336,6 @@
                 currentItem.CategoryId = catId;
                 currentItem.IsService = selectedCategory.IsService;
 
-                // Auto-Populate GL Accounts
                 currentItem.SalesIncomeAccountId = selectedCategory.SalesIncomeAccountId;
                 currentItem.CostOfGoodsSoldAccountId = selectedCategory.CostOfGoodsSoldAccountId;
 
@@ -302,7 +346,6 @@
                 }
                 else
                 {
-                    // Clear physical inventory accounts & params if the category is a service
                     currentItem.InventoryAssetAccountId = Guid.Empty;
                     currentItem.AdjustmentExpenseAccountId = Guid.Empty;
                     currentItem.UoM = ""; 
@@ -332,7 +375,6 @@
 
     private async Task SaveItem()
     {
-        // Simple manual validation for the Searchable GL Accounts
         if (currentItem.SalesIncomeAccountId == Guid.Empty || currentItem.CostOfGoodsSoldAccountId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Sales Income and COGS accounts are required.");

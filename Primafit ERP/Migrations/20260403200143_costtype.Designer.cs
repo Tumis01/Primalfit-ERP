@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260403200143_costtype")]
+    partial class costtype
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1713,9 +1716,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<bool>("IsService")
                         .HasColumnType("bit");
 
-                    b.Property<decimal>("MostRecentCost")
-                        .HasColumnType("decimal(18, 6)");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1733,15 +1733,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("SellingPrice")
                         .HasColumnType("decimal(18, 6)");
 
-                    b.Property<decimal>("StandardCost")
-                        .HasColumnType("decimal(18, 6)");
-
                     b.Property<string>("UoM")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("UserSpecifiedCost")
-                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("WeightedAverageCost")
                         .HasColumnType("decimal(18, 6)");

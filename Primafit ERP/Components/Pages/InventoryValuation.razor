@@ -1,34 +1,527 @@
 ﻿@page "/reports/inventory-valuation"
-@using Primafit_ERP.Services
-@using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-@inject OperationalReportingService OpsService
+@inject MasterDataService MasterService
+@inject CompanyApiService CompanyService
+@inject ReportExportService ExportService
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"  Title="Inventory Valuation (WACC)"
-                  Description="Real-time value of all physical stock multiplied by their Weighted Average Cost."
-                  ShowDateRange="false"
-                  ShowAsOfDate="false"
-                  FetchData="GetData" />
+<div class="max-w-[1200px] mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
+
+    <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Inventory Valuation</h1>
+                @if (!string.IsNullOrEmpty(companyName))
+                {
+                    <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
+                        @companyName
+                    </span>
+                }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Real-time value of physical stock based on Weighted Average Cost.</p>
+        </div>
+
+        <div class="flex gap-2">
+    <button @onclick="DownloadPdf" disabled="@isExportingPdf" class="px-4 py-2 bg-rose-50 text-rose-700 border border-rose-200 font-bold text-xs rounded-xl hover:bg-rose-100 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-28 justify-center">
+        @if (isExportingPdf) 
+        { 
+            <svg class="animate-spin h-4 w-4 text-rose-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Wait...</span>
+        }
+        else
+        {
+            @* <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg> *@
+            <span>PDF</span>
+        }
+    </button>
+
+    <button @onclick="DownloadExcel" disabled="@isExportingExcel" class="px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-xl hover:bg-emerald-100 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed w-28 justify-center">
+        @if (isExportingExcel) 
+        { 
+            <svg class="animate-spin h-4 w-4 text-emerald-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Wait...</span>
+        }
+        else
+        {
+            @* <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg> *@
+            <span>Excel</span>
+        }
+    </button>
+</div>
+    </div>
+
+    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-4 items-end">
+        
+        <div>
+            <label class="label">Date Mode</label>
+            <select @bind="FilterMode" @bind:after="ApplyFilters" class="input-class w-40 font-bold text-indigo-700 bg-indigo-50 border-indigo-200">
+                <option value="AsOf">As Of Date</option>
+                <option value="Range">Date Range</option>
+            </select>
+        </div>
+
+        @if (FilterMode == "AsOf")
+        {
+            <div>
+                <label class="label">As Of</label>
+                <input type="date" @bind="FilterAsOfDate" @bind:after="ApplyFilters" class="input-class w-40 font-mono text-xs" />
+            </div>
+        }
+        else
+        {
+            <div>
+                <label class="label">Start Date</label>
+                <input type="date" @bind="FilterStartDate" @bind:after="ApplyFilters" class="input-class w-40 font-mono text-xs" />
+            </div>
+            <div>
+                <label class="label">End Date</label>
+                <input type="date" @bind="FilterEndDate" @bind:after="ApplyFilters" class="input-class w-40 font-mono text-xs" />
+            </div>
+        }
+
+        <div class="flex-1 min-w-[200px]">
+            <label class="label">Search Items</label>
+            <div class="relative">
+                @* <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg> *@
+                <input type="text" @bind="SearchTerm" @bind:after="ResetPage" placeholder="Search SKU or Name..." class="input-class pl-9" />
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider pl-2 whitespace-nowrap">Item Range:</span>
+            <select @bind="FromItemId" @bind:after="ResetPage" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 truncate max-w-[140px]">
+                <option value="@Guid.Empty">Start...</option>
+                @foreach (var item in items) { <option value="@item.Id">@item.Name</option> }
+            </select>
+            <span class="text-slate-300 font-bold text-xs">to</span>
+            <select @bind="ToItemId" @bind:after="ResetPage" class="w-full px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 truncate max-w-[140px]">
+                <option value="@Guid.Empty">End...</option>
+                @foreach (var item in items) { <option value="@item.Id">@item.Name</option> }
+            </select>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-16 text-center text-slate-400 font-bold animate-pulse flex flex-col items-center gap-3">
+            <span class="animate-spin h-6 w-6 border-2 border-indigo-600 border-t-transparent rounded-full"></span>
+            Calculating valuation...
+        </div>
+    }
+    else if (HasCompany)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-left text-sm whitespace-nowrap">
+                    <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4 w-32">Code</th>
+                            <th class="px-6 py-4 w-[30%]">Item Description</th>
+                            <th class="px-6 py-4 text-center">UoM</th>
+                            <th class="px-6 py-4 text-center">Calculated Qty</th>
+                            <th class="px-6 py-4 text-right">Unit Cost </th>
+                            <th class="px-6 py-4 text-right">Total Value</th>
+                            <th class="px-6 py-4 text-center w-24">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var row in PaginatedData)
+                        {
+                            <tr class="hover:bg-slate-50/80 transition-colors">
+                                <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.SKU</td>
+                                <td class="px-6 py-4 font-bold text-slate-900 truncate max-w-[250px]" title="@row.Name">@row.Name</td>
+                                <td class="px-6 py-4 text-center text-xs font-bold text-slate-400">@row.UoM</td>
+                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.Qty.ToString("N2")</td>
+                                <td class="px-6 py-4 text-right font-mono text-slate-600">@row.Wacc.ToString("N4")</td>
+                                <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N2")</td>
+                                <td class="px-6 py-4 text-center">
+                                    <button @onclick="() => ViewHistory(row.ItemId)" class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-600 hover:text-white transition-colors">
+                                        History
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                        @if (!PaginatedData.Any())
+                        {
+                            <tr><td colspan="7" class="p-16 text-center text-slate-400">No stock found matching your criteria.</td></tr>
+                        }
+                    </tbody>
+                    <tfoot class="bg-slate-50 border-t-2 border-slate-200">
+                        <tr>
+                            <td colspan="5" class="px-6 py-4 text-right font-black text-slate-600 uppercase text-xs tracking-wider">Filtered Grand Total</td>
+                            <td class="px-6 py-4 text-right font-mono font-black text-emerald-600 text-xl">
+                                @FilteredData.Sum(x => x.TotalValue).ToString("N2")
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between mt-auto">
+                    <p class="text-sm text-slate-500 font-medium">
+                        Showing <span class="font-bold text-slate-900">@((currentPage - 1) * pageSize + 1)</span> to <span class="font-bold text-slate-900">@Math.Min(currentPage * pageSize, FilteredData.Count())</span> of <span class="font-bold text-slate-900">@FilteredData.Count()</span> items
+                    </p>
+                    <div class="flex gap-2">
+                        <button @onclick="PreviousPage" disabled="@(currentPage == 1)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Previous
+                        </button>
+                        <button @onclick="NextPage" disabled="@(currentPage == TotalPages)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
 </div>
 
+@if (showHistoryModal && selectedHistoryItem != null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh]">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-900">Valuation History</h3>
+                    <p class="text-xs text-slate-500 font-bold mt-1">@selectedHistoryItem.SKU - @selectedHistoryItem.Name</p>
+                </div>
+                <button @onclick="() => showHistoryModal = false" class="text-slate-400 hover:text-rose-500 transition-colors bg-white p-2 rounded-full shadow-sm border border-slate-200">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto flex-1">
+                @if (selectedItemHistory.Any())
+                {
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-200 bg-slate-50">
+                            <tr>
+                                <th class="p-3 w-32">Date</th>
+                                <th class="p-3">Reference</th>
+                                <th class="p-3 text-right">Previous Qty</th>
+                                <th class="p-3 text-right">Previous WACC</th>
+                                <th class="p-3 text-right text-emerald-600">Qty Changed</th>
+                                <th class="p-3 text-right text-emerald-600">Incoming Cost</th>
+                                <th class="p-3 text-right text-indigo-600 bg-indigo-50/50">Resulting WACC</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach(var h in selectedItemHistory)
+                            {
+                                <tr class="hover:bg-slate-50">
+                                    <td class="p-3 font-mono text-xs text-slate-500">@h.DateChanged.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="p-3 font-bold text-xs text-slate-700">@h.Reference</td>
+                                    <td class="p-3 text-right font-mono">@h.OldQty.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono">@h.OldWacc.ToString("N4")</td>
+                                    
+                                    <td class="p-3 text-right font-mono font-bold @(h.NewQtyIn > 0 ? "text-emerald-600" : (h.NewQtyIn < 0 ? "text-rose-600" : "text-slate-400"))">
+                                        @(h.NewQtyIn > 0 ? "+" : "")@h.NewQtyIn.ToString("N2")
+                                    </td>
+                                    <td class="p-3 text-right font-mono font-bold text-slate-700">@h.NewCostIn.ToString("N4")</td>
+                                    
+                                    <td class="p-3 text-right font-mono font-black text-indigo-700 bg-indigo-50/30">@h.ResultingWacc.ToString("N4")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="text-center p-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-xl">
+                        No valuation changes recorded for this item.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
 @code {
-    private Guid companyId;
+    private Guid selectedCompanyId = Guid.Empty;
+    private string companyName = "";
+    private bool HasCompany => selectedCompanyId != Guid.Empty;
+    private bool isLoading = true;
+    
+    // Exports
+    private bool isExportingPdf = false;
+    private bool isExportingExcel = false;
+
+    // View Model for the Grid
+    private class ValuationRow
+    {
+        public Guid ItemId { get; set; }
+        public string SKU { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string UoM { get; set; } = "";
+        public decimal Qty { get; set; }
+        public decimal Wacc { get; set; }
+        public decimal TotalValue => Qty * Wacc;
+    }
+
+    private List<Item> items = new();
+    private List<ValuationRow> rawData = new();
+
+    // --- FILTERS ---
+    private string FilterMode { get; set; } = "AsOf"; 
+    private DateTime FilterAsOfDate { get; set; } = DateTime.Today;
+    private DateTime FilterStartDate { get; set; } = DateTime.Today.AddDays(-30);
+    private DateTime FilterEndDate { get; set; } = DateTime.Today;
+
+    private string SearchTerm { get; set; } = "";
+    private Guid FromItemId { get; set; } = Guid.Empty;
+    private Guid ToItemId { get; set; } = Guid.Empty;
+
+    // --- DRILL DOWN ---
+    private bool showHistoryModal = false;
+    private Item? selectedHistoryItem;
+    private List<ItemCostHistory> selectedItemHistory = new();
+
+    // Pagination State
+    private int currentPage = 1;
+    private int pageSize = 15;
+    private int TotalPages => (int)Math.Ceiling((double)FilteredData.Count() / pageSize);
+
+    // --- CLIENT-SIDE FILTERING LOGIC (Alphabetical/Search) ---
+    private IEnumerable<ValuationRow> FilteredData
+    {
+        get
+        {
+            var query = rawData.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(SearchTerm))
+            {
+                query = query.Where(x => 
+                    x.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) || 
+                    x.SKU.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (FromItemId != Guid.Empty && ToItemId != Guid.Empty)
+            {
+                var fromItemName = items.FirstOrDefault(i => i.Id == FromItemId)?.Name ?? "";
+                var toItemName = items.FirstOrDefault(i => i.Id == ToItemId)?.Name ?? "";
+
+                query = query.Where(x => 
+                    string.Compare(x.Name, fromItemName, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    string.Compare(x.Name, toItemName, StringComparison.OrdinalIgnoreCase) <= 0);
+            }
+
+            return query.OrderBy(x => x.Name);
+        }
+    }
+
+    private IEnumerable<ValuationRow> PaginatedData => FilteredData
+        .Skip((currentPage - 1) * pageSize)
+        .Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
-        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-        if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            selectedCompanyId = user.CompanyDetailsId.Value;
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+            if (company != null) companyName = company.CompanyName;
+            
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            items = await ctx.Items
+                .AsNoTracking()
+                .Where(i => i.CompanyId == selectedCompanyId && !i.IsService)
+                .OrderBy(i => i.Name)
+                .ToListAsync();
+
+            await ApplyFilters();
+        }
     }
 
-    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    // --- DATA LOADING & FILTERS ---
+    private void ResetPage()
     {
-        return await OpsService.GenerateInventoryValuationAsync(companyId);
+        currentPage = 1;
     }
+
+    private async Task ApplyFilters()
+    {
+        isLoading = true;
+        await InvokeAsync(StateHasChanged); // Force UI to show loading spinner immediately
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        var query = ctx.StockLedgers
+            .AsNoTracking()
+            .Where(s => s.CompanyId == selectedCompanyId);
+
+        // Apply Date Database Filtering
+        if (FilterMode == "AsOf")
+        {
+            var endOfDay = FilterAsOfDate.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(s => s.Date <= endOfDay);
+        }
+        else
+        {
+            var start = FilterStartDate.Date;
+            var end = FilterEndDate.Date.AddDays(1).AddTicks(-1);
+            query = query.Where(s => s.Date >= start && s.Date <= end);
+        }
+
+        var stockLedgerSums = await query
+            .GroupBy(s => s.ItemId)
+            .Select(g => new { ItemId = g.Key, TotalQty = g.Sum(x => x.QuantityChanged) })
+            .ToDictionaryAsync(x => x.ItemId, x => x.TotalQty);
+
+        rawData.Clear();
+
+        foreach (var item in items)
+        {
+            decimal qty = stockLedgerSums.GetValueOrDefault(item.Id, 0m);
+            
+            // Only add items that actually have movement/stock in the specified criteria
+            if (qty != 0)
+            {
+                rawData.Add(new ValuationRow
+                {
+                    ItemId = item.Id,
+                    SKU = item.SKU ?? "N/A",
+                    Name = item.Name,
+                    UoM = item.UoM ?? "",
+                    Wacc = item.WeightedAverageCost, 
+                    Qty = qty
+                });
+            }
+        }
+
+        ResetPage();
+        isLoading = false;
+        await InvokeAsync(StateHasChanged); // Turn off spinner
+    }
+
+    // --- HISTORY MODAL ---
+    private async Task ViewHistory(Guid itemId)
+    {
+        selectedHistoryItem = items.FirstOrDefault(i => i.Id == itemId);
+        if (selectedHistoryItem != null)
+        {
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            selectedItemHistory = await ctx.ItemCostHistories
+                .AsNoTracking()
+                .Where(h => h.ItemId == itemId)
+                .OrderByDescending(h => h.DateChanged)
+                .ToListAsync();
+                
+            showHistoryModal = true;
+        }
+    }
+
+    // --- PAGINATION ---
+    private void NextPage() { if (currentPage < TotalPages) currentPage++; }
+    private void PreviousPage() { if (currentPage > 1) currentPage--; }
+
+    // --- EXPORTS ---
+    private StandardReportData BuildReportData()
+    {
+        var data = new StandardReportData
+        {
+            ReportName = "Inventory Valuation Report (WACC)",
+            ReportingPeriod = FilterMode == "AsOf" 
+                ? $"As of {FilterAsOfDate:MMM dd, yyyy}" 
+                : $"{FilterStartDate:MMM dd, yyyy} to {FilterEndDate:MMM dd, yyyy}",
+            Headers = new List<string> { "SKU", "Item Description", "UoM", "Qty on Hand", "Unit Cost (WACC)", "Total Value" }
+        };
+
+        // Export ALL filtered rows (ignore pagination)
+        foreach(var row in FilteredData)
+        {
+            data.Rows.Add(new List<string> { 
+                row.SKU, 
+                row.Name, 
+                row.UoM, 
+                row.Qty.ToString("N2"), 
+                row.Wacc.ToString("N4"), 
+                row.TotalValue.ToString("N2") 
+            });
+        }
+
+        data.Rows.Add(new List<string> { "", "", "", "", "FILTERED GRAND TOTAL", FilteredData.Sum(x => x.TotalValue).ToString("N2") });
+        return data;
+    }
+
+    private async Task DownloadPdf()
+    {
+        isExportingPdf = true;
+        await InvokeAsync(StateHasChanged); // Force UI to update and show the spinner immediately
+
+        try
+        {
+            var data = BuildReportData();
+        
+            // Push heavy synchronous work to a background thread so the UI stays unfrozen
+            var pdfBytes = await Task.Run(() => ExportService.GeneratePdf(data));
+        
+            using var streamRef = new DotNetStreamReference(new MemoryStream(pdfBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", "Inventory_Valuation.pdf", streamRef);
+        }
+        catch (Exception ex) 
+        { 
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}"); 
+        }
+        finally 
+        { 
+            isExportingPdf = false; 
+            await InvokeAsync(StateHasChanged); // Turn off the spinner
+        }
+    }
+
+    private async Task DownloadExcel()
+    {
+        isExportingExcel = true;
+        await InvokeAsync(StateHasChanged); // Force UI to update and show the spinner immediately
+
+        try
+        {
+            var data = BuildReportData();
+        
+            // Push heavy synchronous work to a background thread
+            var excelBytes = await Task.Run(() => ExportService.GenerateExcel(data));
+        
+            using var streamRef = new DotNetStreamReference(new MemoryStream(excelBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", "Inventory_Valuation.xlsx", streamRef);
+        }
+        catch (Exception ex) 
+        { 
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}"); 
+        }
+        finally 
+        { 
+            isExportingExcel = false; 
+            await InvokeAsync(StateHasChanged); // Turn off the spinner
+        }
+    }
+
+    
 }
