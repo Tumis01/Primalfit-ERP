@@ -209,7 +209,7 @@
                                                 bool needsShipping = o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity);
 
                                                 @* TO WAREHOUSE BUTTON: ONLY display on the Invoices tab *@
-                                                @if (needsShipping && recordFilter == "Invoices")
+                                                @if (needsShipping)
                                                 {
                                                     <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
                                                 }
@@ -649,18 +649,17 @@
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
-    // Filters down the table based on the selected tab
+    // Filters down the table based on the selected tab using document prefixes
     private IEnumerable<SalesOrder> FilteredOrders => orders
         .Where(o => recordFilter == "All"
-                 || (recordFilter == "Quotes" && o.Status == OrderStatus.Quote)
-                 || (recordFilter == "Orders" && o.Status == OrderStatus.Order)
-                 || (recordFilter == "Invoices" && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.Status == OrderStatus.Draft)))
+                 || (recordFilter == "Quotes" && o.OrderNumber.StartsWith("QUO"))
+                 || (recordFilter == "Orders" && o.OrderNumber.StartsWith("ORD"))
+                 || (recordFilter == "Invoices" && o.OrderNumber.StartsWith("INV")))
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || (o.ConvertedFromQuoteNumber != null && o.ConvertedFromQuoteNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
                  || (o.Customer != null && o.Customer.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
                  || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
-
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();

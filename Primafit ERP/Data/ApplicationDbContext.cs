@@ -51,7 +51,6 @@ namespace PrimafitERP.Data
         public DbSet<PurchaseOrderLine> PurchaseOrderLines { get; set; }
         public DbSet<CashbookBatch> CashbookBatches { get; set; }
         public DbSet<CashbookEntry> CashbookEntries { get; set; }
-        public DbSet<FinancialDashboardSnapshot> FinancialDashboardSnapshots { get; set; }
         public DbSet<ItemCostHistory> ItemCostHistories { get; set; }
         public DbSet<WaccHistory> WaccHistories { get; set; }
         public DbSet<FixedAsset> FixedAssets { get; set; }
