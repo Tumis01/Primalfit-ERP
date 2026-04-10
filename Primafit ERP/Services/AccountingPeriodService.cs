@@ -39,61 +39,63 @@ namespace Primafit_ERP.Services
         {
             await using var context = await _dbFactory.CreateDbContextAsync();
 
-            // IMPORTANT: don't assume FindAsync works unless companyId is the PRIMARY KEY
             var company = await context.CompanyDetails
                 .FirstOrDefaultAsync(c => c.CompanyDetailsId == companyId);
 
             if (company == null)
                 throw new InvalidOperationException("Company not found. Check that the selected ID is the CompanyDetails primary key.");
 
-            // --- THE FIX: Check for nulls and extract the exact .Value ---
             if (company.FiscalStartYear == null || company.FiscalEndYear == null)
                 throw new InvalidOperationException("Fiscal dates are missing. Please complete the company setup first.");
 
             DateOnly fiscalStart = company.FiscalStartYear.Value;
             DateOnly fiscalEnd = company.FiscalEndYear.Value;
-            // -------------------------------------------------------------
 
             if (fiscalEnd <= fiscalStart)
                 throw new InvalidOperationException($"Invalid fiscal dates. Fiscal end ({fiscalEnd:yyyy-MM-dd}) must be after fiscal start ({fiscalStart:yyyy-MM-dd}).");
 
-            // remove existing periods first
-            var existing = await context.AccountingPeriods
+            // 1. Fetch existing periods, but DO NOT delete them!
+            var existingPeriods = await context.AccountingPeriods
                 .Where(p => p.CompanyId == companyId)
                 .ToListAsync();
 
-            if (existing.Count > 0)
-                context.AccountingPeriods.RemoveRange(existing);
-
-            // Generate monthly periods with inclusive EndDate
             var periodsToAdd = new List<AccountingPeriod>();
-            var iterator = fiscalStart; // This is now safely a non-nullable DateOnly
-            int periodCount = 1;
 
-            while (iterator <= fiscalEnd)
+            // 2. Normalize the iterator to strictly align with calendar months
+            var iterator = new DateOnly(fiscalStart.Year, fiscalStart.Month, 1);
+            var endLimit = new DateOnly(fiscalEnd.Year, fiscalEnd.Month, DateTime.DaysInMonth(fiscalEnd.Year, fiscalEnd.Month));
+
+            while (iterator <= endLimit)
             {
-                // AddMonths and AddDays will now work perfectly
-                var endOfThisPeriod = iterator.AddMonths(1).AddDays(-1);
+                var endOfThisPeriod = new DateOnly(iterator.Year, iterator.Month, DateTime.DaysInMonth(iterator.Year, iterator.Month));
 
-                if (endOfThisPeriod > fiscalEnd)
-                    endOfThisPeriod = fiscalEnd;
+                // 3. SAFE CHECK: Does this specific month/year already exist in the database?
+                bool periodExists = existingPeriods.Any(p =>
+                    p.StartDate.Year == iterator.Year && p.StartDate.Month == iterator.Month);
 
-                periodsToAdd.Add(new AccountingPeriod
+                if (!periodExists)
                 {
-                    Id = Guid.NewGuid(),
-                    CompanyId = companyId,
-                    PeriodName = $"Period {periodCount}",
-                    StartDate = iterator,
-                    EndDate = endOfThisPeriod,
-                    IsClosed = false
-                });
+                    periodsToAdd.Add(new AccountingPeriod
+                    {
+                        Id = Guid.NewGuid(),
+                        CompanyId = companyId,
+                        PeriodName = iterator.ToString("MMM yyyy"), // e.g. "Jan 2026" - Much safer than "Period 1"
+                        StartDate = iterator,
+                        EndDate = endOfThisPeriod,
+                        IsClosed = false // New periods are open by default
+                    });
+                }
 
-                iterator = endOfThisPeriod.AddDays(1);
-                periodCount++;
+                // Move to the next month
+                iterator = iterator.AddMonths(1);
             }
 
-            context.AccountingPeriods.AddRange(periodsToAdd);
-            await context.SaveChangesAsync();
+            // 4. Only hit the database if there are actually new periods to add
+            if (periodsToAdd.Any())
+            {
+                context.AccountingPeriods.AddRange(periodsToAdd);
+                await context.SaveChangesAsync();
+            }
 
             return true;
         }

@@ -64,7 +64,9 @@
                             <div class="flex justify-between items-end mt-3 border-t border-slate-100 pt-2">
                                 <div>
                                     <div class="text-[10px] text-slate-400">Base Balance</div>
-                                    <div class="text-sm font-mono font-bold text-slate-700">@batch.ClosingBalance.ToString("N2")</div>
+                                    <div class="text-sm font-mono font-bold @(batch.ClosingBalance < 0 ? "text-rose-600" : "text-slate-700")">
+                                        @batch.ClosingBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                    </div>
                                 </div>
                                 <div class="text-right">
                                     <div class="text-[10px] text-slate-400">Entries</div>
@@ -99,7 +101,10 @@
                                     }
                                 </div>
                                 <p class="text-xs text-slate-500 mt-1">
-                                    Base Opening Balance: <span class="font-mono font-bold">@selectedBatch.OpeningBalance.ToString("N2")</span>
+                                    Base Opening Balance: 
+                                    <span class="font-mono font-bold @(selectedBatch.OpeningBalance < 0 ? "text-rose-600" : "")">
+                                        @selectedBatch.OpeningBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                    </span>
                                 </p>
                             </div>
                             <div class="flex gap-2">
@@ -275,7 +280,9 @@
                                     }
                                     <tr class="bg-slate-50 border-t border-slate-200">
                                         <td colspan="@(selectedBatch.IsForeignCurrency ? 6 : 4)" class="p-4 text-right font-bold text-slate-600 text-xs uppercase">Base Closing Balance</td>
-                                        <td colspan="2" class="p-4 text-right font-mono font-bold text-slate-900 text-lg">@selectedBatch.ClosingBalance.ToString("N2")</td>
+                                        <td colspan="2" class="p-4 text-right font-mono font-bold @(selectedBatch.ClosingBalance < 0 ? "text-rose-600" : "text-slate-900") text-lg">
+                                            @selectedBatch.ClosingBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                        </td>
                                         <td></td>
                                     </tr>
                                 </tbody>

@@ -216,9 +216,10 @@
     {
         if (!HasCompany) return;
 
+        // UPDATED: Reassure the user that their data is safe!
         bool confirmed = await JS.InvokeAsync<bool>(
             "confirm",
-            "This will regenerate periods for your company. Existing period data will be reset. Continue?"
+            "This will generate missing periods for your fiscal year. Existing periods and their transactions will remain safely untouched. Continue?"
         );
 
         if (!confirmed) return;

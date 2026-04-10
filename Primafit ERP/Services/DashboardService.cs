@@ -64,7 +64,7 @@ namespace Primafit_ERP.Services
                 .CountAsync(b => b.CompanyId == companyId && b.MatchStatus == BillMatchStatus.Variance);
 
             // ═══════════════════════════════════════════════════════════════════
-            // 3. STOCK 
+            // 3. STOCK & VALUATION (THE FIX: Matches Valuation Report)
             // ═══════════════════════════════════════════════════════════════════
             var stockLevels = await ctx.StockLedgers
                 .Where(s => s.CompanyId == companyId)
@@ -73,11 +73,23 @@ namespace Primafit_ERP.Services
                 .ToDictionaryAsync(x => x.Key, x => x.Qty);
 
             var physicalItems = await ctx.Items.AsNoTracking()
-                .Where(i => i.CompanyId == companyId && !i.IsService && i.ReorderLevel > 0)
+                .Where(i => i.CompanyId == companyId && !i.IsService)
                 .ToListAsync();
 
             snapshot.LowStockItemsCount = physicalItems
-                .Count(i => stockLevels.GetValueOrDefault(i.Id, 0) <= i.ReorderLevel);
+                .Count(i => i.ReorderLevel > 0 && stockLevels.GetValueOrDefault(i.Id, 0) <= i.ReorderLevel);
+
+            // Calculate true subledger inventory valuation (Qty * WACC)
+            decimal calculatedInventoryValue = 0;
+            foreach (var item in physicalItems)
+            {
+                decimal qty = stockLevels.GetValueOrDefault(item.Id, 0m);
+                if (qty > 0)
+                {
+                    calculatedInventoryValue += (qty * item.WeightedAverageCost);
+                }
+            }
+            snapshot.InventoryValue = calculatedInventoryValue;
 
             // ═══════════════════════════════════════════════════════════════════
             // 4. GL
@@ -101,14 +113,10 @@ namespace Primafit_ERP.Services
                                (a.Description.Contains("Bank", StringComparison.OrdinalIgnoreCase) ||
                                 a.Description.Contains("Cash", StringComparison.OrdinalIgnoreCase)));
 
-            var invBal = SumAccounts(a => assetTypeIds.Contains(a.SegAccountTypeId) &&
-                               a.Description.Contains("Inventory", StringComparison.OrdinalIgnoreCase));
-
             var totAssets = SumAccounts(a => assetTypeIds.Contains(a.SegAccountTypeId));
             var totLiabs = Math.Abs(SumAccounts(a => liabTypeIds.Contains(a.SegAccountTypeId)));
 
             snapshot.CashOnHand = cashBal;
-            snapshot.InventoryValue = invBal;
             snapshot.TotalAssets = totAssets;
 
             bool IsRev(Guid id) => accountTypeMap.TryGetValue(id, out var t) && revTypeIds.Contains(t);
@@ -132,7 +140,10 @@ namespace Primafit_ERP.Services
             snapshot.NetProfitMTD = revMtd - expMtd;
             snapshot.GrossProfitMargin = revMtd != 0 ? ((revMtd - cogsMtd) / revMtd) * 100 : 0;
             snapshot.NetProfitMargin = revMtd != 0 ? (snapshot.NetProfitMTD / revMtd) * 100 : 0;
-            snapshot.InventoryTurnover = invBal != 0 ? cogsMtd / invBal : 0;
+
+            // Uses our newly calculated subledger inventory value
+            snapshot.InventoryTurnover = calculatedInventoryValue != 0 ? cogsMtd / calculatedInventoryValue : 0;
+
             snapshot.PreviousMonthRevenue = RevOf(prevMonthGl);
             snapshot.PreviousMonthProfit = RevOf(prevMonthGl) - ExpOf(prevMonthGl);
 
@@ -231,9 +242,6 @@ namespace Primafit_ERP.Services
             snapshot.OverdueInvoicesCount = unpaidInvoices
                 .Count(i => (today.DayNumber - i.Date.DayNumber) > 30);
 
-            // -------------------------------------------------------------
-            // THE FIX: ASSIGN THE DASHBOARD TOTALS DIRECTLY FROM THE BUCKETS
-            // -------------------------------------------------------------
             snapshot.AROutstandingTotal = snapshot.ARAging.Current + snapshot.ARAging.Days1To30 + snapshot.ARAging.Days31To60 + snapshot.ARAging.DaysOver60;
             snapshot.APOutstandingTotal = snapshot.APAging.Current + snapshot.APAging.Days1To30 + snapshot.APAging.Days31To60 + snapshot.APAging.DaysOver60;
 
