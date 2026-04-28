@@ -165,102 +165,271 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // 3. SHIP TRANSFER (Restored)
+        // 3. SHIP TRANSFER (Auto-Posting to GL)
         public async Task<string> ShipTransferAsync(Guid companyId, Guid itemId, Guid fromWhId, Guid toWhId, decimal qty, Guid transitAccountId, string note)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            var item = await ctx.Items.FindAsync(itemId);
-            if (item == null) return "Item not found.";
+            using var tx = await ctx.Database.BeginTransactionAsync(); // Added Transaction Safety
 
-            decimal available = await GetStockLevel(itemId, fromWhId);
-            if (available < qty) return $"Insufficient stock. Available: {available}";
-
-            var transfer = new StockTransfer
+            try
             {
-                CompanyId = companyId,
-                ItemId = itemId,
-                FromWarehouseId = fromWhId,
-                ToWarehouseId = toWhId,
-                Quantity = qty,
-                Status = TransferStatus.InTransit,
-                DateShipped = DateTime.UtcNow,
-                TransitGLAccountId = transitAccountId,
-                ValueAtShipment = qty * item.WeightedAverageCost,
-                Reference = note
-            };
-            ctx.StockTransfers.Add(transfer);
+                var item = await ctx.Items.FindAsync(itemId);
+                if (item == null) return "Item not found.";
 
-            ctx.StockLedgers.Add(new StockLedger
+                decimal available = await GetStockLevel(itemId, fromWhId);
+                if (available < qty) return $"Insufficient stock. Available: {available}";
+
+                var transfer = new StockTransfer
+                {
+                    CompanyId = companyId,
+                    ItemId = itemId,
+                    FromWarehouseId = fromWhId,
+                    ToWarehouseId = toWhId,
+                    Quantity = qty,
+                    Status = TransferStatus.InTransit,
+                    DateShipped = DateTime.UtcNow,
+                    TransitGLAccountId = transitAccountId,
+                    ValueAtShipment = qty * item.WeightedAverageCost,
+                    Reference = note
+                };
+                ctx.StockTransfers.Add(transfer);
+
+                ctx.StockLedgers.Add(new StockLedger
+                {
+                    CompanyId = companyId,
+                    ItemId = itemId,
+                    WarehouseId = fromWhId,
+                    QuantityChanged = -qty,
+                    Type = StockMovementType.TransferOut,
+                    CostAtTime = item.WeightedAverageCost,
+                    Reference = $"SHIP: {note}"
+                });
+
+                var glLines = new List<GLJournalLine>
+                {
+                    new() { SegCoaId  = transitAccountId, Debit = transfer.ValueAtShipment, Credit = 0, Reference = "Transit" },
+                    new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = transfer.ValueAtShipment, Reference = "Shipment" }
+                };
+
+                // Create GL Batch
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines);
+                if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+
+                // Auto-Post GL Batch
+                if (batchId.HasValue)
+                {
+                    var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value);
+                    if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
             {
-                CompanyId = companyId,
-                ItemId = itemId,
-                WarehouseId = fromWhId,
-                QuantityChanged = -qty,
-                Type = StockMovementType.TransferOut,
-                CostAtTime = item.WeightedAverageCost,
-                Reference = $"SHIP: {note}"
-            });
-
-            var glLines = new List<GLJournalLine>
-            {
-                new() { SegCoaId  = transitAccountId, Debit = transfer.ValueAtShipment, Credit = 0, Reference = "Transit" },
-                new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = transfer.ValueAtShipment, Reference = "Shipment" }
-            };
-
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines);
-            await ctx.SaveChangesAsync();
-            return string.Empty;
+                await tx.RollbackAsync();
+                return $"Transfer Error: {ex.Message}";
+            }
         }
 
-        // 4. RECEIVE TRANSFER (Restored)
+        // 4. RECEIVE TRANSFER (Auto-Posting to GL)
         public async Task<string> ReceiveTransferAsync(Guid transferId, decimal actualQtyReceived)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            var transfer = await ctx.StockTransfers.Include(t => t.Item).FirstOrDefaultAsync(t => t.Id == transferId);
-            if (transfer == null) return "Transfer not found.";
+            using var tx = await ctx.Database.BeginTransactionAsync(); // Added Transaction Safety
 
-            transfer.Status = TransferStatus.Received;
-            transfer.DateReceived = DateTime.UtcNow;
-            transfer.QuantityReceived = actualQtyReceived;
-
-            ctx.StockLedgers.Add(new StockLedger
+            try
             {
-                CompanyId = transfer.CompanyId,
-                ItemId = transfer.ItemId,
-                WarehouseId = transfer.ToWarehouseId,
-                QuantityChanged = actualQtyReceived,
-                Type = StockMovementType.TransferIn,
-                CostAtTime = transfer.Item.WeightedAverageCost,
-                Reference = $"RECV: {transfer.Reference}"
-            });
+                var transfer = await ctx.StockTransfers.Include(t => t.Item).FirstOrDefaultAsync(t => t.Id == transferId);
+                if (transfer == null) return "Transfer not found.";
 
-            decimal totalShippedValue = transfer.ValueAtShipment;
-            decimal receivedValue = actualQtyReceived * transfer.Item.WeightedAverageCost;
-            decimal lostValue = totalShippedValue - receivedValue;
+                transfer.Status = TransferStatus.Received;
+                transfer.DateReceived = DateTime.UtcNow;
+                transfer.QuantityReceived = actualQtyReceived;
 
-            var glLines = new List<GLJournalLine>
-            {
-                new() { SegCoaId  = transfer.TransitGLAccountId, Debit = 0, Credit = totalShippedValue, Reference = "Clear Transit" },
-                new() { SegCoaId  = transfer.Item.InventoryAssetAccountId, Debit = receivedValue, Credit = 0, Reference = "Receipt" }
-            };
-
-            if (lostValue > 0)
-            {
-                glLines.Add(new GLJournalLine
+                ctx.StockLedgers.Add(new StockLedger
                 {
-                    SegCoaId = transfer.Item.AdjustmentExpenseAccountId,
-                    Debit = lostValue,
-                    Credit = 0,
-                    Reference = "Transit Loss"
+                    CompanyId = transfer.CompanyId,
+                    ItemId = transfer.ItemId,
+                    WarehouseId = transfer.ToWarehouseId,
+                    QuantityChanged = actualQtyReceived,
+                    Type = StockMovementType.TransferIn,
+                    CostAtTime = transfer.Item.WeightedAverageCost,
+                    Reference = $"RECV: {transfer.Reference}"
                 });
+
+                decimal totalShippedValue = transfer.ValueAtShipment;
+                decimal receivedValue = actualQtyReceived * transfer.Item.WeightedAverageCost;
+                decimal lostValue = totalShippedValue - receivedValue;
+
+                var glLines = new List<GLJournalLine>
+                {
+                    new() { SegCoaId  = transfer.TransitGLAccountId, Debit = 0, Credit = totalShippedValue, Reference = "Clear Transit" },
+                    new() { SegCoaId  = transfer.Item.InventoryAssetAccountId, Debit = receivedValue, Credit = 0, Reference = "Receipt" }
+                };
+
+                if (lostValue > 0)
+                {
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = transfer.Item.AdjustmentExpenseAccountId,
+                        Debit = lostValue,
+                        Credit = 0,
+                        Reference = "Transit Loss"
+                    });
+                }
+
+                // Create GL Batch
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(transfer.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Recv", transfer.Reference, glLines);
+                if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+
+                // Auto-Post GL Batch
+                if (batchId.HasValue)
+                {
+                    var postErr = await _glOps.PostBatchAsync(transfer.CompanyId, batchId.Value);
+                    if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
             }
-
-            await _glOps.CreateJournalEntryAsync(transfer.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Recv", transfer.Reference, glLines);
-            await ctx.SaveChangesAsync();
-            return string.Empty;
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Receive Error: {ex.Message}";
+            }
         }
+        public async Task<string> AdjustStockAsync(Guid companyId, Guid itemId, Guid warehouseId, StockEntryType adjType, decimal qty, decimal totalValueChange, string reference)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
 
-        // 5. GET PENDING TRANSFERS (Restored)
+            try
+            {
+                var item = await ctx.Items.FindAsync(itemId);
+                if (item == null) return "Item not found.";
+                if (item.IsService) return "Cannot adjust stock for service items. They are strictly expensed on receipt.";
+
+                decimal currentTotalQty = await ctx.StockLedgers.Where(s => s.ItemId == itemId).SumAsync(s => s.QuantityChanged);
+                if (currentTotalQty < 0) currentTotalQty = 0;
+
+                decimal oldWacc = item.WeightedAverageCost;
+                decimal oldValuation = currentTotalQty * oldWacc;
+
+                decimal qtyChange = 0;
+                decimal valChange = 0;
+
+                // Determine exact changes based on Adjustment Type
+                switch (adjType)
+                {
+                    case StockEntryType.QuantityIncrease:
+                        qtyChange = qty;
+                        valChange = 0; // FIX: No financial value change
+                        break;
+                    case StockEntryType.QuantityDecrease:
+                        qtyChange = -Math.Abs(qty);
+                        valChange = 0; // FIX: No financial value change
+                        if (currentTotalQty + qtyChange < 0) return $"Cannot decrease quantity below zero. Current stock is {currentTotalQty}.";
+                        break;
+                    case StockEntryType.CostIncrease:
+                        qtyChange = 0;
+                        valChange = totalValueChange;
+                        break;
+                    case StockEntryType.CostDecrease:
+                        qtyChange = 0;
+                        valChange = -Math.Abs(totalValueChange);
+                        if (oldValuation + valChange < 0) return "Cannot decrease cost valuation below zero.";
+                        break;
+                    case StockEntryType.BothIncrease:
+                        qtyChange = qty;
+                        valChange = totalValueChange;
+                        break;
+                    case StockEntryType.BothDecrease:
+                        qtyChange = -Math.Abs(qty);
+                        valChange = -Math.Abs(totalValueChange);
+                        if (currentTotalQty + qtyChange < 0) return $"Cannot decrease quantity below zero. Current stock is {currentTotalQty}.";
+                        break;
+                }
+
+                // Ensure Adjustment Account is mapped IF there is a financial value change
+                if (valChange != 0 && item.AdjustmentExpenseAccountId == Guid.Empty)
+                {
+                    return $"STOP: Item '{item.Name}' does not have an Adjustment Expense GL Account mapped in Master Data.";
+                }
+
+                decimal newValuation = oldValuation + valChange;
+                decimal newTotalQty = currentTotalQty + qtyChange;
+
+                // Safely Recalculate WACC (Value is spread over the new quantity)
+                item.WeightedAverageCost = newTotalQty > 0 ? (newValuation / newTotalQty) : 0;
+
+                // 1. Write to History
+                ctx.ItemCostHistories.Add(new ItemCostHistory
+                {
+                    Id = Guid.NewGuid(),
+                    ItemId = itemId,
+                    OldQty = currentTotalQty,
+                    OldWacc = oldWacc,
+                    NewQtyIn = qtyChange,
+                    NewCostIn = qtyChange != 0 ? (valChange / qtyChange) : valChange,
+                    ResultingWacc = item.WeightedAverageCost,
+                    Reference = reference,
+                    DateChanged = DateTime.UtcNow
+                });
+
+                // 2. Update Physical Stock Ledger
+                if (qtyChange != 0)
+                {
+                    ctx.StockLedgers.Add(new StockLedger
+                    {
+                        Id = Guid.NewGuid(),
+                        CompanyId = companyId,
+                        ItemId = itemId,
+                        WarehouseId = warehouseId,
+                        QuantityChanged = qtyChange,
+                        Type = StockMovementType.Adjustment,
+                        CostAtTime = item.WeightedAverageCost,
+                        Reference = reference,
+                        Date = DateTime.UtcNow
+                    });
+                }
+
+                // 3. Post to General Ledger ONLY if value actually changed
+                if (valChange != 0)
+                {
+                    var glLines = new List<GLJournalLine>();
+
+                    if (valChange > 0)
+                    {
+                        // Value Increased: Debit Asset, Credit Adjustment (Gain)
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = valChange, Credit = 0, Reference = $"Adj In: {reference}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = item.AdjustmentExpenseAccountId, Debit = 0, Credit = valChange, Reference = $"Adj Gain: {reference}" });
+                    }
+                    else
+                    {
+                        // Value Decreased: Debit Adjustment (Loss/Expense), Credit Asset
+                        decimal absVal = Math.Abs(valChange);
+                        glLines.Add(new GLJournalLine { SegCoaId = item.AdjustmentExpenseAccountId, Debit = absVal, Credit = 0, Reference = $"Adj Loss: {reference}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = absVal, Reference = $"Adj Out: {reference}" });
+                    }
+
+                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Inventory Adjustment", reference, glLines);
+                    if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Error: {err}");
+                    if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Error adjusting stock: {ex.Message}";
+            }
+        }
         public async Task<List<StockTransfer>> GetPendingTransfersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();

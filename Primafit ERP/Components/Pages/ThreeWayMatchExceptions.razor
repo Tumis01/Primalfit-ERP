@@ -1,0 +1,37 @@
+@page "/reports/three-way-match-exceptions"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchasingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Three-Way Match Exception Report"
+                  Description="Lists all vendor bills where the bill total does not match the value of goods received on the linked purchase order. Each row includes the full variance reason to support AP investigation and approval workflows."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync(
+            (await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
+        if (user?.CompanyDetailsId != null)
+            companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await PurchasingService.GenerateThreeWayMatchExceptionReportAsync(companyId, start, end);
+    }
+}

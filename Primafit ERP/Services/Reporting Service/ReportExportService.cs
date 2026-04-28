@@ -1,4 +1,5 @@
-﻿using iText.IO.Font.Constants;
+﻿using ClosedXML.Excel;
+using iText.IO.Font.Constants;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
 using iText.Kernel.Pdf;
@@ -6,7 +7,7 @@ using iText.Layout;
 using iText.Layout.Borders;
 using iText.Layout.Element;
 using iText.Layout.Properties;
-using ClosedXML.Excel;
+using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using System;
 using System.IO;
@@ -287,6 +288,415 @@ namespace Primafit_ERP.Services
             using var memStream = new MemoryStream();
             workbook.SaveAs(memStream);
             return memStream.ToArray();
+        }
+
+        // ==========================================
+        // 3. ERP INVOICE GENERATOR (PDF)
+        // ==========================================
+        // 1. Add "string currencyCode" to the parameters
+        public byte[] GenerateInvoicePdf(SalesOrder order, CompanyDetails company, string currencyCode)
+        {
+            using var stream = new MemoryStream();
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+
+            var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+
+            document.SetFont(fontNormal);
+            document.SetFontSize(10);
+
+            // --- HEADER: Company Info & Invoice Details ---
+            var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 1, 1 })).UseAllAvailableWidth();
+
+            // Left Side: Company Info
+            var companyInfo = new Cell().SetBorder(Border.NO_BORDER);
+            companyInfo.Add(new Paragraph(company.CompanyName?.ToUpper() ?? "COMPANY NAME").SetFont(fontBold).SetFontSize(16).SetFontColor(ColorConstants.DARK_GRAY));
+            companyInfo.Add(new Paragraph(company.PhysicalAddress ?? "Company Address\nCity, Country"));
+            companyInfo.Add(new Paragraph($"Email: {company.CompanyEmail ?? "N/A"} | Reg No: {company.ComanyRegNumber ?? "N/A"}"));
+            headerTable.AddCell(companyInfo);
+
+            // Right Side: Document Details
+            var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
+            string docType = order.Status == OrderStatus.Quote ? "QUOTATION" : (order.OrderNumber.StartsWith("INV") ? "Sales INVOICE" : "SALES Invoice");
+
+            docDetails.Add(new Paragraph(docType).SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
+            docDetails.Add(new Paragraph($"Document #: {order.OrderNumber}").SetFont(fontBold));
+            docDetails.Add(new Paragraph($"Date: {order.Date:dd MMM, yyyy}"));
+            headerTable.AddCell(docDetails);
+
+            document.Add(headerTable);
+            document.Add(new Paragraph("\n")); // Spacer
+
+            // --- BILL TO: Customer Info ---
+            var billToTable = new Table(UnitValue.CreatePercentArray(new float[] { 1 })).UseAllAvailableWidth();
+            var billToCell = new Cell().SetBorder(Border.NO_BORDER);
+            billToCell.Add(new Paragraph("BILL TO:").SetFont(fontBold).SetFontSize(10).SetFontColor(ColorConstants.GRAY));
+            billToCell.Add(new Paragraph(order.Customer?.Name ?? "Unknown Customer").SetFont(fontBold).SetFontSize(12));
+            billToCell.Add(new Paragraph(order.Customer?.Email ?? ""));
+            billToCell.Add(new Paragraph(order.Customer?.Phone ?? ""));
+            billToTable.AddCell(billToCell);
+
+            document.Add(billToTable);
+            document.Add(new Paragraph("\n")); // Spacer
+
+            // --- LINE ITEMS TABLE ---
+            var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
+
+            // 2. Use the passed-in currencyCode instead of order.Currency
+            string curr = string.IsNullOrEmpty(currencyCode) ? "" : currencyCode;
+
+            string[] headers = { "Item Description", "Qty", $"Unit Price ({curr})", $"Total ({curr})" };
+            foreach (var h in headers)
+            {
+                itemTable.AddHeaderCell(new Cell()
+                    .Add(new Paragraph(h).SetFont(fontBold))
+                    .SetBackgroundColor(ColorConstants.LIGHT_GRAY)
+                    .SetPadding(5)
+                    .SetTextAlignment(h == "Item Description" ? TextAlignment.LEFT : TextAlignment.RIGHT));
+            }
+
+            // Table Rows
+            decimal subTotal = 0;
+            foreach (var line in order.Lines)
+            {
+                string itemName = line.Item?.Name ?? "Unknown Item";
+                decimal lineTotal = line.Quantity * line.UnitPrice;
+                subTotal += lineTotal;
+
+                itemTable.AddCell(new Cell().Add(new Paragraph(itemName)).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.Quantity.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitPrice.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+            }
+            document.Add(itemTable);
+
+            // --- SUMMARY TOTALS (Bottom Right) ---
+            var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
+
+            // Calculate Math
+            decimal discountValue = order.DiscountPercentage > 0 ? subTotal * (order.DiscountPercentage / 100) : order.DiscountAmount;
+            decimal discountedSubTotal = subTotal - discountValue;
+            decimal taxAmount = order.GrandTotalForeign - discountedSubTotal; // Safely derive tax from the saved GrandTotal
+
+            void AddTotalRow(string label, decimal amount, bool isBold = false)
+            {
+                totalsTable.AddCell(new Cell().Add(new Paragraph(label)).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+                totalsTable.AddCell(new Cell().Add(new Paragraph(amount.ToString("N2"))).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+            }
+
+            AddTotalRow("Subtotal:", subTotal);
+            if (discountValue > 0) AddTotalRow("Discount:", -discountValue);
+            if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
+
+            // Grand Total Row with top border
+            totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({curr}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+            totalsTable.AddCell(new Cell().Add(new Paragraph(order.GrandTotalForeign.ToString("N2")).SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+
+            document.Add(totalsTable);
+
+            // --- FOOTER ---
+            var fontItalic = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_OBLIQUE);
+            document.Add(new Paragraph("\n\nThank you for your business!")
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFont(fontItalic)
+                .SetFontColor(ColorConstants.GRAY));
+
+            document.Close();
+            return stream.ToArray();
+        }
+        // ==========================================
+        // 5. DIRECT AR INVOICE GENERATOR (PDF)
+        // ==========================================
+        public byte[] GenerateDirectInvoicePdf(SalesOrder order, CompanyDetails company)
+        {
+            using var stream = new MemoryStream();
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+
+            var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+            var fontItalic = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_OBLIQUE);
+
+            document.SetFont(fontNormal).SetFontSize(10);
+
+            // --- HEADER ---
+            var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 1, 1 })).UseAllAvailableWidth();
+
+            var companyInfo = new Cell().SetBorder(Border.NO_BORDER);
+            companyInfo.Add(new Paragraph(company.CompanyName?.ToUpper() ?? "COMPANY NAME").SetFont(fontBold).SetFontSize(16).SetFontColor(ColorConstants.DARK_GRAY));
+            companyInfo.Add(new Paragraph(company.PhysicalAddress ?? "Company Address\nCity, Country"));
+            companyInfo.Add(new Paragraph($"Email: {company.CompanyEmail ?? "N/A"} | Reg No: {company.ComanyRegNumber ?? "N/A"}"));
+            headerTable.AddCell(companyInfo);
+
+            var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
+            docDetails.Add(new Paragraph("AR INVOICE").SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
+            docDetails.Add(new Paragraph($"Invoice #: {order.OrderNumber}").SetFont(fontBold));
+            docDetails.Add(new Paragraph($"Date: {order.Date:dd MMM, yyyy}"));
+            headerTable.AddCell(docDetails);
+
+            document.Add(headerTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- BILL TO ---
+            var billToTable = new Table(UnitValue.CreatePercentArray(new float[] { 1 })).UseAllAvailableWidth();
+            var billToCell = new Cell().SetBorder(Border.NO_BORDER);
+            billToCell.Add(new Paragraph("BILL TO:").SetFont(fontBold).SetFontSize(10).SetFontColor(ColorConstants.GRAY));
+            billToCell.Add(new Paragraph(order.Customer?.Name ?? "Unknown Customer").SetFont(fontBold).SetFontSize(12));
+            if (!string.IsNullOrEmpty(order.Customer?.Email)) billToCell.Add(new Paragraph(order.Customer.Email));
+            if (!string.IsNullOrEmpty(order.Customer?.Phone)) billToCell.Add(new Paragraph(order.Customer.Phone));
+            billToTable.AddCell(billToCell);
+
+            document.Add(billToTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- LINE ITEMS ---
+            var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
+
+            string curr = order.Currency?.CurrencyCode ?? "";
+            string[] headers = { "Description / Service Rendered", "Qty", $"Unit Price ({curr})", $"Total ({curr})" };
+            foreach (var h in headers)
+            {
+                itemTable.AddHeaderCell(new Cell().Add(new Paragraph(h).SetFont(fontBold)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(5).SetTextAlignment(h.Contains("Description") ? TextAlignment.LEFT : TextAlignment.RIGHT));
+            }
+
+            decimal subTotal = 0;
+            foreach (var line in order.Lines)
+            {
+                // CRITICAL DIFFERENCE: Uses Description instead of line.Item.Name
+                string desc = string.IsNullOrWhiteSpace(line.Description) ? "Ad-hoc Service" : line.Description;
+                decimal lineTotal = line.Quantity * line.UnitPrice;
+                subTotal += lineTotal;
+
+                itemTable.AddCell(new Cell().Add(new Paragraph(desc)).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.Quantity.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitPrice.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+            }
+            document.Add(itemTable);
+
+            // --- TOTALS ---
+            var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
+            decimal discountValue = order.DiscountPercentage > 0 ? subTotal * (order.DiscountPercentage / 100) : order.DiscountAmount;
+            decimal discountedSubTotal = subTotal - discountValue;
+            decimal taxAmount = order.GrandTotalForeign - discountedSubTotal;
+
+            void AddTotalRow(string label, decimal amount, bool isBold = false)
+            {
+                totalsTable.AddCell(new Cell().Add(new Paragraph(label)).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+                totalsTable.AddCell(new Cell().Add(new Paragraph(amount.ToString("N2"))).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+            }
+
+            AddTotalRow("Subtotal:", subTotal);
+            if (discountValue > 0) AddTotalRow("Discount:", -discountValue);
+            if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
+
+            totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({curr}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+            totalsTable.AddCell(new Cell().Add(new Paragraph(order.GrandTotalForeign.ToString("N2")).SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+
+            document.Add(totalsTable);
+
+            document.Add(new Paragraph("\n\nThank you for your business!")
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFont(fontItalic)
+                .SetFontColor(ColorConstants.GRAY));
+
+            document.Close();
+            return stream.ToArray();
+        }
+        // ==========================================
+        // 6. PURCHASE ORDER GENERATOR (PDF)
+        // ==========================================
+        public byte[] GeneratePurchaseOrderPdf(PurchaseOrder order, CompanyDetails company, string vendorName, string vendorEmail, Dictionary<Guid, string> itemNames)
+        {
+            using var stream = new MemoryStream();
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+
+            var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+            var fontItalic = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_OBLIQUE);
+
+            document.SetFont(fontNormal).SetFontSize(10);
+
+            // --- HEADER ---
+            var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 1, 1 })).UseAllAvailableWidth();
+
+            var companyInfo = new Cell().SetBorder(Border.NO_BORDER);
+            companyInfo.Add(new Paragraph(company.CompanyName?.ToUpper() ?? "COMPANY NAME").SetFont(fontBold).SetFontSize(16).SetFontColor(ColorConstants.DARK_GRAY));
+            companyInfo.Add(new Paragraph(company.PhysicalAddress ?? "Company Address"));
+            companyInfo.Add(new Paragraph($"Email: {company.CompanyEmail ?? "N/A"} | Reg No: {company.ComanyRegNumber ?? "N/A"}"));
+            headerTable.AddCell(companyInfo);
+
+            var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
+            string docType = order.Status == PurchaseOrderStatus.Request ? "PURCHASE REQUEST" : "PURCHASE ORDER";
+
+            docDetails.Add(new Paragraph(docType).SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
+            docDetails.Add(new Paragraph($"PO Number: {order.OrderNumber}").SetFont(fontBold));
+            docDetails.Add(new Paragraph($"Date: {order.OrderDate:dd MMM, yyyy}"));
+            headerTable.AddCell(docDetails);
+
+            document.Add(headerTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- VENDOR INFO ---
+            var vendorTable = new Table(UnitValue.CreatePercentArray(new float[] { 1 })).UseAllAvailableWidth();
+            var vendorCell = new Cell().SetBorder(Border.NO_BORDER);
+            vendorCell.Add(new Paragraph("VENDOR:").SetFont(fontBold).SetFontSize(10).SetFontColor(ColorConstants.GRAY));
+            vendorCell.Add(new Paragraph(vendorName).SetFont(fontBold).SetFontSize(12));
+            if (!string.IsNullOrEmpty(vendorEmail)) vendorCell.Add(new Paragraph(vendorEmail));
+            vendorTable.AddCell(vendorCell);
+
+            document.Add(vendorTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- LINE ITEMS ---
+            var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
+
+            string curr = order.Currency?.CurrencyCode ?? "";
+            string[] headers = { "Item Description", "Qty", $"Unit Cost ({curr})", $"Total ({curr})" };
+            foreach (var h in headers)
+            {
+                itemTable.AddHeaderCell(new Cell().Add(new Paragraph(h).SetFont(fontBold)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(5).SetTextAlignment(h == "Item Description" ? TextAlignment.LEFT : TextAlignment.RIGHT));
+            }
+
+            decimal subTotal = 0;
+            foreach (var line in order.Lines)
+            {
+                // FIXED: Use the dictionary to look up the item name safely!
+                string itemName = itemNames.ContainsKey(line.ItemId) ? itemNames[line.ItemId] : "Unknown Item";
+
+                decimal lineTotal = line.QuantityOrdered * line.UnitCost;
+                subTotal += lineTotal;
+
+                itemTable.AddCell(new Cell().Add(new Paragraph(itemName)).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.QuantityOrdered.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitCost.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+            }
+            document.Add(itemTable);
+
+            // --- TOTALS ---
+            var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
+            decimal discountValue = order.DiscountPercentage > 0 ? subTotal * (order.DiscountPercentage / 100) : order.DiscountAmount;
+            decimal discountedSubTotal = subTotal - discountValue;
+            decimal taxAmount = order.GrandTotalForeign - discountedSubTotal;
+
+            void AddTotalRow(string label, decimal amount, bool isBold = false)
+            {
+                totalsTable.AddCell(new Cell().Add(new Paragraph(label)).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+                totalsTable.AddCell(new Cell().Add(new Paragraph(amount.ToString("N2"))).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+            }
+
+            AddTotalRow("Subtotal:", subTotal);
+            if (discountValue > 0) AddTotalRow("Discount:", -discountValue);
+            if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
+
+            totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({curr}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+            totalsTable.AddCell(new Cell().Add(new Paragraph(order.GrandTotalForeign.ToString("N2")).SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+
+            document.Add(totalsTable);
+            document.Close();
+            return stream.ToArray();
+        }
+        public byte[] GenerateVendorBillPdf(VendorBill bill, CompanyDetails company, string vendorName, string currencyCode)
+        {
+            using var stream = new MemoryStream();
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+
+            var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+            var fontItalic = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_OBLIQUE);
+
+            document.SetFont(fontNormal).SetFontSize(10);
+
+            // --- HEADER ---
+            var headerTable = new Table(UnitValue.CreatePercentArray(new float[] { 1, 1 })).UseAllAvailableWidth();
+
+            var companyInfo = new Cell().SetBorder(Border.NO_BORDER);
+            companyInfo.Add(new Paragraph(company.CompanyName?.ToUpper() ?? "COMPANY NAME").SetFont(fontBold).SetFontSize(16).SetFontColor(ColorConstants.DARK_GRAY));
+            companyInfo.Add(new Paragraph(company.PhysicalAddress ?? "Company Address"));
+            companyInfo.Add(new Paragraph($"Email: {company.CompanyEmail ?? "N/A"}"));
+            headerTable.AddCell(companyInfo);
+
+            var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
+            string docType = bill.IsDirectBill ? "DIRECT VENDOR BILL" : "VENDOR BILL";
+
+            docDetails.Add(new Paragraph(docType).SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
+            docDetails.Add(new Paragraph($"Bill Ref #: {bill.ExternalInvoiceNumber}").SetFont(fontBold));
+            docDetails.Add(new Paragraph($"Date: {bill.BillDate:dd MMM, yyyy}"));
+            headerTable.AddCell(docDetails);
+
+            document.Add(headerTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- VENDOR INFO ---
+            var vendorTable = new Table(UnitValue.CreatePercentArray(new float[] { 1 })).UseAllAvailableWidth();
+            var vendorCell = new Cell().SetBorder(Border.NO_BORDER);
+            vendorCell.Add(new Paragraph("VENDOR:").SetFont(fontBold).SetFontSize(10).SetFontColor(ColorConstants.GRAY));
+            vendorCell.Add(new Paragraph(vendorName).SetFont(fontBold).SetFontSize(12));
+            vendorTable.AddCell(vendorCell);
+
+            document.Add(vendorTable);
+            document.Add(new Paragraph("\n"));
+
+            // --- LINE ITEMS ---
+            var itemTable = new Table(UnitValue.CreatePercentArray(new float[] { 4, 1, 2, 2 })).UseAllAvailableWidth();
+
+            string[] headers = { "Description", "Qty", $"Unit Cost ({currencyCode})", $"Total ({currencyCode})" };
+            foreach (var h in headers)
+            {
+                itemTable.AddHeaderCell(new Cell().Add(new Paragraph(h).SetFont(fontBold)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(5).SetTextAlignment(h.Contains("Description") ? TextAlignment.LEFT : TextAlignment.RIGHT));
+            }
+
+            decimal subTotal = 0;
+            foreach (var line in bill.Lines)
+            {
+                // FIX: Look at the line description directly, since it was moved from the header
+                string lineDescription = string.IsNullOrWhiteSpace(line.Description) ? "Expense / Ad-Hoc Service" : line.Description;
+
+                decimal lineTotal = line.QuantityBilled * line.UnitCostBilled;
+                subTotal += lineTotal;
+
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineDescription)).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.QuantityBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitCostBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+            }
+            document.Add(itemTable);
+
+            // --- TOTALS AND TAX ---
+            var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
+
+            // Since we added Tax fields to VendorBill, we must calculate the tax difference for the summary section
+            decimal taxAmount = bill.TotalAmountForeign - subTotal;
+
+            void AddTotalRow(string label, decimal amount, bool isBold = false)
+            {
+                totalsTable.AddCell(new Cell().Add(new Paragraph(label)).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+                totalsTable.AddCell(new Cell().Add(new Paragraph(amount.ToString("N2"))).SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT).SetPadding(3).SetFont(isBold ? fontBold : fontNormal));
+            }
+
+            AddTotalRow("Subtotal:", subTotal);
+            if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
+
+            totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({currencyCode}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+            totalsTable.AddCell(new Cell().Add(new Paragraph(bill.TotalAmountForeign.ToString("N2")).SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));
+
+            document.Add(totalsTable);
+
+            document.Add(new Paragraph("\n\nThank you for your business!")
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFont(fontItalic)
+                .SetFontColor(ColorConstants.GRAY));
+
+            document.Close();
+            return stream.ToArray();
         }
     }
 }

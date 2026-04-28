@@ -14,40 +14,39 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 font-sans text-slate-800">
 
     <div class="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">
+            <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
                 @(IsNew ? "New Purchase Return" : $"{currentRtv.ReturnNumber}")
             </h1>
-            <p class="text-sm text-slate-500">
-                @(IsPosted ? "Posted Return Document" : "Draft Return - Pending Post")
+            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
+                @(IsPosted ? "● Posted Return Document" : "● Draft Return - Pending Post")
             </p>
         </div>
         <div class="flex gap-3">
             <button @onclick='() => Nav.NavigateTo("/purchases/returns")'
-                    class="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 font-bold hover:bg-slate-50">
+                    class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-colors shadow-sm">
                 Back
             </button>
 
             @if (!IsPosted && !IsNew)
             {
                 <button @onclick="TerminateReturn"
-                        class="px-4 py-2 border border-rose-200 text-rose-600 rounded-lg font-bold hover:bg-rose-50 transition-colors">
+                        class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
                     Terminate
                 </button>
 
                 <button @onclick="SaveDraft"
-                        class="px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-lg font-bold hover:bg-indigo-100">
+                        class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
                     Save Draft
                 </button>
 
                 <button @onclick="PostReturn"
-                        class="px-6 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 shadow-md flex items-center gap-2">
+                        class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Post Return
                 </button>
@@ -57,15 +56,18 @@
 
     @if (IsNew)
     {
-        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
-            <h3 class="text-lg font-bold text-slate-800 mb-6 border-b border-slate-100 pb-2">Step 1: Select Source</h3>
+        <div class="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-12 text-center">
+            <div class="mx-auto w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mb-6 border border-rose-100">
+                <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z" /></svg>
+            </div>
+            <h3 class="text-xl font-extrabold text-slate-900 mb-2">Create Purchase Return</h3>
+            <p class="text-slate-500 text-sm mb-8 font-medium">Select a Posted Vendor Bill to initiate a return to the supplier.</p>
 
-            <div class="space-y-6">
+            <div class="flex flex-col gap-5 max-w-sm mx-auto text-left">
+                
                 <div>
-                    <label class="label">Vendor</label>
-
-                    <!-- Keep @onchange here because we're NOT using @bind on vendor -->
-                    <select @onchange="OnVendorSelected" class="input-class" disabled="@_busy">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vendor</label>
+                    <select @onchange="OnVendorSelected" class="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" disabled="@_busy">
                         <option value="">-- Select Vendor --</option>
                         @foreach (var v in vendors)
                         {
@@ -74,32 +76,44 @@
                     </select>
                 </div>
 
-                <div>
-                    <label class="label">Source Vendor Bill</label>
+                <div class="relative text-left">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Search & Select Bill</label>
+                    <div class="relative">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <input type="text"
+                               @bind="billSearchTerm"
+                               @bind:event="oninput"
+                               @onfocus="() => isBillDropdownOpen = true"
+                               @onblur="HideDropdownWithDelay"
+                               disabled="@(_busy || selectedVendorId == Guid.Empty)"
+                               placeholder="Type bill number..."
+                               class="w-full pl-9 pr-4 py-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all disabled:opacity-50" />
+                    </div>
 
-                    <!-- FIX: use @bind + @bind:after (NO @onchange) -->
-                    <select @bind="selectedBillId"
-                            @bind:after="OnBillSelected"
-                            class="input-class"
-                            disabled="@(_busy || !bills.Any())">
-                        <option value="">-- Select Bill to Return --</option>
-                        @foreach (var b in bills)
-                        {
-                            <option value="@b.Id">Inv #@b.ExternalInvoiceNumber (@b.BillDate.ToShortDateString()) - Total: @b.TotalAmount.ToString("N2")</option>
-                        }
-                    </select>
-
-                    @if (!bills.Any() && selectedVendorId != Guid.Empty)
+                    @if (isBillDropdownOpen && selectedVendorId != Guid.Empty)
                     {
-                        <p class="text-xs text-rose-500 mt-1">No posted bills found for this vendor.</p>
+                        <ul class="absolute z-10 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-auto animate-in fade-in slide-in-from-top-2">
+                            @if (FilteredEligibleBills.Any())
+                            {
+                                @foreach (var b in FilteredEligibleBills)
+                                {
+                                    <li @onclick="() => SelectBill(b.Id, b.DisplayText)"
+                                        class="px-4 py-3 hover:bg-indigo-50 cursor-pointer text-sm text-slate-700 font-medium border-b border-slate-50 last:border-0 transition-colors">
+                                        @b.DisplayText
+                                    </li>
+                                }
+                            }
+                            else
+                            {
+                                <li class="px-4 py-4 text-sm text-slate-400 text-center font-medium">No posted bills found matching search.</li>
+                            }
+                        </ul>
                     }
                 </div>
 
                 <div>
-                    <label class="label">Return from Warehouse</label>
-
-                    <!-- Optional: if you want auto-init only when BOTH bill+warehouse are chosen, we can also use @bind:after here -->
-                    <select @bind="selectedWarehouseId" class="input-class" disabled="@_busy">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Return From Warehouse</label>
+                    <select @bind="selectedWarehouseId" class="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" disabled="@_busy">
                         <option value="">-- Select Source Warehouse --</option>
                         @foreach (var w in warehouses)
                         {
@@ -108,17 +122,24 @@
                     </select>
                 </div>
 
-                <div class="pt-4">
-                    <button @onclick="InitializeReturn"
-                            disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
-                            class="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                        @(_busy ? "Loading..." : "Load Items & Create Draft")
-                    </button>
-                </div>
+                <button @onclick="InitializeReturn"
+                        disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
+                        class="mt-2 w-full px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                    @if (_busy)
+                    {
+                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        <span>Loading Items...</span>
+                    }
+                    else
+                    {
+                        <span>Load Items & Create Draft</span>
+                    }
+                </button>
 
                 @if (!string.IsNullOrWhiteSpace(_errMsg))
                 {
-                    <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm">
+                    <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm font-medium flex items-start gap-2">
+                        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                         @_errMsg
                     </div>
                 }
@@ -127,135 +148,147 @@
     }
     else
     {
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-            <div class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                    <h3 class="font-bold text-xs text-slate-400 uppercase tracking-wider mb-4">Reference Info</h3>
-                    <div class="space-y-4 text-sm">
-                        <div>
-                            <span class="block text-slate-500 text-xs">Return Date</span>
-                            <InputDate @bind-Value="currentRtv.ReturnDate" class="input-class" disabled="@IsPosted" />
+            <div class="lg:col-span-4 space-y-6">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                    <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Reference Info</h3>
+
+                    <div>
+                        <label class="label">Return Date</label>
+                        <InputDate @bind-Value="currentRtv.ReturnDate" class="input-class" disabled="@IsPosted" />
+                    </div>
+
+                    <div>
+                        <label class="label text-slate-500">Vendor</label>
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
+                            @(vendors.FirstOrDefault(v => v.Id == currentRtv.VendorId)?.Name)
                         </div>
-                        <div>
-                            <span class="block text-slate-500 text-xs">Vendor</span>
-                            <div class="font-bold text-slate-800">@(vendors.FirstOrDefault(v => v.Id == currentRtv.VendorId)?.Name)</div>
+                    </div>
+
+                    <div>
+                        <label class="label text-slate-500">Original Bill</label>
+                        <div class="font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">
+                            @(originalBill?.ExternalInvoiceNumber ?? "Loading...")
                         </div>
-                        <div>
-                            <span class="block text-slate-500 text-xs">Original Bill</span>
-                            <div class="font-mono bg-slate-50 p-2 rounded border border-slate-200 text-xs">
-                                @(originalBill?.ExternalInvoiceNumber ?? "Loading...")
-                            </div>
+                    </div>
+
+                    <div>
+                        <label class="label text-slate-500">Warehouse</label>
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
+                            @(warehouses.FirstOrDefault(w => w.Id == currentRtv.WarehouseId)?.Name)
                         </div>
-                        <div>
-                            <span class="block text-slate-500 text-xs">Warehouse</span>
-                            <div class="font-bold text-slate-800">@(warehouses.FirstOrDefault(w => w.Id == currentRtv.WarehouseId)?.Name)</div>
+                    </div>
+
+                    <div>
+                        <label class="label text-slate-500">Exchange Rate</label>
+                        <div class="font-mono text-slate-700 font-bold p-3 bg-slate-50 rounded-xl border border-slate-200">
+                            @currentRtv.ExchangeRate.ToString("N4")
                         </div>
-                        <div>
-                            <span class="block text-slate-500 text-xs">Exchange Rate</span>
-                            <div class="font-mono text-slate-700 font-bold">@currentRtv.ExchangeRate.ToString("N4")</div>
-                        </div>
-                        <div>
-                            <span class="block text-slate-500 text-xs">Reason</span>
-                            <InputTextArea @bind-Value="currentRtv.Reason" class="input-class h-24" placeholder="Why are we returning this?" disabled="@IsPosted" />
-                        </div>
+                    </div>
+
+                    <div>
+                        <label class="label">Reason</label>
+                        <InputTextArea @bind-Value="currentRtv.Reason" class="input-class h-24 resize-none" placeholder="Why are we returning this?" disabled="@IsPosted" />
                     </div>
                 </div>
             </div>
 
-            <div class="lg:col-span-2">
-                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                        <h3 class="font-bold text-slate-700">Returnable Items</h3>
-                        <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Currency: @currencyCode</span>
+            <div class="lg:col-span-8">
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-full flex flex-col">
+                    <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Returnable Items</h3>
+                        <span class="text-xs bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full font-bold">Currency: @currencyCode</span>
                     </div>
 
-                    <table class="w-full text-left text-sm">
-                        <thead class="text-xs uppercase font-bold text-slate-500 border-b border-slate-200 bg-white">
-                            <tr>
-                                <th class="p-3">Item Details</th>
-                                <th class="p-3 text-right">Billed</th>
-                                <th class="p-3 text-right">Total Returned</th>
-                                <th class="p-3 text-right w-40">Return Qty</th>
-                                <th class="p-3 text-right">Unit Cost</th>
-                                <th class="p-3 text-right">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-100">
-                            @foreach (var line in currentRtv.Lines)
-                            {
-                                decimal billed = GetBilledQty(line.VendorBillLineId);
-                                decimal prev = GetPrevReturnedQty(line.VendorBillLineId);
-                                decimal max = billed - prev;
+                    <div class="overflow-x-auto flex-1">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 bg-white tracking-wider">
+                                <tr>
+                                    <th class="p-4 w-[35%]">Item Details</th>
+                                    <th class="p-4 text-center">Billed</th>
+                                    <th class="p-4 text-center">Prev Ret.</th>
+                                    <th class="p-4 text-center w-32">Return Qty</th>
+                                    <th class="p-4 text-right">Unit Cost</th>
+                                    <th class="p-4 text-right pr-6">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @foreach (var line in currentRtv.Lines)
+                                {
+                                    decimal billed = GetBilledQty(line.VendorBillLineId);
+                                    decimal prev = GetPrevReturnedQty(line.VendorBillLineId);
+                                    decimal max = billed - prev;
 
-                                decimal whStock = stockLevels.ContainsKey(line.ItemId) ? stockLevels[line.ItemId] : 0;
+                                    decimal whStock = stockLevels.ContainsKey(line.ItemId) ? stockLevels[line.ItemId] : 0;
 
-                                <tr class="hover:bg-slate-50">
-                                    <td class="p-3 font-medium text-slate-800">
-                                        @line.ItemName
-                                        <div class="text-[10px] text-slate-500 font-normal">
-                                            (In Warehouse:
-                                            <span class="@(whStock < line.QtyReturning ? "text-rose-600 font-bold" : "text-slate-700")">@whStock.ToString("G29")</span>)
-                                        </div>
-                                        @if (max <= 0)
-                                        {
-                                            <span class="ml-2 text-[10px] text-rose-500 font-bold uppercase">(Fully Returned)</span>
-                                        }
-                                    </td>
-                                    <td class="p-3 text-right text-slate-500">@billed.ToString("G29")</td>
-                                    <td class="p-3 text-right text-slate-500">@prev.ToString("G29")</td>
-
-                                    <td class="p-3 text-right">
-                                        @if (IsPosted || max <= 0)
-                                        {
-                                            <span class="font-bold">@line.QtyReturning.ToString("G29")</span>
-                                        }
-                                        else
-                                        {
-                                            <div class="flex items-center gap-1 justify-end">
-                                                <input type="number"
-                                                       value="@line.QtyReturning"
-                                                       @onchange="@(e => UpdateQty(line, e.Value, max))"
-                                                       class="w-20 text-right border border-slate-300 rounded px-2 py-1 font-bold focus:border-rose-500 focus:outline-none"
-                                                       min="0" max="@max" step="1" />
-
-                                                <button @onclick="() => { line.QtyReturning = max; }"
-                                                        class="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-1 rounded hover:bg-slate-200 text-slate-600 font-bold"
-                                                        title="Return Max Available">
-                                                    MAX
-                                                </button>
+                                    <tr class="hover:bg-slate-50/80 align-middle">
+                                        <td class="p-4 font-bold text-slate-800">
+                                            @line.ItemName
+                                            <div class="text-[10px] font-medium mt-1">
+                                                (In Warehouse:
+                                                <span class="@(whStock < line.QtyReturning ? "text-rose-600 font-bold" : "text-slate-500 font-mono")">@whStock.ToString("G29")</span>)
                                             </div>
-                                            <div class="text-[9px] text-slate-400 mt-0.5 text-right pr-1">Max: @max</div>
-                                        }
-                                    </td>
+                                        </td>
+                                        <td class="p-4 text-center font-mono text-slate-500">@billed.ToString("G29")</td>
+                                        <td class="p-4 text-center font-mono text-slate-500">@prev.ToString("G29")</td>
 
-                                    <td class="p-3 text-right font-mono text-slate-500">
-                                        @line.UnitCost.ToString("N2") <span class="text-[9px]">@currencyCode</span>
-                                    </td>
-                                    <td class="p-3 text-right font-mono font-bold text-rose-600">
-                                        @line.LineTotal.ToString("N2")
+                                        <td class="p-4">
+                                            @if (IsPosted || max <= 0)
+                                            {
+                                                <div class="text-center font-mono font-bold text-slate-900">@line.QtyReturning.ToString("G29")</div>
+                                                @if (max <= 0)
+                                                {
+                                                    <div class="text-[9px] text-rose-500 font-bold uppercase text-center mt-1">(Fully Returned)</div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <div class="flex items-center gap-1 justify-center">
+                                                    <input type="number"
+                                                           value="@line.QtyReturning"
+                                                           @onchange="@(e => UpdateQty(line, e.Value, max))"
+                                                           class="w-20 text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none transition-all"
+                                                           min="0" max="@max" step="1" />
+
+                                                    <button @onclick="() => { line.QtyReturning = max; }"
+                                                            class="text-[9px] bg-slate-100 border border-slate-200 px-1.5 py-1.5 rounded-lg hover:bg-slate-200 text-slate-600 font-bold transition-colors"
+                                                            title="Return Max Available">
+                                                        MAX
+                                                    </button>
+                                                </div>
+                                                <div class="text-[9px] text-slate-400 mt-1 text-center font-bold">Max: @max</div>
+                                            }
+                                        </td>
+
+                                        <td class="p-4 text-right font-mono text-slate-500">
+                                            @line.UnitCost.ToString("N2")
+                                        </td>
+                                        <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">
+                                            @line.LineTotal.ToString("N2")
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot class="bg-slate-50 border-t border-slate-200">
+                                <tr>
+                                    <td colspan="5" class="p-4 text-right font-bold text-slate-600 uppercase text-xs align-top pt-5">Total Refund Value:</td>
+                                    <td class="p-4 pr-6 text-right">
+                                        <div class="font-mono font-black text-xl text-slate-900">
+                                            @currentRtv.Lines.Sum(l => l.LineTotal).ToString("N2") <span class="text-sm text-slate-500">@currencyCode</span>
+                                        </div>
+
+                                        @{
+                                            decimal baseTotal = currentRtv.Lines.Sum(l => l.LineTotal) * currentRtv.ExchangeRate;
+                                        }
+                                        <div class="text-xs text-slate-500 font-mono mt-1 border-t border-slate-200 pt-1.5 font-bold">
+                                            @baseTotal.ToString("N2") <span class="text-[9px] font-black uppercase tracking-wider">Base</span>
+                                        </div>
                                     </td>
                                 </tr>
-                            }
-                        </tbody>
-                        <tfoot class="bg-slate-50 border-t border-slate-200">
-                            <tr>
-                                <td colspan="5" class="p-3 text-right font-bold text-slate-600 uppercase text-xs align-top pt-4">Total Refund Value:</td>
-                                <td class="p-3 text-right">
-                                    <div class="font-mono font-bold text-lg text-slate-900">
-                                        @currentRtv.Lines.Sum(l => l.LineTotal).ToString("N2") <span class="text-sm text-slate-500">@currencyCode</span>
-                                    </div>
-
-                                    @{
-                                        decimal baseTotal = currentRtv.Lines.Sum(l => l.LineTotal) * currentRtv.ExchangeRate;
-                                    }
-                                    <div class="text-xs text-slate-400 font-mono mt-1 border-t border-slate-200 pt-1">
-                                        @baseTotal.ToString("N2") <span class="text-[9px] font-bold uppercase">BASE</span>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
+                            </tfoot>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -265,30 +298,36 @@
 <style>
     .label {
         display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
         text-transform: uppercase;
         margin-bottom: 0.35rem;
+        letter-spacing: .05em;
     }
 
     .input-class {
         width: 100%;
-        border-radius: 0.5rem;
+        border-radius: 0.75rem;
         border: 1px solid #cbd5e1;
-        padding: 0.5rem 0.75rem;
+        padding: 0.6rem 0.75rem;
         font-size: 0.875rem;
         outline: none;
+        background: #fff;
+        color: #1e293b;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
         .input-class:focus {
             border-color: #e11d48;
-            box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.1);
+            box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
         }
 
         .input-class:disabled {
             background-color: #f8fafc;
             color: #94a3b8;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
         }
 </style>
 
@@ -302,7 +341,6 @@
     private VendorBill? originalBill;
 
     private List<Vendor> vendors = new();
-    private List<VendorBill> bills = new();
     private List<Warehouse> warehouses = new();
 
     private Guid selectedVendorId;
@@ -314,18 +352,38 @@
     private Dictionary<Guid, decimal> stockLevels = new();
     private string currencyCode = "";
 
-    // NEW: busy + message (prevents double calls)
     private bool _busy = false;
     private string _errMsg = string.Empty;
 
-    protected override async Task OnInitializedAsync()
+    // --- Searchable Dropdown State ---
+    private string billSearchTerm = "";
+    private bool isBillDropdownOpen = false;
+
+    public class BillSelectorDto
+    {
+        public Guid Id { get; set; }
+        public string DisplayText { get; set; } = "";
+    }
+
+    private List<BillSelectorDto> eligibleBills = new();
+
+    private IEnumerable<BillSelectorDto> FilteredEligibleBills => string.IsNullOrWhiteSpace(billSearchTerm)
+        ? eligibleBills
+        : eligibleBills.Where(b => b.DisplayText.Contains(billSearchTerm, StringComparison.OrdinalIgnoreCase));
+
+    // --- CRITICAL LIFECYCLE FIX ---
+    // Switched to OnParametersSetAsync to re-fetch when URL changes (Draft Creation)
+    protected override async Task OnParametersSetAsync()
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         if (IsNew)
         {
-            vendors = await ctx.Vendors.OrderBy(v => v.Name).ToListAsync();
-            warehouses = await ctx.Warehouses.ToListAsync();
+            if (!vendors.Any())
+            {
+                vendors = await ctx.Vendors.OrderBy(v => v.Name).ToListAsync();
+                warehouses = await ctx.Warehouses.ToListAsync();
+            }
         }
         else
         {
@@ -337,7 +395,7 @@
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
             originalBill = await ctx.VendorBills.FindAsync(currentRtv.VendorBillId);
-
+            currentRtv.ExchangeRate = originalBill?.ExchangeRate ?? currentRtv.ExchangeRate;
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
             var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId).Select(v => v.Name).FirstOrDefaultAsync();
@@ -361,6 +419,7 @@
         {
             selectedVendorId = vid;
             selectedBillId = Guid.Empty;
+            billSearchTerm = "";
 
             _busy = true;
             StateHasChanged();
@@ -368,10 +427,16 @@
             try
             {
                 using var ctx = await DbFactory.CreateDbContextAsync();
-                bills = await ctx.VendorBills
+                var dbBills = await ctx.VendorBills
                     .Where(b => b.VendorId == vid && b.IsPosted)
                     .OrderByDescending(b => b.BillDate)
                     .ToListAsync();
+
+                eligibleBills = dbBills.Select(b => new BillSelectorDto
+                {
+                    Id = b.Id,
+                    DisplayText = $"Inv #{b.ExternalInvoiceNumber} ({b.BillDate.ToShortDateString()}) - Total: {b.TotalAmount:N2}"
+                }).ToList();
             }
             catch (Exception ex)
             {
@@ -386,34 +451,25 @@
         else
         {
             selectedVendorId = Guid.Empty;
-            bills.Clear();
+            eligibleBills.Clear();
             selectedBillId = Guid.Empty;
+            billSearchTerm = "";
         }
     }
 
-    // OPTION A (auto-run after bill selection): @bind:after requires NO parameters
-    private async Task OnBillSelected()
+    private async Task HideDropdownWithDelay()
     {
-        _errMsg = string.Empty;
-
-        if (_busy) return;
-        if (selectedBillId == Guid.Empty) return;
-
-        // If you want it to auto-create ONLY when warehouse is already selected:
-        if (selectedWarehouseId == Guid.Empty) return;
-
-        _busy = true;
+        await Task.Delay(200);
+        isBillDropdownOpen = false;
         StateHasChanged();
+    }
 
-        try
-        {
-            await InitializeReturn();
-        }
-        finally
-        {
-            _busy = false;
-            StateHasChanged();
-        }
+    private void SelectBill(Guid id, string displayText)
+    {
+        selectedBillId = id;
+        billSearchTerm = displayText;
+        isBillDropdownOpen = false;
+        // Notice we do NOT auto-initialize here, because the user must also pick a Warehouse!
     }
 
     private async Task InitializeReturn()
@@ -430,10 +486,15 @@
 
         try
         {
+            _busy = true;
             currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
 
             var err = await RtvService.SaveDraftAsync(currentRtv);
-            if (string.IsNullOrEmpty(err)) Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
+            if (string.IsNullOrEmpty(err))
+            {
+                // This triggers OnParametersSetAsync!
+                Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
+            }
             else
             {
                 _errMsg = err;
@@ -445,7 +506,13 @@
             _errMsg = "Error: " + ex.Message;
             await JS.InvokeVoidAsync("alert", _errMsg);
         }
+        finally
+        {
+            _busy = false;
+        }
     }
+
+    // --- Validation logic explicitly kept identical to what was requested ---
 
     private async Task LoadValidationContext(AppDbContext ctx, Guid billId)
     {

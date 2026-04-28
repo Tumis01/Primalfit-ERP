@@ -30,11 +30,19 @@ namespace Primafit_ERP.Services
             if (so == null) throw new Exception("Sales Order not found.");
             if (so.Status != OrderStatus.Invoiced) throw new Exception("Only Invoiced orders can be credited.");
 
+            // CALCULATE PREVIOUS RETURNS: Find all quantities already returned for this specific Sales Order
+            var previousReturns = await ctx.CreditNoteLines
+                .Include(cnl => cnl.Header)
+                .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status != CreditNoteStatus.Void)
+                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .Select(g => new { SalesOrderLineId = g.Key, TotalReturned = g.Sum(x => x.Quantity) })
+                .ToDictionaryAsync(x => x.SalesOrderLineId, x => x.TotalReturned);
+
             var creditNote = new CreditNote
             {
                 Id = Guid.NewGuid(),
                 CompanyId = so.CompanyId,
-                SalesOrderId = so.Id, // Link to Order
+                SalesOrderId = so.Id,
                 CustomerId = so.CustomerId,
                 CurrencyId = so.CurrencyId,
                 ExchangeRate = so.ExchangeRate,
@@ -50,16 +58,27 @@ namespace Primafit_ERP.Services
 
             foreach (var soLine in so.Lines)
             {
-                creditNote.Lines.Add(new CreditNoteLine
+                decimal alreadyReturned = previousReturns.ContainsKey(soLine.Id) ? previousReturns[soLine.Id] : 0;
+                decimal maxReturnable = soLine.Quantity - alreadyReturned;
+
+                // Only add items to the Credit Note if there is still something left to return
+                if (maxReturnable > 0)
                 {
-                    Id = Guid.NewGuid(),
-                    HeaderId = creditNote.Id,
-                    ItemId = soLine.ItemId,
-                    SalesOrderLineId = soLine.Id, // Link to Order Line
-                    Quantity = soLine.Quantity,
-                    UnitPrice = soLine.UnitPrice
-                });
+                    creditNote.Lines.Add(new CreditNoteLine
+                    {
+                        Id = Guid.NewGuid(),
+                        HeaderId = creditNote.Id,
+                        ItemId = soLine.ItemId ?? Guid.Empty,
+                        SalesOrderLineId = soLine.Id,
+                        Quantity = 0, 
+                        UnitPrice = soLine.UnitPrice,
+                        OriginalSoldQty = soLine.Quantity,
+                        MaxReturnableQty = maxReturnable
+                    });
+                }
             }
+
+            if (!creditNote.Lines.Any()) throw new Exception("All items from this invoice have already been fully returned/credited.");
 
             creditNote.TotalAmount = creditNote.Lines.Sum(l => l.LineTotal);
 
@@ -73,13 +92,39 @@ namespace Primafit_ERP.Services
         public async Task<CreditNote?> GetByIdAsync(Guid id)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.CreditNotes
+            var cn = await ctx.CreditNotes
                 .Include(c => c.Lines).ThenInclude(l => l.Item)
                 .Include(c => c.Customer)
-                .Include(c => c.SalesOrder) // Load Order
+                .Include(c => c.SalesOrder)
                 .Include(c => c.Currency)
                 .Include(c => c.Warehouse)
                 .FirstOrDefaultAsync(c => c.Id == id);
+
+            if (cn != null)
+            {
+                // Fetch the original SO lines to know the Original Sold Qty
+                var soLinesMap = await ctx.SalesOrderLines
+                    .Where(l => l.HeaderId == cn.SalesOrderId)
+                    .ToDictionaryAsync(l => l.Id, l => l.Quantity);
+
+                // Fetch other returns (Excluding the current draft we are viewing)
+                var previousReturns = await ctx.CreditNoteLines
+                    .Include(l => l.Header)
+                    .Where(l => l.Header!.SalesOrderId == cn.SalesOrderId
+                             && l.Header.Status != CreditNoteStatus.Void
+                             && l.HeaderId != cn.Id)
+                    .GroupBy(l => l.SalesOrderLineId)
+                    .Select(g => new { SalesOrderLineId = g.Key, TotalReturned = g.Sum(x => x.Quantity) })
+                    .ToDictionaryAsync(x => x.SalesOrderLineId, x => x.TotalReturned);
+
+                foreach (var line in cn.Lines)
+                {
+                    line.OriginalSoldQty = soLinesMap.ContainsKey(line.SalesOrderLineId) ? soLinesMap[line.SalesOrderLineId] : 0;
+                    decimal alreadyReturned = previousReturns.ContainsKey(line.SalesOrderLineId) ? previousReturns[line.SalesOrderLineId] : 0;
+                    line.MaxReturnableQty = line.OriginalSoldQty - alreadyReturned;
+                }
+            }
+            return cn;
         }
 
         // 3. SAVE DRAFT (Unchanged)

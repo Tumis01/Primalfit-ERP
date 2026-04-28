@@ -1,0 +1,282 @@
+﻿@page "/sc/item-categories"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@* @using Primafit_ERP.Components.Shared *@
+
+@inject MasterDataService MasterService
+@inject SegCoaService SegCoaService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Item Categories</h1>
+            <p class="text-sm text-slate-500 mt-1">Configure predefined General Ledger templates for your inventory and services.</p>
+        </div>
+        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+            New Category
+        </button>
+    </div>
+
+    @if (showForm)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl mb-6 animate-in slide-in-from-top-4">
+            <h3 class="text-lg font-bold text-slate-900 mb-6">@(isEditing ? "Edit Category" : "New Category")</h3>
+
+            <EditForm Model="@currentCategory" OnValidSubmit="SaveCategory">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div>
+                        <label class="label">Category Name <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentCategory.Name" class="input-class" placeholder="e.g. Electronics, Consulting, Raw Materials..." />
+                    </div>
+                    <div>
+                        <label class="label">Category Type</label>
+                        <div class="flex items-center gap-3 mt-2">
+                            <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
+                                <InputCheckbox @bind-Value="currentCategory.IsService" class="w-4 h-4 rounded text-slate-900 focus:ring-slate-900" />
+                                <span class="text-sm font-bold text-slate-700">Service Item</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-50 p-6 rounded-xl border border-100 mb-6">
+                    <h4 class="text-xs font-bold text-indigo-900 uppercase mb-4 border-b border-indigo-200 pb-2"> General Ledger Maping</h4>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                        @if (!currentCategory.IsService)
+                        {
+                            <SearchableGlAccount Label="Inventory Asset Account (BS / Debit)"
+                                                 Placeholder="Search Asset Accounts..."
+                                                 Accounts="@assetAccounts"
+                                                 @bind-Value="ProxyAssetAccountId"
+                                                 IsInvalid="@(ProxyAssetAccountId == Guid.Empty)" />
+                        }
+
+                        <SearchableGlAccount Label="Sales Income Account (PL / Credit)"
+                                             Placeholder="Search Revenue Accounts..."
+                                             Accounts="@revenueAccounts"
+                                             @bind-Value="currentCategory.SalesIncomeAccountId"
+                                             IsInvalid="@(currentCategory.SalesIncomeAccountId == Guid.Empty)" />
+
+                        <SearchableGlAccount Label="Cost of Goods Sold (PL / Debit)"
+                                             Placeholder="Search Expense Accounts..."
+                                             Accounts="@expenseAccounts"
+                                             @bind-Value="currentCategory.CostOfGoodsSoldAccountId"
+                                             IsInvalid="@(currentCategory.CostOfGoodsSoldAccountId == Guid.Empty)" />
+
+                        @if (!currentCategory.IsService)
+                        {
+                            <SearchableGlAccount Label="Inventory Adjustment / Loss (PL / Debit)"
+                                                 Placeholder="Search Expense Accounts..."
+                                                 Accounts="@expenseAccounts"
+                                                 @bind-Value="ProxyAdjustmentAccountId" />
+                        }
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                    <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
+                    <button type="submit" disabled="@isBusy" class="rounded-xl bg-slate-900 px-8 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                        @if(isBusy) { <span class="animate-spin">↻</span> } else { <span>@(isEditing ? "Update Category" : "Save Category")</span> }
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table class="w-full text-left text-sm text-slate-900">
+            <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                <tr>
+                    <th class="p-4 pl-6">Category Name</th>
+                    <th class="p-4 text-center">Type</th>
+                    <th class="p-4">Income Account</th>
+                    <th class="p-4">COGS Account</th>
+                    <th class="p-4 text-right pr-6">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @if (categories.Any())
+                {
+                    @foreach (var c in categories)
+                    {
+                        var incomeAcc = allAccounts.FirstOrDefault(a => a.Id == c.SalesIncomeAccountId);
+                        var cogsAcc = allAccounts.FirstOrDefault(a => a.Id == c.CostOfGoodsSoldAccountId);
+
+                        <tr class="hover:bg-slate-50 transition-colors group">
+                            <td class="p-4 pl-6 font-bold text-slate-900">@c.Name</td>
+                            <td class="p-4 text-center">
+                                <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider @(c.IsService ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200")">
+                                    @(c.IsService ? "Service" : "Goods")
+                                </span>
+                            </td>
+                            <td class="p-4 text-xs font-mono text-slate-500">@(incomeAcc?.Description ?? "Missing") (@(incomeAcc?.AccountCode ?? "Missing")) </td>
+                            <td class="p-4 text-xs font-mono text-slate-500">@(cogsAcc?.Description ?? "Missing") (@(cogsAcc?.AccountCode ?? "Missing"))</td>
+                            <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
+                                <button @onclick="() => Delete(c)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                }
+                else
+                {
+                    <tr><td colspan="5" class="p-12 text-center text-slate-400">No categories found. Create one to organize your inventory.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private bool showForm = false;
+    private bool isEditing = false;
+    private bool isBusy = false;
+
+    private List<ItemCategory> categories = new();
+    private ItemCategory currentCategory = new();
+
+    // Segmented COA lists
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> assetAccounts = new();
+    private List<SegChartOfAccount> revenueAccounts = new();
+    private List<SegChartOfAccount> expenseAccounts = new();
+    private List<SegAccountType> accountTypes = new();
+
+    // Proxies for nullable GUIDs (SearchableGlAccount doesn't handle nullable GUIDs natively out-of-the-box easily without warnings)
+    private Guid ProxyAssetAccountId
+    {
+        get => currentCategory.InventoryAssetAccountId ?? Guid.Empty;
+        set => currentCategory.InventoryAssetAccountId = value == Guid.Empty ? null : value;
+    }
+    private Guid ProxyAdjustmentAccountId
+    {
+        get => currentCategory.AdjustmentExpenseAccountId ?? Guid.Empty;
+        set => currentCategory.AdjustmentExpenseAccountId = value == Guid.Empty ? null : value;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+
+            // Fetch Financial Data for Dropdowns
+            accountTypes = await SegCoaService.GetAccountTypesAsync();
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            assetAccounts = FilterAccounts(true, true);
+            revenueAccounts = FilterAccounts(false, false);
+            expenseAccounts = FilterAccounts(false, true);
+        }
+    }
+
+    private async Task LoadData()
+    {
+        categories = await MasterService.GetItemCategoriesAsync(currentCompanyId);
+    }
+
+    private List<SegChartOfAccount> FilterAccounts(bool isBs, bool isDr)
+    {
+        return allAccounts
+            .Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr && a.IsActive;
+            })
+            .OrderBy(a => a.AccountCode)
+            .ToList();
+    }
+
+    private void CreateNew()
+    {
+        currentCategory = new ItemCategory { CompanyId = currentCompanyId };
+        showForm = true;
+        isEditing = false;
+    }
+
+    private void Edit(ItemCategory c)
+    {
+        currentCategory = new ItemCategory
+        {
+            Id = c.Id,
+            CompanyId = c.CompanyId,
+            Name = c.Name,
+            IsService = c.IsService,
+            SalesIncomeAccountId = c.SalesIncomeAccountId,
+            CostOfGoodsSoldAccountId = c.CostOfGoodsSoldAccountId,
+            InventoryAssetAccountId = c.InventoryAssetAccountId,
+            AdjustmentExpenseAccountId = c.AdjustmentExpenseAccountId
+        };
+        showForm = true;
+        isEditing = true;
+    }
+
+    private async Task Delete(ItemCategory c)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Permanently delete category '{c.Name}'?")) return;
+        
+        var err = await MasterService.DeleteItemCategoryAsync(c.Id);
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task SaveCategory()
+    {
+        // Validation
+        if (currentCategory.SalesIncomeAccountId == Guid.Empty || currentCategory.CostOfGoodsSoldAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Sales Income and COGS accounts are strictly required.");
+            return;
+        }
+
+        if (!currentCategory.IsService && (currentCategory.InventoryAssetAccountId == null || currentCategory.InventoryAssetAccountId == Guid.Empty))
+        {
+            await JS.InvokeVoidAsync("alert", "Inventory Asset account is required for physical goods categories.");
+            return;
+        }
+
+        isBusy = true;
+        var err = await MasterService.SaveItemCategoryAsync(currentCategory);
+        
+        if (string.IsNullOrEmpty(err))
+        {
+            showForm = false;
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+}

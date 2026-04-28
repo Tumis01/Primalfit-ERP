@@ -60,7 +60,7 @@
     private bool isSearching = false;
     private bool showDropdown = false;
 
-    private SegChartOfAccount? SelectedAccount => Accounts.FirstOrDefault(a => a.Id == Value);
+    private SegChartOfAccount? SelectedAccount => Accounts?.FirstOrDefault(a => a.Id == Value);
 
     private IEnumerable<SegChartOfAccount> FilteredAccounts =>
         string.IsNullOrWhiteSpace(searchTerm)

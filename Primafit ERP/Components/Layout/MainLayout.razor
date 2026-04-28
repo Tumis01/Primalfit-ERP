@@ -1,231 +1,48 @@
-﻿@* @inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using PrimafitERP.Data
 
-<div class="min-h-screen bg-slate-50 text-slate-900">
-    <header class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">
-        <div class="mx-auto flex h-16 max-w-screen-2xl items-center gap-3 px-4">
-            <button type="button"
-                    class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 lg:hidden"
-                    @onclick="ToggleSidebar"
-                    aria-label="Open menu">
-                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                    <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                </svg>
-            </button>
-
-            <a href="/" class="flex items-center gap-2">
-                <span class="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow">
-                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 3l8 4v10l-8 4-8-4V7l8-4Z" stroke="currentColor" stroke-width="1.7" />
-                        <path d="M12 7v14" stroke="currentColor" stroke-width="1.7" opacity=".9" />
-                        <path d="M4 7l8 4 8-4" stroke="currentColor" stroke-width="1.7" opacity=".9" />
-                    </svg>
-                </span>
-                <div class="leading-tight">
-                    <div class="text-sm font-semibold tracking-tight">Primafit ERP</div>
-                    <div class="text-xs text-slate-500">Admin Console</div>
-                </div>
-            </a>
-
-            <div class="flex-1"></div>
-
-            <div class="hidden w-[420px] max-w-[40vw] lg:block">
-                <div class="relative">
-                    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
-                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none">
-                            <path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2" />
-                            <path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                        </svg>
-                    </span>
-                    <input class="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm shadow-sm placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-4 focus:ring-indigo-100"
-                           placeholder="Search customers, invoices, products..." />
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <button class="hidden h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 lg:inline-flex">
-                    <span class="inline-block h-2 w-2 rounded-full bg-emerald-500"></span>
-                    Online
-                </button>
-
-                <button class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
-                        aria-label="Notifications">
-                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                        <path d="M15 17H9a4 4 0 0 0 6 0Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                    </svg>
-                </button>
-
-                <button class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                        aria-label="Account">
-                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-700">
-                        TO
-                    </span>
-                    <span class="hidden sm:inline">Tumis</span>
-                    <svg class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                    </svg>
-                </button>
-            </div>
-        </div>
-    </header>
-
-    <div class="mx-auto grid max-w-screen-2xl grid-cols-1 lg:grid-cols-[280px_1fr]">
-        <div class="@(_sidebarOpen ? "fixed inset-0 z-40 bg-black/40 lg:hidden" : "hidden")"
-             @onclick="CloseSidebar"></div>
-
-        <aside class="@SidebarClass">
-            <div class="flex h-full flex-col">
-                <div class="hidden px-5 pt-6 lg:block">
-                    <div class="rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 px-4 py-4 text-white shadow-lg">
-                        <div class="text-sm font-semibold">Primafit ERP</div>
-                        <div class="text-xs text-white/80">Manage everything in one place</div>
-                    </div>
-                </div>
-
-                <nav class="mt-4 flex-1 px-3">
-                    <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        Main
-                    </div>
-
-                    <NavLink href="/" Match="NavLinkMatch.All" class="@NavBase" activeClass="@NavActive">
-                        <span class="@IconBase">
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                                <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"
-                                      stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="flex-1">Dashboard</span>
-                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">New</span>
-                    </NavLink>
-
-                    <NavLink href="/sales" class="@NavBase" activeClass="@NavActive">
-                        <span class="@IconBase">
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                                <path d="M4 19V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14"
-                                      stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                                <path d="M8 9h8M8 13h6M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                            </svg>
-                        </span>
-                        <span class="flex-1">Sales</span>
-                    </NavLink>
-
-                    <NavLink href="/inventory" class="@NavBase" activeClass="@NavActive">
-                        <span class="@IconBase">
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                                <path d="M21 8l-9-5-9 5v10l9 5 9-5V8Z" stroke="currentColor" stroke-width="2" />
-                                <path d="M3 8l9 5 9-5" stroke="currentColor" stroke-width="2" />
-                                <path d="M12 13v10" stroke="currentColor" stroke-width="2" />
-                            </svg>
-                        </span>
-                        <span class="flex-1">Inventory</span>
-                    </NavLink>
-
-                    <div class="mt-2">
-                        <button @onclick="ToggleSetupMenu" class="@NavBase w-full text-left justify-between focus:outline-none">
-                            <div class="flex items-center gap-3">
-                                <span class="@IconBase">
-                                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                                        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                    </svg>
-                                </span>
-                                <span class="flex-1 font-medium">Set up</span>
-                            </div>
-                            <svg class="h-4 w-4 text-slate-400 transition-transform @(_setupMenuOpen ? "rotate-180" : "")" viewBox="0 0 24 24" fill="none">
-                                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                        </button>
-
-                        @if (_setupMenuOpen)
-                        {
-                            <div class="ml-11 mt-1 space-y-1 border-l-2 border-slate-100 pl-3">
-                                <NavLink href="/companies" class="@SubNavBase" activeClass="@SubNavActive">
-                                    Company Details
-                                </NavLink>
-
-                                <NavLink href="/users" class="@SubNavBase" activeClass="@SubNavActive">
-                                    User
-                                </NavLink>
-
-                                <NavLink href="/taxes" class="@SubNavBase" activeClass="@SubNavActive">
-                                    Tax
-                                </NavLink>
-                            </div>
-                        }
-                    </div>
-                    <div class="mt-6 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        Settings
-                    </div>
-
-                    <NavLink href="/settings" class="@NavBase" activeClass="@NavActive">
-                        <span class="@IconBase">
-                            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
-                                      stroke="currentColor" stroke-width="2" />
-                                <path d="M19.4 15a7.8 7.8 0 0 0 .1-2l2-1.5-2-3.5-2.4 1a8 8 0 0 0-1.7-1l-.4-2.6H9l-.4 2.6a8 8 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7.8 7.8 0 0 0 .1 2l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 1.7 1l.4 2.6h6l.4-2.6a8 8 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z"
-                                      stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-                            </svg>
-                        </span>
-                        <span class="flex-1">System</span>
-                    </NavLink>
-                </nav>
-
-                <div class="p-4">
-                    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <div class="text-sm font-semibold">Quick tip</div>
-                        <div class="mt-1 text-xs text-slate-500">
-                            Use the search bar to jump to customers, invoices, and products faster.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </aside>
-
-        <main class="px-4 py-6 lg:px-8">
-            @Body
-        </main>
-    </div>
-</div>
-
-@code {
-    private bool _sidebarOpen;
-    private bool _setupMenuOpen = false; // State for dropdown menu
-
-    private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
-    private void CloseSidebar() => _sidebarOpen = false;
-
-    // Toggle for Set up menu
-    private void ToggleSetupMenu() => _setupMenuOpen = !_setupMenuOpen;
-
-    private string SidebarClass =>
-        _sidebarOpen
-            ? "fixed inset-y-0 left-0 z-50 w-[280px] overflow-y-auto border-r border-slate-200 bg-white shadow-xl lg:static lg:z-auto lg:shadow-none"
-            : "hidden w-[280px] border-r border-slate-200 bg-white lg:block";
-
-    private const string NavBase =
-        "group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition cursor-pointer";
-
-    private const string NavActive =
-        "bg-slate-100 text-slate-900 shadow-sm";
-
-    private const string IconBase =
-        "inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white text-slate-600 ring-1 ring-slate-200 group-hover:bg-slate-50 group-hover:text-slate-800";
-
-    // New styles for Sub-menus
-    private const string SubNavBase =
-        "block rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-indigo-600 transition";
-
-    private const string SubNavActive =
-        "bg-indigo-50 text-indigo-600 font-semibold";
-} *@
-@inherits LayoutComponentBase
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject CompanyApiService ApiService
 
 <div class="min-h-screen bg-slate-50 text-slate-900">
 
-    <NavMenu />
-
-    <main class="px-4 py-6 pt-20 lg:px-8 lg:pl-[312px]">
+    @* Pass the event handler down to the NavMenu *@
+    <NavMenu OnCollapseToggled="HandleSidebarCollapse" />
+    
+    @* Dynamically switch padding based on the sidebar's state *@
+    <main class="px-4 py-6 pt-20 lg:px-8 transition-all duration-300 @(isSidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[280px]")">
         @Body
     </main>
 
 </div>
+
+@code {
+    private bool needsCompanySetup = false;
+    private bool isSidebarCollapsed = false; // State to track the sidebar
+
+    // This method is triggered by the NavMenu whenever it shrinks or expands
+    private void HandleSidebarCollapse(bool collapsedState)
+    {
+        isSidebarCollapsed = collapsedState;
+        StateHasChanged(); // Force the layout to redraw the padding
+    }
+
+    // protected override async Task OnInitializedAsync()
+    // {
+    //     var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+    //     var user = await UserManager.GetUserAsync(authState.User);
+    //     if (user?.CompanyDetailsId != null)
+    //     {
+    //         var company = await ApiService.GetCompanyByIdAsync(user.CompanyDetailsId.Value);
+    //         if (company != null && (string.IsNullOrWhiteSpace(company.BaseCurrency) || company.FiscalStartYear == null))
+    //         {
+    //             needsCompanySetup = true;
+    //         }
+    //     }
+    // }
+}

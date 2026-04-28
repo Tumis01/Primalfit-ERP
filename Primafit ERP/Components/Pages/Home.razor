@@ -1,210 +1,760 @@
 ﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@using PrimafitERP.Data
-@using Microsoft.EntityFrameworkCore
-@using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 
-@inject DashboardService DashService
-@inject CompanyApiService CompanyService
+@inject DashboardService   DashService
+@inject CompanyApiService  CompanyService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserManager<ApplicationUser> UserManager
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-12">
+<style>
+    @@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
 
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    .dash-root { font-family: 'DM Sans', sans-serif; }
+    .mono      { font-family: 'DM Mono', monospace; }
+
+    .kpi-card {
+        background: #fff;
+        border: 1px solid #e8ecf0;
+        border-radius: 16px;
+        padding: 1.25rem;
+        transition: box-shadow .2s, transform .15s;
+        position: relative;
+        overflow: hidden;
+    }
+    .kpi-card:hover {
+        box-shadow: 0 8px 24px rgba(0,0,0,.07);
+        transform: translateY(-1px);
+    }
+    .kpi-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        border-radius: 16px 16px 0 0;
+        background: var(--accent, #6366f1);
+    }
+
+    .tab-btn {
+        padding: .625rem 1rem;
+        font-size: .8125rem;
+        font-weight: 700;
+        border-bottom: 2px solid transparent;
+        color: #64748b;
+        transition: color .15s, border-color .15s;
+        cursor: pointer;
+        background: none;
+        border-top: none;
+        border-left: none;
+        border-right: none;
+        white-space: nowrap;
+    }
+    .tab-btn:hover  { color: #334155; }
+    .tab-btn.active { color: var(--tab-color, #6366f1); border-bottom-color: var(--tab-color, #6366f1); }
+
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th {
+        font-size: .6875rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .06em; color: #94a3b8; padding: .625rem 1rem;
+        background: #f8fafc; border-bottom: 1px solid #e8ecf0;
+        text-align: left;
+    }
+    .data-table td {
+        font-size: .8125rem; color: #334155; padding: .625rem 1rem;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: #f8fafc; }
+
+    .badge {
+        display: inline-flex; align-items: center;
+        padding: .2rem .6rem; border-radius: 999px;
+        font-size: .7rem; font-weight: 700;
+    }
+
+    .metric-pill {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: .25rem;
+    }
+
+    .section-title {
+        font-size: .6875rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .1em;
+        color: #94a3b8;
+        margin-bottom: 1rem;
+    }
+
+    .customer-bar {
+        height: 6px;
+        border-radius: 3px;
+        background: linear-gradient(90deg, #6366f1, #8b5cf6);
+        transition: width .4s ease;
+    }
+
+    .refresh-spin { animation: spin .8s linear infinite; }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+
+    .skeleton {
+        background: linear-gradient(90deg, #f1f5f9 25%, #e8ecf0 50%, #f1f5f9 75%);
+        background-size: 400% 100%;
+        animation: shimmer 1.4s ease infinite;
+        border-radius: 8px;
+    }
+    @@keyframes shimmer { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
+
+    .fade-up {
+        animation: fadeUp .4s ease both;
+    }
+    @@keyframes fadeUp {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+<div class="dash-root max-w-[1440px] mx-auto px-4 py-6 space-y-6 pb-16">
+
+    @* ── HEADER ──────────────────────────────────────────────── *@
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Financial Health</h1>
-            <p class="text-sm text-slate-500 mt-1">Real-time performance metrics for @(companyName ?? "your organization").</p>
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">
+                Financial Command Center
+            </h1>
+            <p class="text-sm text-slate-400 mt-0.5 font-medium">
+                @(companyName ?? "Organization") &nbsp;·&nbsp; @DateTime.Now.ToString("dddd, MMMM dd yyyy")
+            </p>
         </div>
-        <div class="text-right">
-            <div class="text-sm font-bold text-slate-700">@DateTime.Now.ToString("MMMM dd, yyyy")</div>
+        <div class="flex items-center gap-3">
             @if (data != null)
             {
-                <div class="text-xs text-slate-400">Last refresh: @data.LastRefresh.ToString("HH:mm")</div>
+                <span class="text-xs text-slate-400 font-medium mono">
+                    Last sync @data.LastRefresh.ToString("HH:mm:ss")
+                </span>
             }
+            <button @onclick="RefreshAsync"
+                    disabled="@isRefreshing"
+                    class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60
+                           text-white text-sm font-bold rounded-xl shadow-sm transition-all">
+                <svg class="@(isRefreshing ? "refresh-spin" : "") w-4 h-4" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M4 4v5h5M20 20v-5h-5M4 9a9 9 0 0115.4-4M20 15a9 9 0 01-15.4 4"/>
+                </svg>
+                @(isRefreshing ? "Refreshing…" : "Refresh")
+            </button>
         </div>
     </div>
 
+    @* ── DATA RENDERING LOGIC (NO RETURNS!) ──────────────────── *@
     @if (isLoading)
     {
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-            @for (int i = 0; i < 3; i++)
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            @for (int i = 0; i < 6; i++)
             {
-                <div class="h-32 bg-slate-100 rounded-2xl animate-pulse"></div>
+                <div class="kpi-card space-y-3">
+                    <div class="skeleton h-3 w-20"></div>
+                    <div class="skeleton h-7 w-24"></div>
+                    <div class="skeleton h-2.5 w-16"></div>
+                </div>
+            }
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 skeleton h-72 rounded-2xl"></div>
+            <div class="skeleton h-72 rounded-2xl"></div>
+        </div>
+    }
+    else if (data == null) 
+    { 
+        <p class="text-slate-500 text-center py-12">No data available.</p> 
+    }
+    else
+    {
+        @* ════════════════════════════════════════════════════════════
+           KPI STRIP — 6 cards
+        ════════════════════════════════════════════════════════════ *@
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 fade-up">
+            
+            @* Cash *@
+            <div class="kpi-card" style="--accent:#10b981">
+                <div class="section-title" style="margin-bottom:.5rem">Cash &amp; Bank</div>
+                <div class="text-xl font-black text-slate-900 mono">@data.CashOnHand.ToString("C0")</div>
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] text-slate-500 font-medium">
+                        CR @data.CurrentRatio.ToString("0.00x")
+                    </span>
+                </div>
+            </div>
+
+            @* Revenue MTD *@
+            <div class="kpi-card" style="--accent:#6366f1">
+                <div class="section-title" style="margin-bottom:.5rem">Revenue MTD</div>
+                <div class="text-xl font-black text-slate-900 mono">@data.RevenueMTD.ToString("C0")</div>
+                @{
+                    var revChange = data.PreviousMonthRevenue != 0
+                        ? ((data.RevenueMTD - data.PreviousMonthRevenue) / data.PreviousMonthRevenue) * 100
+                        : 0m;
+                }
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] font-bold @(revChange >= 0 ? "text-emerald-500" : "text-rose-500")">
+                        @(revChange >= 0 ? "▲" : "▼") @Math.Abs(revChange).ToString("N1")%
+                    </span>
+                    <span class="text-[11px] text-slate-400">vs prior month</span>
+                </div>
+            </div>
+
+            @* Net Profit MTD *@
+            <div class="kpi-card" style="--accent:@(data.NetProfitMTD >= 0 ? "#6366f1" : "#f43f5e")">
+                <div class="section-title" style="margin-bottom:.5rem">Net Profit MTD</div>
+                <div class="text-xl font-black mono @(data.NetProfitMTD >= 0 ? "text-indigo-600" : "text-rose-600")">
+                    @data.NetProfitMTD.ToString("C0")
+                </div>
+                @{
+                    var profitChange = data.PreviousMonthProfit != 0
+                        ? ((data.NetProfitMTD - data.PreviousMonthProfit) / Math.Abs(data.PreviousMonthProfit)) * 100
+                        : 0m;
+                }
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] font-bold @(profitChange >= 0 ? "text-emerald-500" : "text-rose-500")">
+                        @(profitChange >= 0 ? "▲" : "▼") @Math.Abs(profitChange).ToString("N1")%
+                    </span>
+                    <span class="text-[11px] text-slate-400">margin @data.NetProfitMargin.ToString("N1")%</span>
+                </div>
+            </div>
+
+            @* AR Outstanding *@
+            <div class="kpi-card" style="--accent:#f59e0b">
+                <div class="section-title" style="margin-bottom:.5rem">AR Outstanding</div>
+                <div class="text-xl font-black text-slate-900 mono">@data.AROutstandingTotal.ToString("C0")</div>
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] font-bold @(data.OverdueInvoicesCount > 0 ? "text-amber-600" : "text-slate-400")">
+                        @data.OverdueInvoicesCount overdue
+                    </span>
+                </div>
+            </div>
+
+            @* AP Outstanding *@
+            <div class="kpi-card" style="--accent:#f43f5e">
+                <div class="section-title" style="margin-bottom:.5rem">AP Outstanding</div>
+                <div class="text-xl font-black text-slate-900 mono">@data.APOutstandingTotal.ToString("C0")</div>
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] font-bold @(data.APExceptionsCount > 0 ? "text-rose-500" : "text-slate-400")">
+                        @data.APExceptionsCount @(data.APExceptionsCount == 1 ? "exception" : "exceptions")
+                    </span>
+                </div>
+            </div>
+
+            @* Inventory Value *@
+            <div class="kpi-card" style="--accent:#14b8a6">
+                <div class="section-title" style="margin-bottom:.5rem">Inventory Value</div>
+                <div class="text-xl font-black text-slate-900 mono">@data.InventoryValue.ToString("C0")</div>
+                <div class="flex items-center gap-1 mt-2">
+                    <span class="text-[11px] font-bold @(data.LowStockItemsCount > 0 ? "text-amber-500" : "text-emerald-500")">
+                        @data.LowStockItemsCount low stock @(data.LowStockItemsCount == 1 ? "item" : "items")
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        @* ════════════════════════════════════════════════════════════
+           CHARTS ROW — 6-Month Trend  +  Top Customers
+        ════════════════════════════════════════════════════════════ *@
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 fade-up" style="animation-delay:.08s">
+            <div class="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="section-title" style="margin:0">6-Month Financial Trend</span>
+                    <div class="flex items-center gap-3 text-[11px] font-bold">
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-1.5 rounded-full bg-indigo-500 inline-block"></span> Revenue
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-1.5 rounded-full bg-rose-400 inline-block"></span> Expenses
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-1.5 rounded-full bg-emerald-500 inline-block"></span> Profit
+                        </span>
+                    </div>
+                </div>
+                <div class="h-64 w-full">
+                    <canvas id="cashFlowChart"></canvas>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col">
+                <span class="section-title">Top Customers MTD</span>
+                @if (data.TopCustomers.Any())
+                {
+                    var maxRev = data.TopCustomers.Max(c => c.RevenueMTD);
+                    <div class="space-y-3 flex-1">
+                        @foreach (var (cust, idx) in data.TopCustomers.Select((c, i) => (c, i)))
+                        {
+                            var pct = maxRev > 0 ? (int)((cust.RevenueMTD / maxRev) * 100) : 0;
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="font-semibold text-slate-700 truncate max-w-[130px]" title="@cust.CustomerName">@cust.CustomerName</span>
+                                    <span class="mono font-bold text-slate-800">@cust.RevenueMTD.ToString("C0")</span>
+                                </div>
+                                <div class="bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                    <div class="customer-bar" style="width:@pct%"></div>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-0.5">@cust.InvoiceCount @(cust.InvoiceCount == 1 ? "invoice" : "invoices")</div>
+                            </div>
+                        }
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 font-medium">
+                        YTD Revenue: <span class="font-bold text-slate-700 mono">@data.RevenueYTD.ToString("C0")</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="flex-1 flex items-center justify-center text-slate-400 italic text-sm">
+                        No invoices this month.
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ════════════════════════════════════════════════════════════
+           OPERATIONAL HEALTH — 4 efficiency pills
+        ════════════════════════════════════════════════════════════ 
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 fade-up" style="animation-delay:.12s">
+            <div class="metric-pill">
+                <span class="section-title" style="margin:0">Current Ratio</span>
+                <span class="text-2xl font-black mono @(data.CurrentRatio >= 1 ? "text-emerald-600" : "text-rose-600")">
+                    @data.CurrentRatio.ToString("0.00")
+                </span>
+                <span class="text-[11px] text-slate-400">
+                    @(data.CurrentRatio >= 2 ? "Healthy" : data.CurrentRatio >= 1 ? "Adequate" : "Below Target")
+                </span>
+            </div>
+            <div class="metric-pill">
+                <span class="section-title" style="margin:0">Quick Ratio</span>
+                <span class="text-2xl font-black mono @(data.QuickRatio >= 1 ? "text-emerald-600" : "text-amber-600")">
+                    @data.QuickRatio.ToString("0.00")
+                </span>
+                <span class="text-[11px] text-slate-400">
+                    @(data.QuickRatio >= 1 ? "Liquid" : "Watch Closely")
+                </span>
+            </div>
+            <div class="metric-pill">
+                <span class="section-title" style="margin:0">Days Sales Out.</span>
+                <span class="text-2xl font-black mono @(data.DaysSalesOutstanding <= 45 ? "text-emerald-600" : "text-amber-600")">
+                    @data.DaysSalesOutstanding.ToString("N1") <span class="text-lg">d</span>
+                </span>
+                <span class="text-[11px] text-slate-400">Avg collection period</span>
+            </div>
+            <div class="metric-pill">
+                <span class="section-title" style="margin:0">Inventory Turnover</span>
+                <span class="text-2xl font-black mono text-slate-800">
+                    @data.InventoryTurnover.ToString("N2")<span class="text-lg">x</span>
+                </span>
+                <span class="text-[11px] text-slate-400">MTD COGS / Inventory</span>
+            </div>
+        </div>*@
+
+        @* ════════════════════════════════════════════════════════════
+           CHARTS ROW 2 — Expense Donut  +  AR/AP Aging
+        ════════════════════════════════════════════════════════════ *@
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 fade-up" style="animation-delay:.16s">
+            
+            @* Top Expenses Donut *@
+            <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                <span class="section-title">Expense Breakdown MTD</span>
+                @if (data.TopExpenses.Any())
+                {
+                    var totalExp = data.TopExpenses.Sum(e => e.Amount);
+                    <div class="h-44 mb-4">
+                        <canvas id="topExpensesChart"></canvas>
+                    </div>
+                    <div class="space-y-1.5">
+                        @foreach (var exp in data.TopExpenses)
+                        {
+                            var expPct = totalExp > 0 ? (exp.Amount / totalExp) * 100 : 0;
+                            <div class="flex justify-between items-center text-xs">
+                                <span class="text-slate-500 truncate max-w-[140px]" title="@exp.AccountName">
+                                    @exp.AccountName
+                                </span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-slate-400">@expPct.ToString("N0")%</span>
+                                    <span class="font-bold mono text-slate-800">@exp.Amount.ToString("C0")</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="h-full flex items-center justify-center text-slate-400 italic text-sm">
+                        No expenses this month.
+                    </div>
+                }
+            </div>
+
+            @* AR / AP Aging *@
+            <div class="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="section-title" style="margin:0">Receivables vs Payables Aging</span>
+                    <div class="flex items-center gap-3 text-[11px] font-bold">
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-1.5 rounded-full bg-indigo-500 inline-block"></span> AR
+                        </span>
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-1.5 rounded-full bg-rose-400 inline-block"></span> AP
+                        </span>
+                    </div>
+                </div>
+                <div class="h-52 w-full">
+                    <canvas id="agingChart"></canvas>
+                </div>
+                <div class="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-100">
+                    @{
+                        var arTotal = data.ARAging.Current + data.ARAging.Days1To30 + data.ARAging.Days31To60 + data.ARAging.DaysOver60;
+                        var apTotal = data.APAging.Current + data.APAging.Days1To30 + data.APAging.Days31To60 + data.APAging.DaysOver60;
+                    }
+                    @foreach (var (label, ar, ap) in new[]{
+                        ("Current",  data.ARAging.Current,    data.APAging.Current),
+                        ("1–30d",    data.ARAging.Days1To30,  data.APAging.Days1To30),
+                        ("31–60d",   data.ARAging.Days31To60, data.APAging.Days31To60),
+                        (">60d",     data.ARAging.DaysOver60, data.APAging.DaysOver60)
+                    })
+                    {
+                        <div class="text-center">
+                            <div class="text-[10px] text-slate-400 font-bold uppercase">@label</div>
+                            <div class="text-xs font-bold text-indigo-600 mono">@ar.ToString("C0")</div>
+                            <div class="text-xs font-bold text-rose-500 mono">@ap.ToString("C0")</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* ════════════════════════════════════════════════════════════
+           ACTION CENTER — Tabbed drill-down tables
+        ════════════════════════════════════════════════════════════ *@
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden fade-up"
+             style="animation-delay:.2s">
+             
+            <div class="flex gap-1 px-4 pt-2 border-b border-slate-100 overflow-x-auto bg-slate-50/60">
+                <button class="tab-btn @(activeTab == 0 ? "active" : "")"
+                        style="--tab-color:#6366f1"
+                        @onclick="() => activeTab = 0">
+                    Unshipped
+                    <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-100 text-indigo-700">
+                        @data.UnshippedOrdersCount
+                    </span>
+                </button>
+                <button class="tab-btn @(activeTab == 1 ? "active" : "")"
+                        style="--tab-color:#f43f5e"
+                        @onclick="() => activeTab = 1">
+                    AP Exceptions
+                    <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-rose-100 text-rose-700">
+                        @data.APExceptionsCount
+                    </span>
+                </button>
+                <button class="tab-btn @(activeTab == 2 ? "active" : "")"
+                        style="--tab-color:#f59e0b"
+                        @onclick="() => activeTab = 2">
+                    Transfers
+                    <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">
+                        @data.PendingTransfersCount
+                    </span>
+                </button>
+                <button class="tab-btn @(activeTab == 3 ? "active" : "")"
+                        style="--tab-color:#14b8a6"
+                        @onclick="() => activeTab = 3">
+                        Low Stock
+                    <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-teal-100 text-teal-700">
+                        @data.LowStockItemsCount
+                    </span>
+                </button>
+            </div>
+
+            @if (activeTab == 0)
+            {
+                if (data.UnshippedOrderDetails.Any())
+                {
+                    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Order #</th>
+                                    <th>Customer</th>
+                                    <th>Order Date</th>
+                                    <th>Days Old</th>
+                                    <th class="text-right">Value</th>
+                                    <th>Urgency</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var o in data.UnshippedOrderDetails)
+                                {
+                                    <tr>
+                                        <td class="mono font-semibold text-indigo-600">@o.OrderNumber</td>
+                                        <td class="font-medium">@o.CustomerName</td>
+                                        <td class="text-slate-500">@o.Date.ToString("dd MMM yyyy")</td>
+                                        <td class="mono">@o.DaysOld</td>
+                                        <td class="mono font-bold text-right">@o.OrderValue.ToString("C0")</td>
+                                        <td>
+                                            @if (o.DaysOld > 14)
+                                            {
+                                                <span class="badge bg-rose-100 text-rose-700">Overdue</span>
+                                            }
+                                            else if (o.DaysOld > 7)
+                                            {
+                                                <span class="badge bg-amber-100 text-amber-700">Aging</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-emerald-100 text-emerald-700">Recent</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="py-10 text-center text-slate-400 text-sm italic">All orders are fully shipped 🎉</div>
+                }
+                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/40">
+                    <span class="text-xs text-slate-500">
+                        @data.UnshippedOrdersCount order@(data.UnshippedOrdersCount != 1 ? "s" : "") awaiting warehouse fulfillment
+                    </span>
+                    <a href="/wh/shipments"
+                       class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors">
+                        Go to Shipment →
+                    </a>
+                </div>
+            }
+
+            @if (activeTab == 1)
+            {
+                if (data.APExceptionDetails.Any())
+                {
+                    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Bill Ref</th>
+                                    <th>Vendor</th>
+                                    <th class="text-right">Bill Amount</th>
+                                    <th>Variance Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var ex in data.APExceptionDetails)
+                                {
+                                    <tr>
+                                        <td class="mono font-semibold text-rose-600">@ex.BillReference</td>
+                                        <td class="font-medium">@ex.VendorName</td>
+                                        <td class="mono font-bold text-right">@ex.BillAmount.ToString("C0")</td>
+                                        <td>
+                                            <span class="text-xs text-slate-500 truncate block max-w-[280px]"
+                                                  title="@ex.VarianceReason">
+                                                @(ex.VarianceReason.Length > 60
+                                                    ? ex.VarianceReason[..60] + "…"
+                                                    : ex.VarianceReason)
+                                            </span>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="py-10 text-center text-slate-400 text-sm italic">No AP exceptions — 3-way match is clean ✓</div>
+                }
+                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/40">
+                    <span class="text-xs text-slate-500">
+                        @data.APExceptionsCount bill@(data.APExceptionsCount != 1 ? "s" : "") flagged for variance review
+                    </span>
+                    <a href="/reports/three-way-match"
+                       class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors">
+                        Review AP Exceptions 
+                    </a>
+                </div>
+            }
+
+            @if (activeTab == 2)
+            {
+                <div class="p-8 text-center">
+                    <div class="inline-flex items-center justify-center w-12 h-12 bg-amber-100 rounded-2xl mb-3">
+                        <svg class="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                        </svg>
+                    </div>
+                    <p class="text-slate-700 font-semibold mb-1">
+                        <span class="text-amber-600 text-xl font-black">@data.PendingTransfersCount</span>
+                        stock transfer@(data.PendingTransfersCount != 1 ? "s" : "") currently in transit
+                    </p>
+                    <p class="text-sm text-slate-400 mb-4">
+                        These shipments have left the source warehouse and are awaiting receipt.
+                    </p>
+                    <a href="/sc/transfers"
+                       class="inline-block px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold rounded-xl shadow-sm transition-colors">
+                        Process Transfers 
+                    </a>
+                </div>
+            }
+
+            @if (activeTab == 3)
+            {
+                if (data.LowStockDetails.Any())
+                {
+                    <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>SKU</th>
+                                    <th class="text-right">On Hand</th>
+                                    <th class="text-right">Reorder Lvl</th>
+                                    <th class="text-right">Shortfall</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in data.LowStockDetails)
+                                {
+                                    var shortfall = item.ReorderLevel - item.CurrentQty;
+                                    <tr>
+                                        <td class="font-semibold text-slate-800">@item.ItemName</td>
+                                        <td class="mono text-slate-500 text-xs">@item.SKU</td>
+                                        <td class="mono text-right @(item.CurrentQty <= 0 ? "text-rose-600 font-bold" : "text-slate-700")">
+                                            @item.CurrentQty.ToString("N2")
+                                        </td>
+                                        <td class="mono text-right text-slate-500">@item.ReorderLevel.ToString("N2")</td>
+                                        <td class="mono font-bold text-right text-amber-600">@shortfall.ToString("N2")</td>
+                                        <td>
+                                            @if (item.CurrentQty <= 0)
+                                            {
+                                                <span class="badge bg-rose-100 text-rose-700">Out of Stock</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-amber-100 text-amber-700">Low Stock</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="py-10 text-center text-slate-400 text-sm italic">All items are above reorder levels ✓</div>
+                }
+                <div class="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/40">
+                    <span class="text-xs text-slate-500">
+                        @data.LowStockItemsCount item@(data.LowStockItemsCount != 1 ? "s" : "") at or below reorder level
+                    </span>
+                    <a href="/procurement/purchase-orders"
+                       class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors">
+                        Create Purchase Order 
+                    </a>
+                </div>
             }
         </div>
     }
-    else if (data != null)
-    {
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-4">
-                <div class="p-3 bg-white rounded-xl text-red-600 shadow-sm">
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                </div>
-                <div>
-                    <div class="text-2xl font-bold text-slate-900">@data.LowStockItemsCount</div>
-                    <div class="text-xs font-bold text-red-600 uppercase tracking-wide">Low Stock Items</div>
-                </div>
-            </div>
-
-            <div class="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-center gap-4">
-                <div class="p-3 bg-white rounded-xl text-amber-600 shadow-sm">
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                </div>
-                <div>
-                    <div class="text-2xl font-bold text-slate-900">@data.OverdueInvoicesCount</div>
-                    <div class="text-xs font-bold text-amber-600 uppercase tracking-wide">Overdue Invoices</div>
-                </div>
-            </div>
-
-            <div class="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-4 col-span-1 md:col-span-2">
-                <div class="p-3 bg-white rounded-xl text-emerald-600 shadow-sm">
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                </div>
-                <div>
-                    <div class="text-2xl font-bold text-slate-900">@data.CashOnHand.ToString("C0")</div>
-                    <div class="text-xs font-bold text-emerald-600 uppercase tracking-wide">Cash on Hand</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b pb-2">Liquidity</h3>
-
-                <div class="space-y-6">
-                    <div>
-                        <div class="flex justify-between items-end mb-1">
-                            <span class="text-sm font-medium text-slate-600">Current Ratio</span>
-                            <span class="text-lg font-bold @(data.CurrentRatio < 1.5m ? "text-amber-500" : "text-slate-900")">@data.CurrentRatio.ToString("0.00")</span>
-                        </div>
-                        <div class="w-full bg-slate-100 rounded-full h-2">
-                            <div class="bg-indigo-600 h-2 rounded-full" style="width: @Math.Min(data.CurrentRatio * 30, 100)%"></div>
-                        </div>
-                        <p class="text-xs text-slate-400 mt-1">Target: > 1.5</p>
-                    </div>
-
-                    <div>
-                        <div class="flex justify-between items-end mb-1">
-                            <span class="text-sm font-medium text-slate-600">Quick Ratio</span>
-                            <span class="text-lg font-bold @(data.QuickRatio < 1.0m ? "text-red-500" : "text-slate-900")">@data.QuickRatio.ToString("0.00")</span>
-                        </div>
-                        <div class="w-full bg-slate-100 rounded-full h-2">
-                            <div class="bg-purple-600 h-2 rounded-full" style="width: @Math.Min(data.QuickRatio * 50, 100)%"></div>
-                        </div>
-                        <p class="text-xs text-slate-400 mt-1">Target: > 1.0</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b pb-2">Profitability (MTD)</h3>
-
-                <div class="grid grid-cols-2 gap-4 mb-6">
-                    <div class="p-3 bg-slate-50 rounded-xl">
-                        <div class="text-xs text-slate-500">Revenue</div>
-                        <div class="text-lg font-bold text-slate-900">@data.RevenueMTD.ToString("C0")</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 rounded-xl">
-                        <div class="text-xs text-slate-500">Net Profit</div>
-                        <div class="text-lg font-bold text-emerald-600">@data.NetProfitMTD.ToString("C0")</div>
-                    </div>
-                </div>
-
-                <div class="space-y-4">
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm text-slate-600">Gross Margin</span>
-                        <span class="font-bold text-slate-900">@data.GrossProfitMargin.ToString("0.0")%</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm text-slate-600">Net Margin</span>
-                        <span class="font-bold text-emerald-600">@data.NetProfitMargin.ToString("0.0")%</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 class="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b pb-2">Efficiency</h3>
-
-                <div class="flex items-center gap-4 mb-6">
-                    <div class="h-12 w-12 rounded-full border-4 border-indigo-100 flex items-center justify-center font-bold text-indigo-600 text-sm">
-                        @data.DaysSalesOutstanding.ToString("0")
-                    </div>
-                    <div>
-                        <div class="font-bold text-slate-900">Days Sales Outstanding</div>
-                        <div class="text-xs text-slate-500">Avg days to collect payment</div>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4">
-                    <div class="h-12 w-12 rounded-full border-4 border-amber-100 flex items-center justify-center font-bold text-amber-600 text-sm">
-                        @data.InventoryTurnover.ToString("0.0")
-                    </div>
-                    <div>
-                        <div class="font-bold text-slate-900">Inventory Turnover</div>
-                        <div class="text-xs text-slate-500">Cycles per period</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-    <h3 class="text-lg font-bold text-slate-900">Quick Access</h3>
-    <div class="grid grid-cols-2 md:grid-cols-2 gap-4">
-        
-        <a href="users" class="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 hover:shadow-md transition-all">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>
-            </div>
-            <span class="font-semibold text-slate-700 group-hover:text-purple-700">New User</span>
-        </a>
-        <a href="gl/chart-of-accounts" class="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 hover:ring-indigo-500 hover:shadow-md transition-all">
-            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-            </div>
-            <span class="font-semibold text-slate-700 group-hover:text-emerald-700">Chart Of Account</span>
-        </a>
-    </div>
-
 </div>
-
 @code {
     private FinancialDashboardSnapshot? data;
-    private bool isLoading = true;
+    private bool isLoading    = true;
+    private bool isRefreshing = false;
     private string? companyName;
-    private string ErrorMessage = "";
+    private int  activeTab = 0;
+    private Guid _companyId;
+    private bool _chartsRendered = false;
 
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user      = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId is not null)
+        {
+            _companyId  = user.CompanyDetailsId.Value;
+            var company = await CompanyService.GetCompanyByIdAsync(_companyId);
+            companyName = company?.CompanyName;
+            data        = await DashService.GetSnapshotAsync(_companyId);
+        }
+
+        isLoading = false;
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (isRefreshing || _companyId == Guid.Empty) return;
+        isRefreshing     = true;
+        _chartsRendered  = false;
+        await InvokeAsync(StateHasChanged);
+
+        data = await DashService.GetSnapshotAsync(_companyId);
+
+        isRefreshing = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Only re-render charts when data is fresh (after load or refresh)
+        if (data is null || _chartsRendered) return;
+
         try
         {
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = await UserManager.GetUserAsync(authState.User);
+            // 1. Cash-Flow Trend
+            var cfLabels = data.SixMonthCashFlow.Select(x => x.Month).ToArray();
+            var cfRev    = data.SixMonthCashFlow.Select(x => x.Revenue).ToArray();
+            var cfExp    = data.SixMonthCashFlow.Select(x => x.Expenses).ToArray();
+            var cfProf   = data.SixMonthCashFlow.Select(x => x.NetProfit).ToArray();
+            await JS.InvokeVoidAsync("window.erpCharts.renderCashFlowChart",
+                                     "cashFlowChart", cfLabels, cfRev, cfExp, cfProf);
 
-            if (user != null && user.CompanyDetailsId.HasValue)
+            // 2. AR / AP Aging
+            var arAges = new decimal[]
             {
-                // Fetch Company Name for Header
-                var company = await CompanyService.GetCompanyByIdAsync(user.CompanyDetailsId.Value);
-                companyName = company?.CompanyName;
+                data.ARAging.Current, data.ARAging.Days1To30,
+                data.ARAging.Days31To60, data.ARAging.DaysOver60
+            };
+            var apAges = new decimal[]
+            {
+                data.APAging.Current, data.APAging.Days1To30,
+                data.APAging.Days31To60, data.APAging.DaysOver60
+            };
+            await JS.InvokeVoidAsync("window.erpCharts.renderAgingChart",
+                                     "agingChart", arAges, apAges);
 
-                // Execute Dashboard Service
-                data = await DashService.GetSnapshotAsync(user.CompanyDetailsId.Value);
+            // 3. Expense Donut
+            if (data.TopExpenses.Any())
+            {
+                var expLabels = data.TopExpenses.Select(x => x.AccountName).ToArray();
+                var expData   = data.TopExpenses.Select(x => x.Amount).ToArray();
+                await JS.InvokeVoidAsync("window.erpCharts.renderTopExpensesChart",
+                                         "topExpensesChart", expLabels, expData);
             }
+
+            _chartsRendered = true;
         }
-        catch (Exception ex)
+        catch
         {
-            ErrorMessage = ex.Message;
-            Console.WriteLine(ex.ToString());
-        }
-        finally
-        {
-            isLoading = false;
+            // JS interop may fail during prerender — silently ignore
         }
     }
 }

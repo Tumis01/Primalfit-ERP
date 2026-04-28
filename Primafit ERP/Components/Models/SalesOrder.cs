@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    public enum OrderStatus { Draft, Confirmed, Quote, Shipped, Invoiced, Cancelled }
+    public enum OrderStatus { Draft, Order, Confirmed, Quote, PartiallyShipped, Shipped, PartiallyInvoiced, Invoiced, Cancelled }
 
     public class SalesOrder
     {
@@ -43,13 +43,21 @@ namespace Primafit_ERP.Components.Models
         public Guid? InvoiceBatchId { get; set; }
         [Required]
         public Guid WarehouseId { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountPercentage { get; set; } = 0;
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal DiscountAmount { get; set; } = 0;
+
+        public Guid? DiscountGlAccountId { get; set; }
+        public bool IsDirectInvoice { get; set; } = false;
+        public Guid? DirectIncomeGlAccountId { get; set; } 
         public List<SalesOrderLine> Lines { get; set; } = new();
 
-        // --- UI COMPUTED HELPERS (Not saved to DB directly) ---
+        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && GrandTotalForeign > 0 && AmountPaid >= (GrandTotalForeign - 0.01m);
         [NotMapped] public decimal GrandTotalForeign { get; set; }
         [NotMapped] public decimal AmountPaid { get; set; }
-        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && AmountPaid >= GrandTotalForeign && GrandTotalForeign > 0;
+        [NotMapped] public decimal BalanceDue => GrandTotalForeign - AmountPaid;
     }
 
     public class SalesOrderLine
@@ -61,9 +69,7 @@ namespace Primafit_ERP.Components.Models
         public Guid HeaderId { get; set; }
         [ForeignKey(nameof(HeaderId))]
         public SalesOrder? Header { get; set; }
-
-        [Required]
-        public Guid ItemId { get; set; }
+        public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
@@ -71,11 +77,15 @@ namespace Primafit_ERP.Components.Models
         public decimal Quantity { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitPrice { get; set; } // Price in FOREIGN Currency
-
-        // Computed helper
+        public decimal UnitPrice { get; set; }         
         [NotMapped]
         public decimal LineTotal => Quantity * UnitPrice;
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal QtyShipped { get; set; } = 0;
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal QtyInvoiced { get; set; } = 0;
+        public string? Description { get; set; }
     }
     public class SalesInvoice
     {
@@ -84,9 +94,6 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CompanyId { get; set; }
         public Guid CustomerId { get; set; }
-
-        // FLEXIBILITY: User selects "Accounts Receivable" account manually
-        // (e.g., user selects "1100 - Trade Debtors" or "1105 - Related Party Debtors")
         public Guid ReceivablesGlAccountId { get; set; }
 
         public List<SalesInvoiceLine> Lines { get; set; }
@@ -96,12 +103,54 @@ namespace Primafit_ERP.Components.Models
     {
         public Guid Id { get; set; }
         public Guid ItemId { get; set; }
-
-        // FLEXIBILITY: User selects "Sales Revenue" account manually
-        // (e.g., "4000 - Product Sales" vs "4100 - Service Revenue")
         public Guid RevenueGlAccountId { get; set; }
 
         public decimal Amount { get; set; }
 
+    }
+    public enum ShipmentStatus { Pending, PartiallyShipped, Shipped, Cancelled }
+
+    public class SalesShipment
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+        [Required]
+        public Guid CompanyId { get; set; }
+        [Required]
+        public Guid SalesOrderId { get; set; }
+        [ForeignKey(nameof(SalesOrderId))]
+        public SalesOrder? SalesOrder { get; set; }
+
+        public Guid WarehouseId { get; set; }
+        public ShipmentStatus Status { get; set; } = ShipmentStatus.Pending;
+
+        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
+        public DateTime? ShippedDate { get; set; }
+        public Guid? ShipmentBatchId { get; set; }
+
+        public string ShipmentNumber { get; set; } = string.Empty;
+        public string? ConfirmedBy { get; set; }
+        public List<SalesShipmentLine> Lines { get; set; } = new();
+    }
+
+    public class SalesShipmentLine
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+        [Required]
+        public Guid ShipmentId { get; set; }
+        [ForeignKey(nameof(ShipmentId))]
+        public SalesShipment? Shipment { get; set; }
+
+        public Guid SalesOrderLineId { get; set; }
+        public Guid ItemId { get; set; }
+        [ForeignKey(nameof(ItemId))]
+        public Item? Item { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal QtyOrdered { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal QtyShipped { get; set; }
     }
 }

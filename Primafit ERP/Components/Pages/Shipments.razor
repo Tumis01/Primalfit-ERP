@@ -1,0 +1,337 @@
+﻿@page "/wh/shipments"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+
+@inject ShipmentService ShipmentService
+@inject WarehouseService WhService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouse Dispatch</h1>
+            <p class="text-sm text-slate-500 mt-1">Process physical shipments and view dispatch history.</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
+
+            <div class="relative w-full sm:w-80 shrink-0" @onfocusout="HideDropdownDelay">
+                @* <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg> *@
+                <input type="text"
+                       @bind="orderSearchTerm"
+                       @bind:event="oninput"
+                       @onfocus="() => showOrderDropdown = true"
+                       @onkeyup="HandleInput"
+                       placeholder="Select invoice to dispatch..."
+                       class="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
+
+                @if (showOrderDropdown)
+                {
+                    <div class="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto left-0">
+                        @if (FilteredUnshippedOrders.Any())
+                        {
+                            <ul class="py-1 text-sm text-slate-700">
+                                @foreach (var o in FilteredUnshippedOrders)
+                                {
+                                    bool isPartial = o.Lines.Any(l => l.QtyShipped > 0);
+                                    <li @onclick="() => SelectOrder(o)" class="px-4 py-2.5 hover:bg-indigo-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
+                                        <div class="truncate pr-4">
+                                            <span class="font-black text-slate-900">@o.OrderNumber</span>
+                                            <span class="text-slate-500 ml-1">- @o.Customer?.Name</span>
+                                        </div>
+                                        @if (isPartial)
+                                        {
+                                            <span class="shrink-0 text-[9px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded border border-amber-200 tracking-wider">PARTIAL</span>
+                                        }
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <div class="px-4 py-4 text-sm text-slate-400 italic text-center">No unshipped matching invoices found.</div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <button @onclick="PullOrderToQueue" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2">
+                
+                Load Shipment
+            </button>
+        </div>
+    </div>
+
+    <div class="flex gap-4 border-b border-slate-200">
+        <button @onclick="() => activeTab = 0" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 0 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">
+            Pending Dispatch Queue
+        </button>
+        <button @onclick="() => activeTab = 1" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 1 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">
+            Shipment History
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading data...</div>
+    }
+    else if (activeTab == 0)
+    {
+        @if (!shipments.Any())
+        {
+            <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">
+                <svg class="mx-auto h-12 w-12 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                No pending shipments in the queue. Search and select an invoice above to begin.
+            </div>
+        }
+        else
+        {
+            <div class="space-y-4">
+                @foreach (var shp in shipments)
+                {
+                    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition-all hover:shadow-md">
+                        <div class="flex justify-between items-center bg-slate-50 p-4 border-b border-slate-200 cursor-pointer" @onclick="() => ToggleExpand(shp.Id)">
+                            <div class="flex items-center gap-4">
+                                <span class="font-mono font-bold text-indigo-700">@shp.ShipmentNumber</span>
+                                <span class="text-sm font-bold text-slate-700">Ref: @shp.SalesOrder?.OrderNumber</span>
+                                <span class="text-sm text-slate-500 hidden sm:inline">| Customer: @shp.SalesOrder?.Customer?.Name</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="px-2.5 py-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full uppercase tracking-wider">
+                                    Pending
+                                </span>
+                                <svg class="w-5 h-5 text-slate-400 transform transition-transform @(expandedShipmentId == shp.Id ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                            </div>
+                        </div>
+
+                        @if (expandedShipmentId == shp.Id)
+                        {
+                            <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto">
+                                <table class="w-full text-sm text-left min-w-[500px]">
+                                    <thead class="text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th class="pb-3 w-1/2">Item Name</th>
+                                            <th class="pb-3 text-center">Required Qty</th>
+                                            <th class="pb-3 text-center w-40">Actual Shipped</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach (var line in shp.Lines)
+                                        {
+                                            <tr>
+                                                <td class="py-4 font-bold text-slate-800">@line.Item?.Name</td>
+                                                <td class="py-4 text-center text-slate-500 font-mono">@line.QtyOrdered</td>
+                                                <td class="py-4">
+                                                    <input type="number" step="0.01" max="@line.QtyOrdered" min="0" @bind="line.QtyShipped"
+                                                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-center font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
+                                                    @if (line.QtyShipped > line.QtyOrdered)
+                                                    {
+                                                        <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Cannot exceed required</div>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+
+                                <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                                    <button type="button" @onclick="() => expandedShipmentId = Guid.Empty" class="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-50 border border-slate-200 transition-colors">
+                                        Cancel
+                                    </button>
+                                    <button type="button" @onclick="() => ConfirmDispatch(shp)" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        Confirm Dispatch
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+    else if (activeTab == 1)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+            <table class="w-full text-left text-sm text-slate-900 min-w-[800px]">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="p-4 w-32">Date Shipped</th>
+                        <th class="p-4">Shipment #</th>
+                        <th class="p-4">Ref Invoice</th>
+                        <th class="p-4">Customer</th>
+                        <th class="p-4">Warehouse</th>
+                        <th class="p-4">Items Processed</th>
+                        <th class="p-4">Confirmed By</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var h in history)
+                    {
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="p-4 font-mono text-slate-600 text-xs">@(h.ShippedDate?.ToString("dd MMM, yyyy HH:mm") ?? "-")</td>
+                            <td class="p-4 font-mono font-bold text-indigo-700">@h.ShipmentNumber</td>
+                            <td class="p-4 font-mono text-xs font-bold text-slate-600">@h.SalesOrder?.OrderNumber</td>
+                            <td class="p-4 font-medium">@h.SalesOrder?.Customer?.Name</td>
+                            <td class="p-4 text-xs font-bold text-slate-600">@(warehouses.FirstOrDefault(w => w.Id == h.WarehouseId)?.Name ?? "Unknown")</td>
+                            <td class="p-4 text-sm">
+                                @if (h.Lines != null)
+                                {
+                                    foreach (var l in h.Lines.Where(x => x.QtyShipped > 0))
+                                    {
+                                        <div class="text-xs mt-0.5">
+                                            <span class="text-slate-700 font-medium">@l.Item?.Name</span>
+                                            <span class="text-emerald-600 font-bold ml-1">(Qty: @l.QtyShipped.ToString("G29"))</span>
+                                        </div>
+                                    }
+                                }
+                            </td>
+                            <td class="p-4 text-xs text-slate-500 font-bold">@(h.ConfirmedBy ?? "Unknown")</td>
+                        </tr>
+                    }
+                    @if (!history.Any())
+                    {
+                        <tr><td colspan="7" class="p-12 text-center text-slate-400">No shipment history found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private int activeTab = 0;
+    private bool isLoading = true;
+    private Guid companyId;
+    private string currentUser = "System User";
+
+    private string orderSearchTerm = "";
+    private bool showOrderDropdown = false;
+    private Guid selectedUnshippedOrderId = Guid.Empty;
+
+    private List<SalesOrder> unshippedOrders = new();
+    private List<Warehouse> warehouses = new();
+
+    private List<SalesShipment> shipments = new();
+    private List<SalesShipment> history = new();
+    private Guid expandedShipmentId = Guid.Empty;
+
+    // ELIGIBLE INVOICES ONLY: Filter restricts the autocomplete to documents that have actually been invoiced and are not Drafts.
+    private IEnumerable<SalesOrder> FilteredUnshippedOrders =>
+        unshippedOrders.Where(o => o.OrderNumber.StartsWith("INV") && o.Status != OrderStatus.Draft &&
+                                (string.IsNullOrWhiteSpace(orderSearchTerm)
+                                || o.OrderNumber.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase)
+                                || (o.Customer != null && o.Customer.Name.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase))));
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user != null)
+        {
+            currentUser = user.UserName ?? "System User";
+            if (user.CompanyDetailsId != null)
+            {
+                companyId = user.CompanyDetailsId.Value;
+                await LoadData();
+            }
+        }
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        warehouses = await WhService.GetWarehousesAsync(companyId);
+        shipments = await ShipmentService.GetPendingShipmentsAsync(companyId);
+        history = await ShipmentService.GetShipmentHistoryAsync(companyId);
+        unshippedOrders = await ShipmentService.GetUnshippedOrdersAsync(companyId);
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task HideDropdownDelay()
+    {
+        await Task.Delay(150);
+        showOrderDropdown = false;
+        StateHasChanged();
+    }
+
+    private void HandleInput()
+    {
+        selectedUnshippedOrderId = Guid.Empty;
+        showOrderDropdown = true;
+    }
+
+    private void SelectOrder(SalesOrder o)
+    {
+        selectedUnshippedOrderId = o.Id;
+        orderSearchTerm = $"{o.OrderNumber} - {o.Customer?.Name}";
+        showOrderDropdown = false;
+    }
+
+    private async Task PullOrderToQueue()
+    {
+        if (selectedUnshippedOrderId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please search and select an eligible invoice from the dropdown list first.");
+            return;
+        }
+
+        var err = await ShipmentService.CreateShipmentFromOrderAsync(selectedUnshippedOrderId);
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        else
+        {
+            selectedUnshippedOrderId = Guid.Empty;
+            orderSearchTerm = "";
+            await LoadData();
+        }
+    }
+
+    private void ToggleExpand(Guid id)
+    {
+        expandedShipmentId = expandedShipmentId == id ? Guid.Empty : id;
+    }
+
+    private async Task ConfirmDispatch(SalesShipment shp)
+    {
+        if (shp.Lines.Any(l => l.QtyShipped > l.QtyOrdered))
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: You cannot ship more than the required order quantity.");
+            return;
+        }
+
+        bool isPartial = shp.Lines.Any(l => l.QtyShipped < l.QtyOrdered);
+        string msg = isPartial
+            ? "You are doing a partial shipment. A new pending document will be created for the remainder. Proceed?"
+            : "Confirm physical dispatch of all items?";
+
+        bool confirm = await JS.InvokeAsync<bool>("confirm", msg);
+        if (!confirm) return;
+
+        // NOTE: Make sure your ShipmentService accepts the currentUser as the 3rd parameter to save the audit trail!
+        var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser);
+
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", $"Dispatch Confirmed! GL and Stock Ledger updated for {shp.ShipmentNumber}");
+            expandedShipmentId = Guid.Empty;
+            await LoadData();
+        }
+    }
+}

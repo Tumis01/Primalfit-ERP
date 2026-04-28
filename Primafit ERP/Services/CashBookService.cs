@@ -43,7 +43,7 @@ namespace Primafit_ERP.Services
             return batch!;
         }
 
-        public async Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId)
+        public async Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId, bool isForeign, Guid? currencyId, decimal exchangeRate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -65,7 +65,11 @@ namespace Primafit_ERP.Services
                 BatchReference = $"CB-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(100, 999)}",
                 CreatedByUserId = userId,
                 OpeningBalance = openingBal,
-                Status = BatchStatus.Draft
+                Status = BatchStatus.Draft,
+                // Map the new fields
+                IsForeignCurrency = isForeign,
+                CurrencyId = isForeign ? currencyId : null,
+                ExchangeRate = isForeign && exchangeRate > 0 ? exchangeRate : 1
             };
 
             ctx.CashbookBatches.Add(batch);
@@ -180,8 +184,8 @@ namespace Primafit_ERP.Services
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = entry.OffsetSegCoaId,
-                    Debit = entry.Debit,
-                    Credit = entry.Credit,
+                    Debit = entry.Credit,
+                    Credit = entry.Debit,
                     Reference = $"{entry.Reference}: {entry.Description}",
                 });
 
@@ -189,8 +193,8 @@ namespace Primafit_ERP.Services
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = batch.BankSegCoaId,
-                    Debit = entry.Credit, // Opposite of Offset
-                    Credit = entry.Debit, // Opposite of Offset
+                    Debit = entry.Debit, // Opposite of Offset
+                    Credit = entry.Credit, // Opposite of Offset
                     Reference = $"Cashbook: {entry.Reference}"
                 });
             }

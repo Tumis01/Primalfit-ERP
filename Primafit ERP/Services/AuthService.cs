@@ -21,41 +21,40 @@ namespace Primafit_ERP.Services
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
             var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
 
-            
-            
-            // 1. Check for existing email globally
+            // 1. Check for existing email globally before doing anything
             if (await userManager.FindByEmailAsync(model.Email) != null)
                 return (false, "This email is already registered.");
 
-            // START TRANSACTION
-            using var transaction = await db.Database.BeginTransactionAsync();
+            CompanyDetails? newCompany = null;
+
             try
             {
-                // 2. Create Company
-                var newCompany = new CompanyDetails
+                // 2. Create Company 
+                // Note: We leave BaseCurrency and FiscalStartYear out so they default to null. 
+                // This ensures the forced onboarding prompt triggers on first login!
+                newCompany = new CompanyDetails
                 {
                     CompanyDetailsId = Guid.NewGuid(),
                     CompanyName = model.CompanyName,
                     CompanyEmail = model.CompanyEmail,
-                    Type = model.Type, // <--- SAVED HERE
-                    CreatedDate = DateTime.UtcNow,
-
-                    // System Defaults
-                    FiscalStartYear = DateOnly.FromDateTime(DateTime.Today),
-                    FiscalEndYear = DateOnly.FromDateTime(DateTime.Today.AddYears(1)),
-                    BaseCurrency = "NGN",
-                    FunctionalCurrency = "NGN",
-                    country = "Nigeria",
+                    Type = model.Type,
+                    CreatedDate = DateTime.UtcNow
                 };
+
                 db.CompanyDetails.Add(newCompany);
                 await db.SaveChangesAsync();
 
-                // 3. Create "SuperAdmin" Role for THIS Company
-                // Note: The unique system name combines CompanyID + RoleName to allow multiple "SuperAdmins" in the DB
+                // 3. Create Super Admin Role for this specific company
                 var superAdminRole = new ApplicationRole("SuperAdmin", newCompany.CompanyDetailsId, "Full System Access");
-
                 var roleResult = await roleManager.CreateAsync(superAdminRole);
-                if (!roleResult.Succeeded) throw new Exception("Failed to create Admin Role: " + roleResult.Errors.First().Description);
+
+                if (!roleResult.Succeeded)
+                {
+                    // Manual Rollback: Delete the company we just created if role fails
+                    db.CompanyDetails.Remove(newCompany);
+                    await db.SaveChangesAsync();
+                    return (false, "Failed to create Admin Role: " + string.Join(", ", roleResult.Errors.Select(e => e.Description)));
+                }
 
                 // 4. Create Admin User linked to Company
                 var adminUser = new ApplicationUser
@@ -69,19 +68,47 @@ namespace Primafit_ERP.Services
                 };
 
                 var userResult = await userManager.CreateAsync(adminUser, model.Password);
-                if (!userResult.Succeeded) throw new Exception("Failed to create User: " + userResult.Errors.First().Description);
+                if (!userResult.Succeeded)
+                {
+                    // Manual Rollback: Delete the role and company if user creation fails
+                    await roleManager.DeleteAsync(superAdminRole);
+                    db.CompanyDetails.Remove(newCompany);
+                    await db.SaveChangesAsync();
+                    return (false, "Failed to create User: " + string.Join(", ", userResult.Errors.Select(e => e.Description)));
+                }
 
                 // 5. Assign Role
-                await userManager.AddToRoleAsync(adminUser, superAdminRole.Name);
+                var assignResult = await userManager.AddToRoleAsync(adminUser, superAdminRole.Name);
+                if (!assignResult.Succeeded)
+                {
+                    // Final Rollback attempt if role assignment fails
+                    await userManager.DeleteAsync(adminUser);
+                    await roleManager.DeleteAsync(superAdminRole);
+                    db.CompanyDetails.Remove(newCompany);
+                    await db.SaveChangesAsync();
+                    return (false, "Failed to assign role to user.");
+                }
 
-                // COMMIT
-                await transaction.CommitAsync();
                 return (true, "Registration successful!");
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                return (false, $"Registration failed: {ex.Message}");
+                // Grab the deepest Inner Exception to see the ACTUAL SQL error
+                string exactError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+
+                // Cleanup: If it failed mid-way, try to delete the orphaned company record
+                if (newCompany != null && newCompany.CompanyDetailsId != Guid.Empty)
+                {
+                    var existingComp = await db.CompanyDetails.FindAsync(newCompany.CompanyDetailsId);
+                    if (existingComp != null)
+                    {
+                        db.CompanyDetails.Remove(existingComp);
+                        await db.SaveChangesAsync();
+                    }
+                }
+
+                // Return the exact SQL error to the UI
+                return (false, $"DB Error: {exactError}");
             }
         }
 
@@ -93,11 +120,6 @@ namespace Primafit_ERP.Services
 
             var user = await userManager.FindByEmailAsync(model.Email);
             if (user == null) return (false, "Invalid credentials.");
-
-            // Optional: Check if Company is Active
-            // var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            // var company = await db.CompanyDetails.FindAsync(user.CompanyDetailsId);
-            // if (company == null || !company.IsActive) return (false, "Company account is suspended.");
 
             var result = await signInManager.PasswordSignInAsync(user, model.Password, isPersistent: true, lockoutOnFailure: false);
 

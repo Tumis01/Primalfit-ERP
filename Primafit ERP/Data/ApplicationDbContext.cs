@@ -32,6 +32,7 @@ namespace PrimafitERP.Data
 
         // --- SUPPLY CHAIN ---
         public DbSet<Item> Items { get; set; }
+        public DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
@@ -44,12 +45,12 @@ namespace PrimafitERP.Data
         public DbSet<Vendor> Vendors { get; set; }
         public DbSet<PurchaseOrder> PurchaseOrders { get; set; }
         public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
+        public DbSet<GoodsReceiptLine> GoodsReceiptLines { get; set; }
         public DbSet<SalesInvoice> SalesInvoices { get; set; }
         public DbSet<SalesInvoiceLine> SalesInvoiceLines { get; set; }
         public DbSet<PurchaseOrderLine> PurchaseOrderLines { get; set; }
         public DbSet<CashbookBatch> CashbookBatches { get; set; }
         public DbSet<CashbookEntry> CashbookEntries { get; set; }
-        public DbSet<FinancialDashboardSnapshot> FinancialDashboardSnapshots { get; set; }
         public DbSet<ItemCostHistory> ItemCostHistories { get; set; }
         public DbSet<WaccHistory> WaccHistories { get; set; }
         public DbSet<FixedAsset> FixedAssets { get; set; }
@@ -65,21 +66,31 @@ namespace PrimafitERP.Data
         public DbSet<Segment5> Segment5s { get; set; }
         public DbSet<PurchaseReturn> PurchaseReturns { get; set; }
         public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
-
-        // --- CREDIT NOTES (New) ---
         public DbSet<CreditNote> CreditNotes { get; set; }
         public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
-        //public DbSet<SegAccountType> SegAccountTypes { get; set; }
 
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<CustomerGroup> CustomerGroups { get; set; }
         public DbSet<VendorGroup> VendorGroups { get; set; }
-        public DbSet<LandedCostType> LandedCostTypes { get; set; }
+        public DbSet<ItemCategory> ItemCategories { get; set; }
         public DbSet<GrnLandedCost> GrnLandedCosts { get; set; }
         public DbSet<AssetCategory> AssetCategories { get; set; }
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }
+        public DbSet<SalesShipment> SalesShipments { get; set; }
+        public DbSet<SalesShipmentLine> SalesShipmentLines { get; set; }
+        // HR & Payroll
+        public DbSet<Branch> Branches { get; set; }
+        public DbSet<Department> Departments { get; set; }
+        public DbSet<JobRole> JobRoles { get; set; }
+        public DbSet<EmployeeSalaryStructure> SalaryStructures { get; set; }
+        public DbSet<Employee> Employees { get; set; }
+        public DbSet<PayrollRun> PayrollRuns { get; set; }
+        public DbSet<PayrollItem> PayrollItems { get; set; }
+        public DbSet<PayrollSetting> PayrollSettings { get; set; }
+        public DbSet<PayrollEarning> PayrollEarnings { get; set; }
+        public DbSet<PayrollDeduction> PayrollDeductions { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

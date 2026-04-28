@@ -1,0 +1,373 @@
+﻿@page "/hr/compliance-reports"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PayrollService PayrollService
+@inject PayrollReportingService ReportingService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Payroll Analytics & Compliance</h1>
+            <p class="text-sm text-slate-500 mt-1">Generate statutory schedules, variance analysis, and YTD tax reports.</p>
+        </div>
+
+        <div class="flex gap-3 items-center">
+            <select class="input-class w-56 font-bold" @onchange="OnRunSelected">
+                <option value="@Guid.Empty">-- Select Monthly Payroll Run --</option>
+                @foreach (var run in runs)
+                {
+                    <option value="@run.Id">@run.Period (@run.Status)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading reports...</div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            
+            <!-- Tabs -->
+            <div class="flex flex-wrap border-b border-slate-200 bg-slate-50">
+                <button @onclick="() => activeTab = 0" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 0 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100")">
+                    Payroll Summary
+                </button>
+                <button @onclick="() => activeTab = 1" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 1 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100")">
+                    PAYE Schedule
+                </button>
+                <button @onclick="() => activeTab = 2" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 2 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100")">
+                    Pension Schedule
+                </button>
+                <button @onclick="() => activeTab = 3" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 3 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100")">
+                    Variance Analysis
+                </button>
+                <button @onclick="() => activeTab = 4" class="px-6 py-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 4 ? "border-indigo-600 text-indigo-600 bg-white" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-100")">
+                    Annual YTD (Form H1)
+                </button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="p-6">
+                
+                @if (isGenerating)
+                {
+                    <div class="py-12 text-center text-slate-400 animate-pulse">Extracting report data...</div>
+                }
+                else
+                {
+                    @if (selectedRunId == Guid.Empty && activeTab != 4)
+                    {
+                        <div class="py-12 text-center text-slate-400">Please select a Monthly Payroll Run from the dropdown above.</div>
+                    }
+                    else
+                    {
+                        <!-- TAB 0, 1, 2 remain exactly the same as before ... -->
+                        <!-- (I have kept them here so you can copy-paste the whole file) -->
+
+                        <!-- TAB 0: SUMMARY -->
+                        @if (activeTab == 0)
+                        {
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-bold text-slate-800">Branch Summary</h3>
+                                <button @onclick='() => ExportToExcel(summaryData, "Summary")' class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700">Export Excel</button>
+                            </div>
+                            <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Branch</th>
+                                        <th class="p-3 text-center">Headcount</th>
+                                        <th class="p-3 text-right">Total Gross</th>
+                                        <th class="p-3 text-right">Total PAYE</th>
+                                        <th class="p-3 text-right">Total Pension</th>
+                                        <th class="p-3 text-right">Net Payout</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach(var row in summaryData)
+                                    {
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="p-3 font-bold text-slate-800">@row.BranchName</td>
+                                            <td class="p-3 text-center font-mono">@row.EmployeeCount</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.TotalGross.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPAYE.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPension.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+
+                        <!-- TAB 1: PAYE -->
+                        @if (activeTab == 1)
+                        {
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-bold text-slate-800">PAYE Tax Schedule (LIRS/FIRS)</h3>
+                                <button @onclick='() => ExportToExcel(payeData, "PAYE_Schedule")' class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700">Export Excel</button>
+                            </div>
+                            <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Employee Name</th>
+                                        <th class="p-3">Tax ID (TIN)</th>
+                                        <th class="p-3 text-right">Gross Income</th>
+                                        <th class="p-3 text-right">Pension Relief</th>
+                                        <th class="p-3 text-right">PAYE Deducted</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach(var row in payeData)
+                                    {
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
+                                            <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.GrossPay.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.PensionDeducted.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.PayeDeducted.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+
+                        <!-- TAB 2: PENSION -->
+                        @if (activeTab == 2)
+                        {
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-bold text-slate-800">Pension Remittance Schedule (PENCOM)</h3>
+                                <button @onclick='() => ExportToExcel(pensionData, "Pension_Schedule")' class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700">Export Excel</button>
+                            </div>
+                            <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Employee Name</th>
+                                        <th class="p-3">PFA</th>
+                                        <th class="p-3">RSA PIN</th>
+                                        <th class="p-3 text-right">Employee (8%)</th>
+                                        <th class="p-3 text-right">Employer (10%)</th>
+                                        <th class="p-3 text-right">Total Remittance</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach(var row in pensionData)
+                                    {
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
+                                            <td class="p-3 text-slate-600">@row.PFA</td>
+                                            <td class="p-3 font-mono text-xs text-slate-500">@row.RSAPin</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.EmployeeContribution.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-amber-600">@row.EmployerContribution.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-slate-900">@row.TotalRemittance.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+
+                        <!-- NEW TAB 3: VARIANCE -->
+                        @if (activeTab == 3)
+                        {
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-bold text-slate-800">Month-over-Month Variance (Exceptions Only)</h3>
+                                <button @onclick='() => ExportToExcel(varianceData, "Variance_Report")' class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700">Export Excel</button>
+                            </div>
+                            @if (!varianceData.Any())
+                            {
+                                <div class="py-8 text-center text-slate-500 bg-slate-50 rounded-lg border border-slate-200">No variances found. Payroll is identical to the previous month.</div>
+                            }
+                            else
+                            {
+                                <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                                    <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500">
+                                        <tr>
+                                            <th class="p-3">Employee Name</th>
+                                            <th class="p-3 text-right bg-slate-200/50">Prev Gross</th>
+                                            <th class="p-3 text-right bg-slate-200/50">Curr Gross</th>
+                                            <th class="p-3 text-right font-black">Gross Var</th>
+                                            <th class="p-3 text-right bg-slate-200/50">Prev Net</th>
+                                            <th class="p-3 text-right bg-slate-200/50">Curr Net</th>
+                                            <th class="p-3 text-right font-black">Net Var</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach(var row in varianceData)
+                                        {
+                                            <tr class="hover:bg-slate-50">
+                                                <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
+                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousGross.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentGross.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono font-bold @(row.VarianceGross > 0 ? "text-emerald-600" : row.VarianceGross < 0 ? "text-rose-600" : "text-slate-300")">
+                                                    @(row.VarianceGross > 0 ? "+" : "")@row.VarianceGross.ToString("N2")
+                                                </td>
+                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousNet.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentNet.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono font-bold @(row.VarianceNet > 0 ? "text-emerald-600" : row.VarianceNet < 0 ? "text-rose-600" : "text-slate-300")">
+                                                    @(row.VarianceNet > 0 ? "+" : "")@row.VarianceNet.ToString("N2")
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+                        }
+                    }
+
+                    <!-- NEW TAB 4: ANNUAL YTD (FORM H1) -->
+                    @if (activeTab == 4)
+                    {
+                        <div class="flex justify-between items-center mb-4 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                            <div>
+                                <h3 class="font-bold text-indigo-900">Form H1: Annual Employer's Tax Return</h3>
+                                <p class="text-xs text-indigo-700 mt-1">Aggregates all approved/paid payroll runs for the selected calendar year.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <select @bind="selectedYear" class="input-class font-bold text-indigo-900 bg-white border-indigo-200">
+                                    @for(int y = DateTime.Today.Year; y >= 2023; y--)
+                                    {
+                                        <option value="@y">@y</option>
+                                    }
+                                </select>
+                                <button @onclick="LoadYtdReport" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-indigo-700">Load Data</button>
+                                @if(ytdData.Any())
+                                {
+                                    <button @onclick='() => ExportToExcel(ytdData, $"Form_H1_{selectedYear}")' class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-emerald-700">Export Excel</button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (ytdData.Any())
+                        {
+                            <table class="w-full text-sm text-left border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500">
+                                    <tr>
+                                        <th class="p-3">Employee Name</th>
+                                        <th class="p-3">Tax ID</th>
+                                        <th class="p-3 text-center">Months</th>
+                                        <th class="p-3 text-right">Total Gross</th>
+                                        <th class="p-3 text-right">Total Pension</th>
+                                        <th class="p-3 text-right text-rose-600">Total PAYE</th>
+                                        <th class="p-3 text-right">Total Net</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach(var row in ytdData)
+                                    {
+                                        <tr class="hover:bg-slate-50">
+                                            <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
+                                            <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
+                                            <td class="p-3 text-center font-bold">@row.MonthsWorked</td>
+                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalGross.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalPension.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.TotalPAYE.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .input-class { border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private bool isLoading = true;
+    private bool isGenerating = false;
+
+    private List<PayrollRun> runs = new();
+    private Guid selectedRunId = Guid.Empty;
+    private int activeTab = 0;
+    private int selectedYear = DateTime.Today.Year;
+
+    // Report Data
+    private List<PayrollSummaryRow> summaryData = new();
+    private List<PayeScheduleRow> payeData = new();
+    private List<PensionScheduleRow> pensionData = new();
+    private List<PayrollVarianceRow> varianceData = new();
+    private List<YtdTaxReportRow> ytdData = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            runs = await PayrollService.GetPayrollRunsAsync(currentCompanyId);
+        }
+        isLoading = false;
+    }
+
+    private async Task OnRunSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id))
+        {
+            selectedRunId = id;
+            isGenerating = true;
+
+            // Fetch all monthly reports concurrently
+            var t1 = ReportingService.GetPayrollSummaryAsync(id, currentCompanyId);
+            var t2 = ReportingService.GetPayeScheduleAsync(id, currentCompanyId);
+            var t3 = ReportingService.GetPensionScheduleAsync(id, currentCompanyId);
+            var t4 = ReportingService.GetPayrollVarianceAsync(id, currentCompanyId);
+
+            await Task.WhenAll(t1, t2, t3, t4);
+
+            summaryData = t1.Result;
+            payeData = t2.Result;
+            pensionData = t3.Result;
+            varianceData = t4.Result;
+
+            isGenerating = false;
+        }
+        else
+        {
+            selectedRunId = Guid.Empty;
+        }
+    }
+
+    private async Task LoadYtdReport()
+    {
+        isGenerating = true;
+        ytdData = await ReportingService.GetAnnualYtdTaxReportAsync(selectedYear, currentCompanyId);
+        isGenerating = false;
+    }
+
+    private async Task ExportToExcel<T>(List<T> data, string reportName)
+    {
+        try
+        {
+            var bytes = ReportingService.ExportScheduleToExcel(data, reportName);
+            var fileName = $"{reportName}.xlsx";
+
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+}

@@ -10,17 +10,18 @@
 @inject MasterDataService MasterService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1200px] mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <div class="flex items-center gap-3">
-                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Direct Stock Entry</h1>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Inventory Control & Adjustments</h1>
                 @if (!string.IsNullOrEmpty(companyName))
                 {
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
@@ -28,134 +29,298 @@
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Record direct inventory receipts or service expenses.</p>
+            <p class="text-sm text-slate-500 mt-1">Track stock movements, direct receipts, and inventory valuation adjustments.</p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4 items-center">
+            @if (activeTab == 0)
+            {
+                <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                    <input type="date" @bind="FilterFromDate" class="px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+                    <span class="text-slate-400 font-bold text-xs">-</span>
+                    <input type="date" @bind="FilterToDate" class="px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+                </div>
+                <div class="relative w-full sm:w-64">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <input type="text" @bind="SearchTerm" @bind:event="oninput" placeholder="Search Item, Ref..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                </div>
+            }
+
+            <div class="flex bg-slate-100 p-1 rounded-xl">
+                <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    History
+                </button>
+                <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    New Entry
+                </button>
+            </div>
         </div>
     </div>
 
     @if (isLoading)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
-            Loading context...
-        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading context...</div>
     }
     else if (HasCompany)
     {
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Receipt Details</h3>
+        @if (activeTab == 0)
+        {
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+                <div class="overflow-x-auto flex-1">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                            <tr>
+                                <th class="px-6 py-4">Date</th>
+                                <th class="px-6 py-4">Reference</th>
+                                <th class="px-6 py-4">Type</th>
+                                <th class="px-6 py-4 w-[30%]">Item Name</th>
+                                <th class="px-6 py-4">Warehouse</th>
+                                <th class="px-6 py-4 text-center">Qty Change</th>
+                                <th class="px-6 py-4 text-right">Cost (WACC)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var ledger in PaginatedHistory)
+                            {
+                                var itemName = items.FirstOrDefault(i => i.Id == ledger.ItemId)?.Name ?? "Unknown Item";
+                                var whName = warehouses.FirstOrDefault(w => w.Id == ledger.WarehouseId)?.Name ?? "N/A";
+
+                                <tr class="hover:bg-slate-50/80 transition-colors">
+                                    <td class="px-6 py-4 text-slate-500 font-medium">@ledger.Date.ToString("MMM dd, yyyy HH:mm")</td>
+                                    <td class="px-6 py-4 font-mono font-bold text-slate-900">@ledger.Reference</td>
+                                    <td class="px-6 py-4">
+                                        @if (ledger.Type == StockMovementType.Purchase)
+                                        {
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Receipt</span>
+                                        }
+                                        else if (ledger.Type == StockMovementType.Adjustment)
+                                        {
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Adjustment</span>
+                                        }
+                                        else if (ledger.Type == StockMovementType.Sale || ledger.Type == StockMovementType.TransferOut)
+                                        {
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider">Issue/Out</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[10px] font-bold text-slate-700 uppercase tracking-wider">@ledger.Type</span>
+                                        }
+                                    </td>
+                                    <td class="px-6 py-4 font-bold text-slate-800 truncate max-w-[250px]" title="@itemName">@itemName</td>
+                                    <td class="px-6 py-4 text-slate-600 text-xs font-bold uppercase tracking-wider">@whName</td>
+                                    <td class="px-6 py-4 text-center">
+                                        @if (ledger.QuantityChanged > 0)
+                                        {
+                                            <span class="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">+@ledger.QuantityChanged.ToString("G29")</span>
+                                        }
+                                        else if (ledger.QuantityChanged < 0)
+                                        {
+                                            <span class="font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">@ledger.QuantityChanged.ToString("G29")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="font-mono font-bold text-slate-400">0</span>
+                                        }
+                                    </td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">@ledger.CostAtTime.ToString("N2")</td>
+                                </tr>
+                            }
+                            @if (!PaginatedHistory.Any())
+                            {
+                                <tr><td colspan="7" class="p-16 text-center text-slate-400">No stock history found matching your criteria.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (TotalPages > 1)
+                {
+                    <div class="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between mt-auto">
+                        <p class="text-sm text-slate-500 font-medium">
+                            Showing <span class="font-bold text-slate-900">@((currentPage - 1) * pageSize + 1)</span> to <span class="font-bold text-slate-900">@Math.Min(currentPage * pageSize, FilteredHistory.Count())</span> of <span class="font-bold text-slate-900">@FilteredHistory.Count()</span> entries
+                        </p>
+                        <div class="flex gap-2">
+                            <button @onclick="PreviousPage" disabled="@(currentPage == 1)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                                Previous
+                            </button>
+                            <button @onclick="NextPage" disabled="@(currentPage == TotalPages)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                }
             </div>
+        }
+        else
+        {
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible">
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center rounded-t-2xl">
+                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Stock Entry</h3>
+                    <span class="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg border @(entryType == StockEntryType.DirectReceipt ? "bg-indigo-50 text-indigo-700 border-indigo-200" : "bg-rose-50 text-rose-700 border-rose-200")">
+                        @(entryType == StockEntryType.DirectReceipt ? "Procurement" : "Internal Adjustment")
+                    </span>
+                </div>
 
-            <EditForm Model="@dummy" OnValidSubmit="ProcessReceipt" class="p-8">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    <div class="space-y-5">
-                        <div>
-                            <label class="label">Vendor (Source)</label>
-                            <select @bind="selectedVendorId" class="input-class">
-                                <option value="@Guid.Empty">-- Select Vendor --</option>
-                                @foreach (var v in vendors)
-                                {
-                                    <option value="@v.Id">@v.Name</option>
-                                }
-                            </select>
+                <div class="p-8">
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-8 mb-8">
+
+                        <div class="md:col-span-5 space-y-6">
+
+                            <div>
+                                <label class="label text-indigo-700">Adjustment Type</label>
+                                <select @bind="EntryType" class="input-class font-bold border-indigo-200 bg-indigo-50/30">
+                                    <option value="@StockEntryType.DirectReceipt">Direct Receipt (Vendor Purchase)</option>
+                                    <option value="@StockEntryType.QuantityIncrease">Quantity Increase (+Qty Only)</option>
+                                    <option value="@StockEntryType.QuantityDecrease">Quantity Decrease (-Qty Only)</option>
+                                    <option value="@StockEntryType.CostIncrease">Cost Increase (+Value Only)</option>
+                                    <option value="@StockEntryType.CostDecrease">Cost Decrease (-Value Only)</option>
+                                    <option value="@StockEntryType.BothIncrease">Both Increase (+Qty, +Value)</option>
+                                    <option value="@StockEntryType.BothDecrease">Both Decrease (-Qty, -Value)</option>
+                                </select>
+                            </div>
+
+                            @if (entryType == StockEntryType.DirectReceipt)
+                            {
+                                <div class="animate-in slide-in-from-top-2">
+                                    <label class="label">Vendor (Source)</label>
+                                    <select @bind="selectedVendorId" class="input-class">
+                                        <option value="@Guid.Empty">-- Select Vendor --</option>
+                                        @foreach (var v in vendors)
+                                        {
+                                            <option value="@v.Id">@v.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+
+                            <div>
+                                <label class="label flex justify-between">
+                                    <span>Target Warehouse</span>
+                                    @if (IsServiceItem)
+                                    {
+                                        <span class="text-[9px] text-slate-400 font-normal normal-case">Disabled for Services</span>
+                                    }
+                                </label>
+                                <select @bind="selectedWarehouseId" class="input-class" disabled="@IsServiceItem">
+                                    <option value="@Guid.Empty">-- Select Warehouse --</option>
+                                    @foreach (var w in warehouses)
+                                    {
+                                        <option value="@w.Id">@w.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="label">Reference / Reason</label>
+                                <input type="text" @bind="referenceNote" class="input-class" placeholder="e.g., Audit found extra stock, Damaged in transit..." />
+                            </div>
+
                         </div>
 
-                        <div>
-                            <label class="label">Receiving Warehouse</label>
-                            <select @bind="selectedWarehouseId" class="input-class disabled:opacity-50 disabled:cursor-not-allowed" disabled="@IsServiceItem">
-                                <option value="@Guid.Empty">
-                                    @(IsServiceItem ? "-- Not Applicable for Services --" : "-- Select Warehouse --")
-                                </option>
-                                @foreach (var w in warehouses)
+                        <div class="md:col-span-7 bg-slate-50 p-6 rounded-2xl border border-slate-100 overflow-visible h-fit">
+
+                            <div class="mb-5 overflow-visible">
+                                <SearchableItem Label="Target Item"
+                                                Items="@items"
+                                                @bind-Value="selectedItemId"
+                                                OnSelectionChanged="OnItemChanged"
+                                                IsInvalid="@(selectedItemId == Guid.Empty)" />
+                                @if (IsServiceItem)
                                 {
-                                    <option value="@w.Id">@w.Name</option>
+                                    <p class="text-[10px] text-indigo-600 mt-1 font-bold">Service Items can only be Direct Received. Adjustments are blocked.</p>
                                 }
-                            </select>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="label">Quantity Change</label>
+                                    <input type="number"
+                                           @bind="Qty"
+                                           class="input-class font-mono text-center font-bold text-lg @(LockQty ? "bg-slate-100 text-slate-400 border-dashed" : "")"
+                                           placeholder="0"
+                                           readonly="@LockQty" />
+                                </div>
+                                <div>
+                                    <label class="label">Unit Cost </label>
+                                    <input type="number" step="0.01"
+                                           @bind="UnitPrice"
+                                           class="input-class font-mono text-right @(LockUnitPrice ? "bg-slate-100 text-slate-400 border-dashed" : "")"
+                                           placeholder="0.00"
+                                           readonly="@LockUnitPrice" />
+                                </div>
+                            </div>
+
+                            <div class="mt-6 pt-5 border-t border-slate-200">
+                                <label class="label flex justify-between items-end">
+                                    <span>Total Valuation Change</span>
+                                </label>
+                                <div class="relative">
+                                    <input type="number" step="0.01"
+                                           @bind="TotalCost"
+                                           class="w-full bg-white border-2 @(entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease ? "border-indigo-400 focus:border-indigo-600 shadow-inner" : "border-slate-200") rounded-xl pl-10 pr-4 py-3 text-right font-mono font-black text-2xl text-slate-900 outline-none transition-colors"
+                                           placeholder="0.00"
+                                           readonly="@(!IsTotalCostEditable)" />
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="space-y-5 bg-slate-50 p-5 rounded-xl border border-slate-100">
-
-                        <SearchableItem Label="Item Selection"
-                                        Items="@items"
-                                        @bind-Value="selectedItemId"
-                                        OnSelectionChanged="OnItemChanged"
-                                        IsInvalid="@(selectedItemId == Guid.Empty)" />
-
-                        @if (IsServiceItem)
-                        {
-                            <div class="flex items-center gap-2 mt-2 text-xs font-bold text-indigo-600 bg-indigo-50 p-3 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-top-1">
-                                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                <span>Service Item Selected: No Warehouse required. Quantity fixed at 1.</span>
-                            </div>
-                        }
-
-                        @if (!IsServiceItem)
-                        {
-                            <div class="animate-in fade-in slide-in-from-top-1">
-                                <label class="label">Quantity Received</label>
-                                <InputNumber @bind-Value="qty" class="input-class" placeholder="0.00" />
-                            </div>
-                        }
-
-                        <div>
-                            <label class="label">Total Cost</label>
-                            <div class="relative">
-                                <span class="absolute left-3 top-2.5 text-slate-400 font-bold text-xs">$</span>
-                                <InputNumber @bind-Value="totalCost" class="input-class pl-7 font-bold text-slate-900" placeholder="0.00" />
-                            </div>
-                            <p class="text-[10px] text-slate-400 mt-1">
-                                @(IsServiceItem ? "Expensed immediately to P&L." : "Updates Weighted Average Cost (WACC).")
-                            </p>
-                        </div>
+                    <div class="flex items-center justify-between pt-6 border-t border-slate-100">
+                        <button @onclick="() => activeTab = 0" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors text-sm">
+                            Cancel
+                        </button>
+                        <button @onclick="ProcessEntry" disabled="@isBusy" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                            @if (isBusy)
+                            {
+                                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <span>Process</span>
+                            }
+                        </button>
                     </div>
-                </div>
 
-                <div class="flex items-center justify-end pt-6 border-t border-slate-100">
-                    <button type="submit" disabled="@isBusy"
-                            class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                        @if (isBusy)
-                        {
-                            <span>Processing...</span>
-                        }
-                        else
-                        {
-                            <span>Post Entry</span>
-                        }
-                    </button>
                 </div>
-            </EditForm>
-        </div>
+            </div>
+        }
     }
 </div>
 
 <style>
     .label {
         display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
+        font-size: 0.70rem;
+        font-weight: 800;
         color: #475569;
         text-transform: uppercase;
         margin-bottom: 0.35rem;
-        letter-spacing: 0.025em;
+        letter-spacing: 0.05em;
     }
 
     .input-class {
         width: 100%;
         border-radius: 0.75rem;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #cbd5e1;
         padding: 0.6rem 0.8rem;
         font-size: 0.875rem;
         background-color: #fff;
         color: #0f172a;
         transition: all 0.2s;
+        outline: none;
     }
 
         .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
+
+        .input-class[readonly], .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
         }
 </style>
 
@@ -164,20 +329,98 @@
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
+    private int activeTab = 0;
+
+    // Filter Backing Fields (Updating resets pagination)
+    private DateTime filterFromDate = DateTime.Today.AddDays(-30);
+    private DateTime filterToDate = DateTime.Today;
+    private string searchTerm = "";
+
+    private DateTime FilterFromDate
+    {
+        get => filterFromDate;
+        set { filterFromDate = value; currentPage = 1; }
+    }
+    private DateTime FilterToDate
+    {
+        get => filterToDate;
+        set { filterToDate = value; currentPage = 1; }
+    }
+    private string SearchTerm
+    {
+        get => searchTerm;
+        set { searchTerm = value; currentPage = 1; }
+    }
+
+    // Pagination State
+    private int currentPage = 1;
+    private int pageSize = 15;
+    private int TotalPages => (int)Math.Ceiling((double)FilteredHistory.Count() / pageSize);
 
     private List<Vendor> vendors = new();
     private List<Warehouse> warehouses = new();
     private List<Item> items = new();
+    private List<StockLedger> stockLedgerHistory = new();
 
+    private StockEntryType entryType = StockEntryType.DirectReceipt;
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
     private Guid selectedItemId;
-    private decimal qty;
-    private decimal totalCost;
+    private string referenceNote = "";
+
+    private decimal _qty;
+    private decimal _unitPrice;
+    private decimal _totalCost;
     private bool isBusy = false;
-    private object dummy = new();
 
     private bool IsServiceItem => items.FirstOrDefault(i => i.Id == selectedItemId)?.IsService ?? false;
+
+    // --- DYNAMIC UI BINDINGS & MATH ---
+    private StockEntryType EntryType
+    {
+        get => entryType;
+        set
+        {
+            entryType = value;
+            Recalculate();
+        }
+    }
+
+    private decimal Qty
+    {
+        get => _qty;
+        set { _qty = value; Recalculate(); }
+    }
+
+    private decimal UnitPrice
+    {
+        get => _unitPrice;
+        set { _unitPrice = value; Recalculate(); }
+    }
+
+    private decimal TotalCost
+    {
+        get => _totalCost;
+        set { _totalCost = value; }
+    }
+
+    private bool LockQty => entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease || IsServiceItem;
+    private bool LockUnitPrice => entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease;
+    private bool IsTotalCostEditable => entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease;
+
+    private string GLImpactHint => entryType == StockEntryType.DirectReceipt ? "Debits Inventory Asset / Credits AP" : "Debits/Credits Inventory vs Adjustment Expense";
+
+    // Filter Logic
+    private IEnumerable<StockLedger> FilteredHistory => stockLedgerHistory
+        .Where(l => l.Date.Date >= filterFromDate.Date && l.Date.Date <= filterToDate.Date)
+        .Where(l => string.IsNullOrWhiteSpace(searchTerm)
+                 || l.Reference.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+                 || items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true);
+
+    // Pagination Logic
+    private IEnumerable<StockLedger> PaginatedHistory => FilteredHistory
+        .Skip((currentPage - 1) * pageSize)
+        .Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -197,73 +440,129 @@
     private async Task LoadData()
     {
         if (!HasCompany) return;
-        vendors = await MasterService.GetVendorsAsync(selectedCompanyId);
-        warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
-        items = await MasterService.GetItemsAsync(selectedCompanyId);
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        var t1 = MasterService.GetVendorsAsync(selectedCompanyId);
+        var t2 = WhService.GetWarehousesAsync(selectedCompanyId);
+        var t3 = MasterService.GetItemsAsync(selectedCompanyId);
+        var t4 = ctx.StockLedgers.Where(s => s.CompanyId == selectedCompanyId).OrderByDescending(s => s.Date).ToListAsync();
+
+        await Task.WhenAll(t1, t2, t3, t4);
+
+        vendors = t1.Result;
+        warehouses = t2.Result;
+        items = t3.Result;
+        stockLedgerHistory = t4.Result;
+    }
+
+    // Pagination Methods
+    private void NextPage() { if (currentPage < TotalPages) currentPage++; }
+    private void PreviousPage() { if (currentPage > 1) currentPage--; }
+
+    private void CreateNew()
+    {
+        ResetForm();
+        activeTab = 1;
     }
 
     private void OnItemChanged()
     {
-        if (IsServiceItem)
+        var item = items.FirstOrDefault(i => i.Id == selectedItemId);
+        if (item != null)
         {
-            qty = 1; // Force 1 for Service
-            selectedWarehouseId = Guid.Empty; // Reset Warehouse
-        }
-        else
-        {
-            qty = 0;
+            if (item.IsService)
+            {
+                EntryType = StockEntryType.DirectReceipt;
+                Qty = 1;
+                selectedWarehouseId = Guid.Empty;
+            }
+            else
+            {
+                UnitPrice = item.WeightedAverageCost > 0 ? item.WeightedAverageCost : item.SellingPrice;
+            }
         }
     }
 
-    private async Task ProcessReceipt()
+    private void Recalculate()
     {
-        // Validation Logic
-        bool isVendorInvalid = selectedVendorId == Guid.Empty;
-        bool isItemInvalid = selectedItemId == Guid.Empty;
-        bool isCostInvalid = totalCost <= 0;
-
-        // Warehouse is only required if NOT a service
-        bool isWarehouseInvalid = !IsServiceItem && selectedWarehouseId == Guid.Empty;
-
-        // Quantity is only checked if NOT a service (Service is auto 1)
-        bool isQtyInvalid = !IsServiceItem && qty <= 0;
-
-        if (isVendorInvalid || isItemInvalid || isWarehouseInvalid || isQtyInvalid || isCostInvalid)
+        if (entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease)
         {
-            await JS.InvokeVoidAsync("alert", "Please fill all required fields.");
+            _qty = 0;
+            _unitPrice = 0;
+        }
+        else
+        {
+            _totalCost = _qty * _unitPrice;
+        }
+    }
+
+    private void ResetForm()
+    {
+        EntryType = StockEntryType.DirectReceipt;
+        selectedVendorId = Guid.Empty;
+        selectedWarehouseId = Guid.Empty;
+        selectedItemId = Guid.Empty;
+        referenceNote = "";
+        Qty = 0;
+        UnitPrice = 0;
+        TotalCost = 0;
+    }
+
+    private async Task ProcessEntry()
+    {
+        if (selectedItemId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select an Item."); return; }
+        if (!IsServiceItem && selectedWarehouseId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a Receiving Warehouse."); return; }
+        if (TotalCost <= 0) { await JS.InvokeVoidAsync("alert", "Total Cost / Value must be greater than zero."); return; }
+        if (string.IsNullOrWhiteSpace(referenceNote)) { referenceNote = entryType.ToString(); }
+
+        if (IsServiceItem && entryType != StockEntryType.DirectReceipt)
+        {
+            await JS.InvokeVoidAsync("alert", "Service items cannot be adjusted. They can only be purchased (Direct Receipt).");
             return;
         }
 
         isBusy = true;
         try
         {
-            // For Service, we pass Qty 1 and Empty Warehouse
-            decimal finalQty = IsServiceItem ? 1 : qty;
-            Guid finalWarehouseId = IsServiceItem ? Guid.Empty : selectedWarehouseId;
+            string err = "";
+            Guid finalWhId = IsServiceItem ? Guid.Empty : selectedWarehouseId;
+            decimal finalQty = IsServiceItem ? 1 : Qty;
 
-            var err = await InvService.ReceiveStockAsync(
-                selectedCompanyId,
-                selectedItemId,
-                finalWarehouseId, // Pass Empty Guid if service
-                finalQty,
-                totalCost,
-                selectedVendorId,
-                "Direct Stock Entry"
-            );
-
-            if (string.IsNullOrEmpty(err))
+            if (entryType == StockEntryType.DirectReceipt)
             {
-                await JS.InvokeVoidAsync("alert", "Entry Posted Successfully.");
-                qty = 0; totalCost = 0; selectedItemId = Guid.Empty;
+                if (selectedVendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a Vendor for a Direct Receipt."); isBusy = false; return; }
+
+                err = await InvService.ReceiveStockAsync(
+                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote);
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", err);
+                if (finalQty <= 0 && (entryType != StockEntryType.CostIncrease && entryType != StockEntryType.CostDecrease))
+                {
+                    await JS.InvokeVoidAsync("alert", "Quantity must be greater than zero for this adjustment type.");
+                    isBusy = false; return;
+                }
+
+                err = await InvService.AdjustStockAsync(
+                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote);
+            }
+
+            if (string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", "Posted Successfully!");
+                await LoadData();
+                currentPage = 1; // Reset to page 1 to see the new entry
+                activeTab = 0; // Return to History View
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "❌ " + err);
             }
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message);
+            await JS.InvokeVoidAsync("alert", "System Error: " + ex.Message);
         }
         finally
         {

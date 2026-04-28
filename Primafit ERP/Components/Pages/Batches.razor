@@ -13,56 +13,61 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <div class="flex items-center gap-3">
-                    <h1 class="text-2xl font-bold tracking-tight text-slate-900">GL Batches</h1>
+                    <h1 class="text-2xl font-bold tracking-tight text-slate-900">General Ledger Batches</h1>
                     @if (!string.IsNullOrEmpty(companyName))
                     {
                         <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
-                            <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                             @companyName
                         </span>
                     }
                 </div>
-                <p class="text-sm text-slate-500 mt-1">Maker-Checker workflow: Draft → Ready → Posted (or Rejected).</p>
+                <p class="text-sm text-slate-500 mt-1">Review and post financial batches to the ledger.</p>
             </div>
 
-            <button class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition-all active:scale-95"
-                    @onclick="LoadBatches" disabled="@(!HasCompany)">
-                <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.5 9.334M4.5 12H3m3.333-3H6m-2.667 3V4.333m15.357 5H19.5M3 12v7.667M3 19.667V12m16.5 7.667V12m-16.5 0h1.5m15 0h-1.5M4.5 19.667H19.5" /></svg>
-                Refresh List
-            </button>
+            @if (selectedBatch == null)
+            {
+                <button class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition-all active:scale-95"
+                        @onclick="LoadBatches" disabled="@(!HasCompany)">
+                    <svg class="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.5 9.334M4.5 12H3m3.333-3H6m-2.667 3V4.333m15.357 5H19.5M3 12v7.667M3 19.667V12m16.5 7.667V12m-16.5 0h1.5m15 0h-1.5M4.5 19.667H19.5" /></svg>
+                    Refresh List
+                </button>
+            }
+            else
+            {
+                <button class="inline-flex items-center gap-2 rounded-xl bg-slate-900 text-white px-5 py-2.5 text-sm font-bold shadow-md hover:bg-slate-800 transition-all active:scale-95"
+                        @onclick="() => selectedBatch = null">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    Back to List
+                </button>
+            }
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-4 border-t border-slate-100 pt-4">
-            <div class="w-full sm:w-64">
-                <label class="label">Accounting Period</label>
-                <select class="input-class" disabled="@(!HasCompany)"
-                        @bind="selectedPeriodId" @bind:after="LoadBatches">
-                    <option value="@Guid.Empty">-- All Periods --</option>
-                    @foreach (var p in periods)
-                    {
-                        <option value="@p.Id">@p.PeriodName (@p.StartDate:yyyy-MM-dd)</option>
-                    }
-                </select>
-            </div>
+        @if (selectedBatch == null)
+        {
+            <div class="flex flex-col sm:flex-row gap-4 border-t border-slate-100 pt-4">
+                <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                    <input type="date" @bind="filterFromDate" @bind:after="OnFilterChangedAsync" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 transition-colors" />
+                    <span class="text-slate-400 font-bold text-xs">-</span>
+                    <input type="date" @bind="filterToDate" @bind:after="OnFilterChangedAsync" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500 transition-colors" />
+                </div>
 
-            <div class="w-full sm:w-48">
-                <label class="label">Status</label>
-                <select class="input-class" disabled="@(!HasCompany)"
-                        @bind="statusFilter" @bind:after="LoadBatches">
-                    <option value="">All Statuses</option>
-                    <option value="Draft">Draft</option>
-                    <option value="Ready">Ready</option>
-                    <option value="Posted">Posted</option>
-                    <option value="Rejected">Rejected</option>
-                </select>
+                <div class="w-full sm:w-64">
+                    <select class="input-class" disabled="@(!HasCompany)"
+                            @bind="statusFilter" @bind:after="OnFilterChangedAsync">
+                        <option value="">All Statuses</option>
+                        <option value="Draft">Draft</option>
+                        <option value="Ready">Ready</option>
+                        <option value="Posted">Posted</option>
+                    </select>
+                </div>
             </div>
-        </div>
+        }
 
         @if (!string.IsNullOrWhiteSpace(loadError))
         {
@@ -72,47 +77,165 @@
         }
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
-            <div class="text-sm font-bold text-slate-800">Batch List</div>
-            <div class="text-xs font-mono font-medium text-slate-500 bg-slate-200 px-2 py-1 rounded">Count: @batches.Count</div>
-        </div>
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading batch data...</div>
+    }
+    else if (selectedBatch != null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden animate-in slide-in-from-bottom-4">
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
-                    <tr>
-                        <th class="p-4 w-[25%]">Batch Details</th>
-                        <th class="p-4 w-[10%]">Type</th>
-                        <th class="p-4 w-[10%]">Status</th>
-                        <th class="p-4 w-[15%]">Created</th>
-                        <th class="p-4 w-[15%]">Posted</th>
-                        <th class="p-4 w-[25%] text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 text-slate-900">
-                    @if (isLoading)
+            <div class="p-6 bg-slate-900 text-white flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <div>
+                    <h2 class="text-xl font-bold font-mono">@selectedBatch.BatchName</h2>
+                    <p class="text-sm text-slate-300 mt-1">@selectedBatch.Description | Created: @selectedBatch.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="@(selectedBatch.Status == BatchStatus.Posted ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30") px-3 py-1 rounded-lg border font-bold text-xs uppercase tracking-wider">
+                        @selectedBatch.Status
+                    </span>
+
+                    @if (selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Ready)
                     {
-                        <tr><td colspan="6" class="p-12 text-center text-slate-400 animate-pulse">Loading batches...</td></tr>
+                        <button disabled="@busy" @onclick="() => Post(selectedBatch.Id)"
+                                class="rounded-xl bg-indigo-500 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-400 transition-colors disabled:opacity-50">
+                            @(busy ? "Posting..." : "Post Batch to GL")
+                        </button>
                     }
-                    else if (batches.Count == 0)
-                    {
+                </div>
+            </div>
+
+            <div class="flex border-b border-slate-200 bg-slate-50 px-4 pt-4 gap-2">
+                <button @onclick="() => detailViewFormat = 0" class="px-6 py-2.5 text-sm font-bold rounded-t-lg transition-colors @(detailViewFormat == 0 ? "bg-white border-t border-l border-r border-slate-200 text-indigo-700" : "text-slate-500 hover:bg-slate-200 border border-transparent")">
+                    Detailed
+                </button>
+                <button @onclick="() => detailViewFormat = 1" class="px-6 py-2.5 text-sm font-bold rounded-t-lg transition-colors @(detailViewFormat == 1 ? "bg-white border-t border-l border-r border-slate-200 text-indigo-700" : "text-slate-500 hover:bg-slate-200 border border-transparent")">
+                    Summary
+                </button>
+            </div>
+
+            @if (detailViewFormat == 0)
+            {
+                <div class="overflow-x-auto p-4">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                            <tr>
+                                <th class="p-3">Journal Ref</th>
+                                <th class="p-3">Account Code</th>
+                                <th class="p-3 w-[40%]">Account Description</th>
+                                <th class="p-3">Narration / Memo</th>
+                                <th class="p-3 text-right text-indigo-700">Debit</th>
+                                <th class="p-3 text-right text-emerald-700">Credit</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-800">
+                            @foreach (var journal in selectedBatch.Journals)
+                            {
+                                foreach (var line in journal.Lines)
+                                {
+                                    var account = accountMap.ContainsKey(line.SegCoaId) ? accountMap[line.SegCoaId] : null;
+                                    <tr class="hover:bg-slate-50">
+                                        <td class="p-3 font-mono text-xs text-slate-500">@journal.JournalNumber</td>
+                                        <td class="p-3 font-mono font-bold">@(account?.AccountCode ?? "UNKNOWN")</td>
+                                        <td class="p-3 font-medium">@(account?.Description ?? "Unknown Account")</td>
+                                        <td class="p-3 text-xs text-slate-600">@(line.Reference ?? journal.Narration)</td>
+                                        <td class="p-3 text-right font-mono font-bold @(line.Debit > 0 ? "text-indigo-700" : "text-slate-300")">
+                                            @(line.Debit > 0 ? line.Debit.ToString("N2") : "-")
+                                        </td>
+                                        <td class="p-3 text-right font-mono font-bold @(line.Credit > 0 ? "text-emerald-700" : "text-slate-300")">
+                                            @(line.Credit > 0 ? line.Credit.ToString("N2") : "-")
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                        <tfoot class="bg-slate-50 border-t-2 border-slate-200 font-bold">
+                            <tr>
+                                <td colspan="4" class="p-3 text-right uppercase text-xs tracking-widest text-slate-500">Batch Totals:</td>
+                                <td class="p-3 text-right font-mono text-indigo-700 text-lg">@selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Debit).ToString("N2")</td>
+                                <td class="p-3 text-right font-mono text-emerald-700 text-lg">@selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Credit).ToString("N2")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            }
+
+            @if (detailViewFormat == 1)
+            {
+                var groupedLines = selectedBatch.Journals
+                .SelectMany(j => j.Lines)
+                .GroupBy(l => l.SegCoaId)
+                .Select(g => new
+                {
+                    AccountId = g.Key,
+                    NetBalance = g.Sum(x => x.Debit) - g.Sum(x => x.Credit)
+                })
+                .Where(g => g.NetBalance != 0) // Hide lines that net to exactly 0
+                .ToList();
+
+                decimal totalNetDebit = groupedLines.Where(g => g.NetBalance > 0).Sum(g => g.NetBalance);
+                decimal totalNetCredit = groupedLines.Where(g => g.NetBalance < 0).Sum(g => Math.Abs(g.NetBalance));
+
+                <div class="overflow-x-auto p-4">
+                    <table class="w-full text-sm text-left border border-slate-200 rounded-lg">
+                        <thead class="bg-slate-100 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                            <tr>
+                                <th class="p-4 w-32">Account Code</th>
+                                <th class="p-4">Account Description</th>
+                                <th class="p-4 text-right text-indigo-700 w-40">Debit</th>
+                                <th class="p-4 text-right text-emerald-700 w-40">Credit</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-800">
+                            @foreach (var group in groupedLines)
+                            {
+                                var account = accountMap.ContainsKey(group.AccountId) ? accountMap[group.AccountId] : null;
+
+                                <tr class="hover:bg-slate-50">
+                                    <td class="p-4 font-mono font-bold">@(account?.AccountCode ?? "UNKNOWN")</td>
+                                    <td class="p-4 font-bold text-slate-700">@(account?.Description ?? "Unknown Account")</td>
+                                    <td class="p-4 text-right font-mono font-bold @(group.NetBalance > 0 ? "text-indigo-700" : "text-slate-300")">
+                                        @(group.NetBalance > 0 ? group.NetBalance.ToString("N2") : "-")
+                                    </td>
+                                    <td class="p-4 text-right font-mono font-bold @(group.NetBalance < 0 ? "text-emerald-700" : "text-slate-300")">
+                                        @(group.NetBalance < 0 ? Math.Abs(group.NetBalance).ToString("N2") : "-")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="bg-slate-50 border-t-2 border-slate-200 font-bold">
+                            <tr>
+                                <td colspan="2" class="p-4 text-right uppercase text-xs tracking-widest text-slate-500">Trial Balance Totals:</td>
+                                <td class="p-4 text-right font-mono text-indigo-700 text-lg">@totalNetDebit.ToString("N2")</td>
+                                <td class="p-4 text-right font-mono text-emerald-700 text-lg">@totalNetCredit.ToString("N2")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col min-h-[500px]">
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
-                            <td colspan="6" class="p-12 text-center text-slate-400">
-                                <div class="flex flex-col items-center gap-2">
-                                    <svg class="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                                    <span>No batches found matching criteria.</span>
-                                </div>
-                            </td>
+                            <th class="p-4 w-[25%]">Batch Details</th>
+                            <th class="p-4 w-[10%]">Type</th>
+                            <th class="p-4 w-[10%]">Status</th>
+                            <th class="p-4 w-[15%]">Created</th>
+                            <th class="p-4 w-[15%]">Posted</th>
+                            <th class="p-4 w-[25%] text-right">Actions</th>
                         </tr>
-                    }
-                    else
-                    {
-                        @foreach (var b in batches)
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 text-slate-900">
+                        @foreach (var b in PaginatedBatches)
                         {
-                            <tr class="group hover:bg-slate-50/80 transition-colors">
+                            <tr class="group hover:bg-slate-50/80 transition-colors cursor-pointer" @onclick="() => ViewBatch(b.Id)">
                                 <td class="p-4 align-top">
-                                    <div class="font-bold text-slate-900">@b.BatchName</div>
+                                    <div class="font-bold text-indigo-700 group-hover:underline">@b.BatchName</div>
                                     @if (!string.IsNullOrWhiteSpace(b.Description))
                                     {
                                         <div class="text-xs text-slate-500 mt-1 line-clamp-1">@b.Description</div>
@@ -129,13 +252,6 @@
                                     <span class="@StatusPill(b.Status)">
                                         @b.Status
                                     </span>
-                                    @if (b.Status == BatchStatus.Rejected && !string.IsNullOrWhiteSpace(b.RejectionReason))
-                                    {
-                                        <div class="mt-2 rounded bg-rose-50 p-2 border border-rose-100">
-                                            <div class="text-[10px] font-bold text-rose-800 uppercase mb-0.5">Rejection Reason</div>
-                                            <div class="text-xs text-rose-600 leading-tight">@b.RejectionReason</div>
-                                        </div>
-                                    }
                                 </td>
 
                                 <td class="p-4 align-top">
@@ -153,24 +269,17 @@
                                     }
                                 </td>
 
-                                <td class="p-4 align-top text-right">
+                                <td class="p-4 align-top text-right" @onclick:stopPropagation="true">
                                     <div class="flex justify-end gap-2 opacity-100">
-                                        @if (b.Status == BatchStatus.Draft)
-                                        {
-                                            <button disabled="@busy" @onclick="() => Release(b.Id)"
-                                                    class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition-colors disabled:opacity-50">
-                                                Release
-                                            </button>
-                                        }
 
-                                        @if (b.Status == BatchStatus.Ready)
+                                        <button @onclick="() => ViewBatch(b.Id)" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+                                            View Details
+                                        </button>
+
+                                        @if (b.Status == BatchStatus.Draft || b.Status == BatchStatus.Ready)
                                         {
-                                            <button disabled="@busy" @onclick="() => OpenReject(b.Id)"
-                                                    class="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50">
-                                                Reject
-                                            </button>
                                             <button disabled="@busy" @onclick="() => Post(b.Id)"
-                                                    class="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-800 shadow-sm transition-colors disabled:opacity-50">
+                                                    class="rounded-lg bg-slate-900 px-4 py-1.5 text-xs font-bold text-white hover:bg-slate-800 shadow-sm transition-colors disabled:opacity-50">
                                                 Post
                                             </button>
                                         }
@@ -178,102 +287,90 @@
                                 </td>
                             </tr>
                         }
-                    }
-                </tbody>
-            </table>
+
+                        @if (!PaginatedBatches.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="p-16 text-center text-slate-400">
+                                    <div class="flex flex-col items-center gap-2">
+                                        <svg class="h-8 w-8 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                        <span>No batches found matching your criteria.</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between mt-auto">
+                    <p class="text-sm text-slate-500 font-medium">
+                        Showing <span class="font-bold text-slate-900">@((currentPage - 1) * pageSize + 1)</span> to <span class="font-bold text-slate-900">@Math.Min(currentPage * pageSize, FilteredBatches.Count())</span> of <span class="font-bold text-slate-900">@FilteredBatches.Count()</span> batches
+                    </p>
+                    <div class="flex gap-2">
+                        <button @onclick="PreviousPage" disabled="@(currentPage == 1)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Previous
+                        </button>
+                        <button @onclick="NextPage" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            }
         </div>
-    </div>
+    }
 </div>
 
-@if (showRejectModal)
-{
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/5 animate-in slide-in-from-bottom-8 duration-300">
-            <div class="p-6 border-b border-slate-100">
-                <h3 class="text-lg font-bold text-slate-900">Reject Batch</h3>
-                <p class="text-sm text-slate-500">Provide a reason to return this batch to Draft.</p>
-            </div>
-
-            <div class="p-6">
-                <label class="label mb-2">Rejection Reason</label>
-                <textarea @bind="rejectReason"
-                          class="w-full min-h-[100px] rounded-xl border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-rose-500 focus:bg-white focus:ring-2 focus:ring-rose-500/20 transition-all placeholder:text-slate-400 text-slate-900"
-                          placeholder="e.g. Unbalanced journal or incorrect GL account..."></textarea>
-
-                @if (!string.IsNullOrWhiteSpace(actionError))
-                {
-                    <div class="mt-4 rounded-lg bg-rose-50 p-3 text-xs font-bold text-rose-600 border border-rose-100">
-                        @actionError
-                    </div>
-                }
-            </div>
-
-            <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 rounded-b-2xl">
-                <button @onclick="CloseReject" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                    Cancel
-                </button>
-                <button @onclick="ConfirmReject" disabled="@(busy || string.IsNullOrWhiteSpace(rejectReason))"
-                        class="rounded-xl bg-rose-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-rose-700 transition-colors disabled:opacity-50">
-                    @(busy ? "Rejecting..." : "Confirm Rejection")
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        letter-spacing: 0.025em;
-        margin-bottom: 0.35rem;
-    }
-
     .input-class {
         width: 100%;
         border-radius: 0.75rem;
         border: 1px solid #e2e8f0;
         background-color: #fff;
-        padding: 0.6rem 0.8rem;
+        padding: 0.5rem 0.75rem;
         font-size: 0.875rem;
         color: #0f172a;
+        font-weight: 600;
         transition: all 0.2s;
+        outline: none;
     }
 
         .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
         }
 </style>
 
 @code {
-    // --- CONTEXT ---
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    // Data Lists
-    private List<AccountingPeriod> periods = new();
-    private List<GLBatch> batches = new();
-
-    // Filters
-    private Guid selectedPeriodId = Guid.Empty;
+    // State Fields (Replaced custom getters/setters)
+    private DateTime filterFromDate = DateTime.Today.AddDays(-30);
+    private DateTime filterToDate = DateTime.Today;
     private string statusFilter = "";
 
-    // UI State
+    private int currentPage = 1;
+    private int pageSize = 15;
+
+    // Data
+    private List<GLBatch> batches = new();
+    private Dictionary<Guid, SegChartOfAccount> accountMap = new();
+
+    // View State
+    private GLBatch? selectedBatch;
+    private int detailViewFormat = 0; // 0 = Ledger, 1 = Trial Balance
     private bool busy;
     private string? loadError;
-    private string? actionError;
 
-    // Reject Modal State
-    private bool showRejectModal;
-    private Guid rejectBatchId;
-    private string rejectReason = "";
+    // Computed Pagination
+    private IEnumerable<GLBatch> FilteredBatches => batches;
+    private int TotalPages => (int)Math.Ceiling((double)FilteredBatches.Count() / pageSize);
+    private IEnumerable<GLBatch> PaginatedBatches => FilteredBatches.Skip((currentPage - 1) * pageSize).Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -283,7 +380,6 @@
         if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
         {
             var currentUser = await UserManager.GetUserAsync(userPrincipal);
-
             if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
             {
                 selectedCompanyId = currentUser.CompanyDetailsId.Value;
@@ -291,31 +387,30 @@
                 var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
                 if (company != null) companyName = company.CompanyName;
 
-                await LoadPeriods();
+                await LoadAccountMap();
                 await LoadBatches();
             }
         }
+        isLoading = false;
     }
 
-    private async Task LoadPeriods()
+    private async Task OnFilterChangedAsync()
     {
-        if (!HasCompany) return;
-        try
-        {
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            periods = await ctx.AccountingPeriods
-                .AsNoTracking()
-                .Where(p => p.CompanyId == selectedCompanyId)
-                .OrderByDescending(p => p.StartDate)
-                .ToListAsync();
-        }
-        catch (Exception ex) { loadError = ex.Message; }
+        currentPage = 1;
+        await LoadBatches();
+    }
+
+    private async Task LoadAccountMap()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var accts = await ctx.SegChartOfAccounts.Where(a => a.CompanyId == selectedCompanyId).ToListAsync();
+        accountMap = accts.ToDictionary(a => a.Id, a => a);
     }
 
     private async Task LoadBatches()
     {
         loadError = null;
-        if (!HasCompany) { batches.Clear(); return; }
+        if (!HasCompany) return;
 
         try
         {
@@ -323,11 +418,14 @@
             using var ctx = await DbFactory.CreateDbContextAsync();
             var q = ctx.GLBatches.AsNoTracking().Where(b => b.CompanyId == selectedCompanyId);
 
-            if (selectedPeriodId != Guid.Empty)
-                q = q.Where(b => b.AccountingPeriodId == selectedPeriodId);
+            // Apply Date Filters
+            q = q.Where(b => b.CreatedAt.Date >= filterFromDate.Date && b.CreatedAt.Date <= filterToDate.Date);
 
+            // Apply Status Filter
             if (!string.IsNullOrWhiteSpace(statusFilter) && Enum.TryParse<BatchStatus>(statusFilter, out var st))
+            {
                 q = q.Where(b => b.Status == st);
+            }
 
             batches = await q.OrderByDescending(b => b.CreatedAt).ToListAsync();
         }
@@ -335,50 +433,23 @@
         finally { isLoading = false; }
     }
 
-    // --- ACTIONS ---
-
-    private async Task Release(Guid batchId)
+    private async Task ViewBatch(Guid batchId)
     {
-        busy = true;
+        isLoading = true;
         try
         {
-            var err = await GLOps.ReleaseBatchAsync(selectedCompanyId, batchId);
-            if (!string.IsNullOrWhiteSpace(err))
-                await JS.InvokeVoidAsync("alert", $"Error: {err}");
-            else
-                await LoadBatches();
+            selectedBatch = await GLOps.GetBatchByIdAsync(batchId);
+            detailViewFormat = 0; // Default to Ledger View
         }
-        catch (Exception ex) { await JS.InvokeVoidAsync("alert", $"System Error: {ex.Message}"); }
-        finally { busy = false; }
-    }
-
-    private void OpenReject(Guid batchId)
-    {
-        rejectBatchId = batchId;
-        rejectReason = "";
-        actionError = null;
-        showRejectModal = true;
-    }
-
-    private void CloseReject() { showRejectModal = false; rejectBatchId = Guid.Empty; }
-
-    private async Task ConfirmReject()
-    {
-        busy = true;
-        try
+        finally
         {
-            var err = await GLOps.RejectBatchAsync(selectedCompanyId, rejectBatchId, rejectReason.Trim());
-            if (!string.IsNullOrWhiteSpace(err))
-            {
-                actionError = err;
-                return;
-            }
-            CloseReject();
-            await LoadBatches();
+            isLoading = false;
         }
-        catch (Exception ex) { actionError = ex.Message; }
-        finally { busy = false; }
     }
+
+    // Pagination Methods
+    private void NextPage() { if (currentPage < TotalPages) currentPage++; }
+    private void PreviousPage() { if (currentPage > 1) currentPage--; }
 
     private async Task Post(Guid batchId)
     {
@@ -386,25 +457,30 @@
         try
         {
             var result = await GLOps.PostBatchAsync(selectedCompanyId, batchId);
-            if (result != "Success")
+            if (result != string.Empty)
+            {
                 await JS.InvokeVoidAsync("alert", $"Error: {result}");
+            }
             else
             {
                 await JS.InvokeVoidAsync("alert", "Batch Posted Successfully!");
                 await LoadBatches();
+
+                if (selectedBatch != null && selectedBatch.Id == batchId)
+                {
+                    await ViewBatch(batchId);
+                }
             }
         }
         catch (Exception ex) { await JS.InvokeVoidAsync("alert", $"System Error: {ex.Message}"); }
         finally { busy = false; }
     }
 
-    // --- Helper for Badges ---
     private static string StatusPill(BatchStatus st) => st switch
     {
         BatchStatus.Draft => "inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-200",
         BatchStatus.Ready => "inline-flex items-center rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700 ring-1 ring-inset ring-amber-600/20",
         BatchStatus.Posted => "inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
-        BatchStatus.Rejected => "inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 ring-1 ring-inset ring-rose-600/20",
         _ => "inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10"
     };
 }

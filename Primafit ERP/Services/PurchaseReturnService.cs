@@ -66,7 +66,7 @@ namespace Primafit_ERP.Services
             foreach (var billLine in bill.Lines)
             {
                 // 3. OPTIMIZATION: Read from memory instead of DB
-                if (!itemsMap.TryGetValue(billLine.ItemId, out var item) || item.IsService)
+                if (!itemsMap.TryGetValue(billLine.ItemId ?? Guid.Empty, out var item) || item.IsService)
                     continue;
 
                 decimal alreadyReturned = postedReturnLines
@@ -82,7 +82,7 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         PurchaseReturnId = rtv.Id,
                         VendorBillLineId = billLine.Id,
-                        ItemId = billLine.ItemId,
+                        ItemId = billLine.ItemId ?? Guid.Empty,
                         ItemName = item.Name, // Read from dictionary
                         UnitCost = billLine.UnitCostBilled,
                         QtyReturning = 0

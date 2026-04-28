@@ -1,0 +1,37 @@
+@page "/reports/purchase-spend-by-vendor"
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject PurchasingService PurchasingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6">
+    <ReportViewer CompanyId="companyId"
+                  Title="Purchase Spend by Vendor"
+                  Description="Summarises total procurement spend per vendor, showing total billed, total paid, and the outstanding balance still owed. Useful for AP exposure analysis and vendor spend reviews."
+                  ShowAsOfDate="false"
+                  FetchData="GetData" />
+</div>
+
+@code {
+    private Guid companyId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync(
+            (await AuthStateProvider.GetAuthenticationStateAsync()).User);
+
+        if (user?.CompanyDetailsId != null)
+            companyId = user.CompanyDetailsId.Value;
+    }
+
+    private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
+    {
+        return await PurchasingService.GeneratePurchaseSpendByVendorReportAsync(companyId, start, end);
+    }
+}

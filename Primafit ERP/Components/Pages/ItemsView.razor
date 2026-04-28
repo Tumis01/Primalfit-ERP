@@ -1,7 +1,6 @@
 ﻿@page "/sc/items"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
@@ -13,14 +12,14 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Item Master</h1>
-            <p class="text-sm text-slate-500 mt-1">Manage Inventory Items and Services.</p>
+            <p class="text-sm text-slate-500 mt-1">Manage Inventory Items, Services, and their GL mappings.</p>
         </div>
-        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all">
+        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
             New Item
         </button>
@@ -28,16 +27,22 @@
 
     @if (showForm)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl mb-6">
-            <h3 class="text-lg font-bold text-slate-900 mb-6">@(isEditing ? "Edit Item" : "New Item")</h3>
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl mb-6 animate-in slide-in-from-top-4">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-slate-900">@(isEditing ? "Edit Item" : "New Item")</h3>
+                @if (isEditing)
+                {
+                    <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold font-mono border border-slate-200">Current Cost: @currentItem.CurrentDisplayCost.ToString("N2")</span>
+                }
+            </div>
 
             <EditForm Model="@currentItem" OnValidSubmit="SaveItem">
                 <DataAnnotationsValidator />
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 items-start">
                     <div>
-                        <label class="label">SKU <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentItem.SKU" class="input-class font-mono" placeholder="PROD-001" />
+                        <label class="label">Code <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentItem.SKU" class="input-class font-mono uppercase" placeholder="PROD-001" />
                     </div>
                     <div>
                         <label class="label">Name <span class="text-rose-500">*</span></label>
@@ -45,7 +50,7 @@
                     </div>
                     <div>
                         <label class="label">Type</label>
-                        <div class="flex items-center gap-3 mt-2">
+                        <div class="flex items-center gap-3 mt-2 h-[42px]">
                             <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
                                 <InputCheckbox @bind-Value="currentItem.IsService" class="w-4 h-4 rounded text-slate-900 focus:ring-slate-900" />
                                 <span class="text-sm font-bold text-slate-700">Is Service?</span>
@@ -55,19 +60,82 @@
 
                     @if (!currentItem.IsService)
                     {
-                        <div><label class="label">UoM</label><InputText @bind-Value="currentItem.UoM" class="input-class" /></div>
-                        <div><label class="label">Reorder Level</label><InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class" /></div>
+                        <div>
+                            <label class="label">Unit of Measure (UoM)</label>
+                            <InputSelect @bind-Value="currentItem.UoM" class="input-class">
+                                <option value="">-- Select UoM --</option>
+                                @foreach (var u in uoms)
+                                {
+                                    <option value="@u.Name">@u.Name (@u.ConversionFactor)</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div>
+                            <label class="label">Reorder Level</label>
+                            <InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class font-mono" />
+                        </div>
+                        
+                        <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-3">
+                            <div>
+                                <label class="label text-indigo-700">Costing Method <span class="text-rose-500">*</span></label>
+                                <InputSelect @bind-Value="currentItem.CostingType" class="input-class bg-white font-bold text-indigo-900 border-indigo-200">
+                                    <option value="@CostingMethod.WACC">Weighted Avg Cost (WACC)</option>
+                                    <option value="@CostingMethod.StandardCosting">Standard Costing</option>
+                                    <option value="@CostingMethod.UserSpecified">User Specified</option>
+                                    <option value="@CostingMethod.FIFO">FIFO (First-In, First-Out)</option>
+                                    <option value="@CostingMethod.LIFO">LIFO (Last-In, First-Out)</option>
+                                    <option value="@CostingMethod.MostRecentCost">Most Recent Cost</option>
+                                </InputSelect>
+                            </div>
+
+                            @if (currentItem.CostingType == CostingMethod.UserSpecified)
+                            {
+                                <div class="animate-in fade-in slide-in-from-top-2">
+                                    <label class="label text-indigo-700">User Specified Cost</label>
+                                    <InputNumber @bind-Value="currentItem.UserSpecifiedCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                </div>
+                            }
+                            else if (currentItem.CostingType == CostingMethod.StandardCosting)
+                            {
+                                <div class="animate-in fade-in slide-in-from-top-2">
+                                    <label class="label text-indigo-700">Standard Cost</label>
+                                    <InputNumber @bind-Value="currentItem.StandardCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                </div>
+                            }
+                        </div>
                     }
                     else
                     {
-                        <div class="md:col-span-2"></div>
+                        <div class="md:col-span-3 border-t border-slate-100 my-2"></div>
                     }
 
-                    <div><label class="label">Selling Price</label><InputNumber @bind-Value="currentItem.SellingPrice" class="input-class" /></div>
+                    <div>
+                        <label class="label">Default Selling Price</label>
+                        <InputNumber @bind-Value="currentItem.SellingPrice" class="input-class font-mono text-emerald-700 font-bold" />
+                    </div>
                 </div>
-
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div class="mb-8 bg-slate-50 border border-slate-100 p-5 rounded-xl shadow-sm">
+                        <label class="label text-indigo-900">Item Category </label>
+                        <select class="input-class border-slate-200 bg-white" @onchange="OnCategorySelected">
+                            <option value="@Guid.Empty">-- Select Item Category --</option>
+                            @foreach (var cat in categories)
+                            {
+                                <option value="@cat.Id" selected="@(currentItem.CategoryId == cat.Id)">
+                                    @cat.Name @(cat.IsService ? "(Service)" : "(Physical Goods)")
+                                </option>
+                            }
+                        </select>
+                        <p class="text-xs text-indigo-700 mt-2 font-medium flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Selecting a category will automatically apply its predefined General Ledger mapping and item type below.
+                        </p>
+                    </div>
+                </div>
+                
                 <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
-                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-4 border-b border-slate-200 pb-2">GL Accounts Mapping</h4>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase mb-4 border-b border-slate-200 pb-2">Financial Ledger Routing</h4>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -92,95 +160,93 @@
                                              @bind-Value="currentItem.CostOfGoodsSoldAccountId"
                                              IsInvalid="@(currentItem.CostOfGoodsSoldAccountId == Guid.Empty)" />
 
-                        <SearchableGlAccount Label="Inventory Adjustment / Loss (PL / Debit)"
-                                             Placeholder="Search Expense Accounts..."
-                                             Accounts="@expenseAccounts"
-                                             @bind-Value="currentItem.AdjustmentExpenseAccountId" />
+                        @if (!currentItem.IsService)
+                        {
+                            <SearchableGlAccount Label="Inventory Adjustment / Loss (PL / Debit)"
+                                                 Placeholder="Search Expense Accounts..."
+                                                 Accounts="@expenseAccounts"
+                                                 @bind-Value="currentItem.AdjustmentExpenseAccountId" />
+                        }
                     </div>
-
                 </div>
 
                 <div class="flex justify-end gap-3">
                     <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
-                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all">@(isEditing ? "Update" : "Save")</button>
+                    <button type="submit" class="rounded-xl bg-slate-900 px-8 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">@(isEditing ? "Update Item" : "Save Item")</button>
                 </div>
             </EditForm>
         </div>
     }
 
     <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table class="w-full text-left text-sm text-slate-900">
-            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
-                <tr>
-                    <th class="p-4">SKU</th>
-                    <th class="p-4">Name</th>
-                    <th class="p-4">Type</th>
-                    <th class="p-4 text-right">Selling Price</th>
-                    <th class="p-4 text-right">Cost Price (WACC)</th>
-                    <th class="p-4 text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @if (items.Any())
-                {
-                    @foreach (var i in items)
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-900 whitespace-nowrap">
+                <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="p-4 pl-6">CODE</th>
+                        <th class="p-4">Item Name</th>
+                        <th class="p-4 text-center">Type</th>
+                        <th class="p-4">Costing Method</th>
+                        <th class="p-4 text-right">Selling Price</th>
+                        <th class="p-4 text-right">Cost</th>
+                        <th class="p-4 text-right pr-6">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @if (items.Any())
                     {
-                        <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="p-4 font-mono font-bold text-slate-700">@i.SKU</td>
-                            <td class="p-4 font-medium">@i.Name</td>
-                            <td class="p-4">
-                                <span class="px-2 py-1 rounded text-xs font-bold @(i.IsService ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600")">
-                                    @(i.IsService ? "Service" : "Goods")
-                                </span>
-                            </td>
-                            <td class="p-4 text-right">@i.SellingPrice.ToString("N2")</td>
-                            <td class="p-4 text-right font-mono text-slate-500">@i.WeightedAverageCost.ToString("N2")</td>
-                            <td class="p-4 text-right">
-                                <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
-                                <button @onclick="() => Delete(i)" class="text-red-600 font-bold hover:underline">Delete</button>
-                            </td>
-                        </tr>
+                        @foreach (var i in items)
+                        {
+                            <tr class="hover:bg-slate-50 transition-colors group">
+                                <td class="p-4 pl-6 font-mono font-bold text-slate-700">@i.SKU</td>
+                                <td class="p-4 font-bold text-slate-900">@i.Name</td>
+                                <td class="p-4 text-center">
+                                    <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider @(i.IsService ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200")">
+                                        @(i.IsService ? "Service" : "Goods")
+                                    </span>
+                                </td>
+                                <td class="p-4">
+                                    @if (!i.IsService)
+                                    {
+                                        <span class="text-xs text-slate-500 font-bold bg-slate-100 px-2 py-1 rounded">@i.CostingType.ToString()</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs text-slate-400 italic">N/A</span>
+                                    }
+                                </td>
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600">@i.SellingPrice.ToString("N2")</td>
+                                
+                                <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N2")</td>
+                                
+                                <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
+                                    <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                                </td>
+                            </tr>
+                        }
                     }
-                }
-                else
-                {
-                    <tr><td colspan="6" class="p-8 text-center text-slate-400">No items found.</td></tr>
-                }
-            </tbody>
-        </table>
+                    else
+                    {
+                        <tr><td colspan="7" class="p-12 text-center text-slate-400">No items found in the inventory master.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        margin-bottom: 0.35rem;
-        letter-spacing: 0.025em;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.75rem;
-        border: 1px solid #e2e8f0;
-        padding: 0.6rem;
-        font-size: 0.875rem;
-        transition: border-color 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-        }
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
 </style>
 
 @code {
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new(); 
+    private List<ItemCategory> categories = new(); 
 
-    // Segmented COA lists
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> assetAccounts = new();
     private List<SegChartOfAccount> revenueAccounts = new();
@@ -202,23 +268,15 @@
             currentCompanyId = user.CompanyDetailsId.Value;
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
+            uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
+            categories = await MasterService.GetItemCategoriesAsync(currentCompanyId); 
 
-            // 1. Get Types for Flags
             accountTypes = await SegCoaService.GetAccountTypesAsync();
-
-            // 2. Get All COA
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            // 3. Filter using Flags (IsBalanceSheet / IsDebit)
-
-            // Assets: BS=True, Dr=True
-            assetAccounts = FilterAccounts(true, true);
-
-            // Revenue: BS=False, Dr=False
-            revenueAccounts = FilterAccounts(false, false);
-
-            // Expense: BS=False, Dr=True
-            expenseAccounts = FilterAccounts(false, true);
+            assetAccounts = FilterAccounts(true, true);   
+            revenueAccounts = FilterAccounts(false, false); 
+            expenseAccounts = FilterAccounts(false, true);  
         }
     }
 
@@ -236,7 +294,7 @@
 
     private void CreateNew()
     {
-        currentItem = new Item { CompanyId = currentCompanyId };
+        currentItem = new Item { CompanyId = currentCompanyId, CostingType = CostingMethod.WACC };
         showForm = true;
         isEditing = false;
     }
@@ -247,12 +305,18 @@
         {
             Id = i.Id,
             CompanyId = i.CompanyId,
+            CategoryId = i.CategoryId, 
             Name = i.Name,
             SKU = i.SKU,
             IsService = i.IsService,
             SellingPrice = i.SellingPrice,
             UoM = i.UoM,
             ReorderLevel = i.ReorderLevel,
+            CostingType = i.CostingType, 
+            WeightedAverageCost = i.WeightedAverageCost, 
+            StandardCost = i.StandardCost,
+            UserSpecifiedCost = i.UserSpecifiedCost,
+            MostRecentCost = i.MostRecentCost,
             InventoryAssetAccountId = i.InventoryAssetAccountId,
             SalesIncomeAccountId = i.SalesIncomeAccountId,
             CostOfGoodsSoldAccountId = i.CostOfGoodsSoldAccountId,
@@ -262,9 +326,42 @@
         isEditing = true;
     }
 
+    private void OnCategorySelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var catId) && catId != Guid.Empty)
+        {
+            var selectedCategory = categories.FirstOrDefault(c => c.Id == catId);
+            if (selectedCategory != null)
+            {
+                currentItem.CategoryId = catId;
+                currentItem.IsService = selectedCategory.IsService;
+
+                currentItem.SalesIncomeAccountId = selectedCategory.SalesIncomeAccountId;
+                currentItem.CostOfGoodsSoldAccountId = selectedCategory.CostOfGoodsSoldAccountId;
+
+                if (!selectedCategory.IsService)
+                {
+                    currentItem.InventoryAssetAccountId = selectedCategory.InventoryAssetAccountId ?? Guid.Empty;
+                    currentItem.AdjustmentExpenseAccountId = selectedCategory.AdjustmentExpenseAccountId ?? Guid.Empty;
+                }
+                else
+                {
+                    currentItem.InventoryAssetAccountId = Guid.Empty;
+                    currentItem.AdjustmentExpenseAccountId = Guid.Empty;
+                    currentItem.UoM = ""; 
+                    currentItem.ReorderLevel = 0;
+                }
+            }
+        }
+        else
+        {
+            currentItem.CategoryId = null; 
+        }
+    }
+
     private async Task Delete(Item i)
     {
-        if (!await JS.InvokeAsync<bool>("confirm", $"Delete item '{i.Name}'?")) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Permanently delete item '{i.Name}'?")) return;
         var err = await MasterService.DeleteItemAsync(i.Id);
         if (string.IsNullOrEmpty(err))
         {
@@ -278,6 +375,18 @@
 
     private async Task SaveItem()
     {
+        if (currentItem.SalesIncomeAccountId == Guid.Empty || currentItem.CostOfGoodsSoldAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Sales Income and COGS accounts are required.");
+            return;
+        }
+
+        if (!currentItem.IsService && currentItem.InventoryAssetAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Inventory Asset account is required for physical goods.");
+            return;
+        }
+
         var err = await MasterService.SaveItemAsync(currentItem);
         if (string.IsNullOrEmpty(err))
         {

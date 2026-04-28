@@ -82,6 +82,15 @@ builder.Services.AddScoped<ReportExportService>();
 builder.Services.AddScoped<OperationalReportingService>();
 builder.Services.AddScoped<FinancialReportingService>();
 builder.Services.AddScoped<AssetCategoryService>();
+builder.Services.AddScoped<ShipmentService>();
+builder.Services.AddScoped<PayrollJournalService>();
+builder.Services.AddScoped<PayrollService>();
+builder.Services.AddScoped<EmployeeService>();
+builder.Services.AddScoped<ComplianceService>();
+builder.Services.AddScoped<PayslipService>();
+builder.Services.AddScoped<PayrollReportingService>();
+builder.Services.AddScoped<PayrollSettingsService>();
+builder.Services.AddScoped<HrSetupService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---

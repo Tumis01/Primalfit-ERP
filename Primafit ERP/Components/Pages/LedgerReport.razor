@@ -1,4 +1,4 @@
-﻿@page "/gl/general-ledger"
+﻿@page "/reports/general-ledger"
 @using Microsoft.EntityFrameworkCore
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -14,7 +14,7 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex-1">
@@ -28,26 +28,35 @@
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Detailed transaction history filtered by date range and account.</p>
+            <p class="text-sm text-slate-500 mt-1">Detailed transaction history with advanced double-entry filtering.</p>
         </div>
 
         <div class="flex flex-wrap items-end gap-3 w-full md:w-auto">
             
-            <div class="w-full md:w-64 relative">
-                <SearchableGlAccount Label="Filter Account (Optional)"
-                                     Placeholder="All Accounts..."
-                                     Accounts="allAccounts"
-                                     @bind-Value="selectedAccountId" />
-                
-                @if (selectedAccountId != Guid.Empty)
-                {
-                    <button @onclick="ClearAccount" class="absolute right-8 top-8 text-slate-400 hover:text-rose-500 transition-colors" title="Clear filter">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                }
+            <div class="w-full md:w-48">
+                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Filter Mode</label>
+                <select @bind="CurrentFilterMode" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all font-bold">
+                    <option value="@FilterMode.All">All Accounts</option>
+                    <option value="@FilterMode.Single">Single Account</option>
+                    <option value="@FilterMode.BetweenTwo">Between Two Accounts</option>
+                </select>
             </div>
+
+            @if (CurrentFilterMode == FilterMode.Single)
+            {
+                <div class="w-full md:w-56 relative animate-in fade-in">
+                    <SearchableGlAccount Label="Select Account" Accounts="allAccounts" @bind-Value="selectedAccountId" />
+                </div>
+            }
+            else if (CurrentFilterMode == FilterMode.BetweenTwo)
+            {
+                <div class="w-full md:w-48 relative animate-in fade-in">
+                    <SearchableGlAccount Label="Account A" Accounts="allAccounts" @bind-Value="selectedAccountId" />
+                </div>
+                <div class="w-full md:w-48 relative animate-in fade-in">
+                    <SearchableGlAccount Label="Account B" Accounts="allAccounts" @bind-Value="selectedAccountBId" />
+                </div>
+            }
 
             <div class="w-full md:w-36">
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
@@ -61,11 +70,18 @@
                        @bind="endDate" />
             </div>
 
-            <button class="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
-                    disabled="@(busy || !HasCompany)"
+            <button class="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 h-[42px]"
+                    disabled="@(busy || !HasCompany || !IsFilterValid)"
                     @onclick="LoadLedger">
                 @(busy ? "Loading..." : "View Ledger")
             </button>
+
+            @if (CurrentFilterMode != FilterMode.All && (selectedAccountId != Guid.Empty || selectedAccountBId != Guid.Empty))
+            {
+                <button @onclick="ClearAccounts" class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-rose-500 text-sm font-bold transition-colors h-[42px]">
+                    Clear
+                </button>
+            }
         </div>
     </div>
 
@@ -86,7 +102,13 @@
     {
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
-                <div class="text-sm font-bold text-slate-900">Report Output</div>
+                <div class="text-sm font-bold text-slate-900">
+                    Report Output
+                    @if (CurrentFilterMode == FilterMode.BetweenTwo)
+                    {
+                        <span class="text-indigo-600 text-xs ml-2">(Cross-Account Analysis)</span>
+                    }
+                </div>
                 <div class="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
                     Transactions: @rows.Count
                 </div>
@@ -116,10 +138,25 @@
                         {
                             @foreach (var group in rows.GroupBy(r => new { r.AccountCode, r.AccountName }))
                             {
+                                decimal opBal = openingBalances.ContainsKey(group.Key.AccountCode) ? openingBalances[group.Key.AccountCode] : 0;
+                                decimal totalDr = group.Sum(x => x.Debit);
+                                decimal totalCr = group.Sum(x => x.Credit);
+                                decimal closeBal = opBal + totalDr - totalCr;
+
                                 <tr class="bg-slate-100/50 border-y border-slate-200">
-                                    <td colspan="5" class="p-3 pl-6 font-bold text-slate-800">
+                                    <td colspan="@(CurrentFilterMode == FilterMode.BetweenTwo ? 5 : 3)" class="p-3 pl-6 font-bold text-slate-800">
                                         @group.Key.AccountCode - @group.Key.AccountName
                                     </td>
+                                    
+                                    @if (CurrentFilterMode != FilterMode.BetweenTwo)
+                                    {
+                                        <td colspan="2" class="p-3 pr-6 text-right font-bold text-slate-600 text-xs uppercase tracking-wider">
+                                            Opening Balance:
+                                            <span class="font-mono text-sm ml-2 text-slate-800">
+                                                @(opBal < 0 ? $"({Math.Abs(opBal):N2})" : opBal.ToString("N2"))
+                                            </span>
+                                        </td>
+                                    }
                                 </tr>
 
                                 @foreach (var r in group)
@@ -139,20 +176,32 @@
 
                                 <tr class="bg-white border-b-2 border-slate-100">
                                     <td colspan="3" class="p-2 pr-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        Subtotal (@group.Key.AccountCode)
+                                        Period Movement (@group.Key.AccountCode)
                                     </td>
                                     <td class="p-2 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
-                                        @group.Sum(x => x.Debit).ToString("N2")
+                                        @totalDr.ToString("N2")
                                     </td>
                                     <td class="p-2 pr-6 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
-                                        @group.Sum(x => x.Credit).ToString("N2")
+                                        @totalCr.ToString("N2")
                                     </td>
                                 </tr>
+
+                                @if (CurrentFilterMode != FilterMode.BetweenTwo)
+                                {
+                                    <tr class="bg-white border-b-4 border-slate-200">
+                                        <td colspan="3" class="p-3 pr-4 text-right text-xs font-black text-slate-600 uppercase tracking-wider">
+                                            Closing Balance (@group.Key.AccountName)
+                                        </td>
+                                        <td colspan="2" class="p-3 pr-6 text-right font-mono font-black text-slate-900 text-sm border-t border-slate-200">
+                                            @(closeBal < 0 ? $"({Math.Abs(closeBal):N2})" : closeBal.ToString("N2"))
+                                        </td>
+                                    </tr>
+                                }
                             }
 
                             <tr class="bg-slate-50 border-t-2 border-slate-300">
                                 <td colspan="3" class="p-4 pl-6 font-bold text-slate-900 uppercase text-xs tracking-wider text-right">
-                                    Grand Total
+                                    Grand Total Movement
                                 </td>
                                 <td class="p-4 text-right font-mono font-bold text-slate-900 text-sm">
                                     @rows.Sum(x => x.Debit).ToString("N2")
@@ -179,13 +228,31 @@
     private DateOnly startDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
     private DateOnly endDate = DateOnly.FromDateTime(DateTime.Today);
     
-    // NEW: Account Filtering properties
+    // NEW: Filter Mode Architecture
+    public enum FilterMode { All, Single, BetweenTwo }
+    private FilterMode currentFilterMode = FilterMode.All;
+    
+    private FilterMode CurrentFilterMode
+    {
+        get => currentFilterMode;
+        set
+        {
+            currentFilterMode = value;
+            ClearAccounts(); // Reset selections when switching modes
+        }
+    }
+
     private List<SegChartOfAccount> allAccounts = new();
-    private Guid selectedAccountId = Guid.Empty;
+    private Guid selectedAccountId = Guid.Empty; // Used for Single or Account A
+    private Guid selectedAccountBId = Guid.Empty; // Used for Account B
 
     private List<LedgerReportRow> rows = new();
+    private Dictionary<string, decimal> openingBalances = new();
     private bool busy;
     private string? error;
+
+    // Prevent searching if "BetweenTwo" is selected but one dropdown is empty
+    private bool IsFilterValid => CurrentFilterMode != FilterMode.BetweenTwo || (selectedAccountId != Guid.Empty && selectedAccountBId != Guid.Empty);
 
     protected override async Task OnInitializedAsync()
     {
@@ -198,7 +265,6 @@
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
 
-            // Fetch all active accounts for the dropdown
             using var ctx = await DbFactory.CreateDbContextAsync();
             allAccounts = await ctx.SegChartOfAccounts
                 .Where(a => a.CompanyId == selectedCompanyId && a.IsActive)
@@ -208,41 +274,73 @@
         isLoading = false;
     }
 
-    private void ClearAccount()
+    private void ClearAccounts()
     {
         selectedAccountId = Guid.Empty;
+        selectedAccountBId = Guid.Empty;
     }
 
     private async Task LoadLedger()
     {
         if (!HasCompany) return;
-        if (startDate > endDate)
-        {
-            await JS.InvokeVoidAsync("alert", "Start Date cannot be after End Date.");
-            return;
-        }
+        if (startDate > endDate) { await JS.InvokeVoidAsync("alert", "Start Date cannot be after End Date."); return; }
+        if (CurrentFilterMode == FilterMode.BetweenTwo && selectedAccountId == selectedAccountBId) { await JS.InvokeVoidAsync("alert", "Account A and Account B must be different."); return; }
 
         busy = true;
         error = null;
         rows.Clear();
+        openingBalances.Clear();
 
         try
         {
-            // 1. Fetch data from service
+            // 1. Fetch Date Range Transactions from GL Engine
             var result = await GLOps.GetLedgerReportAsync(selectedCompanyId, startDate, endDate);
 
-            // 2. In-memory filter if a specific account is selected
-            if (selectedAccountId != Guid.Empty)
+            // 2. APPLY ADVANCED FILTERING
+            if (CurrentFilterMode == FilterMode.Single && selectedAccountId != Guid.Empty)
             {
-                var selectedAcc = allAccounts.FirstOrDefault(a => a.Id == selectedAccountId);
-                if (selectedAcc != null)
-                {
-                    // Filter based on the chosen Account Code
-                    result = result.Where(r => r.AccountCode == selectedAcc.AccountCode).ToList();
-                }
+                result = result.Where(r => r.SegCoaId == selectedAccountId).ToList();
+            }
+            else if (CurrentFilterMode == FilterMode.BetweenTwo)
+            {
+                // THE MAGIC: Find all unique Journal Numbers where BOTH accounts are present
+                var validJournals = result
+                    .GroupBy(r => r.JournalNumber)
+                    .Where(g => g.Any(x => x.SegCoaId == selectedAccountId) && g.Any(x => x.SegCoaId == selectedAccountBId))
+                    .Select(g => g.Key)
+                    .ToHashSet();
+
+                // Filter the final output to only show those two accounts from those specific matched journals
+                result = result.Where(r => validJournals.Contains(r.JournalNumber) &&
+                                          (r.SegCoaId == selectedAccountId || r.SegCoaId == selectedAccountBId)).ToList();
             }
 
             rows = result;
+
+            // 3. CALCULATE OPENING BALANCES
+            // We skip Opening Balances for "Between Two" mode because cross-sectional balances are mathematically invalid.
+            if (rows.Any() && CurrentFilterMode != FilterMode.BetweenTwo)
+            {
+                var distinctAccountCodes = rows.Select(r => r.AccountCode).Distinct().ToList();
+
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                
+                var opBals = await ctx.GLTransactions
+                    .AsNoTracking()
+                    .Include(t => t.SegCoa)
+                    .Where(t => t.CompanyId == selectedCompanyId
+                             && t.PostingDate < startDate
+                             && distinctAccountCodes.Contains(t.SegCoa.AccountCode))
+                    .GroupBy(t => t.SegCoa.AccountCode)
+                    .Select(g => new
+                    {
+                        AccountCode = g.Key,
+                        Balance = g.Sum(x => x.Debit - x.Credit)
+                    })
+                    .ToDictionaryAsync(x => x.AccountCode, x => x.Balance);
+
+                openingBalances = opBals;
+            }
         }
         catch (Exception ex)
         {

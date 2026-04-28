@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="Primafit ERP/Primafit ERP.csproj" />
+  <Project Path="PrimafitERP.Api/PrimafitERP.Api.csproj" Id="46fedf62-1e49-4800-b460-2114056afa45" />
+  <Project Path="PrimafitERP.Core/PrimafitERP.Core.csproj" Id="07b9498d-b235-4ae7-9877-6e3aca75d3b3" />
 </Solution>

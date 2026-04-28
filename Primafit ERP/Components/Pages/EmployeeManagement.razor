@@ -1,0 +1,335 @@
+﻿@page "/hr/employees"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject EmployeeService EmployeeService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Employee Directory</h1>
+            <p class="text-sm text-slate-500 mt-1">Manage staff records, job roles, and compensation structures.</p>
+        </div>
+
+        @if (!isEditing)
+        {
+            <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                <span>Add Employee</span>
+            </button>
+        }
+        else
+        {
+            <button @onclick="CancelEdit" class="px-5 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all">
+                ← Back to List
+            </button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading employee data...</div>
+    }
+    else if (isEditing)
+    {
+        <!-- EMPLOYEE FORM -->
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-4">
+            <div class="p-6 border-b border-slate-100 bg-slate-50">
+                <h2 class="text-lg font-bold text-slate-900">@(currentEmployee.Id == Guid.Empty ? "Register New Employee" : $"Edit Profile: {currentEmployee.FirstName} {currentEmployee.LastName}")</h2>
+            </div>
+
+            <EditForm Model="currentEmployee" OnValidSubmit="SaveEmployee" class="p-8">
+                <DataAnnotationsValidator />
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
+                    
+                    <!-- Column 1: Personal Info -->
+                    <div class="space-y-5">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-2">Personal Details</h3>
+                        
+                        <div>
+                            <label class="label">Staff ID / Code <span class="text-rose-500">*</span></label>
+                            <InputText @bind-Value="currentEmployee.EmployeeCode" class="input-class font-mono uppercase" placeholder="EMP-001" />
+                            <ValidationMessage For="@(() => currentEmployee.EmployeeCode)" class="text-[10px] text-rose-500 mt-1" />
+                        </div>
+                        <div>
+                            <label class="label">First Name <span class="text-rose-500">*</span></label>
+                            <InputText @bind-Value="currentEmployee.FirstName" class="input-class" />
+                            <ValidationMessage For="@(() => currentEmployee.FirstName)" class="text-[10px] text-rose-500 mt-1" />
+                        </div>
+                        <div>
+                            <label class="label">Last Name <span class="text-rose-500">*</span></label>
+                            <InputText @bind-Value="currentEmployee.LastName" class="input-class" />
+                            <ValidationMessage For="@(() => currentEmployee.LastName)" class="text-[10px] text-rose-500 mt-1" />
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Employment -->
+                    <div class="space-y-5">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-2">Employment</h3>
+                        
+                        <div>
+                            <label class="label">Branch / Location <span class="text-rose-500">*</span></label>
+                            <InputSelect @bind-Value="currentEmployee.BranchId" class="input-class">
+                                <option value="@Guid.Empty">-- Select Branch --</option>
+                                @foreach (var b in branches)
+                                {
+                                    <option value="@b.Id">@b.Name</option>
+                                }
+                            </InputSelect>
+                            <ValidationMessage For="@(() => currentEmployee.BranchId)" class="text-[10px] text-rose-500 mt-1" />
+                        </div>
+                        <div>
+                            <label class="label">Job Role & Dept <span class="text-rose-500">*</span></label>
+                            <InputSelect @bind-Value="currentEmployee.JobRoleId" class="input-class">
+                                <option value="@Guid.Empty">-- Select Role --</option>
+                                @foreach (var j in jobRoles)
+                                {
+                                    <option value="@j.Id">@j.Department?.Name - @j.Title</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="label">Date Joined</label>
+                                <InputDate @bind-Value="currentEmployee.DateJoined" class="input-class text-sm" />
+                            </div>
+                            <div>
+                                <label class="label">Status</label>
+                                <InputSelect @bind-Value="currentEmployee.Status" class="input-class font-bold">
+                                    @foreach (var status in Enum.GetValues<EmploymentStatus>())
+                                    {
+                                        <option value="@status">@status</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column 3: Payroll & Statutory -->
+                    <div class="space-y-5">
+                        <h3 class="text-xs font-black uppercase tracking-widest text-slate-400 border-b pb-2">Payroll & Statutory</h3>
+                        
+                        <div>
+                            <label class="label">Salary Structure <span class="text-rose-500">*</span></label>
+                            <InputSelect @bind-Value="currentEmployee.SalaryStructureId" class="input-class border-indigo-300 bg-indigo-50/30">
+                                <option value="@Guid.Empty">-- Assign Compensation Band --</option>
+                                @foreach (var s in salaryStructures)
+                                {
+                                    <option value="@s.Id">@s.Name - @s.GrossMonthlyPay.ToString("N2") / month</option>
+                                }
+                            </InputSelect>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-2">
+                            <div class="col-span-1">
+                                <label class="label">Bank</label>
+                                <InputText @bind-Value="currentEmployee.BankName" class="input-class text-xs" placeholder="GTB" />
+                            </div>
+                            <div class="col-span-2">
+                                <label class="label">Account No</label>
+                                <InputText @bind-Value="currentEmployee.AccountNumber" class="input-class font-mono text-xs" placeholder="0123456789" />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2">
+                            <div class="col-span-1">
+                                <label class="label">PFA</label>
+                                <InputText @bind-Value="currentEmployee.PensionFundAdministrator" class="input-class text-xs" placeholder="Stanbic" />
+                            </div>
+                            <div class="col-span-2">
+                                <label class="label">RSA PIN</label>
+                                <InputText @bind-Value="currentEmployee.RSAPin" class="input-class font-mono text-xs" placeholder="PEN..." />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-3 mt-10 pt-6 border-t border-slate-100">
+                    <button type="submit" disabled="@isBusy" class="px-8 py-3 bg-indigo-600 text-white text-sm font-bold rounded-xl shadow-md hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center gap-2">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin">↻</span>
+                        }
+                        <span>Save Employee Record</span>
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    }
+    else
+    {
+        <!-- EMPLOYEE LIST (DATA GRID) -->
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                        <tr>
+                            <th class="p-4 pl-6">Staff ID</th>
+                            <th class="p-4">Employee Name</th>
+                            <th class="p-4">Role & Dept</th>
+                            <th class="p-4">Branch</th>
+                            <th class="p-4 text-center">Status</th>
+                            <th class="p-4 text-right pr-6">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @if (!employees.Any())
+                        {
+                            <tr><td colspan="6" class="p-12 text-center text-slate-400">No employees found. Click 'Add Employee' to start.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var emp in employees)
+                            {
+                                <tr class="hover:bg-slate-50 transition-colors group">
+                                    <td class="p-4 pl-6 font-mono font-bold text-slate-700 text-xs">@emp.EmployeeCode</td>
+                                    <td class="p-4">
+                                        <div class="font-bold text-slate-900">@emp.FirstName @emp.LastName</div>
+                                        <div class="text-[10px] text-slate-500 mt-0.5">Joined @emp.DateJoined.ToString("MMM yyyy")</div>
+                                    </td>
+                                    <td class="p-4">
+                                        <div class="font-medium text-slate-800">@emp.JobRole?.Title</div>
+                                        <div class="text-[10px] text-slate-400 uppercase tracking-wider">@emp.JobRole?.Department?.Name</div>
+                                    </td>
+                                    <td class="p-4 text-slate-600">@emp.Branch?.Name</td>
+                                    <td class="p-4 text-center">
+                                        <span class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full
+                                            @(emp.Status == EmploymentStatus.Active ? "bg-emerald-100 text-emerald-700" :
+                                                                                            emp.Status == EmploymentStatus.Suspended ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700")">
+                                            @emp.Status
+                                        </span>
+                                    </td>
+                                    <td class="p-4 pr-6 text-right">
+                                        <div class="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button @onclick="() => EditEmployee(emp)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs">Edit</button>
+                                            <button @onclick="() => DeleteEmployee(emp.Id)" class="text-rose-500 hover:text-rose-700 font-bold text-xs">Delete</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+</style>
+
+@code {
+    private Guid currentCompanyId = Guid.Empty;
+    private bool isLoading = true;
+    private bool isEditing = false;
+    private bool isBusy = false;
+
+    // Data
+    private List<Employee> employees = new();
+    private List<Branch> branches = new();
+    private List<JobRole> jobRoles = new();
+    private List<EmployeeSalaryStructure> salaryStructures = new();
+    
+    private Employee currentEmployee = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        var t1 = EmployeeService.GetEmployeesAsync(currentCompanyId);
+        var t2 = EmployeeService.GetBranchesAsync(currentCompanyId);
+        var t3 = EmployeeService.GetJobRolesAsync(currentCompanyId);
+        var t4 = EmployeeService.GetSalaryStructuresAsync(currentCompanyId);
+
+        await Task.WhenAll(t1, t2, t3, t4);
+
+        employees = t1.Result;
+        branches = t2.Result;
+        jobRoles = t3.Result;
+        salaryStructures = t4.Result;
+    }
+
+    private void CreateNew()
+    {
+        currentEmployee = new Employee { CompanyId = currentCompanyId };
+        isEditing = true;
+    }
+
+    private async Task EditEmployee(Employee emp)
+    {
+        // Fetch fresh from DB to ensure tracking is clean
+        var freshEmp = await EmployeeService.GetEmployeeByIdAsync(emp.Id, currentCompanyId);
+        if (freshEmp != null)
+        {
+            currentEmployee = freshEmp;
+            isEditing = true;
+        }
+    }
+
+    private void CancelEdit()
+    {
+        isEditing = false;
+        currentEmployee = new Employee();
+    }
+
+    private async Task SaveEmployee()
+    {
+        // Manual validation for foreign keys
+        if (currentEmployee.BranchId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a branch."); return; }
+        if (currentEmployee.JobRoleId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a job role."); return; }
+        if (currentEmployee.SalaryStructureId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please assign a salary structure."); return; }
+
+        isBusy = true;
+        var err = await EmployeeService.SaveEmployeeAsync(currentEmployee);
+        
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadData();
+            isEditing = false;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+        isBusy = false;
+    }
+
+    private async Task DeleteEmployee(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Are you sure you want to permanently delete this employee?")) return;
+
+        var err = await EmployeeService.DeleteEmployeeAsync(id, currentCompanyId);
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadData();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+}

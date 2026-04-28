@@ -21,11 +21,17 @@ namespace Primafit_ERP.Components.Models
         // Balances
         public decimal OpeningBalance { get; set; }
 
+
         // Sum of Debits (Money In)
         public decimal TotalDebits { get; set; }
 
         // Sum of Credits (Money Out)
         public decimal TotalCredits { get; set; }
+        public bool IsForeignCurrency { get; set; } = false;
+        public Guid? CurrencyId { get; set; }
+
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal ExchangeRate { get; set; } = 1;
 
         [NotMapped]
         public decimal ClosingBalance => OpeningBalance + TotalDebits - TotalCredits;
@@ -53,7 +59,10 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal Credit { get; set; }
 
-
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal ForeignDebit { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal ForeignCredit { get; set; }
         public Guid OffsetSegCoaId { get; set; } // was OffsetAccountId
 
 
