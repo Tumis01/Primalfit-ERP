@@ -10,6 +10,7 @@
     @inject IDbContextFactory<AppDbContext> DbFactory
     @inject NavigationManager Nav
     @inject IJSRuntime JS
+    @inject PermissionCacheService PermissionCache
     @inject UserManager<ApplicationUser> UserManager
     @inject AuthenticationStateProvider AuthStateProvider
     @rendermode InteractiveServer
@@ -33,14 +34,18 @@
 
                 @if (!IsPosted && !IsNew)
                 {
-                    <button @onclick="DeleteDraft"
-                            class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
-                        Delete Draft
-                    </button>
-                    <button @onclick="SaveDraft"
-                            class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
-                        Save Draft
-                    </button>
+                    <PermissionGate Key="CREDIT_NOTE_CREATE">
+                        <Authorized>
+                                    <button @onclick="DeleteDraft"
+                                            class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
+                                        Delete Draft
+                                    </button>
+                                    <button @onclick="SaveDraft"
+                                            class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
+                                        Save Draft
+                                    </button>
+                        </Authorized>
+                    </PermissionGate>
                     <button @onclick="PostCreditNote"
                             class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -99,19 +104,23 @@
                         }
                     </div>
 
-                    <button @onclick="InitializeDraft"
-                            disabled="@(_busy || selectedInvoiceId == Guid.Empty)"
-                            class="w-full mt-2 px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                        @if (_busy)
-                        {
-                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                            <span>Analyzing Returns...</span>
-                        }
-                        else
-                        {
-                            <span>Initialize Draft</span>
-                        }
-                    </button>
+                    <PermissionGate Key="CREDIT_NOTE_CREATE">
+                        <Authorized>
+                            <button @onclick="InitializeDraft"
+                                    disabled="@(_busy || selectedInvoiceId == Guid.Empty)"
+                                    class="w-full mt-2 px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                                @if (_busy)
+                                {
+                                    <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                    <span>Analyzing Returns...</span>
+                                }
+                                else
+                                {
+                                    <span>Initialize Draft</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
 
                     @if (!string.IsNullOrWhiteSpace(_errMsg))
                     {
@@ -302,6 +311,7 @@
         // CHANGED: Using OnParametersSetAsync to correctly catch route ID changes without refreshing!
         protected override async Task OnParametersSetAsync()
         {
+        if (!PermissionCache.Has("CREDIT_NOTE_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
             if (IsNew)
             {
                 if (InvoiceId.HasValue && selectedInvoiceId != InvoiceId.Value)

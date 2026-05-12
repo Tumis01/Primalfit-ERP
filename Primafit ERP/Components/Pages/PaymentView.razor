@@ -13,6 +13,8 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -24,17 +26,21 @@
             <p class="text-sm text-slate-500">Record incoming money against a specific sales order invoice.</p>
         </div>
         <div class="flex items-center gap-4">
-            <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
-                @if (isBusy)
-                {
-                    <span class="animate-spin">↻</span> <span>Processing...</span>
-                }
-                else
-                {
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                    <span>Post Payment</span>
-                }
-            </button>
+            <PermissionGate Key="AR_PAYMENT_CREATE">
+                   <Authorized>
+                    <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin">↻</span> <span>Processing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                            <span>Post Payment</span>
+                        }
+                    </button>
+                </Authorized>
+            </PermissionGate>
         </div>
     </div>
 
@@ -292,6 +298,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("AR_PAYMENT_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

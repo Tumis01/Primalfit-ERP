@@ -10,6 +10,8 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject GLOperationsService GLOps
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -374,6 +376,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("FINANCE_REPORTS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
 

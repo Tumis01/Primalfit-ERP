@@ -1,0 +1,20 @@
+﻿@using Primafit_ERP.Services
+@inject PermissionCacheService PermissionCache
+
+@if (PermissionCache.Has(Key))
+{
+    @Authorized
+}
+else
+{
+    @if (NotAuthorized != null)
+    {
+        @NotAuthorized
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public string Key { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? Authorized { get; set; }
+    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+}

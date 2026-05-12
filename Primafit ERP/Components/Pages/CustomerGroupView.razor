@@ -10,6 +10,8 @@
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 
 @rendermode InteractiveServer
@@ -21,9 +23,13 @@
             <h1 class="text-2xl font-bold text-slate-900">Customer Groups</h1>
             <p class="text-sm text-slate-500">Categorize customers and set default A/R accounts.</p>
         </div>
-        <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-colors">
-            + New Group
-        </button>
+        <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+            <Authorized>
+                <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-colors">
+                    + New Group
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (showForm)
@@ -89,8 +95,12 @@
                             }
                         </td>
                         <td class="px-6 py-4 text-right">
-                            <button @onclick="() => Edit(item)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
-                            <button @onclick="() => Delete(item)" class="text-rose-600 font-bold hover:underline">Delete</button>
+                            <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+                                <Authorized>
+                                    <button @onclick="() => Edit(item)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
+                                    <button @onclick="() => Delete(item)" class="text-rose-600 font-bold hover:underline">Delete</button>
+                                </Authorized>
+                            </PermissionGate>
                         </td>
                     </tr>
                 }
@@ -146,6 +156,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("MD_CUSTOMER_GROUPS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {

@@ -15,6 +15,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ReportExportService ExportService
+@inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -29,10 +30,14 @@
         
         @if (!showForm && HasCompany && !isLoading)
         {
-            <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-2">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                Create Invoice
-            </button>
+            <PermissionGate Key="SALES_ORDER_CREATE">
+                 <Authorized>
+                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        Create Invoice
+                    </button>
+                </Authorized>
+            </PermissionGate>
         }
     </div>
 
@@ -216,10 +221,14 @@
 
                         @if (!IsLocked)
                         {
+                            <PermissionGate Key="SALES_INVOICE_POST">
+                                                    <Authorized>
                             <button type="button" @onclick="PostInvoice" disabled="@isBusy" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
                                 @if (isBusy) { <span class="animate-spin">↻</span> }
                                 Post Invoice
                             </button>
+                            </Authorized>
+                            </PermissionGate>
                         }
                     </div>
                 </EditForm>
@@ -352,6 +361,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("SALES_ORDER_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

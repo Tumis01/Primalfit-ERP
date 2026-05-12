@@ -4,45 +4,55 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 @using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using System.Security.Claims
 
 @inject AuthenticationStateProvider AuthStateProvider
-@inject UserManager<ApplicationUser> UserManager
-@inject CompanyApiService ApiService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject PermissionCacheService PermissionCache
 
 <div class="min-h-screen bg-slate-50 text-slate-900">
-
-    @* Pass the event handler down to the NavMenu *@
     <NavMenu OnCollapseToggled="HandleSidebarCollapse" />
     
-    @* Dynamically switch padding based on the sidebar's state *@
     <main class="px-4 py-6 pt-20 lg:px-8 transition-all duration-300 @(isSidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[280px]")">
         @Body
     </main>
-
 </div>
 
 @code {
     private bool needsCompanySetup = false;
-    private bool isSidebarCollapsed = false; // State to track the sidebar
+    private bool isSidebarCollapsed = false;
 
-    // This method is triggered by the NavMenu whenever it shrinks or expands
     private void HandleSidebarCollapse(bool collapsedState)
     {
         isSidebarCollapsed = collapsedState;
-        StateHasChanged(); // Force the layout to redraw the padding
+        StateHasChanged();
     }
 
-    // protected override async Task OnInitializedAsync()
-    // {
-    //     var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-    //     var user = await UserManager.GetUserAsync(authState.User);
-    //     if (user?.CompanyDetailsId != null)
-    //     {
-    //         var company = await ApiService.GetCompanyByIdAsync(user.CompanyDetailsId.Value);
-    //         if (company != null && (string.IsNullOrWhiteSpace(company.BaseCurrency) || company.FiscalStartYear == null))
-    //         {
-    //             needsCompanySetup = true;
-    //         }
-    //     }
-    // }
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            
+            if (!string.IsNullOrEmpty(userId))
+            {
+                // Create a temporary, thread-safe database connection just for the layout
+                using var context = await DbFactory.CreateDbContextAsync();
+                
+                // Fetch the user directly from this isolated context instead of UserManager
+                var appUser = await context.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == userId);
+
+                if (appUser?.CompanyDetailsId != null)
+                {
+                    await PermissionCache.LoadAsync(appUser.Id, appUser.CompanyDetailsId.Value);
+                }
+            }
+        }
+    }
 }

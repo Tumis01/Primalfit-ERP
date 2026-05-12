@@ -11,23 +11,30 @@
 @inject CurrencyService CurrencyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
+
     <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Customers</h1>
             <p class="text-sm text-slate-500">Manage client profiles, currencies, and GL mapping.</p>
         </div>
-        <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm">
-            + New Customer
-        </button>
+        <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+            <Authorized>
+                <button @onclick="CreateNew" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-sm transition-all active:scale-95">
+                    + New Customer
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (isEditing)
     {
-        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-lg">
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
             <h3 class="text-lg font-bold text-slate-800 mb-6">@(currentCustomer.Id == Guid.Empty ? "Create Customer" : "Edit Customer")</h3>
 
             <EditForm Model="currentCustomer" OnValidSubmit="Save">
@@ -61,7 +68,7 @@
                     </div>
                     <div class="md:col-span-2">
                         <label class="label">Address</label>
-                        <InputTextArea @bind-Value="currentCustomer.Address" class="input-class h-24" />
+                        <InputTextArea @bind-Value="currentCustomer.Address" class="input-class h-24 resize-none" />
                     </div>
                 </div>
 
@@ -93,8 +100,8 @@
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                    <button type="button" @onclick="() => isEditing = false" class="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 shadow-md">Save Profile</button>
+                    <button type="button" @onclick="() => isEditing = false" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
+                    <button type="submit" class="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">Save Profile</button>
                 </div>
             </EditForm>
         </div>
@@ -102,88 +109,107 @@
     else
     {
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-            <table class="w-full text-left text-sm text-slate-600">
-                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
-                    <tr>
-                        <th class="px-6 py-4">Name</th>
-                        <th class="px-6 py-4">Group</th> <th class="px-6 py-4">Contact</th>
-                        <th class="px-6 py-4">Currency</th>
-                        <th class="px-6 py-4">A/R Setup</th>
-                        <th class="px-6 py-4 text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    @foreach (var c in customers)
-                    {
-                        var arAccount = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId);
-                        <tr class="hover:bg-slate-50 transition-colors">
-                            <td class="px-6 py-4 font-bold text-slate-900">@c.Name</td>
-                            <td class="px-6 py-4">
-                                @if (c.Group != null)
-                                {
-                                    <span class="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-bold border border-indigo-100">@c.Group.Name</span>
-                                }
-                                else
-                                {
-                                    <span class="text-slate-400 text-xs">-</span>
-                                }
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="flex flex-col">
-                                    <span>@c.Email</span>
-                                    <span class="text-xs text-slate-400">@c.Phone</span>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <span class="px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs font-bold text-slate-700">
-                                    @c.DefaultCurrency?.CurrencyCode
-                                </span>
-                            </td>
-                            <td class="px-6 py-4">
-                                @if (c.ReceivablesAccountId.HasValue && c.ReceivablesAccountId != Guid.Empty)
-                                {
-                                    <span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        Configured
-                                    </span>
-                                    @if (arAccount != null)
-                                    {
-                                        <div class="text-[10px] text-slate-400 mt-0.5">@arAccount.AccountCode</div>
-                                    }
-                                }
-                                else
-                                {
-                                    <span class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-200">
-                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                                        Missing
-                                    </span>
-                                }
-                            </td>
-                            <td class="px-6 py-4 text-right">
-                                <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:underline">Edit</button>
-                            </td>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4">Name</th>
+                            <th class="px-6 py-4">Group</th> 
+                            <th class="px-6 py-4">Contact</th>
+                            <th class="px-6 py-4 text-center">Currency</th>
+                            <th class="px-6 py-4">A/R Setup</th>
+                            <th class="px-6 py-4 text-right">Action</th>
                         </tr>
-                    }
-                    @if (!customers.Any())
-                    {
-                        <tr><td colspan="6" class="p-8 text-center text-slate-400">No customers found.</td></tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var c in customers)
+                        {
+                            var arAccount = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId);
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="px-6 py-4 font-bold text-slate-900">@c.Name</td>
+                                <td class="px-6 py-4">
+                                    @if (c.Group != null)
+                                    {
+                                        <span class="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md text-[10px] uppercase tracking-wider font-bold border border-indigo-100">@c.Group.Name</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-slate-400 text-xs">-</span>
+                                    }
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="flex flex-col">
+                                        <span class="font-medium">@c.Email</span>
+                                        <span class="text-[10px] font-mono text-slate-400 mt-0.5">@c.Phone</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 text-center">
+                                    <span class="px-2 py-1 bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-700 font-mono tracking-wider">
+                                        @c.DefaultCurrency?.CurrencyCode
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    @if (c.ReceivablesAccountId.HasValue && c.ReceivablesAccountId != Guid.Empty)
+                                    {
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wider">
+                                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+                                            Configured
+                                        </span>
+                                        @if (arAccount != null)
+                                        {
+                                            <div class="text-[10px] font-mono text-slate-400 mt-1">@arAccount.AccountCode</div>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200 uppercase tracking-wider">
+                                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                            Missing
+                                        </span>
+                                    }
+                                </td>
+                                <td class="px-6 py-4 text-right">
+                                    <div class="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+                                            <Authorized>
+                                                <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:text-indigo-800 hover:underline transition-colors text-xs uppercase tracking-wide">
+                                                    Edit
+                                                </button>
+                                            </Authorized>
+                                        </PermissionGate>
+                                        
+                                        <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+                                            <Authorized>
+                                                <button @onclick="() => DeleteCustomer(c)" class="text-rose-500 font-bold hover:text-rose-700 hover:underline transition-colors text-xs uppercase tracking-wide">
+                                                    Delete
+                                                </button>
+                                            </Authorized>
+                                        </PermissionGate>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        @if (!customers.Any())
+                        {
+                            <tr><td colspan="6" class="p-16 text-center text-slate-400 italic">No customers found. Click "+ New Customer" to start.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
     }
 </div>
 
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: border-color 0.2s; outline: none; }
-    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.75rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: border-color 0.2s; outline: none; background: #fff; color: #0f172a; }
+    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
 </style>
 
 @code {
     private List<Customer> customers = new();
     private List<Currency> availableCurrencies = new();
-    private List<CustomerGroup> groups = new(); // NEW: Groups List
+    private List<CustomerGroup> groups = new();
 
     // Segmented COA
     private List<SegChartOfAccount> allAccounts = new();
@@ -202,6 +228,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("MD_CUSTOMER_GROUPS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
         if (user?.CompanyDetailsId != null)
@@ -209,7 +237,7 @@
             selectedCompanyId = user.CompanyDetailsId.Value;
 
             availableCurrencies = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
-            groups = await MasterService.GetCustomerGroupsAsync(selectedCompanyId); // Load Groups
+            groups = await MasterService.GetCustomerGroupsAsync(selectedCompanyId);
             await LoadCustomers();
             await LoadGlAccounts();
         }
@@ -219,7 +247,6 @@
 
     private async Task LoadGlAccounts()
     {
-        // ... (Same account loading logic as before) ...
         accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
         arAccounts = allAccounts.Where(a =>
@@ -229,25 +256,23 @@
         }).OrderBy(a => a.AccountCode).ToList();
     }
 
-    // NEW: Auto-fill Logic
     private void OnGroupChanged(ChangeEventArgs e)
- {
-     if (Guid.TryParse(e.Value?.ToString(), out var gId))
-     {
-         currentCustomer.CustomerGroupId = gId;
-         var group = groups.FirstOrDefault(x => x.Id == gId);
-         
-         // FIX: Check against Guid.Empty instead of .HasValue
-         if (group != null && group.ReceivablesAccountId != Guid.Empty)
-         {
-             currentCustomer.ReceivablesAccountId = group.ReceivablesAccountId;
-         }
-     }
-     else
-     {
-         currentCustomer.CustomerGroupId = null;
-     }
- }
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var gId))
+        {
+            currentCustomer.CustomerGroupId = gId;
+            var group = groups.FirstOrDefault(x => x.Id == gId);
+            
+            if (group != null && group.ReceivablesAccountId != Guid.Empty)
+            {
+                currentCustomer.ReceivablesAccountId = group.ReceivablesAccountId;
+            }
+        }
+        else
+        {
+            currentCustomer.CustomerGroupId = null;
+        }
+    }
 
     private void CreateNew()
     {
@@ -279,6 +304,29 @@
         else
         {
             await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task DeleteCustomer(Customer c)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to delete customer '{c.Name}'?\n\nThis will fail if they have associated Sales Orders or Invoices.");
+        if (!confirm) return;
+
+        try
+        {
+            var err = await MasterService.DeleteCustomerAsync(c.Id);
+            if (string.IsNullOrEmpty(err))
+            {
+                await LoadCustomers();
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", err);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", "Error deleting customer: " + ex.Message);
         }
     }
 }

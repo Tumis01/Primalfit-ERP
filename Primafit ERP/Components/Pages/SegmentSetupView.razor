@@ -12,6 +12,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 
 @rendermode InteractiveServer
@@ -320,6 +322,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("GL_SEGMENT_SETUP_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

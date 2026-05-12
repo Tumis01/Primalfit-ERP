@@ -4,11 +4,15 @@
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+
 @inject RoleApiService RoleService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
+
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -20,12 +24,11 @@
                 @if (!string.IsNullOrEmpty(companyName))
                 {
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">
-                        <svg class="h-3 w-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                         @companyName
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Define job titles and system access levels.</p>
+            <p class="text-sm text-slate-500 mt-1">Define custom job titles and select their accessible modules.</p>
         </div>
 
         <div class="flex gap-2">
@@ -33,10 +36,7 @@
             {
                 <button @onclick="CreateNew" disabled="@(!HasCompany)"
                         class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    New Role
+                    <span>+ New Custom Role</span>
                 </button>
             }
         </div>
@@ -55,17 +55,12 @@
 
             <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
                 <h3 class="text-lg font-bold text-slate-900">@(string.IsNullOrEmpty(currentRole.Id) ? "Create New Role" : "Edit Role")</h3>
-                <button @onclick="CancelForm" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
             </div>
 
             <EditForm Model="currentRole" OnValidSubmit="HandleSubmit">
                 <DataAnnotationsValidator />
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div class="space-y-1.5">
                         <label class="label">Role Title</label>
                         <InputText @bind-Value="currentRole.DisplayName" class="@InputClass" placeholder="e.g. Warehouse Manager" />
@@ -77,8 +72,23 @@
                     </div>
                 </div>
 
-                <div class="mt-4 p-3 bg-slate-50 text-slate-600 text-xs rounded-lg border border-slate-200 font-medium">
-                    <strong>Note:</strong> This role will be created specifically for @companyName.
+                <div class="mb-4">
+                    <h4 class="text-sm font-bold text-slate-900 mb-3 border-b pb-2">Module Access (Page-Level Permissions)</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        @foreach (var perm in availablePagePermissions.OrderBy(p => p.Module))
+                        {
+                            <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                                <input type="checkbox"
+                                       class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                                       checked="@selectedPermissionIds.Contains(perm.Id)"
+                                       @onchange="@(e => TogglePermission(perm.Id, e.Value))" />
+                                <div>
+                                    <div class="text-xs font-bold text-slate-900">@perm.DisplayName</div>
+                                    <div class="text-[10px] text-slate-500">@perm.Module Module</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
                 </div>
 
                 <div class="mt-8 flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -86,7 +96,7 @@
                         Cancel
                     </button>
                     <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-                        Save Role
+                        Save Role & Permissions
                     </button>
                 </div>
             </EditForm>
@@ -107,7 +117,7 @@
                 {
                     @foreach (var role in roles)
                     {
-                        <tr class="group hover:bg-slate-50 transition-colors">
+                        <tr class="group hover:bg-slate-50 transition-colors cursor-pointer" @onclick="() => ToggleViewPermissions(role.Id)">
                             <td class="px-6 py-4">
                                 <span class="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700">
                                     @role.DisplayName
@@ -115,10 +125,10 @@
                             </td>
                             <td class="px-6 py-4 text-slate-600 font-medium">@role.Description</td>
                             <td class="px-6 py-4 text-right">
-                                @if (!role.Name.Contains("SuperAdmin"))
+                                @if (role.CompanyId != Guid.Empty && !role.Name.Contains("SuperAdmin"))
                                 {
-                                    <div class="flex items-center justify-end gap-3 opacity-100">
-                                        <button @onclick="() => Edit(role)" class="text-slate-600 hover:text-slate-900 font-bold hover:underline transition-all">Edit</button>
+                                    <div class="flex items-center justify-end gap-3 opacity-100" @onclick:stopPropagation="true">
+                                        <button @onclick="() => Edit(role)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs hover:underline transition-all">Edit</button>
                                         <button @onclick="() => DeleteRole(role)" class="text-slate-400 hover:text-red-600 transition-colors p-1">
                                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -126,15 +136,47 @@
                                         </button>
                                     </div>
                                 }
+                                else if (role.CompanyId == Guid.Empty && !role.Name.Contains("SuperAdmin"))
+                                {
+                                    <span class="text-xs text-slate-400 italic bg-slate-50 px-2 py-1 rounded border border-slate-100">System Default</span>
+                                }
                             </td>
                         </tr>
+                        
+                        @if (viewingRoleId == role.Id)
+                        {
+                            <tr class="bg-slate-50/80 border-b border-slate-200">
+                                <td colspan="3" class="px-6 py-4">
+                                    <div class="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Assigned Access</div>
+                                    <div class="flex flex-wrap gap-2">
+                                        @if (rolePermissionsCache.ContainsKey(role.Id) && rolePermissionsCache[role.Id].Any())
+                                        {
+                                            @foreach (var perm in rolePermissionsCache[role.Id])
+                                            {
+                                                <span class="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 shadow-sm">
+                                                    @perm.DisplayName
+                                                </span>
+                                            }
+                                        }
+                                        else if(role.Name.Contains("SuperAdmin"))
+                                        {
+                                            <span class="text-slate-400 text-xs italic">Access to all modules</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-slate-400 text-xs italic">No specific module access assigned.</span>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 }
                 else
                 {
                     <tr>
                         <td colspan="3" class="px-6 py-12 text-center text-slate-400">
-                            No roles defined for this company.
+                            No custom roles defined for this company.
                         </td>
                     </tr>
                 }
@@ -153,48 +195,40 @@
         margin-bottom: 0.35rem;
         letter-spacing: 0.025em;
     }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.75rem;
-        border: 1px solid #e2e8f0;
-        padding: 0.6rem 0.8rem;
-        font-size: 0.875rem;
-        background-color: #fff;
-        color: #0f172a;
-        transition: all 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
-        }
 </style>
 
 @code {
-    private const string InputClass = "block w-full rounded-xl border-slate-200 bg-white py-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400";
+    private const string InputClass = "block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-800 focus:ring-2 focus:ring-slate-200 transition-all placeholder:text-slate-400";
 
-    // --- CONTEXT ---
     private Guid selectedCompanyId;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    // --- DATA ---
     private List<ApplicationRole> roles = new();
     private ApplicationRole currentRole = new();
     private bool showForm = false;
 
+    // RBAC Additions
+    private List<Permission> availablePagePermissions = new();
+    private HashSet<int> selectedPermissionIds = new();
+    private string viewingRoleId = "";
+    private Dictionary<string, List<Permission>> rolePermissionsCache = new();
+
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("SuperAdmin"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
 
         if (userPrincipal.Identity != null && userPrincipal.Identity.IsAuthenticated)
         {
             var currentUser = await UserManager.GetUserAsync(userPrincipal);
-
             if (currentUser != null && currentUser.CompanyDetailsId.HasValue)
             {
                 selectedCompanyId = currentUser.CompanyDetailsId.Value;
@@ -202,10 +236,17 @@
                 var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
                 if (company != null) companyName = company.CompanyName;
 
+                await LoadAvailablePermissions();
                 await LoadRoles();
             }
         }
         isLoading = false;
+    }
+
+    private async Task LoadAvailablePermissions()
+    {
+        // Custom roles only get assigned Page-level access (ActionKey == null) as per RBAC docs.
+        availablePagePermissions = await RoleService.GetPageLevelPermissionsAsync();
     }
 
     private async Task LoadRoles()
@@ -217,10 +258,11 @@
     private void CreateNew()
     {
         currentRole = new ApplicationRole { CompanyId = selectedCompanyId };
+        selectedPermissionIds.Clear();
         showForm = true;
     }
 
-    private void Edit(ApplicationRole role)
+    private async Task Edit(ApplicationRole role)
     {
         currentRole = new ApplicationRole
         {
@@ -229,7 +271,21 @@
             DisplayName = role.DisplayName,
             Description = role.Description
         };
+        
+        // Fetch existing permissions for this role to populate checkboxes
+        var currentPerms = await RoleService.GetPermissionsForRoleAsync(role.Id);
+        selectedPermissionIds = currentPerms.Select(p => p.Id).ToHashSet();
+        
         showForm = true;
+    }
+
+    private void TogglePermission(int permissionId, object? checkedValue)
+    {
+        if (checkedValue is bool isChecked)
+        {
+            if (isChecked) selectedPermissionIds.Add(permissionId);
+            else selectedPermissionIds.Remove(permissionId);
+        }
     }
 
     private async Task HandleSubmit()
@@ -238,11 +294,13 @@
 
         currentRole.CompanyId = selectedCompanyId;
 
-        var err = await RoleService.SaveRoleAsync(currentRole);
+        // Save role AND its permissions
+        var err = await RoleService.SaveRoleWithPermissionsAsync(currentRole, selectedPermissionIds.ToList());
 
         if (string.IsNullOrEmpty(err))
         {
             showForm = false;
+            rolePermissionsCache.Remove(currentRole.Id); // Clear cache to force reload on next view
             await LoadRoles();
         }
         else
@@ -258,13 +316,25 @@
         if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to delete role '{role.DisplayName}'?")) return;
 
         var err = await RoleService.DeleteRoleAsync(role.Id);
-        if (string.IsNullOrEmpty(err))
+        if (string.IsNullOrEmpty(err)) await LoadRoles();
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    // Toggle expanding the row to view permissions
+    private async Task ToggleViewPermissions(string roleId)
+    {
+        if (viewingRoleId == roleId)
         {
-            await LoadRoles();
+            viewingRoleId = ""; // Collapse
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", err);
+            viewingRoleId = roleId; // Expand
+            if (!rolePermissionsCache.ContainsKey(roleId))
+            {
+                var perms = await RoleService.GetPermissionsForRoleAsync(roleId);
+                rolePermissionsCache[roleId] = perms;
+            }
         }
     }
 }

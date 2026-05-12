@@ -147,22 +147,29 @@
                                 </div>
                             }
 
-                            <button @onclick="ToggleFinanceReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_financeReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
-                                    <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
-                                    <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
-                                    <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
-                                    <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
-                                    <NavLink href="/reports/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">Cashbook Report</NavLink>
-                                    <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
-                                </div>
-                            }
+                            <PermissionGate Key="FINANCE_REPORTS_PAGE">
+                                <Authorized>
+                                    <button @onclick="ToggleFinanceReport" class="@SubNavFolderBase">
+                                        <span>Report</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
+
+                                    @if (_financeReportOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
+                                            <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
+                                            <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
+                                            <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
+                                            <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
+                                            <NavLink href="/reports/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">Cashbook Report</NavLink>
+                                            <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
+                                        </div>
+                                    }
+                                </Authorized>
+                            </PermissionGate>
                         </div>
                     </div>
                 }
@@ -218,11 +225,15 @@
                             </button>
                             @if (_salesReportOpen)
                             {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
-                                    <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
-                                    <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
-                                </div>
+                                <PermissionGate Key="SALES_REPORTS_PAGE">
+                                    <Authorized>
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
+                                            <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
+                                            <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
+                                        </div>
+                                    </Authorized>
+                                </PermissionGate>
                             }
                         </div>
                     </div>

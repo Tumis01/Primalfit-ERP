@@ -9,6 +9,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -62,11 +64,14 @@
                     </div>
                 }
             </div>
-
+            <PermissionGate Key="SHIPMENT_CREATE">
+            <Authorized>
             <button @onclick="PullOrderToQueue" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2">
                 
                 Load Shipment
             </button>
+            </Authorized>
+            </PermissionGate>
         </div>
     </div>
 
@@ -146,10 +151,14 @@
                                     <button type="button" @onclick="() => expandedShipmentId = Guid.Empty" class="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-50 border border-slate-200 transition-colors">
                                         Cancel
                                     </button>
+                                    <PermissionGate Key="SHIPMENT_DISPATCH">
+                                    <Authorized>
                                     <button type="button" @onclick="() => ConfirmDispatch(shp)" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2">
                                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
                                         Confirm Dispatch
                                     </button>
+                                    </Authorized>
+                                    </PermissionGate>
                                 </div>
                             </div>
                         }
@@ -233,6 +242,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("WH_SHIPMENTS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; } // Note: Assumes NavManager is injected
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

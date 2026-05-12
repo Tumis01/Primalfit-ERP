@@ -11,7 +11,9 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
 @inject IJSRuntime JS
+@inject NavigationManager NavManager
 
 @rendermode InteractiveServer
 
@@ -30,10 +32,14 @@
             </div>
             <p class="text-sm text-slate-500 mt-1">Create, lock, and post manual adjustments to the General Ledger.</p>
         </div>
-        <button @onclick="CreateBatch" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            <span>New Batch</span>
-        </button>
+        <PermissionGate Key="GL_JOURNAL_CREATE">
+            <Authorized>
+                <button @onclick="CreateBatch" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    <span>New Batch</span>
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (isLoading)
@@ -97,27 +103,39 @@
                             <div class="flex gap-2 items-center">
                                 @if (selectedBatch.Status == BatchStatus.Draft)
                                 {
-                                    <button @onclick="DeleteBatch" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 flex items-center gap-2 transition-colors">
-                                        <svg class="w-4 h-4 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        Delete Draft
-                                    </button>
+                                    <PermissionGate Key="GL_JOURNAL_CREATE">
+                                        <Authorized>
+                                            <button @onclick="DeleteBatch" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 flex items-center gap-2 transition-colors">
+                                                Delete Draft
+                                            </button>
+                                        </Authorized>
+                                    </PermissionGate>
 
-                                    <button @onclick="SubmitForApproval" disabled="@(!IsBalanced || TotalDebits == 0)" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                        <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                        Lock Batch
-                                    </button>
+                                    <PermissionGate Key="GL_BATCH_APPROVE">
+                                        <Authorized>
+                                            <button @onclick="SubmitForApproval" disabled="@(!IsBalanced || TotalDebits == 0)" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                Lock Batch
+                                            </button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 }
                                 @if (selectedBatch.Status == BatchStatus.Ready)
                                 {
-                                    <button @onclick="UnlockBatch" class="px-4 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 flex items-center gap-2">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
-                                        Unlock (Edit)
-                                    </button>
+                                    <PermissionGate Key="GL_BATCH_APPROVE">
+                                        <Authorized>
+                                            <button @onclick="UnlockBatch" class="px-4 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 flex items-center gap-2">
+                                                Unlock (Edit)
+                                            </button>
+                                        </Authorized>
+                                    </PermissionGate>
 
-                                    <button @onclick="PostBatch" class="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-700 flex items-center gap-2">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        Post to GL
-                                    </button>
+                                    <PermissionGate Key="GL_BATCH_POST">
+                                        <Authorized>
+                                            <button @onclick="PostBatch" class="px-5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-700 flex items-center gap-2">
+                                                Post to GL
+                                            </button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 }
                             </div>
                         </div>
@@ -324,6 +342,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // 1. PAGE LEVEL GUARD
+        if (!PermissionCache.Has("GL_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

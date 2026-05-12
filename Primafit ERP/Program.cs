@@ -91,6 +91,8 @@ builder.Services.AddScoped<PayslipService>();
 builder.Services.AddScoped<PayrollReportingService>();
 builder.Services.AddScoped<PayrollSettingsService>();
 builder.Services.AddScoped<HrSetupService>();
+builder.Services.AddScoped<PermissionCacheService>();
+builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---
@@ -112,5 +114,31 @@ app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        // 1. Get the database context and role manager
+        var context = services.GetRequiredService<PrimafitERP.Data.AppDbContext>(); // Adjust namespace if needed
+        var roleManager = services.GetRequiredService<Microsoft.AspNetCore.Identity.RoleManager<Primafit_ERP.Components.Models.ApplicationRole>>();
+
+        // 2. Automatically apply any pending EF Core migrations
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            context.Database.Migrate();
+        }
+
+        // 3. Execute your Seeder
+        await Primafit_ERP.Data.Seed.RbacSeeder.SeedAsync(context, roleManager);
+    }
+    catch (Exception ex)
+    {
+        // Log any errors that happen during seeding
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while seeding the database.");
+    }
+}
 
 app.Run();

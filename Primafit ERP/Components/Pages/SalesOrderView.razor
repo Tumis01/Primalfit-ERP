@@ -18,6 +18,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
+@inject PermissionCacheService PermissionCache
 @inject NavigationManager Nav
 @rendermode InteractiveServer
 
@@ -47,9 +48,13 @@
                 <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     All Records
                 </button>
-                <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                    New Record
-                </button>
+                <PermissionGate Key="SALES_ORDER_CREATE">
+                    <Authorized>
+                        <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                            New Record
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         </div>
     </div>
@@ -177,9 +182,13 @@
                                             }
                                             else
                                             {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => ConvertQuoteToOrder(o)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
-                                            }
+                                                <PermissionGate Key="SALES_ORDER_CREATE">
+                                                    <Authorized>
+                                                        <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                        <button @onclick="() => ConvertQuoteToOrder(o)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                    </Authorized>
+                                                </PermissionGate>
+                                             }
                                         }
                                         else if (o.Status == OrderStatus.Order)
                                         {
@@ -191,16 +200,28 @@
                                             }
                                             else
                                             {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                                <PermissionGate Key="SALES_ORDER_CREATE">
+                                                <Authorized>
+                                                    <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                    <button @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                                </Authorized>
+                                                </PermissionGate>
                                             }
                                         }
                                         else if (o.OrderNumber.StartsWith("INV"))
                                         {
                                             if (o.Status == OrderStatus.Draft)
                                             {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => InvoiceOrderFromList(o)" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm">Post Invoice</button>
+                                                <PermissionGate Key="SALES_ORDER_CREATE">
+                                                    <Authorized>
+                                                        <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                    </Authorized>
+                                                </PermissionGate>
+                                                <PermissionGate Key="SALES_INVOICE_POST">
+                                                    <Authorized>
+                                                        <button @onclick="() => InvoiceOrderFromList(o)" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm">Post Invoice</button>
+                                                    </Authorized>
+                                                </PermissionGate>
                                             }
                                             else
                                             {
@@ -211,7 +232,11 @@
                                                 @* TO WAREHOUSE BUTTON: ONLY display on the Invoices tab *@
                                                 @if (needsShipping)
                                                 {
+                                                    <PermissionGate Key="SHIPMENT_CREATE">
+    <Authorized>
                                                     <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
+                                                    </Authorized>
+                                                    </PermissionGate>
                                                 }
 
                                                 @if (o.IsFullyPaid)
@@ -528,30 +553,47 @@
                         }
                         @if (!IsLocked)
                         {
-                            <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
-                                Delete
-                            </button>
+                            <PermissionGate Key="SALES_ORDER_CREATE">
+                                <Authorized>
+                                    <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
+                                        Delete
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
                             <button type="button" @onclick="() => activeTab = 0" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
                                 Cancel
                             </button>
-
-                            @if (currentOrder.Status == OrderStatus.Quote)
-                            {
-                                <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                                    Save Quote
-                                </button>
-                            }
-                            else if (currentOrder.Status == OrderStatus.Order)
-                            {
-                                <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                                    Save Order
-                                </button>
-                            }
+                            
+                                    @if (currentOrder.Status == OrderStatus.Quote)
+                                    {
+                                        <PermissionGate Key="SALES_ORDER_CREATE">
+                                        <Authorized>
+                                        <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                            Save Quote
+                                        </button>
+                                        </Authorized>
+                                        </PermissionGate>
+                                    }
+                                    else if (currentOrder.Status == OrderStatus.Order)
+                                    {
+                                    <PermissionGate Key="SALES_ORDER_CREATE">
+                                        <Authorized>
+                                        <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                            Save Order
+                                        </button>
+                                        
+                                        </Authorized>
+                                    </PermissionGate>
+                                    }
                             else if (currentOrder.Status == OrderStatus.Draft)
                             {
+                                <PermissionGate Key="SALES_INVOICE_POST">
+                                <Authorized>
                                 <button type="button" @onclick="SaveAndPostInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
                                     Post Invoice to GL
                                 </button>
+                                </Authorized>
+                                </PermissionGate>
                             }
                         }
                         else
@@ -662,6 +704,7 @@
                  || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

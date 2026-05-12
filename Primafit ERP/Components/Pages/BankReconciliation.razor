@@ -137,23 +137,26 @@
                         <InputFile OnChange="HandleFileUpload" class="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer" />
                     </div>
                 }
-
-                <button @onclick="StartRecon"
-                        disabled="@(!CanStartRecon || isBusy)"
-                        class="w-full rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex justify-center items-center gap-2">
-                    @if (isBusy)
-                    {
-                        <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>Processing...</span>
-                    }
-                    else
-                    {
-                        <span>Start Reconciliation</span>
-                    }
-                </button>
+                 <PermissionGate Key="RECON_START">
+                    <Authorized>
+                        <button @onclick="StartRecon"
+                                disabled="@(!CanStartRecon || isBusy)"
+                                class="w-full rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-lg hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex justify-center items-center gap-2">
+                            @if (isBusy)
+                            {
+                                <svg class="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <span>Start Reconciliation</span>
+                            }
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         </div>
     }
@@ -182,13 +185,21 @@
             <div class="flex flex-col justify-center gap-2">
                 @if (vm.Reconciliation.Type == ReconType.Automatic)
                 {
-                    <button @onclick="AutoMatch" class="w-full py-2 px-4 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-50 shadow-sm transition-colors">
-                        ✨ Auto Match Rules
-                    </button>
+                    <PermissionGate Key="RECON_START">
+                        <Authorized>
+                            <button @onclick="AutoMatch" class="w-full py-2 px-4 bg-white border border-indigo-200 text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-50 shadow-sm transition-colors">
+                                 Auto Match Rules
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
                 }
-                <button @onclick="Finalize" class="w-full py-2 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                    ✅ Finalize & Close
-                </button>
+                    <PermissionGate Key="RECON_FINALIZE">
+                        <Authorized>
+                            <button @onclick="Finalize" class="w-full py-2 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                 Finalize & Close
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
             </div>
         </div>
 
@@ -288,10 +299,14 @@
         @if (selectedBankLine != null && selectedTxn != null && vm.Reconciliation.Type == ReconType.Automatic)
         {
             <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-4">
-                <button @onclick="ManualMatch" class="rounded-full bg-slate-900 px-8 py-3 text-white font-bold shadow-2xl hover:scale-105 transition-transform flex items-center gap-2 ring-4 ring-white">
-                    <span>Link Selected Items</span>
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                </button>
+                <PermissionGate Key="RECON_START">
+                    <Authorized>
+                        <button @onclick="ManualMatch" class="rounded-full bg-slate-900 px-8 py-3 text-white font-bold shadow-2xl hover:scale-105 transition-transform flex items-center gap-2 ring-4 ring-white">
+                            <span>Link Selected Items</span>
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         }
     }

@@ -17,6 +17,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ReportExportService ReportExportService
+@inject PermissionCacheService PermissionCache
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -246,13 +247,21 @@
                                                 }
                                                 @if (!po.IsInvoicePosted && po.HasReceipt)
                                                 {
-                                                    <button @onclick="() => AutoPostInvoice(po)" disabled="@(isPostingId == po.Id)" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
-                                                        @(isPostingId == po.Id ? "Posting..." : "Post Invoice")
-                                                    </button>
+                                                    <PermissionGate Key="PO_INVOICE_POST">
+                                                        <Authorized>
+                                                            <button @onclick="() => AutoPostInvoice(po)" disabled="@(isPostingId == po.Id)" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+                                                                @(isPostingId == po.Id ? "Posting..." : "Post Invoice")
+                                                            </button>
+                                                        </Authorized>
+                                                    </PermissionGate>
                                                 }
                                                 else if (po.IsInvoicePosted && !po.IsFullyPaid)
                                                 {
-                                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Make Payment</button>
+                                                    <PermissionGate Key="PAYMENT_CREATE">
+                                                        <Authorized>
+                                                            <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Make Payment</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
                                                 }
                                             }
                                         </div>
@@ -535,19 +544,30 @@
                         
                         @if (!IsLocked)
                         {
-                            <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
-                                Delete
-                            </button>
+                            <PermissionGate Key="PO_DELETE">
+                                <Authorized>
+                                    <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
+                                        Delete
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
+
                             <button type="button" @onclick="() => activeTab = 0" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">
                                 Cancel
                             </button>
-                            <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isBusy">
-                                @if (isBusy)
-                                {
-                                    <span class="animate-spin">↻</span>
-                                }
-                                @(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")
-                            </button>
+
+                            <PermissionGate Key="PO_CREATE">
+                                <Authorized>
+                                    <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isBusy">
+                                        @if (isBusy)
+                                        {
+                                            <span class="animate-spin">↻</span>
+                                        }
+                                        @(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
+                            
                         }
                         else
                         {
@@ -672,6 +692,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return; // Stop rendering
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
