@@ -17,6 +17,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ReportExportService ExportService
 @inject NavigationManager NavManager
+@inject PermissionCacheService PermissionCache
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -30,10 +31,14 @@
         
         @if (!showForm && HasCompany && !isLoading)
         {
-            <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                Create Invoice
-            </button>
+            <PermissionGate Key="PO_CREATE">
+                <Authorized>
+                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        Create Invoice
+                    </button>
+                </Authorized>
+            </PermissionGate>
         }
     </div>
 
@@ -233,10 +238,17 @@
 
                         @if (!IsLocked)
                         {
-                            <button type="button" @onclick="PostBill" disabled="@isBusy" class="px-8 py-2.5 bg-rose-600 text-white rounded-xl font-bold text-sm hover:bg-rose-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
-                                @if (isBusy) { <span class="animate-spin">↻</span> }
-                                Post AP Bill
-                            </button>
+                            <PermissionGate Key="PO_INVOICE_POST">
+                                <Authorized>
+                                    <button type="button" @onclick="PostBill" disabled="@isBusy" class="px-8 py-2.5 bg-rose-600 text-white rounded-xl font-bold text-sm hover:bg-rose-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                                        @if (isBusy)
+                                        {
+                                            <span class="animate-spin">↻</span>
+                                        }
+                                        Post AP Bill
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
                         }
                     </div>
                 </EditForm>
@@ -301,9 +313,13 @@
                                         }
                                         else
                                         {
-                                            <button type="button" @onclick="() => NavigateToPayment(pBill.Id)" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-600 hover:text-white text-xs font-bold transition-colors">
-                                                @(pBill.AmountPaid > 0 ? "Pay Balance" : "Pay Bill")
-                                            </button>
+                                            <PermissionGate Key="PAYMENT_CREATE">
+                                                <Authorized>
+                                                    <button type="button" @onclick="() => NavigateToPayment(pBill.Id)" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-600 hover:text-white text-xs font-bold transition-colors">
+                                                        @(pBill.AmountPaid > 0 ? "Pay Balance" : "Pay Bill")
+                                                    </button>
+                                                </Authorized>
+                                            </PermissionGate>
                                         }
                                     </td>
                                 </tr>
@@ -360,6 +376,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

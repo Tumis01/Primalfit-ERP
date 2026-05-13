@@ -199,7 +199,7 @@ namespace Primafit_ERP.Services
                         line.PurchaseOrderId = po.Id;
                     }
                     ctx.PurchaseOrders.Add(po);
-                }
+                }   
                 else
                 {
                     if (existing.IsInvoicePosted || existing.HasReceipt)
@@ -214,6 +214,9 @@ namespace Primafit_ERP.Services
                     po.CompanyId = existing.CompanyId;
                     po.OrderNumber = existing.OrderNumber;
 
+                    // Add this to prevent accidental un-linking if the UI forgets to send it
+                    po.ConvertedFromRequestNumber = existing.ConvertedFromRequestNumber;
+
                     ctx.Entry(existing).CurrentValues.SetValues(po);
 
                     ctx.PurchaseOrderLines.RemoveRange(existing.Lines);
@@ -224,6 +227,7 @@ namespace Primafit_ERP.Services
                         ctx.PurchaseOrderLines.Add(line);
                     }
                 }
+                // ...
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;

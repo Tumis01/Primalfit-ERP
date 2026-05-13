@@ -11,6 +11,8 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject AuthenticationStateProvider AuthStateProvider
 
 @rendermode InteractiveServer
@@ -70,25 +72,41 @@
                             }
                         </td>
                         <td class="p-4 text-center">
-                            @if (isLocked)
-                            {
-                                <span class="px-3 py-1.5 bg-slate-100 text-slate-400 rounded-lg text-xs font-bold border border-slate-200">Locked</span>
-                            }
-                            else if (isSaved)
-                            {
-                                <button @onclick="() => SaveLog(asset.Id)" class="px-4 py-1.5 bg-amber-50 text-amber-700 font-bold rounded-lg hover:bg-amber-100 text-xs transition-colors border border-amber-200">
-                                    Update
-                                </button>
-                                <div class="text-[10px] text-emerald-600 font-bold mt-1 flex items-center justify-center gap-1">
-                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg> Saved
-                                </div>
-                            }
-                            else
-                            {
-                                <button @onclick="() => SaveLog(asset.Id)" class="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 text-xs transition-colors">
-                                    Save
-                                </button>
-                            }
+                            <PermissionGate Key="FIXED_ASSETS_MANAGE">
+                                <Authorized>
+                                    @if (isLocked)
+                                    {
+                                        <span class="px-3 py-1.5 bg-slate-100 text-slate-400 rounded-lg text-xs font-bold border border-slate-200">Locked</span>
+                                    }
+                                    else if (isSaved)
+                                    {
+                                        <div class="flex flex-col items-center gap-2">
+                                            <div class="flex items-center justify-center gap-2">
+                                                <button @onclick="() => SaveLog(asset.Id)" class="px-3 py-1.5 bg-amber-50 text-amber-700 font-bold rounded-lg hover:bg-amber-100 text-xs transition-colors border border-amber-200">
+                                                    Update
+                                                </button>
+
+                                                <PermissionGate Key="FIXED_ASSETS_DEPRECIATE">
+                                                    <Authorized>
+                                                        <button @onclick="() => RunSingleDepreciation(asset.Id)" class="px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 text-xs transition-colors shadow-sm">
+                                                            Post Depr.
+                                                        </button>
+                                                    </Authorized>
+                                                </PermissionGate>
+                                            </div>
+                                            <div class="text-[10px] text-emerald-600 font-bold flex items-center justify-center gap-1">
+                                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg> Saved
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button @onclick="() => SaveLog(asset.Id)" class="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 text-xs transition-colors">
+                                            Save
+                                        </button>
+                                    }
+                                </Authorized>
+                            </PermissionGate>
                         </td>
                     </tr>
                 }
@@ -113,6 +131,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("FIXED_ASSETS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
@@ -210,6 +233,29 @@
         else
         {
             await JS.InvokeVoidAsync("alert", "Please enter a valid number greater than 0.");
+        }
+    }
+    private async Task RunSingleDepreciation(Guid assetId)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to post depreciation for this asset for {periodMonth:MMMM yyyy}? This will create a General Ledger entry and lock the usage log."))
+            return;
+
+        isLoading = true;
+        try
+        {
+            // Call a targeted method to process just this asset for this specific month
+            string resultMessage = await AssetService.RunSingleAssetDepreciationAsync(companyId, assetId, periodMonth);
+
+            await JS.InvokeVoidAsync("alert", resultMessage);
+            await LoadDataForPeriod(); // Refresh to lock the input field
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Posting Failed: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
         }
     }
 }

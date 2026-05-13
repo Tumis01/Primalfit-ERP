@@ -19,10 +19,14 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Units of Measure</h1>
             <p class="text-sm text-slate-500 mt-1">Define measurement units and conversion factors for inventory items.</p>
         </div>
-        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            New UoM
-        </button>
+        <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+            <Authorized>
+                <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    New UoM
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (showForm)

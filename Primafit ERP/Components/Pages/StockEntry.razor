@@ -13,6 +13,8 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -269,17 +271,21 @@
                         <button @onclick="() => activeTab = 0" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors text-sm">
                             Cancel
                         </button>
-                        <button @onclick="ProcessEntry" disabled="@isBusy" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                            @if (isBusy)
-                            {
-                                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                                <span>Processing...</span>
-                            }
-                            else
-                            {
-                                <span>Process</span>
-                            }
-                        </button>
+                        <PermissionGate Key="INVENTORY_OPERATIONS_MANAGE">
+                            <Authorized>
+                                <button @onclick="ProcessEntry" disabled="@isBusy" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                                    @if (isBusy)
+                                    {
+                                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                        <span>Processing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Process</span>
+                                    }
+                                </button>
+                            </Authorized>
+                        </PermissionGate>
                     </div>
 
                 </div>
@@ -424,6 +430,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_SETUP_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

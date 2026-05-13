@@ -10,13 +10,19 @@
 @inject SegCoaService GLService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
     <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <h1 class="text-2xl font-bold text-slate-900">Vendors</h1>
-        <button @onclick="CreateNew" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-slate-800">+ New Vendor</button>
+        <PermissionGate Key="VENDOR_MANAGE">
+            <Authorized>
+                <button @onclick="CreateNew" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-slate-800">+ New Vendor</button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (showForm)
@@ -27,7 +33,7 @@
                 <DataAnnotationsValidator />
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div><label class="label">Name</label><InputText @bind-Value="currentVendor.Name" class="input-class" /></div>
-                    
+
                     <div>
                         <label class="label">Vendor Group</label>
                         <select @onchange="OnGroupChanged" value="@(currentVendor.VendorGroupId?.ToString() ?? "")" class="input-class border-slate-300">
@@ -77,7 +83,8 @@
             <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
                 <tr>
                     <th class="p-4">Name</th>
-                    <th class="p-4">Group</th> <th class="p-4">Contact</th>
+                    <th class="p-4">Group</th>
+                    <th class="p-4">Contact</th>
                     <th class="p-4">Currency</th>
                     <th class="p-4">A/P Setup</th>
                     <th class="p-4 text-right">Actions</th>
@@ -119,8 +126,14 @@
                             }
                         </td>
                         <td class="p-4 text-right">
-                            <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
-                            <button @onclick="() => Delete(v)" class="text-red-600 font-bold hover:underline">Delete</button>
+                            <PermissionGate Key="VENDOR_MANAGE">
+                                <Authorized>
+                                    <div class="flex items-center justify-end gap-3">
+                                        <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:underline">Edit</button>
+                                        <button @onclick="() => Delete(v)" class="text-rose-600 font-bold hover:underline">Delete</button>
+                                    </div>
+                                </Authorized>
+                            </PermissionGate>
                         </td>
                     </tr>
                 }
@@ -130,19 +143,32 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #e2e8f0; padding: 0.6rem; font-size: 0.875rem; }
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #e2e8f0;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+    }
 </style>
 
 @code {
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
-    private List<VendorGroup> groups = new(); // NEW: Vendor Groups
+    private List<VendorGroup> groups = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> apAccounts = new();
-    
-    // Types needed for filtering
+
     private List<SegAccountType> accountTypes = new();
 
     private Vendor currentVendor = new();
@@ -152,6 +178,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Add page guard here
+        if (!PermissionCache.Has("MD_VENDORS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
@@ -160,14 +189,13 @@
             currentCompanyId = user.CompanyDetailsId.Value;
 
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
-            groups = await MasterService.GetVendorGroupsAsync(currentCompanyId); // Load Groups
+            groups = await MasterService.GetVendorGroupsAsync(currentCompanyId);
 
-            // Load Accounts using SegCoaService
             accountTypes = await GLService.GetAccountTypesAsync();
             allAccounts = await GLService.GetActiveCoaAsync(currentCompanyId);
-            
-            // Filter AP Accounts (Liabilities)
-            apAccounts = allAccounts.Where(a => {
+
+            apAccounts = allAccounts.Where(a =>
+            {
                 var t = accountTypes.FirstOrDefault(type => type.Id == a.SegAccountTypeId);
                 return t != null && t.IsBalanceSheet == true && t.IsDebit == false;
             }).ToList();
@@ -178,14 +206,13 @@
 
     private async Task LoadData() => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
 
-    // NEW: Auto-fill Logic for Vendors
     private void OnGroupChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var gId))
         {
             currentVendor.VendorGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
-            
+
             if (group != null && group.PayablesAccountId.HasValue)
             {
                 currentVendor.PayablesAccountId = group.PayablesAccountId;
@@ -220,7 +247,7 @@
             Address = v.Address,
             CurrencyId = v.CurrencyId,
             PayablesAccountId = v.PayablesAccountId,
-            VendorGroupId = v.VendorGroupId // Map group
+            VendorGroupId = v.VendorGroupId
         };
         showForm = true;
         isEditing = true;

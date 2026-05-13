@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 font-sans text-slate-800">
@@ -33,23 +34,31 @@
 
             @if (!IsPosted && !IsNew)
             {
-                <button @onclick="TerminateReturn"
-                        class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
-                    Terminate
-                </button>
+                <PermissionGate Key="PO_RETURN_MANAGE">
+                    <Authorized>
+                        <button @onclick="TerminateReturn"
+                                class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
+                            Terminate
+                        </button>
 
-                <button @onclick="SaveDraft"
-                        class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
-                    Save Draft
-                </button>
+                        <button @onclick="SaveDraft"
+                                class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
+                            Save Draft
+                        </button>
+                    </Authorized>
+                </PermissionGate>
 
-                <button @onclick="PostReturn"
-                        class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Post Return
-                </button>
+                <PermissionGate Key="PO_RETURN_POST">
+                    <Authorized>
+                        <button @onclick="PostReturn"
+                                class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Post Return
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             }
         </div>
     </div>
@@ -64,7 +73,7 @@
             <p class="text-slate-500 text-sm mb-8 font-medium">Select a Posted Vendor Bill to initiate a return to the supplier.</p>
 
             <div class="flex flex-col gap-5 max-w-sm mx-auto text-left">
-                
+
                 <div>
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vendor</label>
                     <select @onchange="OnVendorSelected" class="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" disabled="@_busy">
@@ -122,19 +131,23 @@
                     </select>
                 </div>
 
-                <button @onclick="InitializeReturn"
-                        disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
-                        class="mt-2 w-full px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                    @if (_busy)
-                    {
-                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                        <span>Loading Items...</span>
-                    }
-                    else
-                    {
-                        <span>Load Items & Create Draft</span>
-                    }
-                </button>
+                <PermissionGate Key="PO_RETURN_MANAGE">
+                    <Authorized>
+                        <button @onclick="InitializeReturn"
+                                disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
+                                class="mt-2 w-full px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                            @if (_busy)
+                            {
+                                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                <span>Loading Items...</span>
+                            }
+                            else
+                            {
+                                <span>Load Items & Create Draft</span>
+                            }
+                        </button>
+                    </Authorized>
+                </PermissionGate>
 
                 @if (!string.IsNullOrWhiteSpace(_errMsg))
                 {
@@ -248,7 +261,7 @@
                                                     <input type="number"
                                                            value="@line.QtyReturning"
                                                            @onchange="@(e => UpdateQty(line, e.Value, max))"
-                                                           class="w-20 text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none transition-all"
+                                                           class="w-20 text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-400"
                                                            min="0" max="@max" step="1" />
 
                                                     <button @onclick="() => { line.QtyReturning = max; }"
@@ -371,10 +384,14 @@
         ? eligibleBills
         : eligibleBills.Where(b => b.DisplayText.Contains(billSearchTerm, StringComparison.OrdinalIgnoreCase));
 
-    // --- CRITICAL LIFECYCLE FIX ---
-    // Switched to OnParametersSetAsync to re-fetch when URL changes (Draft Creation)
     protected override async Task OnParametersSetAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         if (IsNew)
@@ -469,7 +486,6 @@
         selectedBillId = id;
         billSearchTerm = displayText;
         isBillDropdownOpen = false;
-        // Notice we do NOT auto-initialize here, because the user must also pick a Warehouse!
     }
 
     private async Task InitializeReturn()
@@ -492,7 +508,6 @@
             var err = await RtvService.SaveDraftAsync(currentRtv);
             if (string.IsNullOrEmpty(err))
             {
-                // This triggers OnParametersSetAsync!
                 Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
             }
             else
@@ -511,8 +526,6 @@
             _busy = false;
         }
     }
-
-    // --- Validation logic explicitly kept identical to what was requested ---
 
     private async Task LoadValidationContext(AppDbContext ctx, Guid billId)
     {
@@ -545,6 +558,12 @@
 
     private async Task SaveDraft()
     {
+        if (currentRtv.Lines.Any(l => l.QtyReturning > (GetBilledQty(l.VendorBillLineId) - GetPrevReturnedQty(l.VendorBillLineId))))
+        {
+            await JS.InvokeVoidAsync("alert", "One or more lines exceeds the maximum returnable quantity.");
+            return;
+        }
+
         var err = await RtvService.SaveDraftAsync(currentRtv);
         if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved.");
         else await JS.InvokeVoidAsync("alert", err);

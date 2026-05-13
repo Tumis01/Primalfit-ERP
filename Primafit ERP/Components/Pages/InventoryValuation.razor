@@ -13,6 +13,8 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -340,6 +342,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_REPORTS_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return; // Stop rendering
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

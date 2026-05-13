@@ -55,9 +55,13 @@
                 <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     All Orders
                 </button>
-                <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                    New PO
-                </button>
+                <PermissionGate Key="PO_CREATE">
+                    <Authorized>
+                        <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                            New PO
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         </div>
     </div>
@@ -140,8 +144,12 @@
                                             }
                                             else
                                             {
-                                                <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => ConvertRequestToOrder(req)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                <PermissionGate Key="PO_CREATE">
+                                                    <Authorized>
+                                                        <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                        <button @onclick="() => ConvertRequestToOrder(req)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                    </Authorized>
+                                                </PermissionGate>
                                             }
                                         </div>
                                     </td>
@@ -793,6 +801,7 @@
             VendorId = po.VendorId,
             OrderDate = po.OrderDate,
             OrderNumber = po.OrderNumber,
+            ConvertedFromRequestNumber = po.ConvertedFromRequestNumber, // Add this line!
             Status = po.Status,
             CurrencyId = po.CurrencyId,
             ExchangeRate = po.ExchangeRate,
@@ -820,14 +829,30 @@
         if (!confirm) return;
 
         var err = await PurchService.ConvertRequestToOrderAsync(req.Id);
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+            return;
+        }
 
         await JS.InvokeVoidAsync("alert", "Request Successfully Converted to Purchase Order!");
+
+        // Ensure the backend data is fully refreshed into the local lists
         await LoadData();
 
+        // Switch to the All Orders tab since it is no longer a Request
+        activeTab = 0;
+
+        // Find the newly created PO and open it for editing
         var newOrder = orders.FirstOrDefault(o => o.ConvertedFromRequestNumber == req.OrderNumber);
-        if (newOrder != null) await EditOrder(newOrder);
-    }
+        if (newOrder != null)
+        {
+            await EditOrder(newOrder);
+        }
+
+        // Force Blazor to re-render the UI
+        StateHasChanged();
+    }   
 
     private async Task OnVendorChanged(ChangeEventArgs e)
     {

@@ -95,6 +95,119 @@ namespace Primafit_ERP.Services
                 .OrderByDescending(h => h.Date) // Newest first
                 .ToListAsync();
         }
+        public async Task<string> RunSingleAssetDepreciationAsync(Guid companyId, Guid assetId, DateTime targetMonth)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var asset = await ctx.FixedAssets.FindAsync(assetId);
+            if (asset == null || asset.Status != AssetStatus.Active)
+                return "Asset is either missing or not active.";
+
+            // Lock to end of month for financial consistency
+            var runDate = new DateTime(targetMonth.Year, targetMonth.Month, DateTime.DaysInMonth(targetMonth.Year, targetMonth.Month));
+
+            // Verify it hasn't already been run for this month
+            bool alreadyRun = await ctx.AssetDepreciationHistories
+                .AnyAsync(h => h.FixedAssetId == assetId && h.Date.Year == runDate.Year && h.Date.Month == runDate.Month);
+
+            if (alreadyRun) return "Depreciation has already been posted for this month.";
+
+            // Fetch Usage Log for this specific month
+            var log = await ctx.AssetUsageLogs
+                .FirstOrDefaultAsync(u => u.FixedAssetId == assetId && u.PeriodDate.Year == runDate.Year && u.PeriodDate.Month == runDate.Month);
+
+            decimal amount = 0;
+            decimal? unitsUsedThisPeriod = null;
+
+            // --- 1. CALCULATE DEPRECIATION ---
+            switch (asset.DepreciationMethod)
+            {
+                case DepreciationMethod.UnitsOfUsage:
+                    if (log != null && asset.EstimatedTotalUnits > 0)
+                    {
+                        unitsUsedThisPeriod = log.UnitsUsed;
+                        amount = ((asset.PurchaseCost - asset.SalvageValue) / asset.EstimatedTotalUnits.Value) * unitsUsedThisPeriod.Value;
+                    }
+                    else
+                    {
+                        return "Cannot post: No valid usage log found for this month, or Estimated Total Units is zero.";
+                    }
+                    break;
+
+                case DepreciationMethod.StraightLine:
+                    if (asset.UsefulLifeMonths > 0)
+                        amount = (asset.PurchaseCost - asset.SalvageValue) / asset.UsefulLifeMonths;
+                    break;
+
+                case DepreciationMethod.DecliningBalance:
+                    decimal annualRate = asset.DecliningRate ?? (asset.DecliningFactor.HasValue && asset.UsefulLifeMonths > 0 ? (asset.DecliningFactor.Value / (asset.UsefulLifeMonths / 12.0m)) : 0);
+                    amount = (annualRate / 12.0m) * asset.CurrentBookValue;
+                    break;
+
+                case DepreciationMethod.SumOfYearsDigits:
+                    if (asset.UsefulLifeMonths > 0)
+                    {
+                        decimal n = asset.UsefulLifeMonths;
+                        decimal syd = n * (n + 1) / 2.0m;
+                        int monthsElapsed = ((runDate.Year - asset.DepreciationStartDate.Year) * 12) + runDate.Month - asset.DepreciationStartDate.Month;
+                        monthsElapsed = Math.Max(0, Math.Min(monthsElapsed, asset.UsefulLifeMonths - 1));
+                        decimal remainingLife = n - monthsElapsed;
+                        amount = (remainingLife / syd) * (asset.PurchaseCost - asset.SalvageValue);
+                    }
+                    break;
+
+                case DepreciationMethod.ImmediateWriteOff:
+                    amount = asset.CurrentBookValue - asset.SalvageValue;
+                    break;
+            }
+
+            if (amount <= 0) return "Calculated depreciation amount is zero.";
+
+            // --- 2. FLOOR ENFORCEMENT ---
+            if ((asset.CurrentBookValue - amount) < asset.SalvageValue)
+                amount = asset.CurrentBookValue - asset.SalvageValue;
+
+            if (amount <= 0) return "Asset has reached its salvage value.";
+
+            // --- 3. APPLY DEPRECIATION ---
+            asset.CurrentBookValue -= amount;
+            asset.LastDepreciationDate = runDate;
+            if (asset.CurrentBookValue <= asset.SalvageValue) asset.Status = AssetStatus.FullyDepreciated;
+
+            var glLines = new List<GLJournalLine>
+    {
+        new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" },
+        new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" }
+    };
+
+            var history = new AssetDepreciationHistory
+            {
+                FixedAssetId = asset.Id,
+                Date = runDate,
+                Amount = amount,
+                MethodUsed = asset.DepreciationMethod,
+                UnitsUsed = unitsUsedThisPeriod,
+                DetailsJson = JsonSerializer.Serialize(new { asset.PurchaseCost, asset.CurrentBookValue, amount })
+            };
+
+            // --- 4. CREATE GL BATCH & SAVE ---
+            var (err, batchId) = await _glOps.CreateJournalEntryAsync(
+                companyId, DateOnly.FromDateTime(runDate),
+                "Asset Depreciation", $"Manual Post: {runDate:MMM yyyy}", glLines);
+
+            if (!batchId.HasValue) return $"Failed to create GL Batch: {err}";
+
+            history.GlBatchId = batchId.Value;
+            ctx.AssetDepreciationHistories.Add(history);
+
+            await ctx.SaveChangesAsync(); // Saves Asset updates and History record to DB
+
+            // --- 5. POST BATCH ---
+            var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value);
+            if (!string.IsNullOrEmpty(postErr)) return $"Depreciation saved, but GL posting failed: {postErr}";
+
+            return $"Successfully posted depreciation. Amount: {amount:N2}";
+        }
         public async Task<string> RunMonthlyDepreciationAsync(Guid companyId, DateTime runDate)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -232,6 +345,40 @@ namespace Primafit_ERP.Services
             if (!string.IsNullOrEmpty(postErr)) return $"Depreciation saved, but GL posting failed: {postErr}";
 
             return $"Successfully processed {newHistories.Count} assets. Total: {totalRunAmount:C}";
+        }
+        public async Task<string> DeleteAssetAsync(Guid assetId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var asset = await ctx.FixedAssets.FindAsync(assetId);
+            if (asset == null) return "Asset not found.";
+
+            // SAFETY CHECK 1: Has this asset already posted depreciation?
+            bool hasDepreciationHistory = await ctx.AssetDepreciationHistories.AnyAsync(h => h.FixedAssetId == assetId);
+
+            // SAFETY CHECK 2: Has the book value changed from the purchase cost?
+            if (hasDepreciationHistory || asset.CurrentBookValue < asset.PurchaseCost)
+            {
+                return "STOP: Cannot delete an asset that has already posted depreciation to the General Ledger. To remove this asset from active status, you must formally Dispose or Retire it.";
+            }
+
+            try
+            {
+                // Optional: If they logged usage (Units of Usage method) but haven't run depreciation yet, clear those logs.
+                var pendingUsageLogs = await ctx.AssetUsageLogs.Where(u => u.FixedAssetId == assetId).ToListAsync();
+                if (pendingUsageLogs.Any())
+                {
+                    ctx.AssetUsageLogs.RemoveRange(pendingUsageLogs);
+                }
+
+                ctx.FixedAssets.Remove(asset);
+                await ctx.SaveChangesAsync();
+                return string.Empty; // Success
+            }
+            catch (Exception ex)
+            {
+                return $"Database Error: {ex.Message}";
+            }
         }
     }
 }

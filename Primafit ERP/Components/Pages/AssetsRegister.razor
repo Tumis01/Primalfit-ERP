@@ -12,6 +12,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 
 @rendermode InteractiveServer
@@ -32,30 +34,38 @@
             <p class="text-sm text-slate-500 mt-1">Manage corporate assets, assign categories, and configure depreciation rules.</p>
         </div>
         <div class="flex gap-2">
-            <button @onclick="RunDepreciation" disabled="@isRunningDepreciation" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
-                @if (isRunningDepreciation)
-                {
-                    <svg class="h-4 w-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Processing...</span>
-                }
-                else
-                {
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    <span>Run Depreciation</span>
-                }
-            </button>
+            <PermissionGate Key="FIXED_ASSETS_MANAGE">
+                <Authorized>
+                    <button @onclick="RunDepreciation" disabled="@isRunningDepreciation" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95">
+                        @if (isRunningDepreciation)
+                        {
+                            <svg class="h-4 w-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Processing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <span>Run Depreciation</span>
+                        }
+                    </button>
+                </Authorized>
+            </PermissionGate>
 
-            <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                New Asset
-            </button>
+            <PermissionGate Key="FIXED_ASSETS_MANAGE">
+                <Authorized>
+                    <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                        New Asset
+                    </button>
+                </Authorized>
+            </PermissionGate>
         </div>
     </div>
 
@@ -118,9 +128,13 @@
                                     <button @onclick="@(async () => await ViewHistory(asset))" class="text-xs font-bold text-emerald-600 hover:text-emerald-800 hover:underline transition-colors">
                                         History
                                     </button>
-                                    <button @onclick="() => EditAsset(asset)" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline transition-colors">
-                                        Edit
-                                    </button>
+                                    <PermissionGate Key="FIXED_ASSETS_MANAGE">
+                                        <Authorized>
+                                            <button @onclick="() => EditAsset(asset)" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline transition-colors">
+                                                Edit
+                                            </button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 </div>
                             </td>
                         </tr>
@@ -198,7 +212,7 @@
                             <InputDate @bind-Value="draft.DepreciationStartDate" class="@InputClass" />
                         </div>
                     </div>
-
+                    
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
                         <h4 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">3. Depreciation Strategy</h4>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -277,6 +291,14 @@
                     </div>
 
                     <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                        <div>
+                            @if (draft.Id != Guid.Empty)
+                            {
+                                <button type="button" @onclick="DeleteAsset" class="px-5 py-2.5 text-sm font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors">
+                                    Delete Asset
+                                </button>
+                            }
+                        </div>
                         <button type="button" @onclick="() => showModal = false" class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors">
                             Cancel
                         </button>
@@ -402,6 +424,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("FIXED_ASSETS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
@@ -559,5 +586,30 @@
             DepreciationMethod.SumOfYearsDigits => "Sum of Years' Digits",
             _ => method.ToString()
         };
+    }
+    private async Task DeleteAsset()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to permanently delete {draft.AssetName}?\n\nWarning: If this asset has already posted depreciation to the General Ledger, deleting it may cause audit discrepancies."))
+            return;
+
+        isSaving = true; // Reuse the loading spinner state
+        try
+        {
+            // Assuming your AssetService has a DeleteAssetAsync method
+            var err = await AssetService.DeleteAssetAsync(draft.Id);
+            if (string.IsNullOrEmpty(err))
+            {
+                await LoadData();
+                showModal = false;
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", err);
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 }

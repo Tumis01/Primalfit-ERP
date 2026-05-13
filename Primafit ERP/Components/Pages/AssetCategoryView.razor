@@ -9,6 +9,8 @@
 @inject IJSRuntime JS
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 
 @rendermode InteractiveServer
 
@@ -18,9 +20,13 @@
             <h1 class="text-2xl font-bold text-slate-900">Asset Categories</h1>
             <p class="text-sm text-slate-500">Configure default depreciation methods and GL accounts.</p>
         </div>
-        <button @onclick="NewCategory" class="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all">
-            + New Category
-        </button>
+        <PermissionGate Key="FIXED_ASSETS_MANAGE">
+            <Authorized>
+                <button @onclick="NewCategory" class="px-5 py-2.5 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all">
+                    + New Category
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (categories != null)
@@ -34,6 +40,7 @@
                         <th class="px-6 py-4">Asset GL</th>
                         <th class="px-6 py-4">Accum Depr GL</th>
                         <th class="px-6 py-4">Expense GL</th>
+                        <th class="px-6 py-4">Action</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -45,6 +52,14 @@
                             <td class="px-6 py-4 text-slate-600">@GetGlName(c.FixedAssetAccountId)</td>
                             <td class="px-6 py-4 text-slate-600">@GetGlName(c.AccumulatedDepreciationAccountId)</td>
                             <td class="px-6 py-4 text-slate-600">@GetGlName(c.DepreciationExpenseAccountId)</td>
+                            <td class="px-6 py-4 text-right">
+                                <PermissionGate Key="FIXED_ASSETS_MANAGE">
+                                    <Authorized>
+                                        <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs transition-colors">Edit</button>
+                                        <button @onclick="() => Delete(c)" class="text-rose-500 font-bold hover:text-rose-700 text-xs transition-colors">Delete</button>
+                                    </Authorized>
+                                </PermissionGate>
+                            </td>
                         </tr>
                     }
                     @if (!categories.Any())
@@ -142,6 +157,12 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // 1. PAGE LEVEL GUARD
+        if (!PermissionCache.Has("FIXED_ASSETS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
@@ -176,4 +197,37 @@
     }
 
     string GetGlName(Guid? id) => coa.FirstOrDefault(a => a.Id == id)?.Description ?? "-";
+    void Edit(AssetCategory c)
+    {
+        draft = new AssetCategory
+        {
+            Id = c.Id,
+            CompanyId = c.CompanyId,
+            Name = c.Name,
+            Code = c.Code,
+            DefaultDepreciationMethod = c.DefaultDepreciationMethod,
+            DecliningRate = c.DecliningRate,
+            DecliningFactor = c.DecliningFactor,
+            FixedAssetAccountId = c.FixedAssetAccountId,
+            AccumulatedDepreciationAccountId = c.AccumulatedDepreciationAccountId,
+            DepreciationExpenseAccountId = c.DepreciationExpenseAccountId
+        };
+        showModal = true;
+    }
+
+    async Task Delete(AssetCategory c)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Permanently delete category '{c.Name}'?")) return;
+
+        // Assuming your CatService has a DeleteCategoryAsync method
+        var err = await CatService.DeleteCategoryAsync(c.Id);
+        if (string.IsNullOrEmpty(err))
+        {
+            categories = await CatService.GetCategoriesAsync(companyId);
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
 }

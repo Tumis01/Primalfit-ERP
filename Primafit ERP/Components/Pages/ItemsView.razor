@@ -8,6 +8,8 @@
 @inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -19,10 +21,14 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Item Master</h1>
             <p class="text-sm text-slate-500 mt-1">Manage Inventory Items, Services, and their GL mappings.</p>
         </div>
-        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            New Item
-        </button>
+        <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+            <Authorized>
+                <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                    New Item
+                </button>
+            </Authorized>
+        </PermissionGate>
     </div>
 
     @if (showForm)
@@ -220,8 +226,12 @@
                                 <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N2")</td>
                                 
                                 <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
-                                    <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                                    <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+                                        <Authorized>
+                                            <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
+                                            <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 </td>
                             </tr>
                         }
@@ -260,6 +270,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_SETUP_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

@@ -1,0 +1,330 @@
+﻿@page "/reports/fixed-assets"
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject AssetService AssetService
+@inject AssetCategoryService CategoryService
+@inject CompanyApiService CompanyService
+@inject ReportExportService ExportService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+
+    <!-- Header Section -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Fixed Asset Valuation Report</h1>
+            <p class="text-sm text-slate-500 mt-1">Track asset costs, accumulated depreciation, and current book values.</p>
+        </div>
+
+        <div class="flex flex-wrap gap-3 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-500 uppercase ml-2">From:</span>
+                <input type="date" @bind="fromDate" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-slate-500 uppercase">To:</span>
+                <input type="date" @bind="toDate" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+            </div>
+            <button @onclick="FilterData" class="px-4 py-1.5 bg-slate-900 text-white text-sm font-bold rounded-lg shadow-sm hover:bg-slate-800 transition-colors">
+                Apply Filter
+            </button>
+        </div>
+    </div>
+
+    <!-- Actions Section -->
+    <div class="flex justify-end gap-3">
+        <button @onclick="ExportToPdf" disabled="@isExporting" class="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-50 text-rose-700 border border-rose-200 text-sm font-bold rounded-xl shadow-sm hover:bg-rose-100 disabled:opacity-50 transition-all">
+            @if (isExportingPdf)
+            {
+                <span class="animate-spin">↻</span>
+                <span>Exporting...</span>
+            }
+            else
+            {
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span>Export PDF</span>
+            }
+        </button>
+        
+        <button @onclick="ExportToExcel" disabled="@isExporting" class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-bold rounded-xl shadow-sm hover:bg-emerald-100 disabled:opacity-50 transition-all">
+            @if (isExportingExcel)
+            {
+                <span class="animate-spin">↻</span>
+                <span>Exporting...</span>
+            }
+            else
+            {
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span>Export Excel</span>
+            }
+        </button>
+    </div>
+
+    <!-- Data Table -->
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading report data...
+        </div>
+    }
+    else
+    {
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm whitespace-nowrap">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                        <tr>
+                            <th class="px-4 py-4">Asset Tag</th>
+                            <th class="px-4 py-4">Asset Name</th>
+                            <th class="px-4 py-4">Category</th>
+                            <th class="px-4 py-4 text-right">Cost</th>
+                            <th class="px-4 py-4 text-right text-rose-600">Accum. Depr.</th>
+                            <th class="px-4 py-4 text-right border-l border-slate-100 bg-slate-50/50">Book Value</th>
+                            <th class="px-4 py-4 text-right">Salvage Value</th>
+                            <th class="px-4 py-4 text-center">Last Depr. Date</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var asset in filteredAssets)
+                        {
+                            var catName = categories.FirstOrDefault(c => c.Id == asset.AssetCategoryId)?.Name ?? "Uncategorized";
+                            
+                            // Math: How much of the asset's value has been consumed
+                            decimal accumDepreciation = asset.PurchaseCost - asset.CurrentBookValue;
+                            
+                            // Formatting the date
+                            string lastDeprDate = asset.LastDepreciationDate.HasValue ? asset.LastDepreciationDate.Value.ToString("dd MMM, yyyy") : "Not Run";
+                            
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="px-4 py-4 font-mono font-bold text-indigo-600">@asset.AssetTag</td>
+                                <td class="px-4 py-4 font-medium text-slate-800">
+                                    @asset.AssetName
+                                    <div class="text-[10px] text-slate-400 font-mono mt-0.5">Purchased: @asset.PurchaseDate.ToString("dd MMM, yy")</div>
+                                </td>
+                                <td class="px-4 py-4 text-slate-600 text-xs">@catName</td>
+                                
+                                <td class="px-4 py-4 text-right font-mono text-slate-600">@asset.PurchaseCost.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono text-rose-600">@accumDepreciation.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono font-bold text-slate-900 border-l border-slate-100 bg-slate-50/30">@asset.CurrentBookValue.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono text-slate-500">@asset.SalvageValue.ToString("N2")</td>
+                                
+                                <td class="px-4 py-4 text-center">
+                                    @if (asset.LastDepreciationDate.HasValue)
+                                    {
+                                        <span class="px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 text-[10px] font-bold tracking-wider font-mono">@lastDeprDate</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="px-2.5 py-1 rounded bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold uppercase tracking-wider">@lastDeprDate</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+
+                        @if (!filteredAssets.Any())
+                        {
+                            <tr><td colspan="8" class="px-6 py-16 text-center text-slate-400">No assets found for the selected date range.</td></tr>
+                        }
+                        else
+                        {
+                            <!-- Grand Totals Row -->
+                            decimal totalCost = filteredAssets.Sum(a => a.PurchaseCost);
+                            decimal totalBookValue = filteredAssets.Sum(a => a.CurrentBookValue);
+                            decimal totalAccumDepr = totalCost - totalBookValue;
+                            decimal totalSalvage = filteredAssets.Sum(a => a.SalvageValue);
+
+                            <tr class="bg-slate-50 border-t-2 border-slate-200">
+                                <td colspan="3" class="px-4 py-4 text-right font-bold text-slate-900 uppercase text-xs tracking-wider">Grand Total:</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-slate-900">@totalCost.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-rose-600">@totalAccumDepr.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-indigo-700 border-l border-slate-200">@totalBookValue.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-slate-600">@totalSalvage.ToString("N2")</td>
+                                <td></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Guid companyId = Guid.Empty;
+    private string companyName = "";
+    private string userName = "";
+    
+    private bool isLoading = true;
+    private bool isExportingPdf = false;
+    private bool isExportingExcel = false;
+    private bool isExporting => isExportingPdf || isExportingExcel;
+
+    private DateTime fromDate = new DateTime(DateTime.Today.Year, 1, 1); // Default to start of current year
+    private DateTime toDate = DateTime.Today;
+
+    private List<FixedAsset> allAssets = new();
+    private List<FixedAsset> filteredAssets = new();
+    private List<AssetCategory> categories = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("INVENTORY_REPORTS_PAGE") && !PermissionCache.Has("FIXED_ASSETS_PAGE")) // Allowed if they have either reporting or direct fixed asset rights
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+            userName = user.FullName ?? user.UserName ?? "System User";
+            
+            var comp = await CompanyService.GetCompanyByIdAsync(companyId);
+            if (comp != null) companyName = comp.CompanyName;
+
+            await LoadData();
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        allAssets = await AssetService.GetAssetsAsync(companyId);
+        categories = await CategoryService.GetCategoriesAsync(companyId);
+        FilterData();
+        isLoading = false;
+    }
+
+    private void FilterData()
+    {
+        // Filter assets where Purchase Date falls between the selected range
+        filteredAssets = allAssets
+            .Where(a => a.PurchaseDate.Date >= fromDate.Date && a.PurchaseDate.Date <= toDate.Date)
+            .OrderBy(a => a.PurchaseDate)
+            .ToList();
+    }
+
+    private StandardReportData BuildReportData()
+    {
+        var data = new StandardReportData
+        {
+            ReportName = "Fixed Asset Valuation & Depreciation Report",
+            CompanyName = companyName,
+            ReportingPeriod = $"{fromDate:dd MMM, yyyy} to {toDate:dd MMM, yyyy}",
+            Currency = "Base",
+            GeneratedBy = userName,
+            DateGenerated = DateTime.Now,
+            Headers = new List<string> { "Asset Tag", "Asset Name", "Category", "Purchase Cost", "Accum. Depr.", "Book Value", "Salvage Value", "Last Depr. Date" },
+            Rows = new List<List<string>>()
+        };
+
+        decimal totalCost = 0;
+        decimal totalAccumDepr = 0;
+        decimal totalBookValue = 0;
+        decimal totalSalvage = 0;
+
+        foreach (var asset in filteredAssets)
+        {
+            var catName = categories.FirstOrDefault(c => c.Id == asset.AssetCategoryId)?.Name ?? "Uncategorized";
+            decimal accumDepreciation = asset.PurchaseCost - asset.CurrentBookValue;
+            string lastDeprDate = asset.LastDepreciationDate.HasValue ? asset.LastDepreciationDate.Value.ToString("yyyy-MM-dd") : "Not Run";
+
+            data.Rows.Add(new List<string>
+            {
+                asset.AssetTag ?? "",
+                asset.AssetName ?? "",
+                catName,
+                asset.PurchaseCost.ToString("N2"),
+                accumDepreciation.ToString("N2"),
+                asset.CurrentBookValue.ToString("N2"),
+                asset.SalvageValue.ToString("N2"),
+                lastDeprDate
+            });
+
+            totalCost += asset.PurchaseCost;
+            totalAccumDepr += accumDepreciation;
+            totalBookValue += asset.CurrentBookValue;
+            totalSalvage += asset.SalvageValue;
+        }
+
+        // Add Summary Row (The ReportExportService bolds rows where column 1 is empty and column 2 says 'TOTAL')
+        data.Rows.Add(new List<string>
+        {
+            "", 
+            "GRAND TOTAL", 
+            "", 
+            totalCost.ToString("N2"), 
+            totalAccumDepr.ToString("N2"), 
+            totalBookValue.ToString("N2"), 
+            totalSalvage.ToString("N2"),
+            ""
+        });
+
+        return data;
+    }
+
+    private async Task ExportToPdf()
+    {
+        if (!filteredAssets.Any()) { await JS.InvokeVoidAsync("alert", "No data to export."); return; }
+        
+        isExportingPdf = true;
+        try
+        {
+            await Task.Delay(50); // Allow UI to update spinner
+            var reportData = BuildReportData();
+            var pdfBytes = ExportService.GeneratePdf(reportData);
+            
+            var fileName = $"Asset_Valuation_{DateTime.Now:yyyyMMdd_HHmm}.pdf";
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExportingPdf = false;
+        }
+    }
+
+    private async Task ExportToExcel()
+    {
+        if (!filteredAssets.Any()) { await JS.InvokeVoidAsync("alert", "No data to export."); return; }
+        
+        isExportingExcel = true;
+        try
+        {
+            await Task.Delay(50); // Allow UI to update spinner
+            var reportData = BuildReportData();
+            var excelBytes = ExportService.GenerateExcel(reportData);
+            
+            var fileName = $"Asset_Valuation_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(excelBytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExportingExcel = false;
+        }
+    }
+}
