@@ -39,6 +39,7 @@ namespace Primafit_ERP.Components.Models
         public BatchStatus Status { get; set; } = BatchStatus.Draft;
         public Guid? PostedGLBatchId { get; set; }
 
+        public bool ClearAfterPost { get; set; } = true;
         public virtual List<CashbookEntry> Entries { get; set; } = new();
     }
 
@@ -69,6 +70,7 @@ namespace Primafit_ERP.Components.Models
         [Required(ErrorMessage = "Reference is required")] 
         [MaxLength(50)]
         public string Reference { get; set; } = "";
+        public bool IsPosted { get; set; } = false;
         public Guid? ProjectId { get; set; }
     }
 }

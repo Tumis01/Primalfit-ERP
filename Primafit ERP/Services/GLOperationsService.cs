@@ -89,15 +89,15 @@ namespace Primafit_ERP.Services
         // 1) Create Standard Journal Entry (Wrapper)
         // =========================================================
         public async Task<(string error, Guid? batchId)> CreateJournalEntryAsync(
-            Guid companyId,
-            DateOnly txnDate,
-            string batchName,
-            string? description,
-            List<GLJournalLine> lines)
+    Guid companyId,
+    DateOnly txnDate,
+    string batchName,
+    string? description,
+    List<GLJournalLine> lines)
         {
             string journalNumber = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
 
-            return await CreateDraftBatchAsync(
+            var result = await CreateDraftBatchAsync(
                 companyId,
                 txnDate,
                 batchName,
@@ -106,7 +106,17 @@ namespace Primafit_ERP.Services
                 description,
                 lines,
                 BatchType.Standard);
+
+            if (!string.IsNullOrWhiteSpace(result.error) || !result.batchId.HasValue)
+                return result;
+
+            var releaseErr = await ReleaseBatchAsync(companyId, result.batchId.Value);
+            if (!string.IsNullOrWhiteSpace(releaseErr))
+                return (releaseErr, result.batchId);
+
+            return result;
         }
+
 
         // =========================================================
         // 2) CORE: Create Draft Batch (The Engine)
@@ -259,9 +269,8 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
 
                 if (batch == null) return "Batch not found.";
-                if (batch.Status == BatchStatus.Posted) return "Batch is already posted.";
+                if (batch.Status != BatchStatus.Ready) return $"Batch cannot be posted. Current Status: {batch.Status}";
 
-                // THE FIX: Strict validation that the Accounting Period is still open BEFORE posting
                 var targetPeriod = await ctx.AccountingPeriods
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.Id == batch.AccountingPeriodId);
@@ -269,29 +278,18 @@ namespace Primafit_ERP.Services
                 if (targetPeriod == null) return "Fatal Error: The accounting period linked to this batch no longer exists.";
                 if (targetPeriod.IsClosed) return $"STOP: Cannot post. The accounting period ({targetPeriod.StartDate:yyyy-MM-dd} to {targetPeriod.EndDate:yyyy-MM-dd}) is currently CLOSED.";
 
-                if (batch.Status == BatchStatus.Draft)
-                {
-                    foreach (var j in batch.Journals)
-                        if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced. Cannot auto-post.";
-
-                    batch.Status = BatchStatus.Ready;
-                    batch.ReleasedByUserId = "SYSTEM_AUTO";
-                    batch.ReleasedAt = DateTime.UtcNow;
-                    await ctx.SaveChangesAsync(); // Save state change before proceeding
-                }
-
-                if (batch.Status != BatchStatus.Ready)
-                    return $"Batch cannot be posted. Current Status: {batch.Status}";
-
-                var allLines = batch.Journals.SelectMany(j => j.Lines).ToList();
-                var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, allLines, requireAllowJournal: false);
-                if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
-
                 foreach (var journal in batch.Journals)
                 {
-                    if (!IsBalanced(journal.Lines)) throw new InvalidOperationException("Journal unbalanced.");
+                    // Only validate and post the UNPOSTED lines
+                    var pendingLines = journal.Lines.Where(l => !l.IsPosted).ToList();
 
-                    foreach (var line in journal.Lines)
+                    if (!pendingLines.Any()) return "No new lines to post.";
+                    if (!IsBalanced(pendingLines)) return $"Journal '{journal.JournalNumber}' pending lines are not balanced.";
+
+                    var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, pendingLines, requireAllowJournal: false);
+                    if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
+
+                    foreach (var line in pendingLines)
                     {
                         ctx.GLTransactions.Add(new GLTransaction
                         {
@@ -305,11 +303,16 @@ namespace Primafit_ERP.Services
                             Credit = line.Credit,
                             Narration = line.Reference ?? journal.Narration,
                         });
+
+                        if (batch.ClearAfterPost)
+                            ctx.Set<GLJournalLine>().Remove(line);  // clear line
+                        else
+                            line.IsPosted = true;                   // retain with flag
                     }
-                    journal.Status = JournalStatus.Posted;
                 }
 
-                batch.Status = BatchStatus.Posted;
+                // Batch always resets to Draft — it's a reusable template
+                batch.Status = BatchStatus.Draft;
                 batch.PostedByUserId = "SYSTEM_AUTO";
                 batch.PostedAt = DateTime.UtcNow;
 
@@ -329,16 +332,6 @@ namespace Primafit_ERP.Services
         // 6) INTERACTIVE UI LIFECYCLE (NEW FOR LINE-BY-LINE EDITOR)
         // =========================================================
 
-        public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
-        {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.GLBatches
-                .Include(b => b.Journals)
-                .ThenInclude(j => j.Lines)
-                .Where(b => b.CompanyId == companyId && b.Type == BatchType.Standard && (b.Status == BatchStatus.Draft || b.Status == BatchStatus.Ready))
-                .OrderByDescending(b => b.Id)
-                .ToListAsync();
-        }
 
         public async Task<GLBatch?> GetBatchByIdAsync(Guid batchId)
         {
@@ -349,7 +342,9 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == batchId);
         }
 
-        public async Task<GLBatch> CreateDraftBatchAsync(Guid companyId, DateOnly date, string description, string userId)
+        // Change signature of the interactive CreateDraftBatchAsync to accept the new flag
+        public async Task<GLBatch> CreateDraftBatchAsync(
+            Guid companyId, DateOnly date, string description, string userId, bool clearAfterPost)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var period = await ResolvePeriodOrThrow(ctx, companyId, date);
@@ -364,10 +359,10 @@ namespace Primafit_ERP.Services
                 Description = description,
                 Type = BatchType.Standard,
                 Status = BatchStatus.Draft,
-                CreatedByUserId = userId
+                CreatedByUserId = userId,
+                ClearAfterPost = clearAfterPost   // <-- new
             };
 
-            // Initialize the Header required to hold the lines
             batch.Journals.Add(new GLJournalHeader
             {
                 CompanyId = companyId,
@@ -381,6 +376,20 @@ namespace Primafit_ERP.Services
             ctx.GLBatches.Add(batch);
             await ctx.SaveChangesAsync();
             return batch;
+        }
+
+        // Include retained posted batches in the active list
+        public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.GLBatches  
+                .Include(b => b.Journals)
+                .ThenInclude(j => j.Lines)
+                .Where(b => b.CompanyId == companyId
+                         && b.Type == BatchType.Standard
+                         && (b.Status == BatchStatus.Draft || b.Status == BatchStatus.Ready))
+                .OrderByDescending(b => b.CreatedAt)
+                .ToListAsync();
         }
 
         public async Task<string> DeleteDraftBatchAsync(Guid batchId)

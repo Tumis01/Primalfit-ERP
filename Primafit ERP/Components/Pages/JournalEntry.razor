@@ -205,14 +205,28 @@
                                                 <td class="p-4 text-right font-mono text-emerald-600 font-bold">@(line.Debit > 0 ? line.Debit.ToString("N2") : "-")</td>
                                                 <td class="p-4 text-right font-mono text-rose-600 font-bold">@(line.Credit > 0 ? line.Credit.ToString("N2") : "-")</td>
                                                 <td class="p-4 text-center">
-                                                    @if (selectedBatch.Status == BatchStatus.Draft)
+                                                    @if (line.IsPosted)
+                                                    {
+                                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                                                            </svg>
+                                                            Posted
+                                                        </span>
+                                                    }
+                                                    else if (selectedBatch.Status == BatchStatus.Draft)
                                                     {
                                                         <div class="flex items-center justify-center gap-3">
                                                             <button @onclick="() => EditLine(line)" class="text-slate-400 hover:text-indigo-600" title="Edit">
-                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                                </svg>
                                                             </button>
                                                             <button @onclick="() => RemoveLine(line.Id)" class="text-slate-400 hover:text-red-500" title="Delete">
-                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                                </svg>
                                                             </button>
                                                         </div>
                                                     }
@@ -271,8 +285,21 @@
                     </div>
                     <div>
                         <label class="label">Batch Description / Memo</label>
-                        <textarea @bind="newBatchDescription" class="input-class" rows="3" placeholder="e.g. End of month accruals"></textarea>
+                        <textarea @bind="newBatchDescription" class="input-class" rows="3"
+                                  placeholder="e.g. End of month accruals"></textarea>
                     </div>
+                    <!-- NEW -->
+                    <label class="flex items-center gap-3 cursor-pointer select-none p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" @bind="newBatchClearAfterPost"
+                               class="w-4 h-4 rounded accent-slate-800 cursor-pointer" />
+                        <div>
+                            <span class="text-sm font-bold text-slate-700">Clear batch after post</span>
+                            <p class="text-xs text-slate-400 mt-0.5">
+                                When checked, this batch will be removed from the list once posted.
+                                Uncheck to keep the batch visible with a posted indicator on each line.
+                            </p>
+                        </div>
+                    </label>
                 </div>
 
                 <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
@@ -335,10 +362,16 @@
     private string newBatchDescription = "";
 
     // Computed Properties - Maps directly to the underlying Journal inside the Batch
-    private List<GLJournalLine> CurrentLines => selectedBatch?.Journals?.FirstOrDefault()?.Lines ?? new List<GLJournalLine>();
-    private decimal TotalDebits => CurrentLines.Sum(l => l.Debit);
-    private decimal TotalCredits => CurrentLines.Sum(l => l.Credit);
+    private List<GLJournalLine> CurrentLines =>
+    selectedBatch?.Journals?.FirstOrDefault()?.Lines ?? new List<GLJournalLine>();
+
+    private List<GLJournalLine> PendingLines =>
+        CurrentLines.Where(l => !l.IsPosted).ToList();
+
+    private decimal TotalDebits => PendingLines.Sum(l => l.Debit);
+    private decimal TotalCredits => PendingLines.Sum(l => l.Credit);
     private bool IsBalanced => TotalDebits > 0 && TotalDebits == TotalCredits;
+    private bool newBatchClearAfterPost = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -384,6 +417,7 @@
     {
         newBatchDate = DateOnly.FromDateTime(DateTime.Today);
         newBatchDescription = "";
+        newBatchClearAfterPost = true;
         showCreateModal = true;
     }
 
@@ -391,7 +425,9 @@
     {
         try
         {
-            var batch = await GlOps.CreateDraftBatchAsync(currentCompanyId, newBatchDate, newBatchDescription, currentUserId);
+            var batch = await GlOps.CreateDraftBatchAsync(
+                currentCompanyId, newBatchDate, newBatchDescription,
+                currentUserId, newBatchClearAfterPost);   // <-- pass flag
 
             showCreateModal = false;
             await LoadBatches();
@@ -436,14 +472,16 @@
     private async Task PostBatch()
     {
         if (selectedBatch == null || !IsBalanced) return;
-        if (!await JS.InvokeAsync<bool>("confirm", "This will permanently post the journal to the General Ledger. Continue?")) return;
+        if (!await JS.InvokeAsync<bool>("confirm",
+            "This will permanently post the journal to the General Ledger. Continue?")) return;
 
-        var err = await GlOps.PostBatchAsync(currentCompanyId, selectedBatch.Id);
+        var batchId = selectedBatch.Id;
+        var err = await GlOps.PostBatchAsync(currentCompanyId, batchId);
         if (string.IsNullOrEmpty(err))
         {
             await JS.InvokeVoidAsync("alert", "Journal Posted Successfully.");
-            selectedBatch = null;
             await LoadBatches();
+            await SelectBatch(batchId); // batch always stays, always refresh it
         }
         else
         {

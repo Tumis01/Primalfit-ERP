@@ -34,10 +34,14 @@
         <div class="flex gap-2">
             @if (!showForm)
             {
-                <button @onclick="CreateNew" disabled="@(!HasCompany)"
-                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                    <span>+ New Custom Role</span>
-                </button>
+                <PermissionGate Key="ROLES_SETUP_MANAGE">
+                    <Authorized>
+                        <button @onclick="CreateNew" disabled="@(!HasCompany)"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                            <span>+ New Custom Role</span>
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             }
         </div>
     </div>
@@ -72,19 +76,40 @@
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <h4 class="text-sm font-bold text-slate-900 mb-3 border-b pb-2">Module Access (Page-Level Permissions)</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        @foreach (var perm in availablePagePermissions.OrderBy(p => p.Module))
+                <!-- NEW RBAC MODULE SELECTION UI -->
+                <div class="mb-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
+                    <div class="flex items-center justify-between mb-4 border-b border-slate-200 pb-3">
+                        <h4 class="text-sm font-bold text-slate-900">Module Access & Permissions</h4>
+                        <div class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                            @selectedPermissionIds.Count Permissions Selected
+                        </div>
+                    </div>
+
+                    <div class="mb-5 md:w-1/3">
+                        <label class="label text-indigo-700">Filter By Module</label>
+                        <select @bind="selectedModule" class="@InputClass font-bold">
+                            @foreach (var mod in availableModules)
+                            {
+                                <option value="@mod">@mod Module</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        @foreach (var perm in allPermissions.Where(p => p.Module == selectedModule).OrderBy(p => p.ActionKey != null))
                         {
-                            <label class="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">
+                            <label class="flex items-start gap-3 p-3 rounded-lg border @(selectedPermissionIds.Contains(perm.Id) ? "border-indigo-400 bg-indigo-50/30" : "border-slate-200 bg-white") hover:bg-slate-50 cursor-pointer transition-colors shadow-sm">
                                 <input type="checkbox"
-                                       class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                                       class="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 border-slate-300"
                                        checked="@selectedPermissionIds.Contains(perm.Id)"
                                        @onchange="@(e => TogglePermission(perm.Id, e.Value))" />
                                 <div>
-                                    <div class="text-xs font-bold text-slate-900">@perm.DisplayName</div>
-                                    <div class="text-[10px] text-slate-500">@perm.Module Module</div>
+                                    <div class="text-xs font-bold @(selectedPermissionIds.Contains(perm.Id) ? "text-indigo-900" : "text-slate-900")">
+                                        @perm.DisplayName
+                                    </div>
+                                    <div class="text-[10px] text-slate-500 mt-0.5">
+                                        @(string.IsNullOrEmpty(perm.ActionKey) ? $"Page Access ({perm.PageKey})" : $"Action Key ({perm.ActionKey})")
+                                    </div>
                                 </div>
                             </label>
                         }
@@ -95,9 +120,13 @@
                     <button type="button" @onclick="CancelForm" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
                         Cancel
                     </button>
-                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-                        Save Role & Permissions
-                    </button>
+                    <PermissionGate Key="ROLES_SETUP_MANAGE">
+                        <Authorized>
+                            <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                                Save Role & Permissions
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
                 </div>
             </EditForm>
         </div>
@@ -127,14 +156,18 @@
                             <td class="px-6 py-4 text-right">
                                 @if (role.CompanyId != Guid.Empty && !role.Name.Contains("SuperAdmin"))
                                 {
-                                    <div class="flex items-center justify-end gap-3 opacity-100" @onclick:stopPropagation="true">
-                                        <button @onclick="() => Edit(role)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs hover:underline transition-all">Edit</button>
-                                        <button @onclick="() => DeleteRole(role)" class="text-slate-400 hover:text-red-600 transition-colors p-1">
-                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                            </svg>
-                                        </button>
-                                    </div>
+                                    <PermissionGate Key="ROLES_SETUP_MANAGE">
+                                        <Authorized>
+                                            <div class="flex items-center justify-end gap-3 opacity-100" @onclick:stopPropagation="true">
+                                                <button @onclick="() => Edit(role)" class="text-indigo-600 hover:text-indigo-900 font-bold text-xs hover:underline transition-all">Edit</button>
+                                                <button @onclick="() => DeleteRole(role)" class="text-slate-400 hover:text-red-600 transition-colors p-1">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </Authorized>
+                                    </PermissionGate>
                                 }
                                 else if (role.CompanyId == Guid.Empty && !role.Name.Contains("SuperAdmin"))
                                 {
@@ -142,7 +175,7 @@
                                 }
                             </td>
                         </tr>
-                        
+
                         @if (viewingRoleId == role.Id)
                         {
                             <tr class="bg-slate-50/80 border-b border-slate-200">
@@ -151,14 +184,14 @@
                                     <div class="flex flex-wrap gap-2">
                                         @if (rolePermissionsCache.ContainsKey(role.Id) && rolePermissionsCache[role.Id].Any())
                                         {
-                                            @foreach (var perm in rolePermissionsCache[role.Id])
+                                            @foreach (var perm in rolePermissionsCache[role.Id].Where(p => p != null))
                                             {
                                                 <span class="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 shadow-sm">
                                                     @perm.DisplayName
                                                 </span>
                                             }
                                         }
-                                        else if(role.Name.Contains("SuperAdmin"))
+                                        else if (role.Name.Contains("SuperAdmin"))
                                         {
                                             <span class="text-slate-400 text-xs italic">Access to all modules</span>
                                         }
@@ -209,19 +242,18 @@
     private ApplicationRole currentRole = new();
     private bool showForm = false;
 
-    // RBAC Additions
-    private List<Permission> availablePagePermissions = new();
+    // Updated RBAC State Variables
+    private List<Permission> allPermissions = new();
+    private List<string> availableModules = new();
+    private string selectedModule = "";
+
     private HashSet<int> selectedPermissionIds = new();
     private string viewingRoleId = "";
     private Dictionary<string, List<Permission>> rolePermissionsCache = new();
 
     protected override async Task OnInitializedAsync()
     {
-        if (!PermissionCache.Has("SuperAdmin"))
-        {
-            NavManager.NavigateTo("/access-denied");
-            return;
-        }
+        if (!PermissionCache.Has("ROLES_SETUP_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
@@ -245,8 +277,12 @@
 
     private async Task LoadAvailablePermissions()
     {
-        // Custom roles only get assigned Page-level access (ActionKey == null) as per RBAC docs.
-        availablePagePermissions = await RoleService.GetPageLevelPermissionsAsync();
+        // 1. Fetch ALL permissions
+        allPermissions = await RoleService.GetAllPermissionsAsync();
+
+        // 2. Extract unique modules and default selection
+        availableModules = allPermissions.Select(p => p.Module).Distinct().OrderBy(m => m).ToList();
+        if (availableModules.Any()) selectedModule = availableModules.First();
     }
 
     private async Task LoadRoles()
@@ -255,10 +291,20 @@
         roles = await RoleService.GetRolesAsync(selectedCompanyId);
     }
 
+    
     private void CreateNew()
     {
-        currentRole = new ApplicationRole { CompanyId = selectedCompanyId };
+        currentRole = new ApplicationRole
+        {
+            Id = string.Empty, // <--- THE FIX: Clear the auto-generated ID
+            CompanyId = selectedCompanyId
+        };
+
         selectedPermissionIds.Clear();
+
+        // Reset to first module
+        if (availableModules.Any()) selectedModule = availableModules.First();
+
         showForm = true;
     }
 
@@ -271,11 +317,16 @@
             DisplayName = role.DisplayName,
             Description = role.Description
         };
-        
-        // Fetch existing permissions for this role to populate checkboxes
+
         var currentPerms = await RoleService.GetPermissionsForRoleAsync(role.Id);
         selectedPermissionIds = currentPerms.Select(p => p.Id).ToHashSet();
-        
+
+        // Auto-select the module of the first permission they have, if any
+        if (currentPerms.Any())
+        {
+            selectedModule = currentPerms.First().Module;
+        }
+
         showForm = true;
     }
 
@@ -294,13 +345,12 @@
 
         currentRole.CompanyId = selectedCompanyId;
 
-        // Save role AND its permissions
         var err = await RoleService.SaveRoleWithPermissionsAsync(currentRole, selectedPermissionIds.ToList());
 
         if (string.IsNullOrEmpty(err))
         {
             showForm = false;
-            rolePermissionsCache.Remove(currentRole.Id); // Clear cache to force reload on next view
+            rolePermissionsCache.Remove(currentRole.Id);
             await LoadRoles();
         }
         else
@@ -320,7 +370,6 @@
         else await JS.InvokeVoidAsync("alert", err);
     }
 
-    // Toggle expanding the row to view permissions
     private async Task ToggleViewPermissions(string roleId)
     {
         if (viewingRoleId == roleId)
@@ -336,5 +385,7 @@
                 rolePermissionsCache[roleId] = perms;
             }
         }
+
+        StateHasChanged();
     }
 }

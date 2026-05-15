@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260514234045_journalentry")]
+    partial class journalentry
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -601,9 +604,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("BudgetLineId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal?>("ForecastAmount")
-                        .HasColumnType("decimal(18, 6)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("BudgetLineId");
@@ -672,9 +672,6 @@ namespace Primafit_ERP.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<bool>("ClearAfterPost")
-                        .HasColumnType("bit");
-
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -738,9 +735,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("ForeignDebit")
                         .HasColumnType("decimal(18, 6)");
-
-                    b.Property<bool>("IsPosted")
-                        .HasColumnType("bit");
 
                     b.Property<Guid>("OffsetSegCoaId")
                         .HasColumnType("uniqueidentifier");
@@ -1486,9 +1480,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid>("HeaderId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsPosted")
-                        .HasColumnType("bit");
 
                     b.Property<string>("Reference")
                         .HasColumnType("nvarchar(max)");

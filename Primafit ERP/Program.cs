@@ -93,6 +93,7 @@ builder.Services.AddScoped<PayrollSettingsService>();
 builder.Services.AddScoped<HrSetupService>();
 builder.Services.AddScoped<PermissionCacheService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 var app = builder.Build();
 
 // --- 5. HTTP REQUEST PIPELINE ---

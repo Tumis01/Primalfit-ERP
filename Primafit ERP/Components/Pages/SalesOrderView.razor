@@ -14,18 +14,22 @@
 @inject WarehouseService WhService
 @inject SegCoaService SegCoaService
 @inject ReportExportService ReportExportService
+@inject IEmailService EmailService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager Nav
+
 @rendermode InteractiveServer
 
 <div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
 
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div>
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+
+        <!-- Title Area (Left Side) -->
+        <div class="shrink-0">
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales & Invoicing</h1>
             @if (!string.IsNullOrEmpty(companyName))
             {
@@ -35,27 +39,54 @@
             }
         </div>
 
-        <div class="flex gap-4 items-center">
+        <!-- Controls Area (Right Side) -->
+        <div class="flex flex-col sm:flex-row flex-wrap gap-4 items-start sm:items-center w-full lg:w-auto lg:justify-end">
+
             @if (activeTab == 0)
             {
-                <div class="relative w-72">
-                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search customer, item, or order..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                <div class="flex flex-col xl:flex-row gap-3 items-start xl:items-center w-full sm:w-auto">
+
+                    <!-- Date Filter (Scrollable on tiny mobile screens) -->
+                    <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-[42px] w-full sm:w-auto overflow-x-auto shrink-0 scrollbar-hide">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">From</span>
+                        <input type="date" @bind="filterStartDate" class="bg-transparent text-sm font-bold text-slate-700 outline-none w-auto sm:w-32 cursor-pointer" />
+
+                        <div class="w-px h-4 bg-slate-300 shrink-0"></div>
+
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">To</span>
+                        <input type="date" @bind="filterEndDate" class="bg-transparent text-sm font-bold text-slate-700 outline-none w-auto sm:w-32 cursor-pointer" />
+
+                        @if (filterStartDate.HasValue || filterEndDate.HasValue)
+                        {
+                            <button type="button" @onclick="() => { filterStartDate = null; filterEndDate = null; }" class="ml-1 text-slate-400 hover:text-rose-600 transition-colors shrink-0" title="Clear Dates">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div class="relative w-full sm:w-64 xl:w-72 h-[42px] shrink-0">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search customer, item, or order..." class="w-full h-full pl-9 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                    </div>
+
                 </div>
             }
 
-            <div class="flex bg-slate-100 p-1 rounded-xl">
-                <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+            <!-- Tab Buttons -->
+            <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto shrink-0">
+                <button @onclick="() => activeTab = 0" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     All Records
                 </button>
                 <PermissionGate Key="SALES_ORDER_CREATE">
                     <Authorized>
-                        <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                        <button @onclick="CreateNew" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                             New Record
                         </button>
                     </Authorized>
                 </PermissionGate>
             </div>
+
         </div>
     </div>
 
@@ -69,200 +100,227 @@
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
 
-                <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50">
+                <!-- Added overflow-x-auto and whitespace-nowrap here so tabs scroll on mobile -->
+                <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50 overflow-x-auto whitespace-nowrap scrollbar-hide">
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Quotes" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Quotes"'>Quotes</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Orders" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Orders"'>Orders</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Invoices" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Invoices"'>Invoices</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
                 </div>
 
-                <table class="w-full text-left text-sm text-slate-900">
-                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
-                        <tr>
-                            <th class="p-4 w-28">Date</th>
-                            <th class="p-4">Reference #</th>
-                            <th class="p-4">Linked From</th>
-                            <th class="p-4">Customer</th>
-                            <th class="p-4">Items (Qty)</th>
-                            <th class="p-4 text-center">Status</th>
-                            <th class="p-4 text-right">Total (Foreign)</th>
-                            <th class="p-4 text-right border-r border-slate-100">Total (Base)</th>
-                            <th class="p-4 text-center w-64">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @foreach (var o in FilteredOrders)
-                        {
-                            <tr class="hover:bg-slate-50 transition-colors">
-                                <td class="p-4 font-mono text-slate-600 text-xs">@o.Date.ToString("dd MMM, yyyy")</td>
-                                <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : (o.OrderNumber.StartsWith("ORD") ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
-                                <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
-                                <td class="p-4 font-medium">@o.Customer?.Name</td>
-                                <td class="p-4 text-sm">
-                                    @if (o.Lines != null && o.Lines.Any())
-                                    {
-                                        var previewLines = o.Lines.Take(2).ToList();
-                                        foreach (var l in previewLines)
+                <!-- NEW WRAPPER: This creates the horizontal scroll area -->
+                <div class="overflow-x-auto w-full">
+                    <!-- Added min-w-[1000px] to force scrolling instead of text-squishing -->
+                    <table class="w-full text-left text-sm text-slate-900 min-w-[1000px]">
+                        <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-4 w-28">Date</th>
+                                <th class="p-4">Reference #</th>
+                                <th class="p-4">Linked From</th>
+                                <th class="p-4">Customer</th>
+                                <th class="p-4">Items (Qty)</th>
+                                <th class="p-4 text-center">Status</th>
+                                <th class="p-4 text-right">Total (Foreign)</th>
+                                <th class="p-4 text-right border-r border-slate-100">Total (Base)</th>
+                                <th class="p-4 text-center w-64">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var o in PagedOrders)
+                            {
+                                <!-- Your exact existing row logic stays here -->
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-4 font-mono text-slate-600 text-xs">@o.Date.ToString("dd MMM, yyyy")</td>
+                                    <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : (o.OrderNumber.StartsWith("ORD") ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
+                                    <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
+                                    <td class="p-4 font-medium">@o.Customer?.Name</td>
+                                    <td class="p-4 text-sm">
+                                        @if (o.Lines != null && o.Lines.Any())
                                         {
-                                            var itemName = items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? "Unknown Item";
-                                            <div class="truncate w-40" title="@itemName">
-                                                <span class="text-slate-700">@itemName</span>
-                                                <span class="text-slate-400 text-xs font-bold ml-1">(x@(l.Quantity.ToString("G29")))</span>
-                                            </div>
-                                        }
-                                        if (o.Lines.Count > 2)
-                                        {
-                                            <div class="text-[10px] text-indigo-500 font-bold uppercase mt-1 tracking-wider">+@(o.Lines.Count - 2) more item(s)</div>
-                                        }
-                                    }
-                                </td>
-                                <td class="p-4 text-center align-middle">
-                                    <div class="flex flex-col items-center gap-1.5">
-                                        @if (o.Status == OrderStatus.Quote)
-                                        {
-                                            <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
-                                        }
-                                        else if (o.Status == OrderStatus.Order)
-                                        {
-                                            <span class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider">Order</span>
-                                        }
-                                        else if (o.OrderNumber.StartsWith("INV"))
-                                        {
-                                            <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                                                @(o.Status == OrderStatus.Draft ? "Draft Inv" : "Invoiced")
-                                            </span>
-
-                                            @* SECONDARY STATUS BADGE: ONLY display on the Invoices tab *@
-                                            @if (recordFilter == "Invoices" && o.Status != OrderStatus.Draft)
+                                            var previewLines = o.Lines.Take(2).ToList();
+                                            foreach (var l in previewLines)
                                             {
-                                                var physicalLines = o.Lines.Where(l => l.Item != null && !l.Item.IsService).ToList();
-                                                if (physicalLines.Any())
-                                                {
-                                                    var totalOrdered = physicalLines.Sum(l => l.Quantity);
-                                                    var totalShipped = physicalLines.Sum(l => l.QtyShipped);
+                                                var itemName = items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? "Unknown Item";
+                                                <div class="truncate w-40" title="@itemName">
+                                                    <span class="text-slate-700">@itemName</span>
+                                                    <span class="text-slate-400 text-xs font-bold ml-1">(x@(l.Quantity.ToString("G29")))</span>
+                                                </div>
+                                            }
+                                            if (o.Lines.Count > 2)
+                                            {
+                                                <div class="text-[10px] text-indigo-500 font-bold uppercase mt-1 tracking-wider">+@(o.Lines.Count - 2) more item(s)</div>
+                                            }
+                                        }
+                                    </td>
+                                    <td class="p-4 text-center align-middle">
+                                        <div class="flex flex-col items-center gap-1.5">
+                                            @if (o.Status == OrderStatus.Quote)
+                                            {
+                                                <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
+                                            }
+                                            else if (o.Status == OrderStatus.Order || (o.OrderNumber.StartsWith("ORD") && o.Status == OrderStatus.Invoiced))
+                                            {
+                                                <span class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider">Order</span>
+                                            }
+                                            else if (o.OrderNumber.StartsWith("INV"))
+                                            {
+                                                <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                                                    @(o.Status == OrderStatus.Draft ? "Draft Inv" : "Invoiced")
+                                                </span>
 
-                                                    if (totalShipped == 0)
+                                                @if (recordFilter == "Invoices" && o.Status != OrderStatus.Draft)
+                                                {
+                                                    var physicalLines = o.Lines.Where(l => l.Item != null && !l.Item.IsService).ToList();
+                                                    if (physicalLines.Any())
                                                     {
-                                                        <span class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider shadow-sm">
-                                                            Unshipped
-                                                        </span>
+                                                        var totalOrdered = physicalLines.Sum(l => l.Quantity);
+                                                        var totalShipped = physicalLines.Sum(l => l.QtyShipped);
+
+                                                        if (totalShipped == 0)
+                                                        {
+                                                            <span class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider shadow-sm">
+                                                                Unshipped
+                                                            </span>
+                                                        }
+                                                        else if (totalShipped < totalOrdered)
+                                                        {
+                                                            <span class="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 uppercase tracking-wider shadow-sm">
+                                                                Partially Shipped
+                                                            </span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 uppercase tracking-wider shadow-sm">
+                                                                Shipped
+                                                            </span>
+                                                        }
                                                     }
-                                                    else if (totalShipped < totalOrdered)
+                                                }
+                                            }
+                                        </div>
+                                    </td>
+                                    <td class="p-4 text-right font-mono font-bold @(o.Status == OrderStatus.Quote ? "text-slate-500" : "text-slate-900")">
+                                        @o.Currency?.CurrencyCode @o.GrandTotalForeign.ToString("N2")
+                                    </td>
+                                    <td class="p-4 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">
+                                        @((o.GrandTotalForeign * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
+                                    </td>
+                                    <td class="p-4">
+                                        <div class="flex items-center justify-center gap-2">
+                                            @if (o.Status == OrderStatus.Quote)
+                                            {
+                                                bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
+                                                if (isConverted)
+                                                {
+                                                    <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                                    <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
+                                                }
+                                                else
+                                                {
+                                                    <PermissionGate Key="SALES_ORDER_CREATE">
+                                                        <Authorized>
+                                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                            <button @onclick="() => ConvertQuoteToOrder(o)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
+                                                }
+                                            }
+                                            else if (o.Status == OrderStatus.Order || (o.OrderNumber.StartsWith("ORD") && o.Status == OrderStatus.Invoiced))
+                                            {
+                                                bool isConverted = o.Status == OrderStatus.Invoiced || orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
+
+                                                if (isConverted)
+                                                {
+                                                    <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                                    <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
+                                                }
+                                                else
+                                                {
+                                                    <PermissionGate Key="SALES_ORDER_CREATE">
+                                                        <Authorized>
+                                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                            <button @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
+                                                }
+                                            }
+                                            else if (o.OrderNumber.StartsWith("INV"))
+                                            {
+                                                if (o.Status == OrderStatus.Draft)
+                                                {
+                                                    <PermissionGate Key="SALES_ORDER_CREATE">
+                                                        <Authorized>
+                                                            <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
+                                                    <PermissionGate Key="SALES_INVOICE_POST">
+                                                        <Authorized>
+                                                            <button @onclick="() => InvoiceOrderFromList(o)" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm">Post Invoice</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
+                                                }
+                                                else
+                                                {
+                                                    <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+
+                                                    bool needsShipping = o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity);
+
+                                                    @if (needsShipping)
                                                     {
-                                                        <span class="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 uppercase tracking-wider shadow-sm">
-                                                            Partially Shipped
+                                                        <PermissionGate Key="SHIPMENT_CREATE">
+                                                            <Authorized>
+                                                                <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
+                                                            </Authorized>
+                                                        </PermissionGate>
+                                                    }
+
+                                                    @if (o.IsFullyPaid)
+                                                    {
+                                                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 font-bold text-[10px] uppercase tracking-wider rounded border border-emerald-200 flex items-center gap-1">
+                                                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Paid
                                                         </span>
                                                     }
                                                     else
                                                     {
-                                                        <span class="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 uppercase tracking-wider shadow-sm">
-                                                            Shipped
-                                                        </span>
+                                                        <button @onclick='() => Nav.NavigateTo($"/ar/payment-entry?invoiceId={o.Id}")' class="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm flex items-center gap-1">
+                                                            Make Payment
+                                                        </button>
                                                     }
                                                 }
                                             }
-                                        }
-                                    </div>
-                                </td>
-                                <td class="p-4 text-right font-mono font-bold @(o.Status == OrderStatus.Quote ? "text-slate-500" : "text-slate-900")">
-                                    @o.Currency?.CurrencyCode @o.GrandTotalForeign.ToString("N2")
-                                </td>
-                                <td class="p-4 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">
-                                    @((o.GrandTotalForeign * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
-                                </td>
-                                <td class="p-4">
-                                    <div class="flex items-center justify-center gap-2">
-                                        @if (o.Status == OrderStatus.Quote)
-                                        {
-                                            bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
-                                            if (isConverted)
-                                            {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
-                                                <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
-                                            }
-                                            else
-                                            {
-                                                <PermissionGate Key="SALES_ORDER_CREATE">
-                                                    <Authorized>
-                                                        <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                        <button @onclick="() => ConvertQuoteToOrder(o)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
-                                                    </Authorized>
-                                                </PermissionGate>
-                                             }
-                                        }
-                                        else if (o.Status == OrderStatus.Order)
-                                        {
-                                            bool isConverted = orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
-                                            if (isConverted)
-                                            {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
-                                                <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Converted</span>
-                                            }
-                                            else
-                                            {
-                                                <PermissionGate Key="SALES_ORDER_CREATE">
-                                                <Authorized>
-                                                    <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                    <button @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
-                                                </Authorized>
-                                                </PermissionGate>
-                                            }
-                                        }
-                                        else if (o.OrderNumber.StartsWith("INV"))
-                                        {
-                                            if (o.Status == OrderStatus.Draft)
-                                            {
-                                                <PermissionGate Key="SALES_ORDER_CREATE">
-                                                    <Authorized>
-                                                        <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                    </Authorized>
-                                                </PermissionGate>
-                                                <PermissionGate Key="SALES_INVOICE_POST">
-                                                    <Authorized>
-                                                        <button @onclick="() => InvoiceOrderFromList(o)" class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm">Post Invoice</button>
-                                                    </Authorized>
-                                                </PermissionGate>
-                                            }
-                                            else
-                                            {
-                                                <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            @if (!PagedOrders.Any())
+                            {
+                                <tr><td colspan="9" class="p-12 text-center text-slate-400">No records found matching your criteria.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div> <!-- End of overflow wrapper -->
+                <!-- Pagination Footer -->
+                @if (FilteredOrders.Any())
+                {
+                    <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 sm:mb-0">
+                            Showing @(((currentPage - 1) * pageSize) + 1) to @(Math.Min(currentPage * pageSize, FilteredOrders.Count())) of @FilteredOrders.Count() records
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                Previous
+                            </button>
 
-                                                bool needsShipping = o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity);
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
+                                Page @currentPage of @TotalPages
+                            </span>
 
-                                                @* TO WAREHOUSE BUTTON: ONLY display on the Invoices tab *@
-                                                @if (needsShipping)
-                                                {
-                                                    <PermissionGate Key="SHIPMENT_CREATE">
-    <Authorized>
-                                                    <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
-                                                    </Authorized>
-                                                    </PermissionGate>
-                                                }
-
-                                                @if (o.IsFullyPaid)
-                                                {
-                                                    <span class="px-2 py-1 bg-emerald-100 text-emerald-700 font-bold text-[10px] uppercase tracking-wider rounded border border-emerald-200 flex items-center gap-1">
-                                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Paid
-                                                    </span>
-                                                }
-                                                else
-                                                {
-                                                    <button @onclick='() => Nav.NavigateTo($"/ar/payment-entry?invoiceId={o.Id}")' class="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm flex items-center gap-1">
-                                                        Make Payment
-                                                    </button>
-                                                }
-                                            }
-                                        }
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                        @if (!FilteredOrders.Any())
-                        {
-                            <tr><td colspan="9" class="p-12 text-center text-slate-400">No records found matching your criteria.</td></tr>
-                        }
-                    </tbody>
-                </table>
+                            <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                }
             </div>
         }
         else
@@ -609,7 +667,59 @@
         }
     }
 </div>
+@if (showEmailPopup && recentlyPostedInvoice != null)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
 
+            <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Invoice via Email</h3>
+                <button type="button" @onclick="() => showEmailPopup = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="label">To Customer:</label>
+                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{recentlyPostedInvoice.Customer?.Name} <{recentlyPostedInvoice.Customer?.Email}>")" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Subject:</label>
+                    <input type="text" class="input-class font-bold text-slate-800" value="Invoice @recentlyPostedInvoice.OrderNumber from @companyName" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Professional Message:</label>
+                    <textarea @bind="customEmailMessage" class="input-class h-36 resize-none text-sm text-slate-700"></textarea>
+                </div>
+
+                <div class="flex items-center gap-2 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-700 text-xs font-bold">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                    A PDF copy of Invoice @recentlyPostedInvoice.OrderNumber will be attached automatically.
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button type="button" @onclick="() => showEmailPopup = false" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                    Skip
+                </button>
+                <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
+                    @if (isSendingEmail)
+                    {
+                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span>Sending...</span>
+                    }
+                    else
+                    {
+                        <span>Send Email</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 <style>
     .label {
         display: block;
@@ -653,16 +763,45 @@
     private bool isLoading = true;
     private int activeTab = 0;
     private bool isExporting = false;
-    // Default to Quotes
-    private string recordFilter = "Quotes";
+    
 
     private bool IsLocked =>
         currentOrder.Status == OrderStatus.Invoiced ||
         ((currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order) && orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
 
     private string currencySymbol = "";
-    private string searchTerm = "";
+    // --- FILTERS & PAGINATION STATE ---
+    private int pageSize = 15; 
+    private int currentPage = 1;
 
+    private string _recordFilter = "Quotes";
+    private string recordFilter
+    {
+        get => _recordFilter;
+        set { _recordFilter = value; currentPage = 1; }
+    }
+
+    private string _searchTerm = "";
+    private string searchTerm
+    {
+        get => _searchTerm;
+        set { _searchTerm = value; currentPage = 1; }
+    }
+
+    private DateOnly? _filterStartDate;
+    private DateOnly? filterStartDate
+    {
+        get => _filterStartDate;
+        set { _filterStartDate = value; currentPage = 1; }
+    }
+
+    private DateOnly? _filterEndDate;
+    private DateOnly? filterEndDate
+    {
+        get => _filterEndDate;
+        set { _filterEndDate = value; currentPage = 1; }
+    }
+    // ----------------------------------
     private List<SalesOrder> orders = new();
     private SalesOrder currentOrder = new();
     private List<Customer> customers = new();
@@ -675,7 +814,11 @@
     private List<SegChartOfAccount> liabilityAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegAccountType> accountTypes = new();
-
+    // Email Modal State
+    private bool showEmailPopup = false;
+    private bool isSendingEmail = false;
+    private SalesOrder recentlyPostedInvoice = null;
+    private string customEmailMessage = "";
     // --- UPDATED COMPUTED MATH (Includes Discounts) ---
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.Quantity * l.UnitPrice);
 
@@ -691,7 +834,6 @@
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
-    // Filters down the table based on the selected tab using document prefixes
     private IEnumerable<SalesOrder> FilteredOrders => orders
         .Where(o => recordFilter == "All"
                  || (recordFilter == "Quotes" && o.OrderNumber.StartsWith("QUO"))
@@ -701,7 +843,18 @@
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || (o.ConvertedFromQuoteNumber != null && o.ConvertedFromQuoteNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
                  || (o.Customer != null && o.Customer.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
-                 || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
+                 || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true))
+        .Where(o => !filterStartDate.HasValue || o.Date >= filterStartDate.Value)
+        .Where(o => !filterEndDate.HasValue || o.Date <= filterEndDate.Value)
+        .OrderByDescending(o => o.Date); 
+
+    // 2. Calculates total pages required
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredOrders.Count() / (double)pageSize));
+
+    // 3. Extracts exactly the 15 items needed for the current page
+    private IEnumerable<SalesOrder> PagedOrders => FilteredOrders
+        .Skip((currentPage - 1) * pageSize)
+        .Take(pageSize);
     protected override async Task OnInitializedAsync()
     {
         if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
@@ -923,9 +1076,10 @@
         var invErr = await SalesService.InvoiceOrderAsync(currentOrder.Id);
         if (!string.IsNullOrEmpty(invErr)) { await JS.InvokeVoidAsync("alert", invErr); return; }
 
-        await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
-        await LoadData();
-        activeTab = 0;
+        await LoadData(); // Refresh data to get final invoice numbers
+
+        // Trigger Email logic instead of immediate close
+        await PromptEmailPopup(currentOrder.Id);
     }
 
     private async Task InvoiceOrderFromList(SalesOrder o)
@@ -948,8 +1102,69 @@
         var err = await SalesService.InvoiceOrderAsync(o.Id);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
-        await JS.InvokeVoidAsync("alert", "Invoice Generated and Posted!");
         await LoadData();
+        await PromptEmailPopup(o.Id);
+    }
+    private async Task PromptEmailPopup(Guid orderId)
+    {
+        // Grab the fresh invoice from the database with updated numbers
+        recentlyPostedInvoice = orders.FirstOrDefault(o => o.Id == orderId);
+
+        if (recentlyPostedInvoice?.Customer != null && !string.IsNullOrWhiteSpace(recentlyPostedInvoice.Customer.Email))
+        {
+            // Pre-fill a professional message
+            customEmailMessage = $"Dear {recentlyPostedInvoice.Customer.Name},\n\nThank you for your business. Please find attached a copy of your invoice ({recentlyPostedInvoice.OrderNumber}) for your records.\n\nIf you have any questions regarding this invoice, please do not hesitate to contact us.\n\nBest Regards,\nThe {companyName} Team";
+
+            showEmailPopup = true;
+        }
+        else
+        {
+            // If they have no email on file, skip the modal and just alert success.
+            await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!\n\n(No email sent: Customer does not have an email address on file).");
+            activeTab = 0;
+        }
+    }
+
+    private async Task DispatchEmail()
+    {
+        if (recentlyPostedInvoice == null) return;
+
+        isSendingEmail = true;
+        try
+        {
+            // 1. Generate the PDF entirely in the background (no downloading)
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+
+            // Extract the correct currency symbol for THIS specific invoice
+            var currCode = currencies.FirstOrDefault(c => c.Id == recentlyPostedInvoice.CurrencyId)?.CurrencyCode ?? "";
+
+            var pdfBytes = ReportExportService.GenerateInvoicePdf(recentlyPostedInvoice, company, currCode);
+            var fileName = $"Invoice_{recentlyPostedInvoice.OrderNumber}.pdf";
+
+            // 2. Determine subject
+            var subject = $"Invoice {recentlyPostedInvoice.OrderNumber} from {companyName}";
+
+            // 3. Send using your new MailKit service
+            await EmailService.SendEmailAsync(
+                recentlyPostedInvoice.Customer.Email,
+                subject,
+                customEmailMessage,
+                pdfBytes,
+                fileName
+            );
+
+            await JS.InvokeVoidAsync("alert", "Invoice posted and email sent successfully!");
+            showEmailPopup = false;
+            activeTab = 0; // Return to the main grid
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Invoice posted, but failed to send email: {ex.Message}");
+        }
+        finally
+        {
+            isSendingEmail = false;
+        }
     }
     private async Task DownloadInvoice()
     {

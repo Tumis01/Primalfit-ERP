@@ -32,6 +32,7 @@ namespace Primafit_ERP.Components.Models
         public BatchStatus Status { get; set; } = BatchStatus.Draft;
 
         public BatchType Type { get; set; } = BatchType.Standard;
+        public bool ClearAfterPost { get; set; } = true;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -104,7 +105,8 @@ namespace Primafit_ERP.Components.Models
         public decimal Credit { get; set; }
 
         public string? Reference { get; set; }
-       
+        public bool IsPosted { get; set; } = false;
+
     }
     public class GLTransaction
     {

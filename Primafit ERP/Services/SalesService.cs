@@ -671,6 +671,7 @@ namespace Primafit_ERP.Services
                 .Where(o => o.CompanyId == companyId
                          && o.Date >= start
                          && o.Date <= end
+                         && o.OrderNumber.StartsWith("INV")
                          && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.Status == OrderStatus.Draft));
 
             // Apply optional customer filter
@@ -754,7 +755,7 @@ namespace Primafit_ERP.Services
             var orders = await ctx.SalesOrders
                 .Include(o => o.Customer)
                 .Include(o => o.Lines)
-                .Where(o => o.CompanyId == companyId && o.Date <= asOfDate && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
+                .Where(o => o.CompanyId == companyId && o.Date <= asOfDate && o.OrderNumber.StartsWith("INV") && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 
             var invoiceIds = orders.Select(o => o.Id).ToList();
@@ -854,6 +855,7 @@ namespace Primafit_ERP.Services
                          && l.Header.CompanyId == companyId
                          && l.Header.Date >= start
                          && l.Header.Date <= end
+                         && l.Header.OrderNumber.StartsWith("INV")
                          && validStatuses.Contains(l.Header.Status))
                 .ToListAsync();
 

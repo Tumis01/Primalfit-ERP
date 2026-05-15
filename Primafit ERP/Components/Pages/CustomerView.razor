@@ -5,6 +5,9 @@
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
 
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
@@ -18,23 +21,44 @@
 
 <div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
 
-    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Customers</h1>
             <p class="text-sm text-slate-500">Manage client profiles, currencies, and GL mapping.</p>
         </div>
-        <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
-            <Authorized>
-                <button @onclick="CreateNew" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-sm transition-all active:scale-95">
-                    + New Customer
-                </button>
-            </Authorized>
-        </PermissionGate>
+        <div class="flex flex-wrap items-center gap-3">
+            <PermissionGate Key="CUSTOMER_GROUP_MANAGE">
+                <Authorized>
+                    <button @onclick="ExportCsv" class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Export CSV
+                    </button>
+
+                    <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0 text-sm">
+                        @if (isImporting)
+                        {
+                            <span class="animate-spin">↻</span>
+                            <span>Importing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span>Import CSV</span>
+                        }
+                        <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" disabled="@isImporting" />
+                    </label>
+
+                    <button @onclick="CreateNew" class="px-5 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-all active:scale-95 text-sm">
+                        + New Customer
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        </div>
     </div>
 
     @if (isEditing)
     {
-        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6 animate-in slide-in-from-top-4">
             <h3 class="text-lg font-bold text-slate-800 mb-6">@(currentCustomer.Id == Guid.Empty ? "Create Customer" : "Edit Customer")</h3>
 
             <EditForm Model="currentCustomer" OnValidSubmit="Save">
@@ -110,11 +134,11 @@
     {
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap">
+                <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
                             <th class="px-6 py-4">Name</th>
-                            <th class="px-6 py-4">Group</th> 
+                            <th class="px-6 py-4">Group</th>
                             <th class="px-6 py-4">Contact</th>
                             <th class="px-6 py-4 text-center">Currency</th>
                             <th class="px-6 py-4">A/R Setup</th>
@@ -201,9 +225,32 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
-    .input-class { width: 100%; border-radius: 0.75rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: border-color 0.2s; outline: none; background: #fff; color: #0f172a; }
-    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        transition: border-color 0.2s;
+        outline: none;
+        background: #fff;
+        color: #0f172a;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
@@ -218,6 +265,7 @@
 
     private Customer currentCustomer = new();
     private bool isEditing = false;
+    private bool isImporting = false;
     private Guid selectedCompanyId;
 
     private Guid ReceivablesAccountIdWrapper
@@ -238,8 +286,9 @@
 
             availableCurrencies = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
             groups = await MasterService.GetCustomerGroupsAsync(selectedCompanyId);
-            await LoadCustomers();
+
             await LoadGlAccounts();
+            await LoadCustomers(); // Load customers after GL so mappings display properly
         }
     }
 
@@ -262,7 +311,7 @@
         {
             currentCustomer.CustomerGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
-            
+
             if (group != null && group.ReceivablesAccountId != Guid.Empty)
             {
                 currentCustomer.ReceivablesAccountId = group.ReceivablesAccountId;
@@ -328,5 +377,154 @@
         {
             await JS.InvokeVoidAsync("alert", "Error deleting customer: " + ex.Message);
         }
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            // Headers match our import parsing structure
+            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ArGlAccountCode");
+
+            foreach (var c in customers)
+            {
+                var groupName = c.Group?.Name ?? "";
+                var curCode = c.DefaultCurrency?.CurrencyCode ?? "";
+                var glCode = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId)?.AccountCode ?? "";
+
+                // Wrap fields in quotes to safely handle commas inside addresses or names
+                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",\"{c.Email?.Replace("\"", "\"\"")}\",\"{c.Phone?.Replace("\"", "\"\"")}\",\"{c.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+
+            await JS.InvokeVoidAsync("downloadFileFromStream", "Customers_Export.csv", streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+
+    // --- CSV IMPORT LOGIC ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        isImporting = true;
+        try
+        {
+            var file = e.File;
+            if (!file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                await JS.InvokeVoidAsync("alert", "Please upload a valid .csv file.");
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length <= 1)
+            {
+                await JS.InvokeVoidAsync("alert", "The file appears to be empty or missing data rows.");
+                return;
+            }
+
+            int successCount = 0;
+
+            // Start loop at 1 to skip header row
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var cols = ParseCsvLine(lines[i]);
+
+                if (cols.Count >= 1)
+                {
+                    var name = cols[0].Trim();
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+
+                    var customer = customers.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                                   ?? new Customer { CompanyId = selectedCompanyId, Name = name };
+
+                    if (cols.Count > 1) customer.Email = cols[1].Trim();
+                    if (cols.Count > 2) customer.Phone = cols[2].Trim();
+                    if (cols.Count > 3) customer.Address = cols[3].Trim();
+
+                    // Map Customer Group
+                    if (cols.Count > 4 && !string.IsNullOrWhiteSpace(cols[4]))
+                    {
+                        var group = groups.FirstOrDefault(g => g.Name.Equals(cols[4].Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (group != null) customer.CustomerGroupId = group.Id;
+                    }
+
+                    // Map Currency (Required, defaults to first available if invalid)
+                    if (cols.Count > 5 && !string.IsNullOrWhiteSpace(cols[5]))
+                    {
+                        var cur = availableCurrencies.FirstOrDefault(c => c.CurrencyCode.Equals(cols[5].Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (cur != null) customer.CurrencyId = cur.Id;
+                    }
+                    if (customer.CurrencyId == Guid.Empty && availableCurrencies.Any())
+                    {
+                        customer.CurrencyId = availableCurrencies.First().Id;
+                    }
+
+                    // Map AR GL Account (Required)
+                    if (cols.Count > 6 && !string.IsNullOrWhiteSpace(cols[6]))
+                    {
+                        var gl = arAccounts.FirstOrDefault(a => a.AccountCode == cols[6].Trim());
+                        if (gl != null) customer.ReceivablesAccountId = gl.Id;
+                    }
+
+                    // Only save if the mandatory AR account is successfully mapped
+                    if (customer.ReceivablesAccountId.HasValue && customer.ReceivablesAccountId != Guid.Empty)
+                    {
+                        await MasterService.SaveCustomerAsync(customer);
+                        successCount++;
+                    }
+                }
+            }
+
+            await LoadCustomers();
+            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} customers processed and mapped successfully.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import error: {ex.Message}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper to safely parse CSV rows where data (like Addresses) might contain commas wrapped in quotes
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var currentField = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString());
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString());
+        return result;
     }
 }

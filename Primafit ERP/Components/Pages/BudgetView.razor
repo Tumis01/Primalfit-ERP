@@ -26,7 +26,7 @@
             <h1 class="text-2xl font-bold text-slate-900">Budget Management</h1>
             <p class="text-sm text-slate-500">Manage fiscal plans, period limits, and transfer configurations.</p>
         </div>
-        
+
         @if (!showForm)
         {
             <PermissionGate Key="BUDGET_MANAGE">
@@ -43,7 +43,7 @@
     @if (showForm)
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-xl p-6 relative overflow-visible animate-in slide-in-from-top-4 duration-300">
-            
+
             <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
                 <h3 class="text-lg font-bold text-slate-900">
                     @(isNewBudget ? "Create New Budget" : "Edit Budget")
@@ -128,28 +128,59 @@
                                             <div class="text-[10px] text-rose-500 font-bold mt-1 animate-pulse">Duplicate Account Selected</div>
                                         }
                                     </div>
-                                    <div class="w-full md:w-64 text-right">
-                                        <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Calculated Total Limit</div>
-                                        <div class="text-xl font-mono font-black text-slate-800">
-                                            @line.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N2")
+                                    <div class="w-full md:w-72 text-right">
+                                        <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Calculated Totals</div>
+                                        <div class="text-sm font-mono font-black text-slate-800">
+                                            Budget: @line.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N2")
+                                        </div>
+                                        <div class="text-sm font-mono font-black text-amber-700">
+                                            Forecast: @line.PeriodAllocations.Sum(p => p.ForecastAmount ?? 0).ToString("N2")
                                         </div>
                                     </div>
+
                                     <button @onclick="() => budget.Lines.Remove(line)" class="text-slate-400 hover:text-rose-500 transition-colors p-2 rounded-full hover:bg-rose-50">
                                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                     </button>
                                 </div>
-                                
+
                                 @if (line.GlAccountId != Guid.Empty && line.PeriodAllocations.Any())
                                 {
-                                    <div class="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 relative z-0">
-                                        @foreach (var p in line.PeriodAllocations.OrderBy(x => openPeriods.FirstOrDefault(op => op.Id == x.AccountingPeriodId)?.StartDate))
-                                        {
-                                            <div>
-                                                <label class="label text-[10px] text-indigo-600">@p.PeriodName</label>
-                                                <input type="number" step="0.01" @bind="p.Amount" class="input-class text-right font-mono font-bold text-slate-700 border-indigo-100 bg-indigo-50/30 focus:border-indigo-400 text-sm" placeholder="NOT SET" />
-                                            </div>
-                                        }
+                                    <div class="p-4 relative z-0 overflow-x-auto">
+                                        <table class="w-full text-sm min-w-[620px]">
+                                            <thead>
+                                                <tr class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                                                    <th class="py-2 text-left font-bold">Period</th>
+                                                    <th class="py-2 text-right font-bold">Budget Amount</th>
+                                                    <th class="py-2 text-right font-bold">Forecast Amount</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-slate-100">
+                                                @foreach (var p in line.PeriodAllocations.OrderBy(x => openPeriods.FirstOrDefault(op => op.Id == x.AccountingPeriodId)?.StartDate))
+                                                {
+                                                    <tr>
+                                                        <td class="py-3 pr-4 font-bold text-indigo-600 whitespace-nowrap">
+                                                            @p.PeriodName
+                                                        </td>
+                                                        <td class="py-3 pr-3">
+                                                            <input type="number"
+                                                                   step="0.01"
+                                                                   @bind="p.Amount"
+                                                                   class="input-class text-right font-mono font-bold text-slate-700 border-indigo-100 bg-indigo-50/30 focus:border-indigo-400 text-sm"
+                                                                   placeholder="0.00" />
+                                                        </td>
+                                                        <td class="py-3">
+                                                            <input type="number"
+                                                                   step="0.01"
+                                                                   @bind="p.ForecastAmount"
+                                                                   class="input-class text-right font-mono font-bold text-slate-700 border-amber-100 bg-amber-50/40 focus:border-amber-400 text-sm"
+                                                                   placeholder="0.00" />
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
                                     </div>
+
                                 }
                             </div>
                         }
@@ -162,7 +193,7 @@
                             <h3 class="font-bold text-slate-800 flex items-center gap-2 group-hover:text-indigo-600 transition-colors">
                                 <svg class="w-4 h-4 text-slate-500 group-hover:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                                 Transfer Limits (Reappropriation)
-                                @if(budget.TransferLines.Any())
+                                @if (budget.TransferLines.Any())
                                 {
                                     <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] ml-2">@budget.TransferLines.Count Rules Configured</span>
                                 }
@@ -192,7 +223,7 @@
                                     No transfer rules configured. Click "Add Transfer Rule" above to allow funds movement.
                                 </div>
                             }
-                            
+
                             @foreach (var tLine in budget.TransferLines)
                             {
                                 <div class="border border-slate-200 rounded-xl overflow-visible shadow-sm group bg-white">
@@ -217,11 +248,12 @@
                                                 @tLine.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N2")
                                             </div>
                                         </div>
+
                                         <button @onclick="() => budget.TransferLines.Remove(tLine)" class="text-slate-400 hover:text-rose-500 transition-colors p-2 rounded-full hover:bg-rose-50">
                                             <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                         </button>
                                     </div>
-                                    
+
                                     @if (tLine.FromGlAccountId != Guid.Empty && tLine.ToGlAccountId != Guid.Empty && tLine.PeriodAllocations.Any())
                                     {
                                         <div class="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 relative z-0">
@@ -262,7 +294,7 @@
             }
         </div>
     }
-    
+
     @if (!showForm)
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -282,8 +314,8 @@
                         <tr>
                             <th class="px-6 py-4">Status</th>
                             <th class="px-6 py-4">Budget Name</th>
-                            <th class="px-6 py-4 text-center">Accounts Configured</th> 
-                            <th class="px-6 py-4 text-center">Transfer Rules</th> 
+                            <th class="px-6 py-4 text-center">Accounts Configured</th>
+                            <th class="px-6 py-4 text-center">Transfer Rules</th>
                             <th class="px-6 py-4 text-right">Total Limit</th>
                             <th class="px-6 py-4 text-right">Actions</th>
                         </tr>
@@ -307,7 +339,7 @@
                                     }
                                 </td>
                                 <td class="px-6 py-4 font-bold text-slate-900">@b.BudgetName</td>
-                                
+
                                 <td class="px-6 py-4 text-center font-bold text-slate-500">
                                     <span class="bg-slate-100 px-2.5 py-1 rounded-lg">@(b.Lines?.Count ?? 0)</span>
                                 </td>
@@ -347,9 +379,30 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.025em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; transition: all 0.2s; }
-    .input-class:focus { border-color: #4f46e5; outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.025em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
@@ -358,7 +411,7 @@
     private List<SegChartOfAccount> glAccounts = new();
     private List<SegAccountType> accountTypes = new();
     private List<AccountingPeriod> openPeriods = new();
-    
+
     private Guid currentCompanyId;
     private bool showForm = false;
     private bool isNewBudget = true; // Added flag to correctly track Create vs Edit status
@@ -376,12 +429,13 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-            
+
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             var allCoa = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
-            glAccounts = allCoa.Where(a => {
+            glAccounts = allCoa.Where(a =>
+            {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsDebit == true; 
+                return type != null && type.IsDebit == true;
             }).OrderBy(x => x.AccountCode).ToList();
 
             openPeriods = await PeriodService.GetPeriodsAsync();
@@ -409,22 +463,22 @@
         isNewBudget = false;
         showForm = true;
         isLoadingForm = true;
-        
+
         var result = await BudgetService.GetBudgetByIdAsync(id);
         if (result != null)
         {
             budget = result;
-            
+
             if (budget.TransferLines != null && budget.TransferLines.Any()) showTransferRules = true;
             else showTransferRules = false;
 
             if (budget.Lines != null)
             {
-                foreach(var line in budget.Lines)
+                foreach (var line in budget.Lines)
                 {
                     if (line.PeriodAllocations != null)
                     {
-                        foreach(var p in line.PeriodAllocations)
+                        foreach (var p in line.PeriodAllocations)
                         {
                             p.PeriodName = openPeriods.FirstOrDefault(op => op.Id == p.AccountingPeriodId)?.PeriodName ?? "Unknown Period";
                         }
@@ -434,11 +488,11 @@
 
             if (budget.TransferLines != null)
             {
-                foreach(var tLine in budget.TransferLines)
+                foreach (var tLine in budget.TransferLines)
                 {
                     if (tLine.PeriodAllocations != null)
                     {
-                        foreach(var p in tLine.PeriodAllocations)
+                        foreach (var p in tLine.PeriodAllocations)
                         {
                             p.PeriodName = openPeriods.FirstOrDefault(op => op.Id == p.AccountingPeriodId)?.PeriodName ?? "Unknown Period";
                         }
@@ -446,7 +500,7 @@
                 }
             }
         }
-        
+
         isLoadingForm = false;
     }
 
@@ -468,7 +522,7 @@
     private void AddLine()
     {
         var newLine = new BudgetLine();
-        foreach(var p in openPeriods)
+        foreach (var p in openPeriods)
         {
             newLine.PeriodAllocations.Add(new BudgetPeriodAllocation { AccountingPeriodId = p.Id, PeriodName = p.PeriodName });
         }
@@ -478,7 +532,7 @@
     private void AddTransferLine()
     {
         var newTLine = new BudgetTransferLine();
-        foreach(var p in openPeriods)
+        foreach (var p in openPeriods)
         {
             newTLine.PeriodAllocations.Add(new BudgetTransferPeriodAllocation { AccountingPeriodId = p.Id, PeriodName = p.PeriodName });
         }
@@ -496,9 +550,13 @@
     {
         var sb = new System.Text.StringBuilder();
         var periodNames = openPeriods.Select(p => p.PeriodName).ToList();
-        
+
         // Headers
-        sb.AppendLine("Account Code,Account Name," + string.Join(",", periodNames));
+        sb.AppendLine("Account Code,Account Name," + string.Join(",", openPeriods.SelectMany(p => new[]
+        {
+            $"{p.PeriodName} Budget",
+            $"{p.PeriodName} Forecast"
+        })));
 
         // Export existing lines in the budget, or just the headers if empty
         if (budget.Lines.Any())
@@ -507,14 +565,16 @@
             {
                 var acc = glAccounts.FirstOrDefault(a => a.Id == line.GlAccountId);
                 if (acc == null) continue;
-                
+
                 var row = new List<string> { acc.AccountCode, $"\"{acc.Description}\"" };
-                
+
                 foreach (var p in openPeriods)
                 {
                     var alloc = line.PeriodAllocations.FirstOrDefault(a => a.AccountingPeriodId == p.Id);
                     row.Add(alloc?.Amount?.ToString("F2") ?? "");
+                    row.Add(alloc?.ForecastAmount?.ToString("F2") ?? "");
                 }
+
                 sb.AppendLine(string.Join(",", row));
             }
         }
@@ -525,7 +585,7 @@
             {
                 var row = new List<string> { acc.AccountCode, $"\"{acc.Description}\"" };
                 // Empty amounts
-                foreach (var p in openPeriods) row.Add(""); 
+                foreach (var p in openPeriods) row.Add("");
                 sb.AppendLine(string.Join(",", row));
             }
         }
@@ -570,7 +630,7 @@
                     if (acc == null) continue;
 
                     var bLine = new BudgetLine { GlAccountId = acc.Id };
-                    foreach(var p in openPeriods)
+                    foreach (var p in openPeriods)
                         bLine.PeriodAllocations.Add(new BudgetPeriodAllocation { AccountingPeriodId = p.Id, PeriodName = p.PeriodName });
 
                     bool hasAnyAmount = false;
@@ -599,7 +659,7 @@
 
                 var headers = headerLine.Split(',').Select(h => h.Trim()).ToList();
                 string line;
-                
+
                 while ((line = await reader.ReadLineAsync()) != null)
                 {
                     var parts = line.Split(',').Select(p => p.Trim().Trim('"')).ToList();
@@ -610,7 +670,7 @@
                     if (acc == null) continue;
 
                     var bLine = new BudgetLine { GlAccountId = acc.Id };
-                    foreach(var p in openPeriods)
+                    foreach (var p in openPeriods)
                         bLine.PeriodAllocations.Add(new BudgetPeriodAllocation { AccountingPeriodId = p.Id, PeriodName = p.PeriodName });
 
                     bool hasAnyAmount = false;
@@ -642,7 +702,7 @@
                     if (existing != null)
                     {
                         // Overwrite existing amounts
-                        foreach(var na in nl.PeriodAllocations)
+                        foreach (var na in nl.PeriodAllocations)
                         {
                             var ea = existing.PeriodAllocations.FirstOrDefault(a => a.AccountingPeriodId == na.AccountingPeriodId);
                             if (ea != null && na.Amount.HasValue) ea.Amount = na.Amount;
@@ -673,7 +733,7 @@
     private async Task SaveBudget()
     {
         if (string.IsNullOrWhiteSpace(budget.BudgetName)) { await JS.InvokeVoidAsync("alert", "Enter Budget Name."); return; }
-        
+
         if (budget.Lines.Where(l => l.GlAccountId != Guid.Empty).GroupBy(l => l.GlAccountId).Any(g => g.Count() > 1))
         {
             await JS.InvokeVoidAsync("alert", "Error: You have selected the same GL Account multiple times in Spending Limits. Please combine them.");
@@ -687,8 +747,8 @@
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Budget Saved Successfully!");
-                showForm = false; 
-                await RefreshList(); 
+                showForm = false;
+                await RefreshList();
             }
             else
             {

@@ -3,7 +3,14 @@
 
 @if (PermissionCache.Has(Key))
 {
-    @Authorized
+    @if (Authorized != null)
+    {
+        @Authorized
+    }
+    else if (ChildContent != null)
+    {
+        @ChildContent
+    }
 }
 else
 {
@@ -14,7 +21,19 @@ else
 }
 
 @code {
-    [Parameter, EditorRequired] public string Key { get; set; } = string.Empty;
-    [Parameter] public RenderFragment? Authorized { get; set; }
-    [Parameter] public RenderFragment? NotAuthorized { get; set; }
+    // The required permission key to check
+    [Parameter, EditorRequired]
+    public string Key { get; set; } = string.Empty;
+
+    // Catches standard HTML or whitespace
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    // Catches the <Authorized> tag
+    [Parameter]
+    public RenderFragment? Authorized { get; set; }
+
+    // Catches the <NotAuthorized> tag
+    [Parameter]
+    public RenderFragment? NotAuthorized { get; set; }
 }

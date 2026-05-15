@@ -1,9 +1,13 @@
 ﻿@page "/md/vendors"
+
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
 
 @inject MasterDataService MasterService
 @inject CurrencyService CurrService
@@ -13,30 +17,62 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
-    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <h1 class="text-2xl font-bold text-slate-900">Vendors</h1>
-        <PermissionGate Key="VENDOR_MANAGE">
-            <Authorized>
-                <button @onclick="CreateNew" class="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-md hover:bg-slate-800">+ New Vendor</button>
-            </Authorized>
-        </PermissionGate>
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Vendors</h1>
+            <p class="text-sm text-slate-500">Manage supplier profiles, currencies, and GL mapping.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+            <PermissionGate Key="VENDOR_MANAGE">
+                <Authorized>
+                    <button @onclick="ExportCsv" class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Export CSV
+                    </button>
+
+                    <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0 text-sm">
+                        @if (isImporting)
+                        {
+                            <span class="animate-spin">↻</span>
+                            <span>Importing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span>Import CSV</span>
+                        }
+                        <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" disabled="@isImporting" />
+                    </label>
+
+                    <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold shadow-md hover:bg-slate-800 transition-colors text-sm">
+                        + New Vendor
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        </div>
     </div>
 
     @if (showForm)
     {
-        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6 animate-in slide-in-from-top-4">
             <h3 class="font-bold text-lg mb-6">@(isEditing ? "Edit Vendor" : "New Vendor")</h3>
             <EditForm Model="currentVendor" OnValidSubmit="Save">
                 <DataAnnotationsValidator />
+
+                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1">Profile Details</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div><label class="label">Name</label><InputText @bind-Value="currentVendor.Name" class="input-class" /></div>
+                    <div>
+                        <label class="label">Name <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentVendor.Name" class="input-class" placeholder="Company or Supplier Name" />
+                    </div>
 
                     <div>
                         <label class="label">Vendor Group</label>
-                        <select @onchange="OnGroupChanged" value="@(currentVendor.VendorGroupId?.ToString() ?? "")" class="input-class border-slate-300">
+                        <select @onchange="OnGroupChanged" value="@(currentVendor.VendorGroupId?.ToString() ?? "")" class="input-class bg-slate-50 border-slate-300">
                             <option value="">-- No Group --</option>
                             @foreach (var g in groups)
                             {
@@ -45,22 +81,27 @@
                         </select>
                     </div>
 
-                    <div>
-                        <label class="label">Currency</label>
-                        <select @bind="currentVendor.CurrencyId" class="input-class">
-                            @foreach (var c in currencies)
-                            {
-                                <option value="@c.Id">@c.CurrencyCode</option>
-                            }
-                        </select>
-                    </div>
                     <div><label class="label">Email</label><InputText @bind-Value="currentVendor.Email" class="input-class" /></div>
                     <div><label class="label">Phone</label><InputText @bind-Value="currentVendor.Phone" class="input-class" /></div>
-                    <div class="md:col-span-2"><label class="label">Address</label><InputTextArea @bind-Value="currentVendor.Address" class="input-class h-20" /></div>
+                    <div class="md:col-span-2"><label class="label">Address</label><InputTextArea @bind-Value="currentVendor.Address" class="input-class h-20 resize-none" /></div>
+                </div>
 
-                    <div class="md:col-span-2 border-t pt-4 mt-2">
-                        <label class="label text-slate-500">Payables Account (Override Default)</label>
-                        <select @bind="currentVendor.PayablesAccountId" class="input-class border-slate-300">
+                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1 mt-8">Accounting Setup</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div>
+                        <label class="label">Trading Currency <span class="text-rose-500">*</span></label>
+                        <select @bind="currentVendor.CurrencyId" class="input-class bg-white">
+                            @foreach (var c in currencies)
+                            {
+                                <option value="@c.Id">@c.CurrencyCode - @c.CurrencyName</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Default currency for Purchase Orders and Bills.</p>
+                    </div>
+
+                    <div>
+                        <label class="label">Payables Account (Liability)</label>
+                        <select @bind="currentVendor.PayablesAccountId" class="input-class bg-white">
                             <option value="">-- Use System Default / Select --</option>
                             @foreach (var a in apAccounts)
                             {
@@ -70,95 +111,124 @@
                         <p class="text-[10px] text-slate-400 mt-1">If using a Group, this might be auto-filled.</p>
                     </div>
                 </div>
-                <div class="flex justify-end gap-3">
-                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2.5 rounded-xl border font-bold text-slate-600">Cancel</button>
-                    <button type="submit" class="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-bold shadow-md">Save</button>
+
+                <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
+                    <button type="submit" class="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-bold shadow-md hover:bg-slate-800 transition-colors">Save Vendor</button>
                 </div>
             </EditForm>
         </div>
     }
 
-    <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <table class="w-full text-left text-sm">
-            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b">
-                <tr>
-                    <th class="p-4">Name</th>
-                    <th class="p-4">Group</th>
-                    <th class="p-4">Contact</th>
-                    <th class="p-4">Currency</th>
-                    <th class="p-4">A/P Setup</th>
-                    <th class="p-4 text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y">
-                @foreach (var v in vendors)
-                {
-                    <tr class="hover:bg-slate-50">
-                        <td class="p-4 font-bold">@v.Name</td>
-                        <td class="p-4">
-                            @if (v.Group != null)
-                            {
-                                <span class="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-bold border border-indigo-100">@v.Group.Name</span>
-                            }
-                            else
-                            {
-                                <span class="text-slate-400 text-xs">-</span>
-                            }
-                        </td>
-                        <td class="p-4 text-slate-500">@v.Email <br /><span class="text-xs">@v.Phone</span></td>
-                        <td class="p-4">
-                            <span class="bg-slate-100 px-2 py-1 rounded text-xs font-bold border">
-                                @v.DefaultCurrency?.CurrencyCode
-                            </span>
-                        </td>
-                        <td class="p-4">
-                            @if (v.PayablesAccountId.HasValue && v.PayablesAccountId != Guid.Empty)
-                            {
-                                <span class="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                                    Configured
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded border border-rose-200">
-                                    Missing
-                                </span>
-                            }
-                        </td>
-                        <td class="p-4 text-right">
-                            <PermissionGate Key="VENDOR_MANAGE">
-                                <Authorized>
-                                    <div class="flex items-center justify-end gap-3">
-                                        <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:underline">Edit</button>
-                                        <button @onclick="() => Delete(v)" class="text-rose-600 font-bold hover:underline">Delete</button>
-                                    </div>
-                                </Authorized>
-                            </PermissionGate>
-                        </td>
+    <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
+                <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Group</th>
+                        <th class="px-6 py-4">Contact</th>
+                        <th class="px-6 py-4 text-center">Currency</th>
+                        <th class="px-6 py-4">A/P Setup</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var v in vendors)
+                    {
+                        var apAccount = apAccounts.FirstOrDefault(a => a.Id == v.PayablesAccountId);
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-900">@v.Name</td>
+                            <td class="px-6 py-4">
+                                @if (v.Group != null)
+                                {
+                                    <span class="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md text-[10px] uppercase tracking-wider font-bold border border-indigo-100">@v.Group.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 text-xs">-</span>
+                                }
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-col">
+                                    <span class="font-medium">@v.Email</span>
+                                    <span class="text-[10px] font-mono text-slate-400 mt-0.5">@v.Phone</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="px-2 py-1 bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-700 font-mono tracking-wider">
+                                    @v.DefaultCurrency?.CurrencyCode
+                                </span>
+                            </td>
+                            <td class="px-6 py-4">
+                                @if (v.PayablesAccountId.HasValue && v.PayablesAccountId != Guid.Empty)
+                                {
+                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 uppercase tracking-wider">
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+                                        Configured
+                                    </span>
+                                    @if (apAccount != null)
+                                    {
+                                        <div class="text-[10px] font-mono text-slate-400 mt-1">@apAccount.AccountCode</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200 uppercase tracking-wider">
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                        Missing
+                                    </span>
+                                }
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <PermissionGate Key="VENDOR_MANAGE">
+                                    <Authorized>
+                                        <div class="flex items-center justify-end gap-4">
+                                            <button @onclick="() => Edit(v)" class="text-indigo-600 font-bold hover:text-indigo-900 hover:underline transition-colors text-xs uppercase tracking-wide">Edit</button>
+                                            <button @onclick="() => Delete(v)" class="text-rose-600 font-bold hover:text-rose-900 hover:underline transition-colors text-xs uppercase tracking-wide">Delete</button>
+                                        </div>
+                                    </Authorized>
+                                </PermissionGate>
+                            </td>
+                        </tr>
+                    }
+                    @if (!vendors.Any())
+                    {
+                        <tr><td colspan="6" class="p-16 text-center text-slate-400 italic">No vendors found. Click "+ New Vendor" to start.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <style>
     .label {
         display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #475569;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
         text-transform: uppercase;
         margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
     }
 
     .input-class {
         width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #e2e8f0;
-        padding: 0.6rem;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
         font-size: 0.875rem;
+        transition: border-color 0.2s;
+        outline: none;
+        background: #fff;
+        color: #0f172a;
     }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
@@ -174,11 +244,11 @@
     private Vendor currentVendor = new();
     private bool showForm = false;
     private bool isEditing = false;
+    private bool isImporting = false;
     private Guid currentCompanyId;
 
     protected override async Task OnInitializedAsync()
     {
-        // Add page guard here
         if (!PermissionCache.Has("MD_VENDORS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -198,7 +268,7 @@
             {
                 var t = accountTypes.FirstOrDefault(type => type.Id == a.SegAccountTypeId);
                 return t != null && t.IsBalanceSheet == true && t.IsDebit == false;
-            }).ToList();
+            }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();
         }
@@ -273,5 +343,150 @@
         {
             await JS.InvokeVoidAsync("alert", err);
         }
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            // Headers match our import parsing structure
+            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ApGlAccountCode");
+
+            foreach (var v in vendors)
+            {
+                var groupName = v.Group?.Name ?? "";
+                var curCode = v.DefaultCurrency?.CurrencyCode ?? "";
+                var glCode = apAccounts.FirstOrDefault(a => a.Id == v.PayablesAccountId)?.AccountCode ?? "";
+
+                // Wrap fields in quotes to safely handle commas inside addresses or names
+                sb.AppendLine($"\"{v.Name?.Replace("\"", "\"\"")}\",\"{v.Email?.Replace("\"", "\"\"")}\",\"{v.Phone?.Replace("\"", "\"\"")}\",\"{v.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+
+            await JS.InvokeVoidAsync("downloadFileFromStream", "Vendors_Export.csv", streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+
+    // --- CSV IMPORT LOGIC ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        isImporting = true;
+        try
+        {
+            var file = e.File;
+            if (!file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                await JS.InvokeVoidAsync("alert", "Please upload a valid .csv file.");
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length <= 1)
+            {
+                await JS.InvokeVoidAsync("alert", "The file appears to be empty or missing data rows.");
+                return;
+            }
+
+            int successCount = 0;
+
+            // Start loop at 1 to skip header row
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var cols = ParseCsvLine(lines[i]);
+
+                if (cols.Count >= 1)
+                {
+                    var name = cols[0].Trim();
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+
+                    var vendor = vendors.FirstOrDefault(v => v.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                                 ?? new Vendor { CompanyId = currentCompanyId, Name = name };
+
+                    if (cols.Count > 1) vendor.Email = cols[1].Trim();
+                    if (cols.Count > 2) vendor.Phone = cols[2].Trim();
+                    if (cols.Count > 3) vendor.Address = cols[3].Trim();
+
+                    // Map Vendor Group
+                    if (cols.Count > 4 && !string.IsNullOrWhiteSpace(cols[4]))
+                    {
+                        var group = groups.FirstOrDefault(g => g.Name.Equals(cols[4].Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (group != null) vendor.VendorGroupId = group.Id;
+                    }
+
+                    // Map Currency (Required, defaults to first available if invalid)
+                    if (cols.Count > 5 && !string.IsNullOrWhiteSpace(cols[5]))
+                    {
+                        var cur = currencies.FirstOrDefault(c => c.CurrencyCode.Equals(cols[5].Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (cur != null) vendor.CurrencyId = cur.Id;
+                    }
+                    if (vendor.CurrencyId == Guid.Empty && currencies.Any())
+                    {
+                        vendor.CurrencyId = currencies.First().Id;
+                    }
+
+                    // Map AP GL Account
+                    if (cols.Count > 6 && !string.IsNullOrWhiteSpace(cols[6]))
+                    {
+                        var gl = apAccounts.FirstOrDefault(a => a.AccountCode == cols[6].Trim());
+                        if (gl != null) vendor.PayablesAccountId = gl.Id;
+                    }
+
+                    await MasterService.SaveVendorAsync(vendor);
+                    successCount++;
+                }
+            }
+
+            await LoadData();
+            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} vendors processed and mapped successfully.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import error: {ex.Message}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper to safely parse CSV rows where data (like Addresses) might contain commas wrapped in quotes
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var currentField = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString());
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString());
+        return result;
     }
 }

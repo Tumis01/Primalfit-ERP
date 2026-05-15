@@ -184,12 +184,15 @@
         @* ════════════════════════════════════════════════════════════
            KPI STRIP — 6 cards
         ════════════════════════════════════════════════════════════ *@
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 fade-up">
-            
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4 fade-up">
+
             @* Cash *@
             <div class="kpi-card" style="--accent:#10b981">
                 <div class="section-title" style="margin-bottom:.5rem">Cash &amp; Bank</div>
-                <div class="text-xl font-black text-slate-900 mono">@data.CashOnHand.ToString("C0")</div>
+                <div class="text-lg xl:text-xl font-black text-slate-900 mono truncate"
+                     title="@(data.CashOnHand < 0 ? $"({Math.Abs(data.CashOnHand).ToString("C0")})" : data.CashOnHand.ToString("C0"))">
+                    @(data.CashOnHand < 0 ? $"({Math.Abs(data.CashOnHand).ToString("C0")})" : data.CashOnHand.ToString("C0"))
+                </div>
                 <div class="flex items-center gap-1 mt-2">
                     <span class="text-[11px] text-slate-500 font-medium">
                         CR @data.CurrentRatio.ToString("0.00x")
@@ -200,7 +203,9 @@
             @* Revenue MTD *@
             <div class="kpi-card" style="--accent:#6366f1">
                 <div class="section-title" style="margin-bottom:.5rem">Revenue MTD</div>
-                <div class="text-xl font-black text-slate-900 mono">@data.RevenueMTD.ToString("C0")</div>
+                <div class="text-lg xl:text-xl font-black text-slate-900 mono truncate" title="@data.RevenueMTD.ToString("C0")">
+                    @data.RevenueMTD.ToString("C0")
+                </div>
                 @{
                     var revChange = data.PreviousMonthRevenue != 0
                         ? ((data.RevenueMTD - data.PreviousMonthRevenue) / data.PreviousMonthRevenue) * 100
@@ -217,7 +222,7 @@
             @* Net Profit MTD *@
             <div class="kpi-card" style="--accent:@(data.NetProfitMTD >= 0 ? "#6366f1" : "#f43f5e")">
                 <div class="section-title" style="margin-bottom:.5rem">Net Profit MTD</div>
-                <div class="text-xl font-black mono @(data.NetProfitMTD >= 0 ? "text-indigo-600" : "text-rose-600")">
+                <div class="text-lg xl:text-xl font-black mono truncate @(data.NetProfitMTD >= 0 ? "text-indigo-600" : "text-rose-600")" title="@data.NetProfitMTD.ToString("C0")">
                     @data.NetProfitMTD.ToString("C0")
                 </div>
                 @{
@@ -236,7 +241,9 @@
             @* AR Outstanding *@
             <div class="kpi-card" style="--accent:#f59e0b">
                 <div class="section-title" style="margin-bottom:.5rem">AR Outstanding</div>
-                <div class="text-xl font-black text-slate-900 mono">@data.AROutstandingTotal.ToString("C0")</div>
+                <div class="text-lg xl:text-xl font-black text-slate-900 mono truncate" title="@data.AROutstandingTotal.ToString("C0")">
+                    @data.AROutstandingTotal.ToString("C0")
+                </div>
                 <div class="flex items-center gap-1 mt-2">
                     <span class="text-[11px] font-bold @(data.OverdueInvoicesCount > 0 ? "text-amber-600" : "text-slate-400")">
                         @data.OverdueInvoicesCount overdue
@@ -247,7 +254,9 @@
             @* AP Outstanding *@
             <div class="kpi-card" style="--accent:#f43f5e">
                 <div class="section-title" style="margin-bottom:.5rem">AP Outstanding</div>
-                <div class="text-xl font-black text-slate-900 mono">@data.APOutstandingTotal.ToString("C0")</div>
+                <div class="text-lg xl:text-xl font-black text-slate-900 mono truncate" title="@data.APOutstandingTotal.ToString("C0")">
+                    @data.APOutstandingTotal.ToString("C0")
+                </div>
                 <div class="flex items-center gap-1 mt-2">
                     <span class="text-[11px] font-bold @(data.APExceptionsCount > 0 ? "text-rose-500" : "text-slate-400")">
                         @data.APExceptionsCount @(data.APExceptionsCount == 1 ? "exception" : "exceptions")
@@ -258,7 +267,9 @@
             @* Inventory Value *@
             <div class="kpi-card" style="--accent:#14b8a6">
                 <div class="section-title" style="margin-bottom:.5rem">Inventory Value</div>
-                <div class="text-xl font-black text-slate-900 mono">@data.InventoryValue.ToString("C0")</div>
+                <div class="text-lg xl:text-xl font-black text-slate-900 mono truncate" title="@data.InventoryValue.ToString("C0")">
+                    @data.InventoryValue.ToString("C0")
+                </div>
                 <div class="flex items-center gap-1 mt-2">
                     <span class="text-[11px] font-bold @(data.LowStockItemsCount > 0 ? "text-amber-500" : "text-emerald-500")">
                         @data.LowStockItemsCount low stock @(data.LowStockItemsCount == 1 ? "item" : "items")

@@ -10,6 +10,8 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject CompanyApiService ApiService
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 
 @inject IDbContextFactory<AppDbContext> DbFactory
 
@@ -19,6 +21,7 @@
 
 @* --- TOP HEADER --- *@
 <header class="fixed top-0 left-0 right-0 z-30 flex h-16 items-center border-b border-slate-200/80 bg-white/90 backdrop-blur-xl transition-all duration-300 @(_isCollapsed ? "lg:left-[80px]" : "lg:left-[280px]") shadow-sm">
+    
     <div class="flex h-full w-full items-center gap-4 px-4 lg:px-6">
 
         @* Desktop Toggle Button *@
@@ -107,7 +110,7 @@
 
             @* 1. FINANCE & GL *@
             <PermissionGate Key="GL_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="ToggleFinanceMenu" class="@NavBase w-full justify-between" title="Finance & GL">
                             <div class="flex items-center gap-3">
@@ -123,19 +126,24 @@
                             <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
                                 <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
                                 <div class="space-y-1 pt-1">
-                                    <button @onclick="ToggleFinanceSetup" class="@SubNavFolderBase">
-                                        <span>Setup</span>
-                                        <svg class="h-3 w-3 text-slate-400 @(_financeSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                                    </button>
-                                    @if (_financeSetupOpen)
-                                    {
-                                        <div class="space-y-0.5 mb-2">
-                                            <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
-                                            <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
-                                            <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
-                                        </div>
-                                    }
+                                    <PermissionGate Key="GL_SEGMENT_SETUP_PAGE">
+                                         
+                                            <button @onclick="ToggleFinanceSetup" class="@SubNavFolderBase">
+                                                <span>Setup</span>
+                                                <svg class="h-3 w-3 text-slate-400 @(_financeSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                            </button>
+                                            @if (_financeSetupOpen)
+                                            {
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
+                                                    <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
+                                                    <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
+                                                </div>
+                                            }
+                                         
+                                    </PermissionGate>
 
+                                    @* Transaction Folder (Clerk has GL_JOURNAL_CREATE, so we leave this open, or gate specific links inside it) *@
                                     <button @onclick="ToggleFinanceTrans" class="@SubNavFolderBase">
                                         <span>Transaction</span>
                                         <svg class="h-3 w-3 text-slate-400 @(_financeTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
@@ -145,13 +153,20 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
                                             <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
-                                            <NavLink href="gl/bank-reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation</NavLink>
+                    
+                                            @* Further restrict highly sensitive links inside the open folder *@
+                                            <PermissionGate Key="RECON_START">
+                                                 
+                                                    <NavLink href="gl/bank-reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation</NavLink>
+                                                 
+                                            </PermissionGate>
+                    
                                             <NavLink href="finance/budget" class="@NestedNavLink" activeClass="@NestedNavActive">Budgets</NavLink>
                                         </div>
                                     }
 
                                     <PermissionGate Key="FINANCE_REPORTS_PAGE">
-                                        <Authorized>
+                                         
                                             <button @onclick="ToggleFinanceReport" class="@SubNavFolderBase">
                                                 <span>Report</span>
                                                 <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -171,18 +186,18 @@
                                                     <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
                                                 </div>
                                             }
-                                        </Authorized>
+                                         
                                     </PermissionGate>
                                 </div>
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
             @* 2. AR & SALES *@
             <PermissionGate Key="SALES_ORDER_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="ToggleSalesMenu" class="@NavBase w-full justify-between" title="AR & Sales">
                             <div class="flex items-center gap-3">
@@ -233,25 +248,25 @@
                                     @if (_salesReportOpen)
                                     {
                                         <PermissionGate Key="SALES_REPORTS_PAGE">
-                                            <Authorized>
+                                             
                                                 <div class="space-y-0.5 mb-2">
                                                     <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
                                                     <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
                                                     <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
                                                 </div>
-                                            </Authorized>
+                                             
                                         </PermissionGate>
                                     }
                                 </div>
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
             @* 3. AP & PURCHASING *@
             <PermissionGate Key="PURCHASING_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="TogglePurchasingMenu" class="@NavBase w-full justify-between" title="AP & Purchasing">
                             <div class="flex items-center gap-3">
@@ -301,7 +316,7 @@
                                     @if (_purchasingReportOpen)
                                     {
                                         <PermissionGate Key="PURCHASING_REPORTS_PAGE">
-                                            <Authorized>
+                                             
                                                 <div class="space-y-0.5 mb-2">
                                                     <NavLink href="/reports/discount-received-summary" class="@NestedNavLink" activeClass="@NestedNavActive">Discount Received Summary</NavLink>
                                                     <NavLink href="/reports/partially-received" class="@NestedNavLink" activeClass="@NestedNavActive">Partially Received Items</NavLink>
@@ -309,19 +324,19 @@
                                                     <NavLink href="/reports/purchase-spend-by-vendor" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase By Vendor</NavLink>
                                                     <NavLink href="/reports/vendor-payment-history" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Payment History</NavLink>
                                                 </div>
-                                            </Authorized>
+                                             
                                         </PermissionGate>
                                     }
                                 </div>
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
             @* 4. INVENTORY & STOCK *@
             <PermissionGate Key="INVENTORY_SETUP_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="ToggleInventoryMenu" class="@NavBase w-full justify-between" title="Inventory & Stock">
                             <div class="flex items-center gap-3">
@@ -372,28 +387,28 @@
                                     @if (_inventoryReportOpen)
                                     {
                                         <PermissionGate Key="INVENTORY_REPORTS_PAGE">
-                                            <Authorized>
+                                             
                                                 <div class="space-y-0.5 mb-2">
                                                     <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
                                                     <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
                                                     <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
                                                     <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
                                                 </div>
-                                            </Authorized>
+                                             
                                         </PermissionGate>
                                     }
                                 </div>
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Specialized</div>
 
             @* 5. HR & PAYROLL *@
             <PermissionGate Key="HR_MANAGEMENT_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="ToggleHrMenu" class="@NavBase w-full justify-between" title="HR & Payroll">
                             <div class="flex items-center gap-3">
@@ -450,7 +465,7 @@
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
 
@@ -464,7 +479,7 @@
 
             @* 7. FIXED ASSETS *@
             <PermissionGate Key="FIXED_ASSETS_PAGE">
-                <Authorized>
+                 
                     <div class="space-y-1">
                         <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between" title="Fixed Assets">
                                         <div class="flex items-center gap-3">
@@ -498,52 +513,73 @@
                             </div>
                         }
                     </div>
-                </Authorized>
+                 
             </PermissionGate>
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Tools & Config</div>
 
             @* 8. SYSTEM SETUP *@
-            <div class="space-y-1">
-                <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between" title="System Setup">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">System Setup</span>
-                    </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_setupMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+           <PermissionGate Key="SYSTEM_SETUP_PAGE">
+     
+        <div class="space-y-1">
+            <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between" title="System Setup">
+                <div class="flex items-center gap-3">
+                    <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
                     </svg>
-                </button>
-                @if (_setupMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-                            <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
-                            </NavLink>
-                            <NavLink href="users" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Users
-                            </NavLink>
-                            <NavLink href="roles" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Roles
-                            </NavLink>
-                            <NavLink href="tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Tax Setup
-                            </NavLink>
-                            <NavLink href="accounting-periods" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Fiscal Periods
-                            </NavLink>
-                            <NavLink href="currency-setup" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Currency
-                            </NavLink>
-                        </div>
+                    <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">System Setup</span>
+                </div>
+                <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_setupMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+            </button>
+            @if (_setupMenuOpen && !_isCollapsed)
+            {
+                <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
+                    <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="space-y-1 pt-1">
+                        <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
+                        </NavLink>
+                        
+                        <PermissionGate Key="USERS_SETUP_PAGE">
+                             
+                                <NavLink href="users" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Users
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <PermissionGate Key="ROLES_SETUP_PAGE">
+                             
+                                <NavLink href="roles" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Roles
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <NavLink href="tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Tax Setup
+                        </NavLink>
+
+                        <PermissionGate Key="FISCAL_PERIODS_PAGE">
+                             
+                                <NavLink href="accounting-periods" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Fiscal Periods
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <NavLink href="currency-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Currency
+                        </NavLink>
                     </div>
-                }
-            </div>
+                </div>
+            }
+        </div>
+     
+</PermissionGate>
 
         </nav>
 
@@ -629,6 +665,9 @@
 
             if (dbUser?.CompanyDetailsId != null)
             {
+                // ---> CRITICAL FIX: Load permissions into the cache before NavMenu renders <---
+                await PermissionCache.LoadAsync(dbUser.Id, dbUser.CompanyDetailsId.Value);
+
                 var company = await ctx.CompanyDetails.AsNoTracking().FirstOrDefaultAsync(c => c.CompanyDetailsId == dbUser.CompanyDetailsId.Value);
             
                 if (company != null && (string.IsNullOrWhiteSpace(company.BaseCurrency) || company.FiscalStartYear == null))
@@ -690,6 +729,9 @@
     
         _assetsMenuOpen = path.StartsWith("assets/");
         _setupMenuOpen = path is "companies" or "users" or "roles" or "tax-setup" or "accounting-periods" or "currency-setup";
+        
+        // Force Blazor to re-evaluate the gates now that the cache is definitely loaded
+        StateHasChanged();
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;

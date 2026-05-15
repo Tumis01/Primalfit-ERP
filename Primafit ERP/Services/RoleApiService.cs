@@ -41,7 +41,11 @@ namespace Primafit_ERP.Services
             if (string.IsNullOrEmpty(role.Id))
             {
                 // Create New
-                role.Name = systemName; // Unique Constraint
+                role.Name = systemName;
+
+                // ---> THE FIX: Generate a proper string GUID before saving <---
+                role.Id = Guid.NewGuid().ToString();
+
                 var result = await _roleManager.CreateAsync(role);
                 return result.Succeeded ? string.Empty : string.Join(", ", result.Errors.Select(e => e.Description));
             }
@@ -53,7 +57,7 @@ namespace Primafit_ERP.Services
 
                 existing.DisplayName = role.DisplayName;
                 existing.Description = role.Description;
-                existing.Name = systemName; // Update system name in case DisplayName changed
+                existing.Name = systemName;
 
                 var result = await _roleManager.UpdateAsync(existing);
                 return result.Succeeded ? string.Empty : string.Join(", ", result.Errors.Select(e => e.Description));
@@ -94,23 +98,34 @@ namespace Primafit_ERP.Services
             // Check if it is a System Role (Global)
             if (role.CompanyId == Guid.Empty)
             {
-                return await context.SystemRoleTemplates
-                    .Where(srt => srt.RoleName == role.DisplayName)
-                    .SelectMany(srt => context.SystemRolePermissions
-                        .Where(srp => srp.SystemRoleTemplateId == srt.Id)
-                        .Select(srp => srp.Permission))
+                // FIX: Directly query SystemRolePermissions and explicit Include
+                return await context.SystemRolePermissions
+                    .Include(srp => srp.Permission)
+                    .Include(srp => srp.SystemRoleTemplate)
+                    .Where(srp => srp.SystemRoleTemplate.RoleName == role.DisplayName)
+                    .Select(srp => srp.Permission)
+                    .Where(p => p != null) // Safety check
                     .AsNoTracking()
                     .ToListAsync();
             }
 
             // Otherwise, it is a Custom Company Role
             return await context.CompanyRolePermissions
+                .Include(crp => crp.Permission) // FIX: Explicitly load Permission data
                 .Where(crp => crp.ApplicationRoleId == roleId)
                 .Select(crp => crp.Permission)
+                .Where(p => p != null) // Safety check
                 .AsNoTracking()
                 .ToListAsync();
         }
-
+        public async Task<List<Permission>> GetAllPermissionsAsync()
+        {
+            using var context = await _dbFactory.CreateDbContextAsync();
+            // Return all permissions (both Page and Action level)
+            return await context.Permissions
+                .AsNoTracking()
+                .ToListAsync();
+        }
         public async Task<string> SaveRoleWithPermissionsAsync(ApplicationRole role, List<int> permissionIds)
         {
             // 1. Save or Update the Identity Role using the existing logic

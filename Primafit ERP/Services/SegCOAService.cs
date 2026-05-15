@@ -20,7 +20,7 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<SegCoaConfig> GetOrCreateConfigAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             var cfg = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == companyId);
             if (cfg != null) return cfg;
 
@@ -34,7 +34,7 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var existing = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == cfg.CompanyId);
 
                 if (existing == null)
@@ -69,7 +69,7 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<List<Segment0>> GetSegment0Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment0s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -78,7 +78,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment1>> GetSegment1Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment1s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -87,7 +87,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment2>> GetSegment2Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment2s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -96,7 +96,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment3>> GetSegment3Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment3s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -105,7 +105,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment4>> GetSegment4Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment4s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -114,7 +114,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment5>> GetSegment5Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment5s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -123,7 +123,7 @@ namespace Primafit_ERP.Services
 
         private async Task<List<T>> GetSegmentsAsync<T>(Guid companyId) where T : class
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<T>()
                 .AsNoTracking()
                 .OrderBy(x => EF.Property<string>(x, "Code"))
@@ -147,7 +147,7 @@ namespace Primafit_ERP.Services
                 if (string.IsNullOrWhiteSpace(code)) return "Code is required.";
                 if (string.IsNullOrWhiteSpace(description)) return "Description is required.";
 
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var entity = new T();
                 Set(entity, "Id", Guid.NewGuid());
                 Set(entity, "CompanyId", companyId);
@@ -165,7 +165,7 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var entity = await ctx.Set<T>().FindAsync(id);
                 if (entity == null) return "Record not found.";
                 ctx.Remove(entity);
@@ -180,13 +180,13 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<List<SegAccountType>> GetAccountTypesAsync()
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<SegAccountType>().AsNoTracking().OrderBy(x => x.Id).ToListAsync();
         }
 
         public async Task<List<SegChartOfAccount>> GetCoaAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
@@ -218,7 +218,7 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var cfg = await GetOrCreateConfigAsync(draft.CompanyId);
 
                 // 1. Base Requirements
@@ -335,7 +335,7 @@ namespace Primafit_ERP.Services
 
         public async Task ToggleActiveStatusAsync(Guid accountId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             var acc = await ctx.Set<SegChartOfAccount>().FindAsync(accountId);
             if (acc != null)
             {
@@ -345,7 +345,7 @@ namespace Primafit_ERP.Services
         }
         public async Task<List<SegChartOfAccount>> GetActiveCoaAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
 
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()

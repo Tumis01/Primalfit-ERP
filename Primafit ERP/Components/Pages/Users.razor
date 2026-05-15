@@ -9,6 +9,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -32,13 +34,17 @@
         <div class="flex gap-2">
             @if (!showForm)
             {
-                <button @onclick="CreateNew" disabled="@(!HasCompany)"
-                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    New User
-                </button>
+                <PermissionGate Key="USERS_SETUP_MANAGE">
+                    <Authorized>
+                        <button @onclick="CreateNew" disabled="@(!HasCompany)"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            New User
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             }
         </div>
     </div>
@@ -118,9 +124,14 @@
                     <button type="button" @onclick="CancelForm" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">
                         Cancel
                     </button>
-                    <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-                        Create User
-                    </button>
+                    
+                    <PermissionGate Key="USERS_SETUP_MANAGE">
+                        <Authorized>
+                            <button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                                Create User
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
                 </div>
             </EditForm>
         </div>
@@ -220,6 +231,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("USERS_SETUP_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
 
