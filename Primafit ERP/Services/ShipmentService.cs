@@ -50,8 +50,8 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Customer)
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Where(o => o.CompanyId == companyId &&
-                           (o.Status == OrderStatus.Order || o.Status == OrderStatus.Invoiced ||
-                            o.Status == OrderStatus.PartiallyShipped || o.Status == OrderStatus.PartiallyInvoiced))
+                            (o.Status == OrderStatus.Order || o.Status == OrderStatus.Invoiced ||
+                             o.Status == OrderStatus.PartiallyShipped || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 
             // Filter in memory to find orders where physical items haven't been fully shipped
@@ -109,7 +109,8 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<string> PostShipmentAsync(Guid shipmentId, List<SalesShipmentLine> actualShippedLines, string confirmedBy)
+        // Added userId to method signature
+        public async Task<string> PostShipmentAsync(Guid shipmentId, List<SalesShipmentLine> actualShippedLines, string confirmedBy, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
@@ -183,13 +184,15 @@ namespace Primafit_ERP.Services
                 if (glLines.Any())
                 {
                     // Enforce Period: Journal date must match shipment confirmation date
-                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(shipment.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Shipment", $"Ship {shipment.ShipmentNumber}", glLines);
+                    // PASSED userId HERE
+                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(shipment.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Shipment", $"Ship {shipment.ShipmentNumber}", glLines, userId);
                     if (!string.IsNullOrEmpty(err)) throw new Exception($"Journal Creation Failed: {err}");
 
                     if (batchId.HasValue)
                     {
                         // THE FIX: Actually capture and handle GL Engine posting failures
-                        var postErr = await _glOps.PostBatchAsync(shipment.CompanyId, batchId.Value);
+                        // PASSED userId HERE
+                        var postErr = await _glOps.PostBatchAsync(shipment.CompanyId, batchId.Value, userId);
                         if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
 
                         shipment.ShipmentBatchId = batchId;

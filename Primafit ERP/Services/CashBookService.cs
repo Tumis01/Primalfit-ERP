@@ -199,13 +199,13 @@ namespace Primafit_ERP.Services
             var (err, glBatchId) = await _glOps.CreateJournalEntryAsync(
                 batch.CompanyId, postingDate,
                 "Cashbook Posting", $"Ref: {batch.BatchReference}",
-                glLines);
+                glLines, userId); // Added userId here
 
             if (!string.IsNullOrWhiteSpace(err)) return err;
 
             if (glBatchId.HasValue)
             {
-                var postErr = await _glOps.PostBatchAsync(batch.CompanyId, glBatchId.Value);
+                var postErr = await _glOps.PostBatchAsync(batch.CompanyId, glBatchId.Value, userId); // Added userId here
                 if (!string.IsNullOrWhiteSpace(postErr))
                     return $"Cashbook GL posting failed: {postErr}";
             }

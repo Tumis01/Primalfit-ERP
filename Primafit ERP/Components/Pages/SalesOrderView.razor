@@ -855,6 +855,8 @@
     private IEnumerable<SalesOrder> PagedOrders => FilteredOrders
         .Skip((currentPage - 1) * pageSize)
         .Take(pageSize);
+    private string currentUserId = "";
+
     protected override async Task OnInitializedAsync()
     {
         if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
@@ -863,6 +865,8 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
+
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
@@ -1073,12 +1077,12 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", "This will post the invoice to the General Ledger. Proceed?");
         if (!confirm) return;
 
-        var invErr = await SalesService.InvoiceOrderAsync(currentOrder.Id);
+        // Passed currentUserId here
+        var invErr = await SalesService.InvoiceOrderAsync(currentOrder.Id, currentUserId);
         if (!string.IsNullOrEmpty(invErr)) { await JS.InvokeVoidAsync("alert", invErr); return; }
 
-        await LoadData(); // Refresh data to get final invoice numbers
+        await LoadData();
 
-        // Trigger Email logic instead of immediate close
         await PromptEmailPopup(currentOrder.Id);
     }
 
@@ -1099,7 +1103,8 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", $"Generate and Post Invoice for {o.OrderNumber}?");
         if (!confirm) return;
 
-        var err = await SalesService.InvoiceOrderAsync(o.Id);
+        // Passed currentUserId here
+        var err = await SalesService.InvoiceOrderAsync(o.Id, currentUserId);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
         await LoadData();

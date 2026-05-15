@@ -16,7 +16,7 @@ namespace Primafit_ERP.Services
         }
 
         // 1. RECEIVE STOCK (Procurement + WACC Calculation)
-        public async Task<string> ReceiveStockAsync(Guid companyId, Guid itemId, Guid warehouseId, decimal qty, decimal totalLandedCost, Guid vendorId, string reference)
+        public async Task<string> ReceiveStockAsync(Guid companyId, Guid itemId, Guid warehouseId, decimal qty, decimal totalLandedCost, Guid vendorId, string reference, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -54,7 +54,7 @@ namespace Primafit_ERP.Services
                 });
 
                 // Post GL
-                await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase (Service)", reference, glLines);
+                await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase (Service)", reference, glLines, userId);
 
                 return string.Empty; // Done for Service
             }
@@ -125,14 +125,15 @@ namespace Primafit_ERP.Services
                 Reference = $"Bill: {vendor.Name}"
             });
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines);
+            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
 
             // 6. Save Everything
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+
         // 2. ISSUE TO PROJECT (New Phase 2 Logic)
-        public async Task<string> IssueToProjectAsync(Guid companyId, Guid itemId, Guid warehouseId, Guid projectId, decimal qty, string note)
+        public async Task<string> IssueToProjectAsync(Guid companyId, Guid itemId, Guid warehouseId, Guid projectId, decimal qty, string note, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var item = await ctx.Items.FindAsync(itemId);
@@ -160,13 +161,13 @@ namespace Primafit_ERP.Services
                 new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = issueValue, Reference = $"Issued from {warehouseId}" }
             };
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines);
+            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines, userId);
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
 
         // 3. SHIP TRANSFER (Auto-Posting to GL)
-        public async Task<string> ShipTransferAsync(Guid companyId, Guid itemId, Guid fromWhId, Guid toWhId, decimal qty, Guid transitAccountId, string note)
+        public async Task<string> ShipTransferAsync(Guid companyId, Guid itemId, Guid fromWhId, Guid toWhId, decimal qty, Guid transitAccountId, string note, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync(); // Added Transaction Safety
@@ -212,13 +213,13 @@ namespace Primafit_ERP.Services
                 };
 
                 // Create GL Batch
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
 
                 // Auto-Post GL Batch
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
                 }
 
@@ -234,7 +235,7 @@ namespace Primafit_ERP.Services
         }
 
         // 4. RECEIVE TRANSFER (Auto-Posting to GL)
-        public async Task<string> ReceiveTransferAsync(Guid transferId, decimal actualQtyReceived)
+        public async Task<string> ReceiveTransferAsync(Guid transferId, decimal actualQtyReceived, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync(); // Added Transaction Safety
@@ -281,13 +282,13 @@ namespace Primafit_ERP.Services
                 }
 
                 // Create GL Batch
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(transfer.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Recv", transfer.Reference, glLines);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(transfer.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Recv", transfer.Reference, glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
 
                 // Auto-Post GL Batch
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(transfer.CompanyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(transfer.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
                 }
 
@@ -301,7 +302,8 @@ namespace Primafit_ERP.Services
                 return $"Receive Error: {ex.Message}";
             }
         }
-        public async Task<string> AdjustStockAsync(Guid companyId, Guid itemId, Guid warehouseId, StockEntryType adjType, decimal qty, decimal totalValueChange, string reference)
+
+        public async Task<string> AdjustStockAsync(Guid companyId, Guid itemId, Guid warehouseId, StockEntryType adjType, decimal qty, decimal totalValueChange, string reference, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -415,9 +417,9 @@ namespace Primafit_ERP.Services
                         glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = absVal, Reference = $"Adj Out: {reference}" });
                     }
 
-                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Inventory Adjustment", reference, glLines);
+                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Inventory Adjustment", reference, glLines, userId);
                     if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Error: {err}");
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+                    if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                 }
 
                 await ctx.SaveChangesAsync();
@@ -430,6 +432,7 @@ namespace Primafit_ERP.Services
                 return $"Error adjusting stock: {ex.Message}";
             }
         }
+
         public async Task<List<StockTransfer>> GetPendingTransfersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -448,7 +451,7 @@ namespace Primafit_ERP.Services
                 .Where(s => s.ItemId == itemId && s.WarehouseId == warehouseId)
                 .SumAsync(s => s.QuantityChanged);
         }
-        
+
 
         public async Task<decimal> GetAvailableToPromiseAsync(Guid companyId, Guid itemId, Guid warehouseId, Guid? excludeOrderId = null)
         {

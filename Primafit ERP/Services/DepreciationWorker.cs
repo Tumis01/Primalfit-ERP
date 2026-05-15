@@ -44,9 +44,13 @@ namespace Primafit_ERP.Services
                 using var ctx = await dbFactory.CreateDbContextAsync();
                 var companyIds = await ctx.CompanyDetails.Select(c => c.CompanyDetailsId).ToListAsync();
 
+                // Define a system user ID for automated background tasks
+                string systemUserId = "SYSTEM_AUTO";
+
                 foreach (var companyId in companyIds)
                 {
-                    await assetService.RunAutomatedCatchUpForCompanyAsync(companyId);
+                    // Passed the systemUserId here
+                    await assetService.RunAutomatedCatchUpForCompanyAsync(companyId, systemUserId);
                 }
             }
         }

@@ -596,6 +596,7 @@
     }
 
     // --- IMPORT FROM EXCEL ---
+    // --- IMPORT FROM EXCEL ---
     private async Task ImportExcel(InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -636,13 +637,24 @@
                     bool hasAnyAmount = false;
                     for (int i = 2; i < table.Columns.Count; i++)
                     {
-                        var colName = table.Columns[i].ColumnName;
-                        var alloc = bLine.PeriodAllocations.FirstOrDefault(p => p.PeriodName.Equals(colName, StringComparison.OrdinalIgnoreCase));
+                        var colName = table.Columns[i].ColumnName?.Trim();
+                        if (string.IsNullOrEmpty(colName)) continue;
+
+                        bool isBudget = colName.EndsWith(" Budget", StringComparison.OrdinalIgnoreCase);
+                        bool isForecast = colName.EndsWith(" Forecast", StringComparison.OrdinalIgnoreCase);
+
+                        if (!isBudget && !isForecast) continue; // Skip unknown columns
+
+                        // Extract the actual period name by removing " Budget" or " Forecast"
+                        var periodName = colName.Substring(0, colName.LastIndexOf(' ')).Trim();
+
+                        var alloc = bLine.PeriodAllocations.FirstOrDefault(p => p.PeriodName.Equals(periodName, StringComparison.OrdinalIgnoreCase));
                         if (alloc != null)
                         {
                             if (decimal.TryParse(row[i]?.ToString(), out decimal amt) && amt > 0)
                             {
-                                alloc.Amount = amt;
+                                if (isBudget) alloc.Amount = amt;
+                                if (isForecast) alloc.ForecastAmount = amt;
                                 hasAnyAmount = true;
                             }
                         }
@@ -677,12 +689,22 @@
                     for (int i = 2; i < parts.Count && i < headers.Count; i++)
                     {
                         var colName = headers[i];
-                        var alloc = bLine.PeriodAllocations.FirstOrDefault(p => p.PeriodName.Equals(colName, StringComparison.OrdinalIgnoreCase));
+                        if (string.IsNullOrEmpty(colName)) continue;
+
+                        bool isBudget = colName.EndsWith(" Budget", StringComparison.OrdinalIgnoreCase);
+                        bool isForecast = colName.EndsWith(" Forecast", StringComparison.OrdinalIgnoreCase);
+
+                        if (!isBudget && !isForecast) continue;
+
+                        var periodName = colName.Substring(0, colName.LastIndexOf(' ')).Trim();
+
+                        var alloc = bLine.PeriodAllocations.FirstOrDefault(p => p.PeriodName.Equals(periodName, StringComparison.OrdinalIgnoreCase));
                         if (alloc != null)
                         {
                             if (decimal.TryParse(parts[i], out decimal amt) && amt > 0)
                             {
-                                alloc.Amount = amt;
+                                if (isBudget) alloc.Amount = amt;
+                                if (isForecast) alloc.ForecastAmount = amt;
                                 hasAnyAmount = true;
                             }
                         }
@@ -705,7 +727,11 @@
                         foreach (var na in nl.PeriodAllocations)
                         {
                             var ea = existing.PeriodAllocations.FirstOrDefault(a => a.AccountingPeriodId == na.AccountingPeriodId);
-                            if (ea != null && na.Amount.HasValue) ea.Amount = na.Amount;
+                            if (ea != null)
+                            {
+                                if (na.Amount.HasValue) ea.Amount = na.Amount;
+                                if (na.ForecastAmount.HasValue) ea.ForecastAmount = na.ForecastAmount; // Make sure to overwrite forecast too
+                            }
                         }
                     }
                     else

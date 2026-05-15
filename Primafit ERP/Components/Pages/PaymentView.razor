@@ -477,7 +477,7 @@
     private string customEmailMessage = "";
     private int pageSize = 15; // Set rows per page here
     private int currentPage = 1;
-
+    private string currentUserId = "";
     private string _statusFilter = "All";
     private string statusFilter
     {
@@ -526,6 +526,7 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
 
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
@@ -570,7 +571,8 @@
             .Include(o => o.Currency)
             .Include(o => o.Lines)
             .Where(o => o.CompanyId == currentCompanyId &&
-                        (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true || o.OrderNumber.StartsWith("INV")))
+                        o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                        (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .OrderByDescending(o => o.Date)
             .ToListAsync();
 
@@ -659,14 +661,16 @@
             selectedInvoiceId = Guid.Empty;
         }
     }
-
     private async Task LoadCustomerInvoices(Guid customerId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         var invoices = await ctx.SalesOrders
                     .Include(o => o.Lines).ThenInclude(l => l.Item)
-                    .Where(o => o.CompanyId == currentCompanyId && o.CustomerId == customerId && o.Status == OrderStatus.Invoiced)
+                    .Where(o => o.CompanyId == currentCompanyId &&
+                                o.CustomerId == customerId &&
+                                o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                                (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
                     .ToListAsync();
 
         openInvoices.Clear();
@@ -801,7 +805,8 @@
             var saveErr = await PayService.SavePaymentAsync(payment);
             if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
 
-            var postErr = await PayService.PostPaymentAsync(payment.Id);
+            // Passed currentUserId here
+            var postErr = await PayService.PostPaymentAsync(payment.Id, currentUserId);
 
             if (string.IsNullOrEmpty(postErr))
             {

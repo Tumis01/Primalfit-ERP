@@ -272,7 +272,7 @@
     private List<Item> items = new();
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> transitAccounts = new();
-
+    private string currentUserId = "";
     private List<StockTransfer> pendingTransfers = new();
 
     // --- State ---
@@ -302,6 +302,7 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
@@ -352,7 +353,6 @@
         else
             currentStockLevel = 0;
     }
-
     private async Task ProcessShipment()
     {
         if (fromWhId == Guid.Empty || toWhId == Guid.Empty || selectedItemId == Guid.Empty || qty <= 0 || transitSegCoaId == Guid.Empty)
@@ -364,7 +364,7 @@
         isBusy = true;
         try
         {
-            // Pass SegCoaId as transit account
+            // Passed currentUserId at the end
             var err = await InvService.ShipTransferAsync(
                 selectedCompanyId,
                 selectedItemId,
@@ -372,7 +372,8 @@
                 toWhId,
                 qty,
                 transitSegCoaId,
-                reference);
+                reference,
+                currentUserId);
 
             if (string.IsNullOrEmpty(err))
             {
@@ -399,29 +400,30 @@
         if (decimal.TryParse(e.Value?.ToString(), out var v))
             receiveQtyMap[id] = v;
     }
-
     private async Task ReceiveTransfer(StockTransfer t)
+{
+    decimal actualQty = GetReceiveQty(t.Id, t.Quantity);
+
+    if (actualQty > t.Quantity)
     {
-        decimal actualQty = GetReceiveQty(t.Id, t.Quantity);
-
-        if (actualQty > t.Quantity)
-        {
-            await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!");
-            return;
-        }
-
-        if (!await JS.InvokeAsync<bool>("confirm", $"Confirm receipt of {actualQty:N2} (Shipped: {t.Quantity:N2})?"))
-            return;
-
-        var err = await InvService.ReceiveTransferAsync(t.Id, actualQty);
-        if (string.IsNullOrEmpty(err))
-        {
-            await JS.InvokeVoidAsync("alert", "Stock Received Successfully.");
-            await LoadData();
-        }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", err);
-        }
+        await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!");
+        return;
     }
+
+    if (!await JS.InvokeAsync<bool>("confirm", $"Confirm receipt of {actualQty:N2} (Shipped: {t.Quantity:N2})?"))
+        return;
+
+    // Passed currentUserId here
+    var err = await InvService.ReceiveTransferAsync(t.Id, actualQty, currentUserId);
+    
+    if (string.IsNullOrEmpty(err))
+    {
+        await JS.InvokeVoidAsync("alert", "Stock Received Successfully.");
+        await LoadData();
+    }
+    else
+    {
+        await JS.InvokeVoidAsync("alert", err);
+    }
+}
 }

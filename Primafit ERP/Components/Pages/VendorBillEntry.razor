@@ -554,6 +554,7 @@
 
     private List<BillRow> openBills = new();
     private List<BillStatusRow> billStatuses = new();
+    private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -568,6 +569,7 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             if (company != null) companyName = company.CompanyName;
@@ -950,7 +952,6 @@
             activeTab = 0;
         }
     }
-
     private async Task PostPayment()
     {
         if (!HasBillSelected) { await JS.InvokeVoidAsync("alert", "Please select a Vendor Bill."); return; }
@@ -969,7 +970,8 @@
             payment.VendorBillId = selectedBillId;
             payment.Amount = Math.Round(amountPaidForeign * SelectedBill!.ExchangeRate, 2);
 
-            var err = await PurchService.PostVendorPaymentAsync(payment, currentCompanyId);
+            // Passed currentUserId here as the 3rd parameter
+            var err = await PurchService.PostVendorPaymentAsync(payment, currentCompanyId, currentUserId);
 
             if (string.IsNullOrEmpty(err))
             {

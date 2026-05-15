@@ -402,6 +402,7 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             currentUserId = user.Id;
             
@@ -516,12 +517,13 @@
         isBusy = true; error = null;
         string err = "";
 
+        // Passed currentUserId to all 3 paths
         if (paymentType == "Disburse")
-            err = await JournalService.DisburseSalariesAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference);
+            err = await JournalService.DisburseSalariesAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference, currentUserId);
         else if (paymentType == "PAYE")
-            err = await JournalService.RemitStatutoryAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference, true);
+            err = await JournalService.RemitStatutoryAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference, true, currentUserId);
         else if (paymentType == "Pension")
-            err = await JournalService.RemitStatutoryAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference, false);
+            err = await JournalService.RemitStatutoryAsync(selectedRun.Id, selectedBankId, paymentDate, paymentReference, false, currentUserId);
 
         if (string.IsNullOrEmpty(err))
         {

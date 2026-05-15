@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using DocumentFormat.OpenXml.Spreadsheet;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System.Text.Json;
@@ -66,7 +67,8 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task RunAutomatedCatchUpForCompanyAsync(Guid companyId)
+        // Added userId to method signature to track automation
+        public async Task RunAutomatedCatchUpForCompanyAsync(Guid companyId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var assets = await ctx.FixedAssets.Where(a => a.CompanyId == companyId && a.Status == AssetStatus.Active).ToListAsync();
@@ -81,11 +83,12 @@ namespace Primafit_ERP.Services
 
             while (nextRunDate <= DateTime.Today)
             {
-                await RunMonthlyDepreciationAsync(companyId, nextRunDate);
+                await RunMonthlyDepreciationAsync(companyId, nextRunDate, userId);
                 var nextMonthStart = new DateTime(nextRunDate.Year, nextRunDate.Month, 1).AddMonths(1);
                 nextRunDate = new DateTime(nextMonthStart.Year, nextMonthStart.Month, DateTime.DaysInMonth(nextMonthStart.Year, nextMonthStart.Month));
             }
         }
+
         public async Task<List<AssetDepreciationHistory>> GetAssetHistoryAsync(Guid assetId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -95,7 +98,9 @@ namespace Primafit_ERP.Services
                 .OrderByDescending(h => h.Date) // Newest first
                 .ToListAsync();
         }
-        public async Task<string> RunSingleAssetDepreciationAsync(Guid companyId, Guid assetId, DateTime targetMonth)
+
+        // Added userId to track who ran the single depreciation
+        public async Task<string> RunSingleAssetDepreciationAsync(Guid companyId, Guid assetId, DateTime targetMonth, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -175,10 +180,10 @@ namespace Primafit_ERP.Services
             if (asset.CurrentBookValue <= asset.SalvageValue) asset.Status = AssetStatus.FullyDepreciated;
 
             var glLines = new List<GLJournalLine>
-    {
-        new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" },
-        new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" }
-    };
+            {
+                new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" },
+                new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" }
+            };
 
             var history = new AssetDepreciationHistory
             {
@@ -193,7 +198,7 @@ namespace Primafit_ERP.Services
             // --- 4. CREATE GL BATCH & SAVE ---
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 companyId, DateOnly.FromDateTime(runDate),
-                "Asset Depreciation", $"Manual Post: {runDate:MMM yyyy}", glLines);
+                "Asset Depreciation", $"Manual Post: {runDate:MMM yyyy}", glLines, userId);
 
             if (!batchId.HasValue) return $"Failed to create GL Batch: {err}";
 
@@ -203,12 +208,14 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync(); // Saves Asset updates and History record to DB
 
             // --- 5. POST BATCH ---
-            var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value);
+            var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
             if (!string.IsNullOrEmpty(postErr)) return $"Depreciation saved, but GL posting failed: {postErr}";
 
             return $"Successfully posted depreciation. Amount: {amount:N2}";
         }
-        public async Task<string> RunMonthlyDepreciationAsync(Guid companyId, DateTime runDate)
+
+        // Added userId parameter
+        public async Task<string> RunMonthlyDepreciationAsync(Guid companyId, DateTime runDate, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -331,7 +338,7 @@ namespace Primafit_ERP.Services
             // 4. GUARANTEE CONSISTENCY (Lines -> Batch -> History Update -> DB Save -> Post)
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 companyId, DateOnly.FromDateTime(runDate),
-                "Asset Depreciation", $"Auto-Run: {runDate:MMM yyyy}", glLines);
+                "Asset Depreciation", $"Auto-Run: {runDate:MMM yyyy}", glLines, userId);
 
             if (!batchId.HasValue) return $"Failed to create GL Batch: {err}";
 
@@ -341,11 +348,12 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync(); // Assets and History saved WITH Batch ID
 
             // Final Post
-            var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value);
+            var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
             if (!string.IsNullOrEmpty(postErr)) return $"Depreciation saved, but GL posting failed: {postErr}";
 
             return $"Successfully processed {newHistories.Count} assets. Total: {totalRunAmount:C}";
         }
+
         public async Task<string> DeleteAssetAsync(Guid assetId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();

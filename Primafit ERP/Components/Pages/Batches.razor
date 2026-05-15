@@ -463,7 +463,17 @@
         busy = true;
         try
         {
-            var result = await GLOps.PostBatchAsync(selectedCompanyId, batchId);
+            // We need to retrieve the current user id securely
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var currentUser = await UserManager.GetUserAsync(authState.User);
+            if (currentUser == null)
+            {
+                await JS.InvokeVoidAsync("alert", "Error: Unauthenticated user.");
+                return;
+            }
+
+            // Pass the user ID to the post method
+            var result = await GLOps.PostBatchAsync(selectedCompanyId, batchId, currentUser.Id);
             if (result != string.Empty)
             {
                 await JS.InvokeVoidAsync("alert", $"Error: {result}");

@@ -25,8 +25,6 @@ namespace Primafit_ERP.Services
 
         private async Task<AccountingPeriod> ResolvePeriodOrThrow(AppDbContext ctx, Guid companyId, DateOnly txnDate)
         {
-            // 1. THE HAPPY PATH: Let the SQL Database do the heavy lifting.
-            // We only request exactly one matching period, not the whole list.
             var period = await ctx.AccountingPeriods
                 .AsNoTracking()
                 .FirstOrDefaultAsync(p => p.CompanyId == companyId
@@ -34,11 +32,8 @@ namespace Primafit_ERP.Services
                                        && p.StartDate <= txnDate
                                        && p.EndDate >= txnDate);
 
-            // If we found it, return immediately. Fast and lightweight!
             if (period != null) return period;
 
-            // 2. THE SAD PATH: We only run this extra query if the user made a mistake.
-            // Fetch ONLY the dates to build a highly readable, user-friendly error message.
             var openPeriods = await ctx.AccountingPeriods
                 .AsNoTracking()
                 .Where(p => p.CompanyId == companyId && !p.IsClosed)
@@ -48,15 +43,14 @@ namespace Primafit_ERP.Services
 
             if (!openPeriods.Any())
             {
-                // User POV: Clean, non-technical explanation
                 throw new Exception("Cannot process transaction: There are no open accounting periods available for this company. Please open a new period in the Ledger settings.");
             }
 
             var availableRanges = string.Join(" | ", openPeriods);
 
-            // User POV: Tell them exactly what they did wrong, and exactly what their options are.
             throw new Exception($"Cannot process transaction: The date {txnDate:MMM dd, yyyy} is closed or invalid. Please select a date within the following open periods: {availableRanges}");
         }
+
         private async Task<string?> ValidateSegmentedAccountsAsync(
             AppDbContext ctx,
             Guid companyId,
@@ -89,11 +83,12 @@ namespace Primafit_ERP.Services
         // 1) Create Standard Journal Entry (Wrapper)
         // =========================================================
         public async Task<(string error, Guid? batchId)> CreateJournalEntryAsync(
-    Guid companyId,
-    DateOnly txnDate,
-    string batchName,
-    string? description,
-    List<GLJournalLine> lines)
+            Guid companyId,
+            DateOnly txnDate,
+            string batchName,
+            string? description,
+            List<GLJournalLine> lines,
+            string userId)
         {
             string journalNumber = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
 
@@ -105,18 +100,18 @@ namespace Primafit_ERP.Services
                 journalNumber,
                 description,
                 lines,
-                BatchType.Standard);
+                BatchType.Standard,
+                userId);
 
             if (!string.IsNullOrWhiteSpace(result.error) || !result.batchId.HasValue)
                 return result;
 
-            var releaseErr = await ReleaseBatchAsync(companyId, result.batchId.Value);
+            var releaseErr = await ReleaseBatchAsync(companyId, result.batchId.Value, userId);
             if (!string.IsNullOrWhiteSpace(releaseErr))
                 return (releaseErr, result.batchId);
 
             return result;
         }
-
 
         // =========================================================
         // 2) CORE: Create Draft Batch (The Engine)
@@ -129,7 +124,8 @@ namespace Primafit_ERP.Services
             string journalNumber,
             string? narration,
             List<GLJournalLine> lines,
-            BatchType type)
+            BatchType type,
+            string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -158,7 +154,7 @@ namespace Primafit_ERP.Services
                 Description = description,
                 Type = type,
                 Status = BatchStatus.Draft,
-                CreatedByUserId = "ANONYMOUS_USER"
+                CreatedByUserId = userId // Assigned to actual user
             };
 
             batch.Journals.Add(new GLJournalHeader
@@ -180,7 +176,7 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 3) Opening Balances (Migration)
         // =========================================================
-        public async Task<string> CreateOpeningBalanceMigrationAsync(Guid companyId, DateOnly migrationDate, string batchName, List<GLJournalLine> inputLines)
+        public async Task<string> CreateOpeningBalanceMigrationAsync(Guid companyId, DateOnly migrationDate, string batchName, List<GLJournalLine> inputLines, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var cleanLines = inputLines.Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0)).ToList();
@@ -201,7 +197,7 @@ namespace Primafit_ERP.Services
                 Description = "System Migration",
                 Type = BatchType.Migration,
                 Status = BatchStatus.Draft,
-                CreatedByUserId = "ANONYMOUS_USER"
+                CreatedByUserId = userId // Assigned to actual user
             };
 
             batch.Journals.Add(new GLJournalHeader
@@ -221,7 +217,7 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 4) Release & Reject
         // =========================================================
-        public async Task<string> ReleaseBatchAsync(Guid companyId, Guid batchId)
+        public async Task<string> ReleaseBatchAsync(Guid companyId, Guid batchId, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines).FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
@@ -232,20 +228,20 @@ namespace Primafit_ERP.Services
                 if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced.";
 
             batch.Status = BatchStatus.Ready;
-            batch.ReleasedByUserId = "ANONYMOUS_USER";
+            batch.ReleasedByUserId = userId; // Assigned to actual user
             batch.ReleasedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
 
-        public async Task<string> RejectBatchAsync(Guid companyId, Guid batchId, string reason)
+        public async Task<string> RejectBatchAsync(Guid companyId, Guid batchId, string reason, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var batch = await ctx.GLBatches.FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
             if (batch == null) return "Batch not found.";
 
             batch.Status = BatchStatus.Rejected;
-            batch.RejectedByUserId = "ANONYMOUS_USER";
+            batch.RejectedByUserId = userId; // Assigned to actual user
             batch.RejectedAt = DateTime.UtcNow;
             batch.RejectionReason = reason;
 
@@ -256,7 +252,7 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 5) Post Batch (Atomic, Segmented)
         // =========================================================
-        public async Task<string> PostBatchAsync(Guid companyId, Guid batchId)
+        public async Task<string> PostBatchAsync(Guid companyId, Guid batchId, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             await using var tx = await ctx.Database.BeginTransactionAsync();
@@ -305,15 +301,14 @@ namespace Primafit_ERP.Services
                         });
 
                         if (batch.ClearAfterPost)
-                            ctx.Set<GLJournalLine>().Remove(line);  // clear line
+                            ctx.Set<GLJournalLine>().Remove(line);
                         else
-                            line.IsPosted = true;                   // retain with flag
+                            line.IsPosted = true;
                     }
                 }
 
-                // Batch always resets to Draft — it's a reusable template
                 batch.Status = BatchStatus.Draft;
-                batch.PostedByUserId = "SYSTEM_AUTO";
+                batch.PostedByUserId = userId; // Assigned to actual user
                 batch.PostedAt = DateTime.UtcNow;
 
                 await ctx.SaveChangesAsync();
@@ -329,9 +324,8 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================
-        // 6) INTERACTIVE UI LIFECYCLE (NEW FOR LINE-BY-LINE EDITOR)
+        // 6) INTERACTIVE UI LIFECYCLE
         // =========================================================
-
 
         public async Task<GLBatch?> GetBatchByIdAsync(Guid batchId)
         {
@@ -342,7 +336,6 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == batchId);
         }
 
-        // Change signature of the interactive CreateDraftBatchAsync to accept the new flag
         public async Task<GLBatch> CreateDraftBatchAsync(
             Guid companyId, DateOnly date, string description, string userId, bool clearAfterPost)
         {
@@ -360,7 +353,7 @@ namespace Primafit_ERP.Services
                 Type = BatchType.Standard,
                 Status = BatchStatus.Draft,
                 CreatedByUserId = userId,
-                ClearAfterPost = clearAfterPost   // <-- new
+                ClearAfterPost = clearAfterPost
             };
 
             batch.Journals.Add(new GLJournalHeader
@@ -378,11 +371,12 @@ namespace Primafit_ERP.Services
             return batch;
         }
 
-        // Include retained posted batches in the active list
+        // Notice the query no longer explicitly ignores Anonymous, 
+        // as we are now assuming all Standard batches originate from a real user ID.
         public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.GLBatches  
+            return await ctx.GLBatches
                 .Include(b => b.Journals)
                 .ThenInclude(j => j.Lines)
                 .Where(b => b.CompanyId == companyId
@@ -405,7 +399,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<string> SubmitForApprovalAsync(Guid batchId)
+        public async Task<string> SubmitForApprovalAsync(Guid batchId, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var batch = await ctx.GLBatches.Include(b => b.Journals).ThenInclude(j => j.Lines).FirstOrDefaultAsync(b => b.Id == batchId);
@@ -420,6 +414,7 @@ namespace Primafit_ERP.Services
                 if (!IsBalanced(j.Lines)) return $"Journal '{j.JournalNumber}' is not balanced.";
 
             batch.Status = BatchStatus.Ready;
+            batch.ReleasedByUserId = userId; // Log who submitted it
             batch.ReleasedAt = DateTime.UtcNow;
             await ctx.SaveChangesAsync();
             return string.Empty;
@@ -470,7 +465,7 @@ namespace Primafit_ERP.Services
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 
             existing.SegCoaId = line.SegCoaId;
-            existing.Reference = line.Reference; // We use Reference as the line-level detail description
+            existing.Reference = line.Reference;
             existing.Debit = line.Debit;
             existing.Credit = line.Credit;
 
@@ -490,6 +485,7 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+
         public async Task<List<LedgerReportRow>> GetLedgerReportAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();

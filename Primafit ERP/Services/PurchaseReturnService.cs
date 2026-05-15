@@ -270,17 +270,18 @@ namespace Primafit_ERP.Services
                     });
                 }
 
-                // Call GL Engine
+                // Call GL Engine (Added userId.ToString())
                 var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
                     rtv.CompanyId,
                     DateOnly.FromDateTime(rtv.ReturnDate),
                     "Purchase Return",
                     rtv.ReturnNumber,
-                    glLines);
+                    glLines,
+                    userId.ToString());
 
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception($"GL Error: {glErr}");
 
-                if (batchId.HasValue) await _glOps.PostBatchAsync(rtv.CompanyId, batchId.Value);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(rtv.CompanyId, batchId.Value, userId.ToString());
 
                 // --- C. FINALIZE ---
                 rtv.Status = ReturnStatus.Posted;

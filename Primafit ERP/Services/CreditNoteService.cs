@@ -51,7 +51,7 @@ namespace Primafit_ERP.Services
                 Reason = "Return / Reversal",
                 ReturnToStock = false,
                 WarehouseId = so.WarehouseId,
-                CreatedByUserId = userId,
+                CreatedByUserId = userId, // Converted to string
                 CreatedAt = DateTime.UtcNow,
                 CreditNoteNumber = $"CN-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}"
             };
@@ -70,7 +70,7 @@ namespace Primafit_ERP.Services
                         HeaderId = creditNote.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
                         SalesOrderLineId = soLine.Id,
-                        Quantity = 0, 
+                        Quantity = 0,
                         UnitPrice = soLine.UnitPrice,
                         OriginalSoldQty = soLine.Quantity,
                         MaxReturnableQty = maxReturnable
@@ -214,10 +214,10 @@ namespace Primafit_ERP.Services
                 });
 
                 var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
-                    cn.CompanyId, cn.Date, "Credit Note", $"CN {cn.CreditNoteNumber}", glLines);
+                    cn.CompanyId, cn.Date, "Credit Note", $"CN {cn.CreditNoteNumber}", glLines, userId.ToString());
 
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value, userId.ToString());
                 cn.GlBatchId = batchId;
 
                 // --- B. INVENTORY RETURN (Unchanged Logic) ---
@@ -255,9 +255,9 @@ namespace Primafit_ERP.Services
 
                     if (cogsGlLines.Any())
                     {
-                        var (cogsErr, cogsBatchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "CN Inventory", $"Stock Return {cn.CreditNoteNumber}", cogsGlLines);
+                        var (cogsErr, cogsBatchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "CN Inventory", $"Stock Return {cn.CreditNoteNumber}", cogsGlLines, userId.ToString());
                         if (!string.IsNullOrEmpty(cogsErr)) throw new Exception(cogsErr);
-                        if (cogsBatchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, cogsBatchId.Value);
+                        if (cogsBatchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, cogsBatchId.Value, userId.ToString());
                     }
                 }
 

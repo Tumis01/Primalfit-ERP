@@ -427,6 +427,7 @@
     private IEnumerable<StockLedger> PaginatedHistory => FilteredHistory
         .Skip((currentPage - 1) * pageSize)
         .Take(pageSize);
+    private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -440,6 +441,8 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
+
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
@@ -544,8 +547,9 @@
             {
                 if (selectedVendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a Vendor for a Direct Receipt."); isBusy = false; return; }
 
+                // Passed currentUserId here
                 err = await InvService.ReceiveStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote);
+                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote, currentUserId);
             }
             else
             {
@@ -555,16 +559,17 @@
                     isBusy = false; return;
                 }
 
+                // Passed currentUserId here
                 err = await InvService.AdjustStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote);
+                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote, currentUserId);
             }
 
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Posted Successfully!");
                 await LoadData();
-                currentPage = 1; // Reset to page 1 to see the new entry
-                activeTab = 0; // Return to History View
+                currentPage = 1;
+                activeTab = 0;
             }
             else
             {

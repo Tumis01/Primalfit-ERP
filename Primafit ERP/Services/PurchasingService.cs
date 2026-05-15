@@ -286,8 +286,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // 2. AUTO-POST VENDOR BILL (With Tax & Discount Math)
-        public async Task<string> AutoPostVendorBillFromPOAsync(Guid poId, Guid companyId)
+        public async Task<string> AutoPostVendorBillFromPOAsync(Guid poId, Guid companyId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -394,9 +393,9 @@ namespace Primafit_ERP.Services
                 // 4. CREDIT: Accounts Payable (The actual net amount we owe the vendor)
                 glLines.Add(new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = 0, Credit = grandTotalBase, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" });
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
 
                 po.IsInvoicePosted = true;
 
@@ -412,7 +411,7 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId)
+        public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
@@ -502,9 +501,9 @@ namespace Primafit_ERP.Services
                         Reference = $"GR/IR Accrual for {grn.GrnNumber}"
                     });
 
-                    var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(grn.CompanyId, DateOnly.FromDateTime(grn.DateReceived), "Goods Receipt", $"GRN {grn.GrnNumber}", glLines);
+                    var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(grn.CompanyId, DateOnly.FromDateTime(grn.DateReceived), "Goods Receipt", $"GRN {grn.GrnNumber}", glLines, userId);
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value);
+                    if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
                 }
 
                 // Update PO Status Tracking
@@ -527,7 +526,7 @@ namespace Primafit_ERP.Services
                 return $"DB ERROR: {ex.Message}";
             }
         }
-       
+
         public async Task<List<PurchaseOrder>> GetOpenPOsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -591,7 +590,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.GoodsReceipts.AnyAsync(g => g.PurchaseOrderId == poId);
         }
-        public async Task<string> PostVendorBillAsync(Guid billId)
+        public async Task<string> PostVendorBillAsync(Guid billId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -681,14 +680,14 @@ namespace Primafit_ERP.Services
             // Post to GL
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
-                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines
+                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId
             );
 
             if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
 
             if (batchId.HasValue)
             {
-                var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
+                var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value, userId);
                 if (!string.IsNullOrEmpty(postErr)) return $"GL Engine Rejected Posting: {postErr}";
             }
 
@@ -706,7 +705,7 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-        public async Task<string> PostVendorPaymentAsync(VendorPayment payment, Guid companyId)
+        public async Task<string> PostVendorPaymentAsync(VendorPayment payment, Guid companyId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -730,9 +729,9 @@ namespace Primafit_ERP.Services
                     new GLJournalLine { SegCoaId = payment.BankGlAccountId, Debit = 0, Credit = payment.Amount, Reference = $"Pay: {bill.ExternalInvoiceNumber}" }
                 };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(payment.Date), "Vendor Payment", payment.Reference, glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(payment.Date), "Vendor Payment", payment.Reference, glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
 
                 // --- CLOSE PO ONLY IF FULLY PAID ---
                 if (bill.PurchaseOrderId.HasValue && (currentPaid + payment.Amount) >= bill.TotalAmount)
@@ -789,7 +788,7 @@ namespace Primafit_ERP.Services
         // ==========================================
         // DIRECT AP BILL (NON-PO / EXPENSE)
         // ==========================================
-        public async Task<string> PostDirectBillAsync(VendorBill bill)
+        public async Task<string> PostDirectBillAsync(VendorBill bill, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -888,12 +887,12 @@ namespace Primafit_ERP.Services
                 }
 
                 // POST GL BATCH
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(bill.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Direct Vendor Bill", $"Bill {bill.ExternalInvoiceNumber}", glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(bill.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Direct Vendor Bill", $"Bill {bill.ExternalInvoiceNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
                 }
 

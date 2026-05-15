@@ -121,7 +121,7 @@
     private bool isBusy = false;
     private Guid currentCompanyId;
     private decimal? selectedItemStock;
-
+    private string currentUserId = "";
     // Data Sources
     private List<Warehouse> warehouses = new();
     private List<Project> projects = new();
@@ -138,6 +138,7 @@
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
         }
@@ -193,13 +194,15 @@
 
         isBusy = true;
 
+        // Passed currentUserId at the end
         var err = await InventoryService.IssueToProjectAsync(
-            currentCompanyId, 
-            form.ItemId, 
-            form.WarehouseId, 
-            form.ProjectId, 
-            form.Quantity, 
-            form.Note
+            currentCompanyId,
+            form.ItemId,
+            form.WarehouseId,
+            form.ProjectId,
+            form.Quantity,
+            form.Note,
+            currentUserId
         );
 
         if (string.IsNullOrEmpty(err))

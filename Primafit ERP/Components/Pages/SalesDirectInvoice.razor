@@ -358,6 +358,7 @@
     private decimal TaxAmountForeign => (SubTotalForeign - DiscountForeign) * (TaxPercentage / 100);
     private decimal GrandTotalForeign => (SubTotalForeign - DiscountForeign) + TaxAmountForeign;
     private decimal GrandTotalBase => invoice.ExchangeRate == 0 ? 0 : GrandTotalForeign * invoice.ExchangeRate;
+    private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -368,6 +369,8 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
+
             selectedCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
         }
@@ -529,15 +532,16 @@
         }
 
         isBusy = true;
-        StateHasChanged(); 
+        StateHasChanged();
 
-        var err = await SalesService.PostDirectInvoiceAsync(invoice);
-        
+        // Passed currentUserId here
+        var err = await SalesService.PostDirectInvoiceAsync(invoice, currentUserId);
+
         if (string.IsNullOrEmpty(err))
         {
             await JS.InvokeVoidAsync("alert", "Direct Invoice Posted Successfully!");
             await FetchPastInvoices();
-            ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty); 
+            ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
         }
         else
         {
@@ -545,7 +549,7 @@
         }
 
         isBusy = false;
-        StateHasChanged(); 
+        StateHasChanged();
     }
 
     private void LoadInvoiceForView(SalesOrder selectedInvoice)

@@ -373,6 +373,7 @@
     private decimal SubTotalBase => bill.ExchangeRate == 0 ? 0 : SubTotalForeign * bill.ExchangeRate;
     private decimal TaxAmountBase => bill.ExchangeRate == 0 ? 0 : TaxAmountForeign * bill.ExchangeRate;
     private decimal GrandTotalBase => SubTotalBase + TaxAmountBase;
+    private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -386,6 +387,7 @@
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             selectedCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
         }
@@ -515,7 +517,6 @@
             return;
         }
 
-        // NEW: Check header Expense GL
         if (headerExpenseGlId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Please select an Expense GL Account for this bill.");
@@ -534,32 +535,31 @@
             return;
         }
 
-        // NEW: Ensure descriptions are filled on lines
         if (bill.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description)))
         {
             await JS.InvokeVoidAsync("alert", "All lines must have a Description / Memo.");
             return;
         }
 
-        // MAP: Assign the header GL to all lines before saving
-        foreach(var line in bill.Lines)
+        foreach (var line in bill.Lines)
         {
             line.ExpenseGlAccountId = headerExpenseGlId;
         }
 
-        // MAP: Concatenate all line descriptions into the header Description for GL Posting Engine
         var descriptions = bill.Lines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d));
         bill.Description = string.Join(" | ", descriptions);
-        if (bill.Description.Length > 200) bill.Description = bill.Description.Substring(0, 197) + "..."; // Safeguard max length
+        if (bill.Description.Length > 200) bill.Description = bill.Description.Substring(0, 197) + "...";
 
         isBusy = true;
-        var err = await PurchService.PostDirectBillAsync(bill);
-        
+
+        // Passed currentUserId here
+        var err = await PurchService.PostDirectBillAsync(bill, currentUserId);
+
         if (string.IsNullOrEmpty(err))
         {
             await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!");
             pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
-            ResetForm(); // Optional: clears form after successful post
+            ResetForm();
         }
         else
         {

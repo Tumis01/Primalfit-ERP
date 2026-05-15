@@ -123,7 +123,7 @@
     private Guid companyId;
     private DateTime periodMonth = DateTime.Today;
     private bool isLoading = true;
-    
+    private string currentUserId = "";
     private List<FixedAsset> usageAssets = new();
     private Dictionary<Guid, decimal> usageInputs = new();
     private Dictionary<Guid, bool> logExists = new();
@@ -139,6 +139,7 @@
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             companyId = user.CompanyDetailsId.Value;
             await LoadDataForPeriod();
         }
@@ -243,8 +244,8 @@
         isLoading = true;
         try
         {
-            // Call a targeted method to process just this asset for this specific month
-            string resultMessage = await AssetService.RunSingleAssetDepreciationAsync(companyId, assetId, periodMonth);
+            // Passed currentUserId here
+            string resultMessage = await AssetService.RunSingleAssetDepreciationAsync(companyId, assetId, periodMonth, currentUserId);
 
             await JS.InvokeVoidAsync("alert", resultMessage);
             await LoadDataForPeriod(); // Refresh to lock the input field

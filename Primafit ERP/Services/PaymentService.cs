@@ -44,7 +44,8 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<string> PostPaymentAsync(Guid paymentId)
+        // Added 'string userId' to the parameters here
+        public async Task<string> PostPaymentAsync(Guid paymentId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
@@ -120,8 +121,6 @@ namespace Primafit_ERP.Services
 
                     // Add CURRENT application
                     totalPaidSoFar += app.AppliedAmount;
-
-                    // 6. No longer explicitly setting IsFullyPaid here, because the Model is handling it dynamically!
                 }
 
                 // Credit the AR Account
@@ -141,16 +140,19 @@ namespace Primafit_ERP.Services
                     return $"Balance Error: Debits ({totalDebits}) do not equal Credits ({totalCredits}).";
                 }
 
+                // Pass the incoming userId parameter to the GL Ops
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                     pay.CompanyId,
                     DateOnly.FromDateTime(pay.Date),
                     "Customer Receipt",
                     $"Rcpt {pay.Reference}",
-                    glLines);
+                    glLines,
+                    userId); // Used parameter here
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
-                if (batchId.HasValue) await _glOps.PostBatchAsync(pay.CompanyId, batchId.Value);
+                // Pass the incoming userId parameter here as well
+                if (batchId.HasValue) await _glOps.PostBatchAsync(pay.CompanyId, batchId.Value, userId);
 
                 pay.Status = PaymentStatus.Posted;
                 await ctx.SaveChangesAsync();

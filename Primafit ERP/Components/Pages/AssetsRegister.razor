@@ -398,7 +398,7 @@
     private Guid companyId;
     private string companyName = "";
     private bool HasCompany => companyId != Guid.Empty;
-    
+    private string currentUserId = "";
     private bool isLoading = true;
     private bool showModal = false;
     private bool showHistoryModal = false;
@@ -432,6 +432,7 @@
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             companyId = user.CompanyDetailsId.Value;
             var comp = await CompanyService.GetCompanyByIdAsync(companyId);
             if (comp != null) companyName = comp.CompanyName;
@@ -536,8 +537,6 @@
             isSaving = false;
         }
     }
-
-    // --- DEPRECIATION ACTIONS ---
     private async Task RunDepreciation()
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Run monthly depreciation for all eligible active assets up to today? This will automatically post entries to the General Ledger."))
@@ -548,11 +547,11 @@
         {
             await Task.Delay(50); // Let UI render the spinner
 
-            // Call the execution engine
-            string resultMessage = await AssetService.RunMonthlyDepreciationAsync(companyId, DateTime.Today);
-            
+            // Passed currentUserId here
+            string resultMessage = await AssetService.RunMonthlyDepreciationAsync(companyId, DateTime.Today, currentUserId);
+
             await JS.InvokeVoidAsync("alert", resultMessage);
-            
+
             // Reload the table so the new current book values are shown immediately
             await LoadData();
         }

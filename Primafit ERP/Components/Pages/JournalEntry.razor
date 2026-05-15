@@ -403,8 +403,18 @@
 
     private async Task LoadBatches()
     {
-        activeBatches = await GlOps.GetActiveJournalBatchesAsync(currentCompanyId);
-        if (selectedBatch != null) selectedBatch = await GlOps.GetBatchByIdAsync(selectedBatch.Id);
+        // Fetch all active batches from the database
+        var allBatches = await GlOps.GetActiveJournalBatchesAsync(currentCompanyId);
+
+        // Filter strictly for manual journal entries created on this page
+        activeBatches = allBatches
+            .Where(b => !string.IsNullOrWhiteSpace(b.BatchName) && b.BatchName.StartsWith("JV-"))
+            .ToList();
+
+        if (selectedBatch != null)
+        {
+            selectedBatch = await GlOps.GetBatchByIdAsync(selectedBatch.Id);
+        }
     }
 
     private async Task SelectBatch(Guid id)
@@ -440,12 +450,17 @@
     }
 
     // --- BATCH ACTIONS ---
-
     private async Task SubmitForApproval()
     {
         if (selectedBatch == null || !IsBalanced) return;
-        var err = await GlOps.SubmitForApprovalAsync(selectedBatch.Id);
-        if (string.IsNullOrEmpty(err)) await LoadBatches(); else await JS.InvokeVoidAsync("alert", err);
+
+        // Added currentUserId as the second parameter
+        var err = await GlOps.SubmitForApprovalAsync(selectedBatch.Id, currentUserId);
+
+        if (string.IsNullOrEmpty(err))
+            await LoadBatches();
+        else
+            await JS.InvokeVoidAsync("alert", err);
     }
 
     private async Task UnlockBatch()
@@ -476,7 +491,10 @@
             "This will permanently post the journal to the General Ledger. Continue?")) return;
 
         var batchId = selectedBatch.Id;
-        var err = await GlOps.PostBatchAsync(currentCompanyId, batchId);
+
+        // Added currentUserId as the third parameter
+        var err = await GlOps.PostBatchAsync(currentCompanyId, batchId, currentUserId);
+
         if (string.IsNullOrEmpty(err))
         {
             await JS.InvokeVoidAsync("alert", "Journal Posted Successfully.");

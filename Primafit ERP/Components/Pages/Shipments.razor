@@ -232,6 +232,7 @@
     private List<SalesShipment> shipments = new();
     private List<SalesShipment> history = new();
     private Guid expandedShipmentId = Guid.Empty;
+    private string currentUserId = "";
 
     // ELIGIBLE INVOICES ONLY: Filter restricts the autocomplete to documents that have actually been invoiced and are not Drafts.
     private IEnumerable<SalesOrder> FilteredUnshippedOrders =>
@@ -248,6 +249,8 @@
 
         if (user != null)
         {
+            currentUserId = user.Id;
+
             currentUser = user.UserName ?? "System User";
             if (user.CompanyDetailsId != null)
             {
@@ -330,8 +333,8 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", msg);
         if (!confirm) return;
 
-        // NOTE: Make sure your ShipmentService accepts the currentUser as the 3rd parameter to save the audit trail!
-        var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser);
+        // Passed currentUserId at the end (keeping currentUser for the 'confirmedBy' string)
+        var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser, currentUserId);
 
         if (!string.IsNullOrEmpty(err))
         {
