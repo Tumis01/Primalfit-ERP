@@ -131,31 +131,72 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-slate-800">
-                            @foreach (var journal in selectedBatch.Journals)
+                            @if (!selectedBatch.Journals.SelectMany(j => j.Lines).Any() && batchTransactions.Any())
                             {
-                                foreach (var line in journal.Lines)
+                                @foreach (var txn in batchTransactions)
                                 {
-                                    var account = accountMap.ContainsKey(line.SegCoaId) ? accountMap[line.SegCoaId] : null;
-                                    <tr class="hover:bg-slate-50">
-                                        <td class="p-3 font-mono text-xs text-slate-500">@journal.JournalNumber</td>
+                                    var account = accountMap.ContainsKey(txn.SegCoaId) ? accountMap[txn.SegCoaId] : null;
+                                    var parentJournal = selectedBatch.Journals.FirstOrDefault(j => j.Id == txn.JournalId);
+                                    <tr class="hover:bg-slate-50 transition-colors">
+                                        <td class="p-3 font-mono text-xs text-slate-500">@(parentJournal?.JournalNumber ?? "-")</td>
                                         <td class="p-3 font-mono font-bold">@(account?.AccountCode ?? "UNKNOWN")</td>
                                         <td class="p-3 font-medium">@(account?.Description ?? "Unknown Account")</td>
-                                        <td class="p-3 text-xs text-slate-600">@(line.Reference ?? journal.Narration)</td>
-                                        <td class="p-3 text-right font-mono font-bold @(line.Debit > 0 ? "text-indigo-700" : "text-slate-300")">
-                                            @(line.Debit > 0 ? line.Debit.ToString("N2") : "-")
+                                        <td class="p-3 text-xs text-slate-600">@txn.Narration</td>
+                                        <td class="p-3 text-right font-mono font-bold @(txn.Debit > 0 ? "text-indigo-700" : "text-slate-300")">
+                                            @(txn.Debit > 0 ? txn.Debit.ToString("N2") : "-")
                                         </td>
-                                        <td class="p-3 text-right font-mono font-bold @(line.Credit > 0 ? "text-emerald-700" : "text-slate-300")">
-                                            @(line.Credit > 0 ? line.Credit.ToString("N2") : "-")
+                                        <td class="p-3 text-right font-mono font-bold @(txn.Credit > 0 ? "text-emerald-700" : "text-slate-300")">
+                                            @(txn.Credit > 0 ? txn.Credit.ToString("N2") : "-")
                                         </td>
                                     </tr>
+                                }
+                            }
+                            else
+                            {
+                                @foreach (var journal in selectedBatch.Journals)
+                                {
+                                    foreach (var line in journal.Lines)
+                                    {
+                                        var account = accountMap.ContainsKey(line.SegCoaId) ? accountMap[line.SegCoaId] : null;
+                                        <tr class="hover:bg-slate-50 transition-colors">
+                                            <td class="p-3 font-mono text-xs text-slate-500">@journal.JournalNumber</td>
+                                            <td class="p-3 font-mono font-bold">@(account?.AccountCode ?? "UNKNOWN")</td>
+                                            <td class="p-3 font-medium">@(account?.Description ?? "Unknown Account")</td>
+                                            <td class="p-3 text-xs text-slate-600">@(line.Reference ?? journal.Narration)</td>
+                                            <td class="p-3 text-right font-mono font-bold @(line.Debit > 0 ? "text-indigo-700" : "text-slate-300")">
+                                                @(line.Debit > 0 ? line.Debit.ToString("N2") : "-")
+                                            </td>
+                                            <td class="p-3 text-right font-mono font-bold @(line.Credit > 0 ? "text-emerald-700" : "text-slate-300")">
+                                                @(line.Credit > 0 ? line.Credit.ToString("N2") : "-")
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             }
                         </tbody>
                         <tfoot class="bg-slate-50 border-t-2 border-slate-200 font-bold">
                             <tr>
                                 <td colspan="4" class="p-3 text-right uppercase text-xs tracking-widest text-slate-500">Batch Totals:</td>
-                                <td class="p-3 text-right font-mono text-indigo-700 text-lg">@selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Debit).ToString("N2")</td>
-                                <td class="p-3 text-right font-mono text-emerald-700 text-lg">@selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Credit).ToString("N2")</td>
+                                <td class="p-3 text-right font-mono text-indigo-700 text-lg">
+                                    @if (!selectedBatch.Journals.SelectMany(j => j.Lines).Any() && batchTransactions.Any())
+                                    {
+                                        @batchTransactions.Sum(t => t.Debit).ToString("N2")
+                                    }
+                                    else
+                                    {
+                                        @selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Debit).ToString("N2")
+                                    }
+                                </td>
+                                <td class="p-3 text-right font-mono text-emerald-700 text-lg">
+                                    @if (!selectedBatch.Journals.SelectMany(j => j.Lines).Any() && batchTransactions.Any())
+                                    {
+                                        @batchTransactions.Sum(t => t.Credit).ToString("N2")
+                                    }
+                                    else
+                                    {
+                                        @selectedBatch.Journals.SelectMany(j => j.Lines).Sum(l => l.Credit).ToString("N2")
+                                    }
+                                </td>
                             </tr>
                         </tfoot>
                     </table>
@@ -164,16 +205,15 @@
 
             @if (detailViewFormat == 1)
             {
-                var groupedLines = selectedBatch.Journals
-                .SelectMany(j => j.Lines)
-                .GroupBy(l => l.SegCoaId)
-                .Select(g => new
-                {
-                    AccountId = g.Key,
-                    NetBalance = g.Sum(x => x.Debit) - g.Sum(x => x.Credit)
-                })
-                .Where(g => g.NetBalance != 0) // Hide lines that net to exactly 0
-                .ToList();
+                var hasLines = selectedBatch.Journals.SelectMany(j => j.Lines).Any();
+                var groupedLines = hasLines
+                ? selectedBatch.Journals.SelectMany(j => j.Lines)
+                    .GroupBy(l => l.SegCoaId)
+                    .Select(g => new { AccountId = g.Key, NetBalance = g.Sum(x => x.Debit) - g.Sum(x => x.Credit) })
+                    .Where(g => g.NetBalance != 0).ToList()
+                : batchTransactions.GroupBy(t => t.SegCoaId)
+                    .Select(g => new { AccountId = g.Key, NetBalance = g.Sum(x => x.Debit) - g.Sum(x => x.Credit) })
+                    .Where(g => g.NetBalance != 0).ToList();
 
                 decimal totalNetDebit = groupedLines.Where(g => g.NetBalance > 0).Sum(g => g.NetBalance);
                 decimal totalNetCredit = groupedLines.Where(g => g.NetBalance < 0).Sum(g => Math.Abs(g.NetBalance));
@@ -351,7 +391,7 @@
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
-    // State Fields (Replaced custom getters/setters)
+    // State Fields
     private DateTime filterFromDate = DateTime.Today.AddDays(-30);
     private DateTime filterToDate = DateTime.Today;
     private string statusFilter = "";
@@ -365,6 +405,8 @@
 
     // View State
     private GLBatch? selectedBatch;
+    private List<GLTransaction> batchTransactions = new(); // NEW: Fallback cache
+
     private int detailViewFormat = 0; // 0 = Ledger, 1 = Trial Balance
     private bool busy;
     private string? loadError;
@@ -446,6 +488,13 @@
         try
         {
             selectedBatch = await GLOps.GetBatchByIdAsync(batchId);
+
+            // Fetch GL Transactions as a fallback for posted batches where lines were cleared
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            batchTransactions = await ctx.GLTransactions
+                .Where(t => t.BatchId == batchId)
+                .ToListAsync();
+
             detailViewFormat = 0; // Default to Ledger View
         }
         finally
@@ -463,7 +512,6 @@
         busy = true;
         try
         {
-            // We need to retrieve the current user id securely
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var currentUser = await UserManager.GetUserAsync(authState.User);
             if (currentUser == null)
@@ -472,7 +520,6 @@
                 return;
             }
 
-            // Pass the user ID to the post method
             var result = await GLOps.PostBatchAsync(selectedCompanyId, batchId, currentUser.Id);
             if (result != string.Empty)
             {

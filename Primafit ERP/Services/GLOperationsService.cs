@@ -154,7 +154,8 @@ namespace Primafit_ERP.Services
                 Description = description,
                 Type = type,
                 Status = BatchStatus.Draft,
-                CreatedByUserId = userId // Assigned to actual user
+                CreatedByUserId = userId,
+                ClearAfterPost = false
             };
 
             batch.Journals.Add(new GLJournalHeader
@@ -306,10 +307,20 @@ namespace Primafit_ERP.Services
                             line.IsPosted = true;
                     }
                 }
+                if (batch.BatchName.StartsWith("JV-"))
+                {
+                    batch.Status = BatchStatus.Draft;
+                }
+                else
+                {
+                    batch.Status = BatchStatus.Posted;
+                }
 
-                batch.Status = BatchStatus.Draft;
-                batch.PostedByUserId = userId; // Assigned to actual user
+                batch.PostedByUserId = userId;
                 batch.PostedAt = DateTime.UtcNow;
+
+                // NOTE: I removed the duplicate lines here that were 
+                // forcefully overriding the status back to Posted!
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -321,6 +332,22 @@ namespace Primafit_ERP.Services
                 await tx.RollbackAsync();
                 return $"Posting failed: {ex.Message}";
             }
+        }
+
+        public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.GLBatches
+                .Include(b => b.Journals)
+                .ThenInclude(j => j.Lines)
+                .Where(b => b.CompanyId == companyId
+                         && b.Type == BatchType.Standard
+                         && b.BatchName.StartsWith("JV-") // Strictly isolates manual journals
+                         && (b.Status == BatchStatus.Draft ||
+                             b.Status == BatchStatus.Ready ||
+                             (b.Status == BatchStatus.Posted && !b.ClearAfterPost))) // Show retained posted batches
+                .OrderByDescending(b => b.CreatedAt)
+                .ToListAsync();
         }
 
         // =========================================================
@@ -373,18 +400,7 @@ namespace Primafit_ERP.Services
 
         // Notice the query no longer explicitly ignores Anonymous, 
         // as we are now assuming all Standard batches originate from a real user ID.
-        public async Task<List<GLBatch>> GetActiveJournalBatchesAsync(Guid companyId)
-        {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.GLBatches
-                .Include(b => b.Journals)
-                .ThenInclude(j => j.Lines)
-                .Where(b => b.CompanyId == companyId
-                         && b.Type == BatchType.Standard
-                         && (b.Status == BatchStatus.Draft || b.Status == BatchStatus.Ready))
-                .OrderByDescending(b => b.CreatedAt)
-                .ToListAsync();
-        }
+        
 
         public async Task<string> DeleteDraftBatchAsync(Guid batchId)
         {

@@ -880,7 +880,13 @@
         if (!HasCompany) return;
         using var ctx = await DbFactory.CreateDbContextAsync();
         customers = await ctx.Customers.Include(c => c.DefaultCurrency).Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
-        orders = await SalesService.GetOrdersAsync(selectedCompanyId);
+
+        // --- THE FIX ---
+        // Fetch all orders, but filter out the ones created in the Direct Invoice view
+        var allOrders = await SalesService.GetOrdersAsync(selectedCompanyId);
+        orders = allOrders.Where(o => !o.IsDirectInvoice).ToList();
+        // ---------------
+
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         items = await MasterService.GetItemsAsync(selectedCompanyId);
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
