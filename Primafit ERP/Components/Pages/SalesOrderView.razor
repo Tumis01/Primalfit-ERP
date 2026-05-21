@@ -533,41 +533,22 @@
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
                                 Apply Discount
                             </h4>
-                            <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label text-[10px]">Percentage (%)</label>
                                     <input type="number" @bind="currentOrder.DiscountPercentage"
-                                           @bind:after="() => { if(currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }"
+                                           @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }"
                                            class="input-class text-center font-bold text-rose-600 border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                 </div>
                                 <div>
                                     <label class="label text-[10px]">Flat Amount (@currencySymbol)</label>
                                     <input type="number" @bind="currentOrder.DiscountAmount"
-                                           @bind:after="() => { if(currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }"
+                                           @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }"
                                            class="input-class text-right font-mono border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                 </div>
                             </div>
 
-                            @if ((currentOrder.DiscountPercentage > 0 || currentOrder.DiscountAmount > 0) && !IsLocked)
-                            {
-                                <div class="pt-2 border-t border-rose-200/50">
-                                    <SearchableGlAccount Label="Discount Expense Account (Debit)"
-                                                         Placeholder="Select Expense GL..."
-                                                         Accounts="@expenseAccounts"
-                                                         Value="@(currentOrder.DiscountGlAccountId ?? Guid.Empty)"
-                                                         ValueChanged="@((Guid val) => currentOrder.DiscountGlAccountId = val == Guid.Empty ? null : val)"
-                                                         IsInvalid="@(currentOrder.DiscountGlAccountId == null || currentOrder.DiscountGlAccountId == Guid.Empty)" />
-                                    <p class="text-[9px] text-rose-500 mt-1">Required to properly record the reduction in revenue.</p>
-                                </div>
-                            }
-                            else if (IsLocked && currentOrder.DiscountGlAccountId != null)
-                            {
-                                <div class="text-xs text-slate-500 font-bold bg-white p-3 rounded-lg border border-rose-100 shadow-sm mt-2">
-                                    GL Acc: @(expenseAccounts.FirstOrDefault(a => a.Id == currentOrder.DiscountGlAccountId)?.AccountCode ?? "Unknown")
-                                </div>
-                            }
                         </div>
-
                         <div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm">
                             <div class="flex justify-between">
                                 <span>Subtotal:</span>
@@ -702,7 +683,8 @@
             </div>
 
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <button type="button" @onclick="() => showEmailPopup = false" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                <!-- FIXED: Wrapped action to execute multiple lines to ensure activeTab resets on cancellation skip -->
+                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
                     Skip
                 </button>
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
@@ -1118,21 +1100,34 @@
     }
     private async Task PromptEmailPopup(Guid orderId)
     {
-        // Grab the fresh invoice from the database with updated numbers
         recentlyPostedInvoice = orders.FirstOrDefault(o => o.Id == orderId);
+
+        // Fetch user setting from Database context
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
+        bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true; // Fallback to true if missing
+
+        // Rule Check: If toggle is off, skip everything instantly and return to list grid view
+        if (!showPopupToggle)
+        {
+            await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
+            showEmailPopup = false;
+            activeTab = 0; // Fixes form visibility: closes edit layout back to table lists view
+            StateHasChanged();
+            return;
+        }
 
         if (recentlyPostedInvoice?.Customer != null && !string.IsNullOrWhiteSpace(recentlyPostedInvoice.Customer.Email))
         {
-            // Pre-fill a professional message
             customEmailMessage = $"Dear {recentlyPostedInvoice.Customer.Name},\n\nThank you for your business. Please find attached a copy of your invoice ({recentlyPostedInvoice.OrderNumber}) for your records.\n\nIf you have any questions regarding this invoice, please do not hesitate to contact us.\n\nBest Regards,\nThe {companyName} Team";
 
             showEmailPopup = true;
         }
         else
         {
-            // If they have no email on file, skip the modal and just alert success.
             await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!\n\n(No email sent: Customer does not have an email address on file).");
-            activeTab = 0;
+            activeTab = 0; // Ensures the form closes back to table list view layout grid
+            StateHasChanged();
         }
     }
 

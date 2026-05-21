@@ -446,6 +446,17 @@
         }
 
         <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col h-full">
+            <!-- Search Bar Wrapper -->
+            <div class="p-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div class="relative w-full max-w-md">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input @bind="GlobalSearchTerm" @bind:event="oninput" type="text" placeholder="Search by account code or description..."
+                           class="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-300 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all shadow-sm" />
+                </div>
+            </div>
+
             <div class="overflow-x-auto flex-1">
                 <table class="w-full text-left text-sm text-slate-900">
                     <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -496,8 +507,11 @@
                                         <button @onclick="() => EditAccount(a)" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline transition-colors">
                                             Edit
                                         </button>
-                                        <button @onclick="() => ToggleActive(a)" class="text-xs font-bold underline transition-colors @(a.IsActive ? "text-rose-500 hover:text-rose-700" : "text-emerald-600 hover:text-emerald-800")">
+                                        <button @onclick="() => ToggleActive(a)" class="text-xs font-bold underline transition-colors @(a.IsActive ? "text-amber-500 hover:text-amber-700" : "text-emerald-600 hover:text-emerald-800")">
                                             @(a.IsActive ? "Deactivate" : "Activate")
+                                        </button>
+                                        <button @onclick="() => DeleteAccount(a)" class="text-xs font-bold text-rose-600 hover:text-rose-800 hover:underline transition-colors">
+                                            Delete
                                         </button>
                                     </div>
                                 </td>
@@ -520,11 +534,11 @@
                 </table>
             </div>
 
-            @if (coa.Any())
+            @if (FilteredCoa.Any())
             {
                 <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between mt-auto">
                     <span class="text-xs text-slate-500 font-medium">
-                        Showing <span class="font-bold text-slate-900">@(((currentPage - 1) * pageSize) + 1)</span> to <span class="font-bold text-slate-900">@(Math.Min(currentPage * pageSize, coa.Count))</span> of <span class="font-bold text-slate-900">@coa.Count</span> accounts
+                        Showing <span class="font-bold text-slate-900">@(((currentPage - 1) * pageSize) + 1)</span> to <span class="font-bold text-slate-900">@(Math.Min(currentPage * pageSize, FilteredCoa.Count()))</span> of <span class="font-bold text-slate-900">@FilteredCoa.Count()</span> accounts
                     </span>
                     <div class="flex gap-2">
                         <button @onclick="PrevPage" disabled="@(currentPage == 1)" class="px-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm">Previous</button>
@@ -557,38 +571,54 @@
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
-    private bool isImporting = false; // New state for CSV Import
+    private bool isImporting = false;
 
-    // Loading tracking for exports
     private bool isDownloadingPdf = false;
     private bool isDownloadingExcel = false;
 
-    // Pagination State
+    // --- Search & Pagination Updates ---
+    private string _globalSearchTerm = "";
+    private string GlobalSearchTerm
+    {
+        get => _globalSearchTerm;
+        set
+        {
+            if (_globalSearchTerm != value)
+            {
+                _globalSearchTerm = value;
+                currentPage = 1; // Reset to page 1 on search
+            }
+        }
+    }
+
+    private IEnumerable<SegChartOfAccount> FilteredCoa =>
+        string.IsNullOrWhiteSpace(GlobalSearchTerm)
+        ? coa
+        : coa.Where(a =>
+            (a.AccountCode != null && a.AccountCode.Contains(GlobalSearchTerm, StringComparison.OrdinalIgnoreCase)) ||
+            (a.Description != null && a.Description.Contains(GlobalSearchTerm, StringComparison.OrdinalIgnoreCase)));
+
     private int currentPage = 1;
     private int pageSize = 15;
-    private int TotalPages => (int)Math.Ceiling(coa.Count / (double)pageSize);
-    private IEnumerable<SegChartOfAccount> PaginatedCoa => coa.Skip((currentPage - 1) * pageSize).Take(pageSize);
+    private int TotalPages => (int)Math.Ceiling(FilteredCoa.Count() / (double)pageSize);
+    private IEnumerable<SegChartOfAccount> PaginatedCoa => FilteredCoa.Skip((currentPage - 1) * pageSize).Take(pageSize);
 
-    // Search Terms & UI States for Inline Filters
+    // Form states
     private string search0 = ""; private bool isSearching0 = false;
     private string search1 = ""; private bool isSearching1 = false;
     private string search2 = ""; private bool isSearching2 = false;
     private string search3 = ""; private bool isSearching3 = false;
     private string search4 = ""; private bool isSearching4 = false;
     private string search5 = ""; private bool isSearching5 = false;
-
-    // Search tracking for Account Type
     private string searchType = ""; private bool isSearchingType = false;
 
     private SegCoaConfig cfg = new();
-
     private List<Segment0> seg0 = new();
     private List<Segment1> seg1 = new();
     private List<Segment2> seg2 = new();
     private List<Segment3> seg3 = new();
     private List<Segment4> seg4 = new();
     private List<Segment5> seg5 = new();
-
     private List<SegAccountType> types = new();
     private List<SegChartOfAccount> coa = new();
 
@@ -694,6 +724,26 @@
         isSearching0 = isSearching1 = isSearching2 = isSearching3 = isSearching4 = isSearching5 = isSearchingType = false;
     }
 
+    // --- Delete Account ---
+    private async Task DeleteAccount(SegChartOfAccount acc)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to completely delete account '{acc.AccountCode} - {acc.Description}'?"))
+            return;
+
+        var err = await Service.DeleteAccountAsync(acc.Id);
+
+        if (string.IsNullOrEmpty(err))
+        {
+            // Successfully deleted
+            await LoadAll();
+        }
+        else
+        {
+            // Failed validation (has transactions)
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
     private async Task RebuildDraft()
     {
         var codes = new List<string>();
@@ -785,7 +835,6 @@
         await LoadAll();
     }
 
-    // --- CSV IMPORT LOGIC ---
     private async Task HandleFileImport(InputFileChangeEventArgs e)
     {
         if (e.File == null) return;
@@ -793,9 +842,8 @@
         isImporting = true;
         try
         {
-            using var stream = e.File.OpenReadStream(5 * 1024 * 1024); // 5MB limit
+            using var stream = e.File.OpenReadStream(5 * 1024 * 1024);
 
-            // This calls the backend import method we built
             string resultMsg = await Service.ImportFullCoaAsync(selectedCompanyId, stream, e.File.Name);
 
             await LoadAll();
@@ -811,15 +859,14 @@
         }
     }
 
-    // --- EXPORT LOGIC ---
     private StandardReportData BuildCoaReportData()
     {
         return new StandardReportData
         {
             CompanyName = companyName,
             ReportName = "Segmented Chart of Accounts",
-            Headers = new List<string> { "Account Code", "Description", "Account Type"},
-            Rows = coa.Select(a => new List<string>
+            Headers = new List<string> { "Account Code", "Description", "Account Type" },
+            Rows = FilteredCoa.Select(a => new List<string>
             {
                 a.AccountCode?.ToString() ?? "",
                 a.Description?.ToString() ?? "",

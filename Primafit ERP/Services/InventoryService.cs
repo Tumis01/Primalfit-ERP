@@ -457,12 +457,10 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Get Total Physical Stock currently in the warehouse
             decimal physicalStock = await ctx.StockLedgers
                 .Where(s => s.ItemId == itemId && s.WarehouseId == warehouseId)
                 .SumAsync(s => s.QuantityChanged);
 
-            // 2. Get Reserved Stock (Quantities on Draft or Confirmed orders that haven't shipped yet)
             var reservedQuery = ctx.SalesOrderLines
                 .Include(l => l.Header)
                 .Where(l => l.ItemId == itemId
@@ -470,7 +468,6 @@ namespace Primafit_ERP.Services
                          && l.Header.CompanyId == companyId
                          && (l.Header.Status == OrderStatus.Draft || l.Header.Status == OrderStatus.Confirmed));
 
-            // If we are editing an existing order, don't count its own lines against itself
             if (excludeOrderId.HasValue && excludeOrderId.Value != Guid.Empty)
             {
                 reservedQuery = reservedQuery.Where(l => l.HeaderId != excludeOrderId.Value);
@@ -478,8 +475,121 @@ namespace Primafit_ERP.Services
 
             decimal reservedStock = await reservedQuery.SumAsync(l => l.Quantity);
 
-            // 3. The true available stock for a new customer
             return physicalStock - reservedStock;
+        }
+        public async Task<string> PostInventoryAdjustmentBatchAsync(
+            Guid companyId,
+            DateOnly postingDate,
+            Guid balancingGlAccountId,
+            List<InventoryAdjustmentLineDto> adjustmentLines,
+            string userId)
+        {
+            if (balancingGlAccountId == Guid.Empty) return "STOP: A valid Balancing/Offset GL Account is required.";
+
+            var validLines = adjustmentLines.Where(x => x.ItemId != Guid.Empty && (x.QuantityChange != 0 || x.TotalValueChange != 0)).ToList();
+            if (!validLines.Any()) return "STOP: No active lines with structural adjustments were provided.";
+
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                var glLines = new List<GLJournalLine>();
+
+                foreach (var line in validLines)
+                {
+                    var item = await ctx.Items.FindAsync(line.ItemId);
+                    if (item == null) return $"Item with ID '{line.ItemId}' could not be resolved.";
+                    if (item.IsService) return $"STOP: '{item.Name}' is a service item. Physical inventory parameters cannot be adjusted.";
+                    if (item.InventoryAssetAccountId == Guid.Empty) return $"CONFIGURATION ERROR: '{item.Name}' is missing an Inventory Asset GL Account mapping.";
+
+                    // 1. Resolve Current Quantities Across All Warehouses for WACC Tracking
+                    decimal currentTotalQty = await ctx.StockLedgers
+                        .Where(s => s.ItemId == line.ItemId)
+                        .SumAsync(s => s.QuantityChanged);
+                    if (currentTotalQty < 0) currentTotalQty = 0;
+
+                    decimal oldWacc = item.WeightedAverageCost;
+                    decimal oldValuation = currentTotalQty * oldWacc;
+
+                    // 2. Handle Directional Financial Ledger Adjustments
+                    decimal finalLineCostChange = Math.Abs(line.TotalValueChange);
+
+                    if (line.IsDebitInventory)
+                    {
+                        // Debit Inventory Asset (Asset Up), Credit Balancing Account
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = finalLineCostChange, Credit = 0, Reference = $"Inv Adj Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = 0, Credit = finalLineCostChange, Reference = $"Inv Adj Bal Cr - {item.Name}" });
+                    }
+                    else
+                    {
+                        // Credit Inventory Asset (Asset Down), Debit Balancing Account
+                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = finalLineCostChange, Credit = 0, Reference = $"Inv Adj Bal Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = finalLineCostChange, Reference = $"Inv Adj Cr - {item.Name}" });
+                    }
+
+                    // 3. Compute Stock Valuation Shifts
+                    decimal absoluteValueShift = line.IsDebitInventory ? finalLineCostChange : -finalLineCostChange;
+                    decimal newTotalQty = currentTotalQty + line.QuantityChange;
+                    decimal newValuation = oldValuation + absoluteValueShift;
+
+                    if (newTotalQty < 0) return $"VALUATION BLOCKED: Adjustment forces absolute quantity of '{item.Name}' below zero to ({newTotalQty}). Transaction aborted.";
+
+                    // Update WACC values natively if stock balances remain positive
+                    item.WeightedAverageCost = newTotalQty > 0 ? Math.Round(newValuation / newTotalQty, 4) : 0;
+
+                    // 4. Append Cost Change Audit Records
+                    ctx.ItemCostHistories.Add(new ItemCostHistory
+                    {
+                        Id = Guid.NewGuid(),
+                        ItemId = item.Id,
+                        OldQty = currentTotalQty,
+                        OldWacc = oldWacc,
+                        NewQtyIn = line.QuantityChange,
+                        NewCostIn = line.QuantityChange != 0 ? absoluteValueShift / line.QuantityChange : absoluteValueShift,
+                        ResultingWacc = item.WeightedAverageCost,
+                        Reference = $"Batch Adjustment - {postingDate:yyyy-MM-dd}",
+                        DateChanged = DateTime.UtcNow
+                    });
+
+                    // 5. Append Physical Warehouse Movement Logging entries
+                    if (line.QuantityChange != 0)
+                    {
+                        ctx.StockLedgers.Add(new StockLedger
+                        {
+                            Id = Guid.NewGuid(),
+                            CompanyId = companyId,
+                            ItemId = item.Id,
+                            WarehouseId = line.WarehouseId,
+                            QuantityChanged = line.QuantityChange,
+                            Type = StockMovementType.Adjustment,
+                            CostAtTime = item.WeightedAverageCost,
+                            Reference = $"ADJ-{postingDate:yyMMdd}",
+                            Date = DateTime.UtcNow
+                        });
+                    }
+                }
+
+                // 6. Pack entries into general ledger batches
+                string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMddHHmm}";
+                var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
+                if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
+
+                if (batchId.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                    if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                }
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"INVENTORY SYSTEM ADJ ERROR: {ex.Message}";
+            }
         }
     }
 }

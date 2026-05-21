@@ -37,23 +37,20 @@ namespace Primafit_ERP.Services
         {
             return amount < 0 ? $"({Math.Abs(amount):N2})" : amount.ToString("N2");
         }
-
         // =========================================================
-        // 1. TRIAL BALANCE
+        // 1. TRIAL BALANCE (Period Net Movement Format)
         // =========================================================
         public async Task<StandardReportData> GenerateTrialBalanceAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Fetch & Group: Sum all debits and credits per account
-            // NOTE: Joined with GLBatches to explicitly exclude Draft/Unposted transactions (Status == 2 is typically 'Posted')
+            // 1. Fetch & Group: Sum debits and credits strictly within the selected date range.
+            // Querying GLTransactions directly ensures retained/open batches are included.
             var query = await (from t in ctx.GLTransactions.AsNoTracking()
                                join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
-                               join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
                                where t.CompanyId == companyId
                                   && t.PostingDate >= startDate
                                   && t.PostingDate <= endDate
-                                  && (int)b.Status == 2 // Enforcing Posted Only
                                group t by new { t.SegCoaId, a.AccountCode, a.Description } into g
                                orderby g.Key.AccountCode
                                select new
@@ -68,8 +65,8 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Trial Balance",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                // Removed "Net Balance" header, keeping it strictly Debit & Credit
-                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit" }
+                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit" },
+                Rows = new List<List<string>>()
             };
 
             decimal grandDebit = 0;
@@ -77,10 +74,10 @@ namespace Primafit_ERP.Services
 
             foreach (var row in query)
             {
-                // 2. Calculate the Net Difference
+                // 2. Calculate the Net Difference for the period
                 decimal netBalance = row.TotalDebit - row.TotalCredit;
 
-                // Skip accounts with absolutely zero net balance to keep the report clean
+                // Skip accounts with absolutely zero net movement in this period
                 if (netBalance == 0) continue;
 
                 decimal finalDebit = 0;
@@ -94,7 +91,7 @@ namespace Primafit_ERP.Services
                 }
                 else if (netBalance < 0)
                 {
-                    finalCredit = Math.Abs(netBalance); // Remove the negative sign
+                    finalCredit = Math.Abs(netBalance); // Remove the negative sign for display
                     grandCredit += finalCredit;
                 }
 
@@ -111,6 +108,7 @@ namespace Primafit_ERP.Services
             // 5. Mathematical Proof Footer
             string status = Math.Round(grandDebit, 2) == Math.Round(grandCredit, 2) ? "BALANCED" : "UNBALANCED";
 
+            report.Rows.Add(new List<string> { "", "", "", "" }); // Blank spacer row
             report.Rows.Add(new List<string>
             {
                 "",
@@ -295,58 +293,6 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 4. CASHBOOK BATCH REPORT
         // =========================================================
-        public async Task<StandardReportData> GenerateCashbookReportAsync(Guid batchId)
-        {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var batch = await ctx.CashbookBatches
-                .Include(b => b.Entries)
-                .FirstOrDefaultAsync(b => b.Id == batchId);
-
-            if (batch == null) throw new Exception("Batch not found.");
-
-            // FIX 1: Manually calculate the dynamically unmapped totals!
-            decimal totalDebits = batch.Entries.Sum(e => e.Debit);
-            decimal totalCredits = batch.Entries.Sum(e => e.Credit);
-            decimal closingBalance = batch.OpeningBalance + totalDebits - totalCredits;
-
-            // Fetch Bank Account Info
-            var bankAcct = await ctx.SegChartOfAccounts.FindAsync(batch.BankSegCoaId);
-
-            var report = new StandardReportData
-            {
-                ReportName = "Cashbook Batch Detail",
-                ReportingPeriod = $"Batch Ref: {batch.BatchReference}",
-                Headers = new List<string> { "Date", "Reference", "Description", "Money In (Dr)", "Money Out (Cr)", "Running Balance" },
-
-                // FIX 2: Initialize the Rows list to prevent NullReferenceExceptions!
-                Rows = new List<List<string>>()
-            };
-
-            report.Rows.Add(new List<string> { "INFO", $"Bank Account: {bankAcct?.AccountCode} - {bankAcct?.Description}", "", "", "", "" });
-            report.Rows.Add(new List<string> { "", "OPENING BALANCE", "", "", "", FormatCurrency(batch.OpeningBalance) });
-
-            decimal runningBal = batch.OpeningBalance;
-
-            foreach (var entry in batch.Entries.OrderBy(e => e.TransactionDate))
-            {
-                runningBal = runningBal + entry.Debit - entry.Credit;
-                report.Rows.Add(new List<string>
-                {
-                    entry.TransactionDate.ToString("yyyy-MM-dd"),
-                    entry.Reference,
-                    entry.Description,
-                    entry.Debit > 0 ? FormatCurrency(entry.Debit) : "-",
-                    entry.Credit > 0 ? FormatCurrency(entry.Credit) : "-",
-                    FormatCurrency(runningBal)
-                });
-            }
-
-            // Use the manually calculated variables here in the footer
-            report.Rows.Add(new List<string> { "", "CLOSING BALANCE", FormatCurrency(totalDebits), FormatCurrency(totalCredits), "", FormatCurrency(closingBalance) });
-
-            return report;
-        }
         public async Task<StandardReportData> GenerateBankLedgerAsync(Guid companyId, Guid bankAccountId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -354,23 +300,22 @@ namespace Primafit_ERP.Services
             var bankAcct = await ctx.SegChartOfAccounts.FindAsync(bankAccountId);
             if (bankAcct == null) throw new Exception("Bank account not found.");
 
-            // 1. Calculate TRUE Opening Balance (Sum of all posted txns BEFORE the start date)
+            // 1. Calculate TRUE Opening Balance
+            // Removed b.Status == 2 filter
             decimal openingBalance = await (from t in ctx.GLTransactions.AsNoTracking()
-                                            join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
                                             where t.CompanyId == companyId
                                                && t.SegCoaId == bankAccountId
                                                && t.PostingDate < startDate
-                                               && (int)b.Status == 2 // Posted Only
                                             select t.Debit - t.Credit).SumAsync();
 
             // 2. Fetch Transactions IN the period
+            // Kept join for b.Description, but removed b.Status == 2 filter
             var periodTxns = await (from t in ctx.GLTransactions.AsNoTracking()
                                     join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
                                     where t.CompanyId == companyId
                                        && t.SegCoaId == bankAccountId
                                        && t.PostingDate >= startDate
                                        && t.PostingDate <= endDate
-                                       && (int)b.Status == 2 // Posted Only
                                     orderby t.PostingDate, t.CreatedAt
                                     select new
                                     {
@@ -387,10 +332,10 @@ namespace Primafit_ERP.Services
 
             var report = new StandardReportData
             {
-                CompanyName = "Primafit Enterprise", // Replace with dynamic company name if available
+                CompanyName = "Primafit Enterprise",
                 ReportName = "Cashbook / Bank Ledger",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                GeneratedBy = "System User", // Replace with actual user if passed in
+                GeneratedBy = "System User",
                 DateGenerated = DateTime.UtcNow,
                 Headers = new List<string> { "Date", "Reference", "Narration", "Money In (Dr)", "Money Out (Cr)", "Running Balance" },
                 Rows = new List<List<string>>()

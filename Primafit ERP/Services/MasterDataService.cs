@@ -344,5 +344,15 @@ namespace Primafit_ERP.Services
                 return "Cannot delete this category. It is currently assigned to one or more items in your inventory.";
             }
         }
+        public async Task<List<Warehouse>> GetREAlWarehousesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Warehouses
+                .AsNoTracking()
+                .Where(w => w.CompanyId == companyId)
+                .OrderBy(w => w.Name)
+                .ToListAsync();
+        }
+
     }
 }

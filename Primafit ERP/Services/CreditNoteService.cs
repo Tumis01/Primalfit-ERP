@@ -9,12 +9,14 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly InventoryService _invService;
+        private readonly TransactionMappingService _mappingService; // <-- NEW: Injected Mapping Service
 
-        public CreditNoteService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService)
+        public CreditNoteService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService, TransactionMappingService mappingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _invService = invService;
+            _mappingService = mappingService; // <-- NEW
         }
 
         // 1. CREATE DRAFT FROM SALES ORDER
@@ -51,7 +53,7 @@ namespace Primafit_ERP.Services
                 Reason = "Return / Reversal",
                 ReturnToStock = false,
                 WarehouseId = so.WarehouseId,
-                CreatedByUserId = userId, // Converted to string
+                CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
                 CreditNoteNumber = $"CN-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}"
             };
@@ -88,46 +90,20 @@ namespace Primafit_ERP.Services
             return creditNote;
         }
 
-        // 2. GET BY ID
-        public async Task<CreditNote?> GetByIdAsync(Guid id)
+        public async Task<CreditNote?> GetByIdAsync(Guid id, Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            var cn = await ctx.CreditNotes
+            return await ctx.CreditNotes
                 .Include(c => c.Lines).ThenInclude(l => l.Item)
                 .Include(c => c.Customer)
                 .Include(c => c.SalesOrder)
                 .Include(c => c.Currency)
                 .Include(c => c.Warehouse)
-                .FirstOrDefaultAsync(c => c.Id == id);
-
-            if (cn != null)
-            {
-                // Fetch the original SO lines to know the Original Sold Qty
-                var soLinesMap = await ctx.SalesOrderLines
-                    .Where(l => l.HeaderId == cn.SalesOrderId)
-                    .ToDictionaryAsync(l => l.Id, l => l.Quantity);
-
-                // Fetch other returns (Excluding the current draft we are viewing)
-                var previousReturns = await ctx.CreditNoteLines
-                    .Include(l => l.Header)
-                    .Where(l => l.Header!.SalesOrderId == cn.SalesOrderId
-                             && l.Header.Status != CreditNoteStatus.Void
-                             && l.HeaderId != cn.Id)
-                    .GroupBy(l => l.SalesOrderLineId)
-                    .Select(g => new { SalesOrderLineId = g.Key, TotalReturned = g.Sum(x => x.Quantity) })
-                    .ToDictionaryAsync(x => x.SalesOrderLineId, x => x.TotalReturned);
-
-                foreach (var line in cn.Lines)
-                {
-                    line.OriginalSoldQty = soLinesMap.ContainsKey(line.SalesOrderLineId) ? soLinesMap[line.SalesOrderLineId] : 0;
-                    decimal alreadyReturned = previousReturns.ContainsKey(line.SalesOrderLineId) ? previousReturns[line.SalesOrderLineId] : 0;
-                    line.MaxReturnableQty = line.OriginalSoldQty - alreadyReturned;
-                }
-            }
-            return cn;
+                // Guard against URL record tampering across distinct corporate contexts
+                .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == companyId);
         }
 
-        // 3. SAVE DRAFT (Unchanged)
+        // 3. SAVE DRAFT 
         public async Task<string> SaveDraftAsync(CreditNote note)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -185,15 +161,22 @@ namespace Primafit_ERP.Services
                 {
                     if (line.Quantity == 0) continue;
 
-                    // Fetch Revenue Account from ITEM Master (since Order lines don't store GL accounts)
                     if (line.Item.SalesIncomeAccountId == Guid.Empty)
                         return $"Item '{line.Item.Name}' missing Sales Income GL Account.";
+
+                    // --- THE FIX: INTERCEPT REVENUE ACCOUNT FOR REVERSAL ---
+                    // Reversing Sales Revenue is a Debit
+                    Guid revenueAccount = await _mappingService.GetMappedAccountAsync(
+                        cn.CompanyId,
+                        SystemTransactionType.CreditNote,
+                        isDebit: true,
+                        defaultAccountId: line.Item.SalesIncomeAccountId);
 
                     decimal lineTotalBase = Math.Round(line.LineTotal * cn.ExchangeRate, 2);
 
                     glLines.Add(new GLJournalLine
                     {
-                        SegCoaId = line.Item.SalesIncomeAccountId, // Use Item's Income Account
+                        SegCoaId = revenueAccount,
                         Debit = lineTotalBase,
                         Credit = 0,
                         Reference = $"CN Reversal: {line.Item.Name}"
@@ -205,9 +188,17 @@ namespace Primafit_ERP.Services
                 // 2. Credit Accounts Receivable
                 if (cn.Customer.ReceivablesAccountId == null) return "Customer AR Account is missing.";
 
+                // --- THE FIX: INTERCEPT AR ACCOUNT FOR REVERSAL ---
+                // Reversing AR is a Credit
+                Guid arAccount = await _mappingService.GetMappedAccountAsync(
+                    cn.CompanyId,
+                    SystemTransactionType.CreditNote,
+                    isDebit: false,
+                    defaultAccountId: cn.Customer.ReceivablesAccountId.Value);
+
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = cn.Customer.ReceivablesAccountId.Value,
+                    SegCoaId = arAccount,
                     Debit = 0,
                     Credit = totalCreditsBase,
                     Reference = $"CN {cn.CreditNoteNumber} for {cn.Customer.Name}"

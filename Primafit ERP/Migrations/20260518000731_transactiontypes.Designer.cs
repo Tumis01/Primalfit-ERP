@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260518000731_transactiontypes")]
+    partial class transactiontypes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -829,20 +832,6 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("CompanyDetails");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyEmailSetting", b =>
-                {
-                    b.Property<Guid>("CompanyId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("EnableInvoiceEmailPopup")
-                        .HasColumnType("bit");
-
-                    b.HasKey("CompanyId");
-
-                    b.ToTable("CompanyEmailSettings");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyRolePermission", b =>
                 {
                     b.Property<string>("ApplicationRoleId")
@@ -1012,37 +1001,6 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("CurrencyId");
 
                     b.ToTable("CurrencyManagements");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomTransactionType", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedByUserId")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("CustomTransactionTypes");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Customer", b =>
@@ -3240,9 +3198,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("CustomTransactionTypeId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -3263,8 +3218,6 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CustomTransactionTypeId");
 
                     b.HasIndex("OverrideCreditGlAccountId");
 
@@ -4300,10 +4253,6 @@ namespace Primafit_ERP.Migrations
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionGlMapping", b =>
                 {
-                    b.HasOne("Primafit_ERP.Components.Models.CustomTransactionType", "CustomTransactionType")
-                        .WithMany()
-                        .HasForeignKey("CustomTransactionTypeId");
-
                     b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "OverrideCreditAccount")
                         .WithMany()
                         .HasForeignKey("OverrideCreditGlAccountId");
@@ -4311,8 +4260,6 @@ namespace Primafit_ERP.Migrations
                     b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "OverrideDebitAccount")
                         .WithMany()
                         .HasForeignKey("OverrideDebitGlAccountId");
-
-                    b.Navigation("CustomTransactionType");
 
                     b.Navigation("OverrideCreditAccount");
 

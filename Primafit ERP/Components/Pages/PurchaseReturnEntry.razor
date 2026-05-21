@@ -392,33 +392,46 @@
             return;
         }
 
+        // Resolve user state context immediately to acquire Company Details
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId == null)
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        Guid companyId = user.CompanyDetailsId.Value;
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         if (IsNew)
         {
             if (!vendors.Any())
             {
-                vendors = await ctx.Vendors.OrderBy(v => v.Name).ToListAsync();
-                warehouses = await ctx.Warehouses.ToListAsync();
+                // Only populate Dropdowns with company-specific masters
+                vendors = await ctx.Vendors.Where(v => v.CompanyId == companyId).OrderBy(v => v.Name).ToListAsync();
+                warehouses = await ctx.Warehouses.Where(w => w.CompanyId == companyId).ToListAsync();
             }
         }
         else
         {
+            // Prevent cross-company document access by parsing CompanyId into the query predicate
             currentRtv = await ctx.PurchaseReturns
                 .Include(r => r.Lines)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Id == Id);
+                .FirstOrDefaultAsync(r => r.Id == Id && r.CompanyId == companyId);
 
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
-            originalBill = await ctx.VendorBills.FindAsync(currentRtv.VendorBillId);
+            originalBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId && b.CompanyId == companyId);
             currentRtv.ExchangeRate = originalBill?.ExchangeRate ?? currentRtv.ExchangeRate;
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
-            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId).Select(v => v.Name).FirstOrDefaultAsync();
+            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId && v.CompanyId == companyId).Select(v => v.Name).FirstOrDefaultAsync();
             vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vName ?? "Unknown" } };
 
-            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId).Select(w => w.Name).FirstOrDefaultAsync();
+            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId && w.CompanyId == companyId).Select(w => w.Name).FirstOrDefaultAsync();
             warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = wName ?? "Unknown" } };
 
             var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
@@ -500,10 +513,25 @@
             return;
         }
 
+        if (user.CompanyDetailsId == null)
+        {
+            _errMsg = "No active company profile found for this user account.";
+            await JS.InvokeVoidAsync("alert", _errMsg);
+            return;
+        }
+
         try
         {
             _busy = true;
-            currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
+            StateHasChanged();
+
+            // Pass user.CompanyDetailsId.Value as the 4th parameter to secure document isolation
+            currentRtv = await RtvService.CreateDraftFromBillAsync(
+                selectedBillId,
+                selectedWarehouseId,
+                Guid.Parse(user.Id),
+                user.CompanyDetailsId.Value
+            );
 
             var err = await RtvService.SaveDraftAsync(currentRtv);
             if (string.IsNullOrEmpty(err))
@@ -524,6 +552,7 @@
         finally
         {
             _busy = false;
+            StateHasChanged();
         }
     }
 

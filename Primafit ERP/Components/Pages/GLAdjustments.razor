@@ -1,0 +1,358 @@
+﻿@page "/gl/adjustments"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject TransactionMappingService MappingService
+@inject SegCoaService SegCoaService
+@inject GLOperationsService GlOperations
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6 font-sans text-slate-800">
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">General Ledger Adjustments Dashboard</h1>
+            <p class="text-sm text-slate-500 mt-0.5">Template and execute ad-hoc ledger adjustments directly across corporate operational categories.</p>
+        </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6 relative z-50 overflow-visible">
+
+        <div class="md:col-span-2 relative overflow-visible">
+            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Select Target Transaction Template Type <span class="text-rose-500">*</span></label>
+
+            <div @onclick="ToggleDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
+                <span class="@(selectedTemplateName.StartsWith("--") ? "text-slate-400 font-medium" : "text-slate-900")">
+                    @selectedTemplateName
+                </span>
+                <svg class="w-4 h-4 text-slate-400 transition-transform @(isDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                </svg>
+            </div>
+
+            @if (isDropdownOpen)
+            {
+                <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-[100] p-3 space-y-3 animate-in fade-in zoom-in-95 duration-100 overflow-visible">
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                        <input type="text" @bind="templateSearchQuery" @bind:event="oninput" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all" placeholder="Search templates by type or description..." @onclick:stopPropagation />
+                    </div>
+
+                    <div class="max-h-60 overflow-y-auto divide-y divide-slate-50 pr-1">
+                        @{
+                            var filteredSysList = Enum.GetValues(typeof(SystemTransactionType))
+                                .Cast<SystemTransactionType>()
+                                .Where(t => t != SystemTransactionType.CustomGlAdjustment && (int)t != 0 && FormatEnumName(t.ToString()).Contains(templateSearchQuery, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                        @if (filteredSysList.Any())
+                        {
+                            <div class="py-1.5">
+                                <span class="block text-[9px] font-black text-slate-400 uppercase tracking-wider px-2.5 py-1">System Core Financial Mappings</span>
+                                @foreach (var sysType in filteredSysList)
+                                {
+                                    <div @onclick="() => SelectSystemTemplate(sysType)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900 rounded-lg transition-colors cursor-pointer flex items-center justify-between">
+                                        <span>@FormatEnumName(sysType.ToString())</span>
+                                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-1 rounded">Core</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @{
+                            var filteredCustomList = customTypes
+                                .Where(c => c.Name.Contains(templateSearchQuery, StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                        @if (filteredCustomList.Any())
+                        {
+                            <div class="py-1.5">
+                                <span class="block text-[9px] font-black text-slate-400 uppercase tracking-wider px-2.5 py-1">User Defined Custom Templates</span>
+                                @foreach (var custom in filteredCustomList)
+                                {
+                                    <div @onclick="() => SelectCustomTemplate(custom)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50/60 hover:text-amber-900 rounded-lg transition-colors cursor-pointer flex items-center justify-between">
+                                        <span>@custom.Name</span>
+                                        <span class="text-[9px] font-bold text-amber-600 bg-amber-50 px-1 rounded border border-amber-100">Template</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (!filteredSysList.Any() && !filteredCustomList.Any())
+                        {
+                            <div class="p-6 text-center text-xs text-slate-400 italic">No matching transaction templates found.</div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="flex flex-col justify-center">
+            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Posting Window Date</label>
+            <div class="relative w-full rounded-xl shadow-sm">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <input type="date" value="@postingDate.ToString("yyyy-MM-dd")"
+                       @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) postingDate = d; })"
+                       class="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all cursor-pointer" />
+            </div>
+        </div>
+    </div>
+
+    @if (selectedMapping != null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible animate-in slide-in-from-bottom-4 p-6 space-y-6 relative z-10" style="isolation: isolate;">
+
+            <div class="flex items-center gap-3 bg-indigo-50 border border-indigo-100 p-4 rounded-xl text-xs text-indigo-700 font-bold">
+                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div>
+                    Active Template Parameters:
+                    <span class="text-slate-800 ml-1">
+                        Debit Target: @(selectedMapping.OverrideDebitGlAccountId.HasValue ? "Pre-configured Default Route Enforced" : "Variable (Open for Manual Selection)") |
+                        Credit Target: @(selectedMapping.OverrideCreditGlAccountId.HasValue ? "Pre-configured Default Route Enforced" : "Variable (Open for Manual Selection)")
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+
+                <div class="p-5 border border-slate-200 rounded-2xl space-y-4 relative z-50 bg-slate-50/50 overflow-visible">
+                    <span class="text-xs font-black uppercase text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded tracking-wider">Debit Direction Parameter (Dr)</span>
+                    <div class="overflow-visible relative">
+                        <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Target Ledger Destination Account</label>
+                        @if (selectedMapping.OverrideDebitGlAccountId.HasValue)
+                        {
+                            <div class="p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-700 shadow-sm flex items-center gap-2 cursor-not-allowed select-none">
+                                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                                <span>@GetAccountDisplayName(selectedMapping.OverrideDebitGlAccountId.Value)</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <SearchableGlAccount Label="" Placeholder="Select Account to Debit..." Accounts="@coaList" @bind-Value="inputDebitGlId" />
+                        }
+                    </div>
+                </div>
+
+                <div class="p-5 border border-slate-200 rounded-2xl space-y-4 relative z-30 bg-slate-50/50 overflow-visible">
+                    <span class="text-xs font-black uppercase text-rose-600 bg-rose-50 px-2.5 py-1 rounded tracking-wider">Credit Direction Parameter (Cr)</span>
+                    <div class="overflow-visible relative">
+                        <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Target Ledger Destination Account</label>
+                        @if (selectedMapping.OverrideCreditGlAccountId.HasValue)
+                        {
+                            <div class="p-3 bg-white border border-slate-200 rounded-xl font-bold text-xs text-slate-700 shadow-sm flex items-center gap-2 cursor-not-allowed select-none">
+                                <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+                                <span>@GetAccountDisplayName(selectedMapping.OverrideCreditGlAccountId.Value)</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <SearchableGlAccount Label="" Placeholder="Select Account to Credit..." Accounts="@coaList" @bind-Value="inputCreditGlId" />
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-center pt-4 border-t border-slate-100 relative z-10">
+                <div class="md:col-span-8">
+                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Transaction Line Narration / Description <span class="text-rose-500">*</span></label>
+                    <input type="text" @bind="narrationString" class="input-class" placeholder="Provide adjustment reason narrative for general ledger entry log validation panels..." />
+                </div>
+                <div class="md:col-span-4">
+                    <label class="label block text-[10px] font-extrabold text-emerald-700 uppercase tracking-wider mb-1.5">Financial Value Amount ($)</label>
+                    <input type="number" step="0.01" min="0.01" @bind="adjustmentValue" class="input-class text-right font-mono font-black text-lg text-emerald-700 border-emerald-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-50" placeholder="0.00" />
+                </div>
+            </div>
+
+            <div class="flex justify-end pt-4 relative z-10">
+                <button type="button" @onclick="CommitAdjustmentBatch" disabled="@isBusy" class="px-8 py-3 bg-slate-900 text-white font-bold text-sm rounded-xl shadow-md hover:bg-slate-800 shadow-slate-100 transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50">
+                    @if (isBusy)
+                    {
+                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        <span>Executing Balanced GL Ledger Adjustment Entries...</span>
+                    }
+                    else
+                    {
+                        <span>Execute Adjustment Entry</span>
+                    }
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        color: #0f172a;
+        outline: none;
+        transition: all 0.2s;
+    }
+</style>
+
+@code {
+    private Guid companyId;
+    private string userId = "";
+    private bool isBusy = false;
+    private DateOnly postingDate = DateOnly.FromDateTime(DateTime.Today);
+
+    // ENHANCED DROPDOWN WORKSPACE FIELDS
+    private bool isDropdownOpen = false;
+    private string templateSearchQuery = string.Empty;
+    private string selectedTemplateName = "-- Choose Transaction Route Specification --";
+
+    private List<CustomTransactionType> customTypes = new();
+    private List<SegChartOfAccount> coaList = new();
+    private List<TransactionGlMapping> mappingsList = new();
+
+    private TransactionGlMapping? selectedMapping;
+    private Guid inputDebitGlId = Guid.Empty;
+    private Guid inputCreditGlId = Guid.Empty;
+    private decimal adjustmentValue = 0;
+    private string narrationString = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("GL_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+            userId = user.Id;
+
+            coaList = await SegCoaService.GetActiveCoaAsync(companyId);
+            customTypes = await MappingService.GetCustomTransactionTypesAsync(companyId);
+            mappingsList = await MappingService.GetMappingsAsync(companyId);
+        }
+    }
+
+    private void ToggleDropdown() => isDropdownOpen = !isDropdownOpen;
+
+    private void ResetFormWorkspace()
+    {
+        selectedMapping = null;
+        inputDebitGlId = Guid.Empty;
+        inputCreditGlId = Guid.Empty;
+        adjustmentValue = 0;
+        narrationString = string.Empty;
+        templateSearchQuery = string.Empty;
+        isDropdownOpen = false;
+    }
+
+    private void SelectSystemTemplate(SystemTransactionType type)
+    {
+        ResetFormWorkspace();
+        selectedTemplateName = FormatEnumName(type.ToString());
+        selectedMapping = mappingsList.FirstOrDefault(m => m.TransactionType == type && m.CustomTransactionTypeId == null);
+        HydrateInitialOverrideMappings();
+    }
+
+    private void SelectCustomTemplate(CustomTransactionType custom)
+    {
+        ResetFormWorkspace();
+        selectedTemplateName = custom.Name;
+        selectedMapping = mappingsList.FirstOrDefault(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment && m.CustomTransactionTypeId == custom.Id);
+        HydrateInitialOverrideMappings();
+    }
+
+    private void HydrateInitialOverrideMappings()
+    {
+        if (selectedMapping != null)
+        {
+            inputDebitGlId = selectedMapping.OverrideDebitGlAccountId ?? Guid.Empty;
+            inputCreditGlId = selectedMapping.OverrideCreditGlAccountId ?? Guid.Empty;
+        }
+        StateHasChanged();
+    }
+
+    private async Task CommitAdjustmentBatch()
+    {
+        if (adjustmentValue <= 0) { await JS.InvokeVoidAsync("alert", "Error: Entry value must be greater than zero."); return; }
+        if (string.IsNullOrWhiteSpace(narrationString)) { await JS.InvokeVoidAsync("alert", "Error: A ledger narration entry is mandatory."); return; }
+
+        Guid finalDebitId = selectedMapping!.OverrideDebitGlAccountId ?? inputDebitGlId;
+        Guid finalCreditId = selectedMapping!.OverrideCreditGlAccountId ?? inputCreditGlId;
+
+        if (finalDebitId == Guid.Empty || finalCreditId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Error: Both Debit and Credit target parameters must be fully mapped or manually selected.");
+            return;
+        }
+
+        isBusy = true;
+        try
+        {
+            var lines = new List<GLJournalLine>
+            {
+                new() { SegCoaId = finalDebitId, Debit = adjustmentValue, Credit = 0, Reference = narrationString },
+                new() { SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, Reference = narrationString }
+            };
+
+            var (err, batchId) = await GlOperations.CreateJournalEntryAsync(companyId, postingDate, "ADJ-BATCH", narrationString, lines, userId);
+            if (!string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", $"Ledger Refusal: {err}");
+                return;
+            }
+
+            await JS.InvokeVoidAsync("alert", "Adjustment balanced and posted onto the ledger journal tables successfully.");
+            selectedTemplateName = "-- Choose Transaction Route Specification --";
+            selectedMapping = null;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"System Exception: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatEnumName(string name) => System.Text.RegularExpressions.Regex.Replace(name, "([a-z])([A-Z])", "$1 $2");
+
+    private string GetAccountDisplayName(Guid id)
+    {
+        var acc = coaList.FirstOrDefault(a => a.Id == id);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
+    }
+}

@@ -9,30 +9,32 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly InventoryService _invService;
+        private readonly TransactionMappingService _mappingService; // <-- NEW: Injected Mapping Service
 
         public PurchaseReturnService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
-            InventoryService invService)
+            InventoryService invService,
+            TransactionMappingService mappingService) // <-- NEW
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _invService = invService;
+            _mappingService = mappingService; // <-- NEW
         }
 
         // 1. INITIALIZE RETURN (Wizard Step 1)
-        // Services/PurchaseReturnService.cs
-
-        public async Task<PurchaseReturn> CreateDraftFromBillAsync(Guid billId, Guid warehouseId, Guid userId)
+        public async Task<PurchaseReturn> CreateDraftFromBillAsync(Guid billId, Guid warehouseId, Guid userId, Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            // Enforce company isolation by including CompanyId in the predicate
             var bill = await ctx.VendorBills
                 .AsNoTracking()
                 .Include(b => b.Lines)
-                .FirstOrDefaultAsync(b => b.Id == billId);
+                .FirstOrDefaultAsync(b => b.Id == billId && b.CompanyId == companyId);
 
-            if (bill == null) throw new Exception("Vendor Bill not found.");
+            if (bill == null) throw new Exception("Vendor Bill not found or access denied.");
 
             var rtv = new PurchaseReturn
             {
@@ -49,14 +51,12 @@ namespace Primafit_ERP.Services
                 ReturnNumber = $"RTV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}"
             };
 
-            // 1. OPTIMIZATION: Fetch ALL Items in ONE query
             var itemIds = bill.Lines.Select(l => l.ItemId).Distinct().ToList();
             var itemsMap = await ctx.Items
                 .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
                 .ToDictionaryAsync(i => i.Id);
 
-            // 2. Fetch History (No Tracking)
             var postedReturnLines = await ctx.PurchaseReturnLines
                 .AsNoTracking()
                 .Include(l => l.VendorBillLine)
@@ -65,7 +65,6 @@ namespace Primafit_ERP.Services
 
             foreach (var billLine in bill.Lines)
             {
-                // 3. OPTIMIZATION: Read from memory instead of DB
                 if (!itemsMap.TryGetValue(billLine.ItemId ?? Guid.Empty, out var item) || item.IsService)
                     continue;
 
@@ -83,7 +82,7 @@ namespace Primafit_ERP.Services
                         PurchaseReturnId = rtv.Id,
                         VendorBillLineId = billLine.Id,
                         ItemId = billLine.ItemId ?? Guid.Empty,
-                        ItemName = item.Name, // Read from dictionary
+                        ItemName = item.Name,
                         UnitCost = billLine.UnitCostBilled,
                         QtyReturning = 0
                     });
@@ -92,8 +91,6 @@ namespace Primafit_ERP.Services
 
             return rtv;
         }
-
-        // Services/PurchaseReturnService.cs
 
         public async Task<string> TerminateReturnAsync(Guid rtvId)
         {
@@ -108,9 +105,7 @@ namespace Primafit_ERP.Services
 
             try
             {
-                // Delete Lines first
                 ctx.PurchaseReturnLines.RemoveRange(rtv.Lines);
-                // Delete Header
                 ctx.PurchaseReturns.Remove(rtv);
 
                 await ctx.SaveChangesAsync();
@@ -121,33 +116,29 @@ namespace Primafit_ERP.Services
                 return $"Termination Error: {ex.Message}";
             }
         }
+
         public async Task<string> SaveDraftAsync(PurchaseReturn rtv)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             try
             {
-                // 1. Calculate Totals
                 rtv.TotalAmount = rtv.Lines.Sum(l => l.LineTotal);
 
-                // 2. Validation (Read-Only Context)
                 var validationErr = await ValidateReturnQuantities(ctx, rtv);
                 if (!string.IsNullOrEmpty(validationErr)) return validationErr;
 
-                // 3. Check if exists
                 var existing = await ctx.PurchaseReturns
                     .Include(r => r.Lines)
                     .FirstOrDefaultAsync(r => r.Id == rtv.Id);
 
                 if (existing == null)
                 {
-                    // --- CREATE NEW ---
-                    // Sanitize the object graph to prevent "Tracking" errors
                     rtv.VendorBill = null;
                     foreach (var l in rtv.Lines)
                     {
                         if (l.Id == Guid.Empty) l.Id = Guid.NewGuid();
-                        l.VendorBillLine = null; // Important: Remove nav reference
+                        l.VendorBillLine = null;
                         l.PurchaseReturn = null;
                         l.PurchaseReturnId = rtv.Id;
                     }
@@ -155,13 +146,10 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    // --- UPDATE EXISTING (Copy Values Pattern) ---
                     if (existing.Status == ReturnStatus.Posted) return "Cannot edit a posted return.";
 
-                    // Update Header Values only
                     ctx.Entry(existing).CurrentValues.SetValues(rtv);
 
-                    // Replace Lines Safely
                     ctx.PurchaseReturnLines.RemoveRange(existing.Lines);
                     foreach (var l in rtv.Lines)
                     {
@@ -204,7 +192,6 @@ namespace Primafit_ERP.Services
                 if (rtv.Status == ReturnStatus.Posted) return "Already posted.";
                 if (rtv.Lines.Sum(l => l.QtyReturning) <= 0) return "Nothing to return (Qty is 0).";
 
-                // Re-Validate
                 var valErr = await ValidateReturnQuantities(ctx, rtv);
                 if (!string.IsNullOrEmpty(valErr)) return valErr;
 
@@ -214,7 +201,6 @@ namespace Primafit_ERP.Services
                 // --- A. STOCK LEDGER (Physical Reversal) ---
                 foreach (var line in rtv.Lines.Where(l => l.QtyReturning > 0))
                 {
-                    // Check Stock Level
                     decimal currentStock = await ctx.StockLedgers
                         .Where(s => s.ItemId == line.ItemId && s.WarehouseId == rtv.WarehouseId)
                         .SumAsync(s => s.QuantityChanged);
@@ -239,14 +225,20 @@ namespace Primafit_ERP.Services
                 // --- B. FINANCIALS (GL) ---
                 var glLines = new List<GLJournalLine>();
 
-                // Calculate Base Value: (User Qty * Original Cost) * Exchange Rate
                 decimal totalReturnForeign = rtv.Lines.Sum(l => l.QtyReturning * l.UnitCost);
                 decimal totalReturnBase = Math.Round(totalReturnForeign * rtv.ExchangeRate, 2);
 
                 // 1. DEBIT ACCOUNTS PAYABLE (We owe less)
+                // --- THE FIX: INTERCEPT AP ACCOUNT FOR REVERSAL ---
+                Guid apAccount = await _mappingService.GetMappedAccountAsync(
+                    rtv.CompanyId,
+                    SystemTransactionType.ReturnToVendor,
+                    isDebit: true,
+                    defaultAccountId: originalBill.AccountsPayableGlId);
+
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = originalBill.AccountsPayableGlId,
+                    SegCoaId = apAccount,
                     Debit = totalReturnBase,
                     Credit = 0,
                     Reference = $"RTV: {rtv.ReturnNumber}"
@@ -258,19 +250,24 @@ namespace Primafit_ERP.Services
                     var originalBillLine = await ctx.VendorBillLines.FindAsync(line.VendorBillLineId);
                     if (originalBillLine == null) throw new Exception($"Original bill line missing for {line.ItemName}");
 
-                    // Calculate exact credit for this specific item amount
                     decimal lineTotalBase = Math.Round((line.QtyReturning * line.UnitCost) * rtv.ExchangeRate, 2);
+
+                    // --- THE FIX: INTERCEPT EXPENSE ACCOUNT FOR REVERSAL ---
+                    Guid expenseAccount = await _mappingService.GetMappedAccountAsync(
+                        rtv.CompanyId,
+                        SystemTransactionType.ReturnToVendor,
+                        isDebit: false, // Returning an expense is a Credit
+                        defaultAccountId: originalBillLine.ExpenseGlAccountId);
 
                     glLines.Add(new GLJournalLine
                     {
-                        SegCoaId = originalBillLine.ExpenseGlAccountId, // Reverses the specific Asset/Expense account used
+                        SegCoaId = expenseAccount,
                         Debit = 0,
                         Credit = lineTotalBase,
                         Reference = $"Return: {line.ItemName} x{line.QtyReturning}"
                     });
                 }
 
-                // Call GL Engine (Added userId.ToString())
                 var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
                     rtv.CompanyId,
                     DateOnly.FromDateTime(rtv.ReturnDate),
@@ -300,7 +297,6 @@ namespace Primafit_ERP.Services
             }
         }
 
-        // Helper: Validate logic (Using AsNoTracking to prevent conflicts)
         private async Task<string> ValidateReturnQuantities(AppDbContext ctx, PurchaseReturn rtv)
         {
             var returnHistory = await ctx.PurchaseReturnLines

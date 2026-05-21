@@ -414,6 +414,44 @@ namespace Primafit_ERP.Services
                 .OrderBy(c => c.AccountCode)
                 .ToListAsync();
         }
+        public async Task<string?> DeleteAccountAsync(Guid accountId)
+        {
+            try
+            {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+
+                // 1. Check for Posted Transactions
+                bool hasPostedTransactions = await ctx.GLTransactions
+                    .AnyAsync(t => t.SegCoaId == accountId);
+
+                if (hasPostedTransactions)
+                {
+                    return "Cannot delete this account because it has posted transactions tied to it. Consider deactivating it instead to hide it from future use.";
+                }
+
+                // 2. Check for Unposted Drafts (Journal Lines)
+                bool hasUnpostedJournals = await ctx.Set<GLJournalLine>()
+                    .AnyAsync(l => l.SegCoaId == accountId);
+
+                if (hasUnpostedJournals)
+                {
+                    return "Cannot delete this account because it is currently being used in an unposted Draft Journal Entry. Delete the journal line first, or deactivate the account.";
+                }
+
+                // 3. Safe to Delete
+                var account = await ctx.SegChartOfAccounts.FindAsync(accountId);
+                if (account == null) return "Account not found.";
+
+                ctx.SegChartOfAccounts.Remove(account);
+                await ctx.SaveChangesAsync();
+
+                return null; // Success
+            }
+            catch (Exception ex)
+            {
+                return $"Error deleting account: {ex.Message}";
+            }
+        }
         // --- NEW: CSV PARSER HELPER ---
         private List<string> ParseCsvLine(string line)
         {

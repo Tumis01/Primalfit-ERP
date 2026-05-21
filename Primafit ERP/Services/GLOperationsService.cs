@@ -117,15 +117,9 @@ namespace Primafit_ERP.Services
         // 2) CORE: Create Draft Batch (The Engine)
         // =========================================================
         public async Task<(string error, Guid? batchId)> CreateDraftBatchAsync(
-            Guid companyId,
-            DateOnly txnDate,
-            string batchName,
-            string? description,
-            string journalNumber,
-            string? narration,
-            List<GLJournalLine> lines,
-            BatchType type,
-            string userId)
+            Guid companyId, DateOnly txnDate, string batchName, string? description,
+            string journalNumber, string? narration, List<GLJournalLine> lines,
+            BatchType type, string userId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -142,7 +136,9 @@ namespace Primafit_ERP.Services
             try { period = await ResolvePeriodOrThrow(ctx, companyId, txnDate); }
             catch (Exception ex) { return (ex.Message, null); }
 
-            var requireAllowJournal = type == BatchType.Standard || type == BatchType.Migration;
+            // FIX: Only enforce Allow Journal rules for Standard Manual Journals
+            bool requireAllowJournal = type == BatchType.Standard;
+
             var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal);
             if (!string.IsNullOrWhiteSpace(acctErr)) return (acctErr!, null);
 
@@ -187,7 +183,8 @@ namespace Primafit_ERP.Services
             try { period = await ResolvePeriodOrThrow(ctx, companyId, migrationDate); }
             catch (Exception ex) { return ex.Message; }
 
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal: true);
+            // FIX: Allow Migration batches to post to Control Accounts (AR, AP, Inventory)
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal: false);
             if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
 
             var batch = new GLBatch
@@ -198,7 +195,7 @@ namespace Primafit_ERP.Services
                 Description = "System Migration",
                 Type = BatchType.Migration,
                 Status = BatchStatus.Draft,
-                CreatedByUserId = userId // Assigned to actual user
+                CreatedByUserId = userId
             };
 
             batch.Journals.Add(new GLJournalHeader
@@ -460,7 +457,10 @@ namespace Primafit_ERP.Services
             var header = batch.Journals.FirstOrDefault();
             if (header == null) return "Journal Header is missing.";
 
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, batch.CompanyId, new List<GLJournalLine> { line }, true);
+            // FIX: Only enforce if this is a Standard Batch
+            bool requireAllowJournal = batch.Type == BatchType.Standard;
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, batch.CompanyId, new List<GLJournalLine> { line }, requireAllowJournal);
+
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 
             line.HeaderId = header.Id;
@@ -477,7 +477,10 @@ namespace Primafit_ERP.Services
             if (existing == null) return "Line not found.";
             if (existing.Header?.Batch?.Status != BatchStatus.Draft) return "Batch is locked.";
 
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, existing.Header.CompanyId, new List<GLJournalLine> { line }, true);
+            // FIX: Only enforce if this is a Standard Batch
+            bool requireAllowJournal = existing.Header.Batch.Type == BatchType.Standard;
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, existing.Header.CompanyId, new List<GLJournalLine> { line }, requireAllowJournal);
+
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 
             existing.SegCoaId = line.SegCoaId;

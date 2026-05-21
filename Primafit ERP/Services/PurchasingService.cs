@@ -12,24 +12,23 @@ namespace Primafit_ERP.Services
         private readonly GLOperationsService _glOps;
         private readonly BudgetService _budgetService;
         private readonly InventoryValuationService _valuationService;
+        private readonly TransactionMappingService _mappingService; // <-- NEW: Injected Mapping Service
+
         public PurchasingService(
             IDbContextFactory<AppDbContext> dbFactory,
         InventoryService inventoryService,
         GLOperationsService glOps,
         BudgetService budgetService,
-        InventoryValuationService valuationService)
+        InventoryValuationService valuationService,
+        TransactionMappingService mappingService) // <-- NEW
         {
             _dbFactory = dbFactory;
             _inventoryService = inventoryService;
             _glOps = glOps;
             _budgetService = budgetService;
             _valuationService = valuationService;
-
+            _mappingService = mappingService; // <-- NEW
         }
-
-
-
-
 
         public async Task<string> SaveVendorBillAsync(VendorBill bill)
         {
@@ -41,6 +40,20 @@ namespace Primafit_ERP.Services
             if (bill.Lines == null || bill.Lines.Count == 0) return "Bill must have at least one line.";
 
             using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            // --- CRITICAL DUPLICATE CHECK ---
+            // A vendor invoice number must be unique per Vendor per Company
+            if (!string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
+            {
+                bool invoiceExists = await ctx.VendorBills
+                    .AnyAsync(b => b.CompanyId == bill.CompanyId
+                                && b.VendorId == bill.VendorId
+                                && b.ExternalInvoiceNumber.ToLower() == bill.ExternalInvoiceNumber.ToLower()
+                                && b.Id != bill.Id); // Exclude self if updating an existing draft
+
+                if (invoiceExists)
+                    return $"STOP: Invoice number '{bill.ExternalInvoiceNumber}' has already been recorded for this vendor.";
+            }
 
             var existing = await ctx.VendorBills
                 .Include(b => b.Lines)
@@ -70,7 +83,6 @@ namespace Primafit_ERP.Services
                     bill.PostedDate = existing.PostedDate;
 
                     ctx.Entry(existing).CurrentValues.SetValues(bill);
-
                     ctx.VendorBillLines.RemoveRange(existing.Lines);
 
                     foreach (var line in bill.Lines)
@@ -163,18 +175,12 @@ namespace Primafit_ERP.Services
         }
 
         // 1. SAVE PURCHASE ORDER
-        // 1. SAVE PURCHASE ORDER / REQUEST
         public async Task<string> SavePurchaseOrderAsync(PurchaseOrder po)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
-
-            if ((po.DiscountAmount > 0 || po.DiscountPercentage > 0) && po.DiscountGlAccountId == null)
-            {
-                return "You must select a Discount GL Account (Income/Credit) to apply a discount.";
-            }
 
             var existing = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
@@ -186,11 +192,20 @@ namespace Primafit_ERP.Services
                 {
                     if (po.Id == Guid.Empty) po.Id = Guid.NewGuid();
 
-                    // --- GENERATE NUMBER BASED ON STATUS ---
+                    // --- GENERATE NUMBER BASED ON STATUS WITH COLLISION LOOP ---
                     if (string.IsNullOrWhiteSpace(po.OrderNumber))
                     {
                         string prefix = po.Status == PurchaseOrderStatus.Request ? "REQ" : "PO";
-                        po.OrderNumber = $"{prefix}-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+                        bool isDuplicate = true;
+                        string generatedNumber = string.Empty;
+
+                        // Keep regenerating if a random number collides inside this month
+                        while (isDuplicate)
+                        {
+                            generatedNumber = $"{prefix}-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
+                            isDuplicate = await ctx.PurchaseOrders.AnyAsync(p => p.CompanyId == po.CompanyId && p.OrderNumber == generatedNumber);
+                        }
+                        po.OrderNumber = generatedNumber;
                     }
 
                     foreach (var line in po.Lines)
@@ -199,7 +214,7 @@ namespace Primafit_ERP.Services
                         line.PurchaseOrderId = po.Id;
                     }
                     ctx.PurchaseOrders.Add(po);
-                }   
+                }
                 else
                 {
                     if (existing.IsInvoicePosted || existing.HasReceipt)
@@ -213,13 +228,11 @@ namespace Primafit_ERP.Services
 
                     po.CompanyId = existing.CompanyId;
                     po.OrderNumber = existing.OrderNumber;
-
-                    // Add this to prevent accidental un-linking if the UI forgets to send it
                     po.ConvertedFromRequestNumber = existing.ConvertedFromRequestNumber;
 
                     ctx.Entry(existing).CurrentValues.SetValues(po);
-
                     ctx.PurchaseOrderLines.RemoveRange(existing.Lines);
+
                     foreach (var line in po.Lines)
                     {
                         line.PurchaseOrderId = po.Id;
@@ -227,7 +240,6 @@ namespace Primafit_ERP.Services
                         ctx.PurchaseOrderLines.Add(line);
                     }
                 }
-                // ...
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;
@@ -250,11 +262,22 @@ namespace Primafit_ERP.Services
             bool alreadyConverted = await ctx.PurchaseOrders.AnyAsync(o => o.ConvertedFromRequestNumber == req.OrderNumber);
             if (alreadyConverted) return "This Request has already been converted.";
 
+            // --- FIXED: COLLISION CONTROL LOOP FOR AUTOGENERATED NUMBER ---
+            bool isDuplicate = true;
+            string generatedPoNumber = string.Empty;
+
+            while (isDuplicate)
+            {
+                generatedPoNumber = $"PO-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
+                // Enforce uniqueness within the target company boundary
+                isDuplicate = await ctx.PurchaseOrders.AnyAsync(o => o.CompanyId == req.CompanyId && o.OrderNumber == generatedPoNumber);
+            }
+
             var order = new PurchaseOrder
             {
                 Id = Guid.NewGuid(),
                 CompanyId = req.CompanyId,
-                OrderNumber = $"PO-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
+                OrderNumber = generatedPoNumber, // Assigned safely via the collision check
                 ConvertedFromRequestNumber = req.OrderNumber,
                 TaxId = req.TaxId,
                 TaxGLAccountId = req.TaxGLAccountId,
@@ -325,7 +348,6 @@ namespace Primafit_ERP.Services
 
                 decimal totalGrossForeign = 0;
 
-                // --- THE FIX: ITERATE OVER THE FULL PO LINES INSTEAD OF PARTIAL GRN LINES ---
                 foreach (var poLine in po.Lines)
                 {
                     if (poLine.QuantityOrdered > 0)
@@ -385,13 +407,29 @@ namespace Primafit_ERP.Services
                 }
 
                 // 3. CREDIT: Discount Received (Income / Contra-Expense)
-                if (discountBase > 0 && po.DiscountGlAccountId.HasValue)
+                if (discountBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = po.DiscountGlAccountId.Value, Debit = 0, Credit = discountBase, Reference = $"Discount Received: {bill.ExternalInvoiceNumber}" });
+                    // --- THE FIX: INTERCEPT DISCOUNT RECEIVED ---
+                    Guid discountAccount = await _mappingService.GetMappedAccountAsync(
+                        companyId,
+                        SystemTransactionType.DiscountReceived,
+                        isDebit: false, // Discount Received is a Credit/Income
+                        defaultAccountId: po.DiscountGlAccountId ?? Guid.Empty);
+
+                    if (discountAccount == Guid.Empty) return "A discount was applied, but no Discount Received GL Account is mapped.";
+
+                    glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = discountBase, Reference = $"Discount Received: {bill.ExternalInvoiceNumber}" });
                 }
 
                 // 4. CREDIT: Accounts Payable (The actual net amount we owe the vendor)
-                glLines.Add(new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = 0, Credit = grandTotalBase, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" });
+                // --- THE FIX: INTERCEPT ACCOUNTS PAYABLE ---
+                Guid apAccount = await _mappingService.GetMappedAccountAsync(
+                    companyId,
+                    SystemTransactionType.PurchaseInvoice,
+                    isDebit: false, // AP is a Credit
+                    defaultAccountId: bill.AccountsPayableGlId);
+
+                glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = 0, Credit = grandTotalBase, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" });
 
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
@@ -804,7 +842,7 @@ namespace Primafit_ERP.Services
                 if (vendor == null) return "Selected vendor does not exist.";
 
                 if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
-                    bill.ExternalInvoiceNumber = $"DIR-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
+                    bill.ExternalInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
 
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1;
                 decimal totalGrossForeign = 0;
@@ -814,7 +852,14 @@ namespace Primafit_ERP.Services
                 // 1. Process Lines (DEBIT EXPENSES)
                 foreach (var line in bill.Lines)
                 {
-                    if (line.ExpenseGlAccountId == Guid.Empty) return "An Expense GL Account is strictly required for all lines.";
+                    // --- THE FIX: We pass Guid.Empty because the UI no longer provides it ---
+                    Guid expenseAccount = await _mappingService.GetMappedAccountAsync(
+                        bill.CompanyId,
+                        SystemTransactionType.DirectPurchaseInvoice,
+                        isDebit: true, // Expenses are Debits
+                        defaultAccountId: Guid.Empty);
+
+                    if (expenseAccount == Guid.Empty) return "An Expense GL Account is required for Direct Bills. Please configure it in GL Mapping Settings.";
 
                     decimal lineTotalForeign = line.QuantityBilled * line.UnitCostBilled;
                     totalGrossForeign += lineTotalForeign;
@@ -822,14 +867,13 @@ namespace Primafit_ERP.Services
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
                     grossBaseForLedger += lineTotalBase;
 
-                    // UPDATED: Use the specific line Description for the GL Journal Reference!
                     string glRef = !string.IsNullOrWhiteSpace(line.Description)
                         ? line.Description
                         : $"Direct Bill: {bill.ExternalInvoiceNumber ?? "Expense"}";
 
                     glLines.Add(new GLJournalLine
                     {
-                        SegCoaId = line.ExpenseGlAccountId,
+                        SegCoaId = expenseAccount,
                         Debit = lineTotalBase,
                         Credit = 0,
                         Reference = glRef
@@ -861,13 +905,19 @@ namespace Primafit_ERP.Services
                 // 3. Accounts Payable (CREDIT AP LIABILITY)
                 bill.TotalAmountForeign = totalGrossForeign + taxForeign;
 
-                // We calculate base by summing the precise ledger debits to avoid rounding imbalances!
                 decimal actualCreditBase = grossBaseForLedger + taxBaseForLedger;
                 bill.TotalAmount = actualCreditBase;
 
+                // --- THE FIX: INTERCEPT ACCOUNTS PAYABLE FOR DIRECT BILLS ---
+                Guid apAccount = await _mappingService.GetMappedAccountAsync(
+                    bill.CompanyId,
+                    SystemTransactionType.DirectPurchaseInvoice,
+                    isDebit: false, // AP is a Credit
+                    defaultAccountId: bill.AccountsPayableGlId);
+
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = bill.AccountsPayableGlId,
+                    SegCoaId = apAccount,
                     Debit = 0,
                     Credit = actualCreditBase,
                     Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}"
@@ -917,7 +967,7 @@ namespace Primafit_ERP.Services
             return await ctx.VendorBills
                 .AsNoTracking()
                 .Include(b => b.Lines)
-                .Include(b => b.Payments) // <--- Add this line!
+                .Include(b => b.Payments)
                 .Where(b => b.CompanyId == companyId && b.IsDirectBill == true)
                 .OrderByDescending(b => b.BillDate)
                 .ToListAsync();
@@ -1576,7 +1626,7 @@ namespace Primafit_ERP.Services
 
             return reportData;
         }
-        
+
 
     }
 }

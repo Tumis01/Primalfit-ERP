@@ -95,6 +95,9 @@ namespace PrimafitERP.Data
         public DbSet<PayrollSetting> PayrollSettings { get; set; }
         public DbSet<PayrollEarning> PayrollEarnings { get; set; }
         public DbSet<PayrollDeduction> PayrollDeductions { get; set; }
+        public DbSet<TransactionGlMapping> TransactionGlMappings { get; set; }
+        public DbSet<CompanyEmailSetting> CompanyEmailSettings { get; set; }
+        public DbSet<CustomTransactionType> CustomTransactionTypes { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);

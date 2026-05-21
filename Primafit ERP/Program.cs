@@ -94,7 +94,9 @@ builder.Services.AddScoped<HrSetupService>();
 builder.Services.AddScoped<PermissionCacheService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<TransactionMappingService>();
 var app = builder.Build();
+
 
 // --- 5. HTTP REQUEST PIPELINE ---
 if (!app.Environment.IsDevelopment())

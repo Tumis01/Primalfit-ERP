@@ -309,35 +309,48 @@
             : eligibleInvoices.Where(i => i.CustomerName.Contains(invoiceSearchTerm, StringComparison.OrdinalIgnoreCase));
 
         // CHANGED: Using OnParametersSetAsync to correctly catch route ID changes without refreshing!
-        protected override async Task OnParametersSetAsync()
-        {
+    protected override async Task OnParametersSetAsync()
+    {
         if (!PermissionCache.Has("CREDIT_NOTE_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
-            if (IsNew)
-            {
-                if (InvoiceId.HasValue && selectedInvoiceId != InvoiceId.Value)
-                {
-                    selectedInvoiceId = InvoiceId.Value;
-                    await InitializeDraft();
-                }
-                else if (!eligibleInvoices.Any())
-                {
-                    await LoadEligibleInvoices();
-                }
-            }
-            else
-            {
-                // The ID in the URL changed, so load the correct Credit Note data
-                var cn = await CnService.GetByIdAsync(Id.Value);
-                if (cn != null) currentCn = cn;
-                else Nav.NavigateTo("/sales/credit-notes");
 
-                if (!warehouses.Any())
-                {
-                    using var ctx = await DbFactory.CreateDbContextAsync();
-                    warehouses = await ctx.Warehouses.AsNoTracking().ToListAsync();
-                }
+        // Resolve identity framework details
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId == null)
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        Guid companyId = user.CompanyDetailsId.Value;
+
+        if (IsNew)
+        {
+            if (InvoiceId.HasValue && selectedInvoiceId != InvoiceId.Value)
+            {
+                selectedInvoiceId = InvoiceId.Value;
+                await InitializeDraft();
+            }
+            else if (!eligibleInvoices.Any())
+            {
+                await LoadEligibleInvoices();
             }
         }
+        else
+        {
+            // Enforce company isolation when retrieving the operational record
+            var cn = await CnService.GetByIdAsync(Id.Value, companyId);
+            if (cn != null) currentCn = cn;
+            else Nav.NavigateTo("/sales/credit-notes");
+
+            if (!warehouses.Any())
+            {
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
+            }
+        }
+    }
 
         private async Task LoadEligibleInvoices()
         {
@@ -483,8 +496,10 @@
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Credit Note Posted Successfully!");
-                currentCn = await CnService.GetByIdAsync(currentCn.Id) ?? currentCn;
-                StateHasChanged();
+            Guid companyId = user.CompanyDetailsId ?? Guid.Empty;
+
+            currentCn = await CnService.GetByIdAsync(currentCn.Id, companyId) ?? currentCn;
+            StateHasChanged();
             }
             else
             {

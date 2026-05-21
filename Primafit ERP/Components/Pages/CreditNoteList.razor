@@ -3,7 +3,11 @@
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 @inject CreditNoteService CnService
@@ -125,8 +129,18 @@
     protected override async Task OnInitializedAsync()
     {
         if (!PermissionCache.Has("CREDIT_NOTE_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
+
+        // 1. Get the current user's Company ID
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId == null) return;
+        var companyId = user.CompanyDetailsId.Value;
+
+        // 2. Filter the query strictly by CompanyId
         using var ctx = await DbFactory.CreateDbContextAsync();
         creditNotes = await ctx.CreditNotes
+            .Where(c => c.CompanyId == companyId)
             .Include(c => c.Customer)
             .Include(c => c.Currency)
             .Include(c => c.SalesOrder)

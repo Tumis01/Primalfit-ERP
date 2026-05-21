@@ -153,6 +153,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
                                             <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
+                                            <NavLink href="gl/adjustment" class="@NestedNavLink" activeClass="@NestedNavActive">Adjustment</NavLink>
                     
                                             @* Further restrict highly sensitive links inside the open folder *@
                                             <PermissionGate Key="RECON_START">
@@ -235,6 +236,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="sc/sales-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Orders</NavLink>
                                             <NavLink href="/ar/direct-invoices" class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
+                                            <NavLink href="/finance/ar-adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Ar Adjustment</NavLink>
                                             <NavLink href="ar/payment-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Receipt</NavLink>
                                             <NavLink href="sales/credit-notes" class="@NestedNavLink" activeClass="@NestedNavActive">Credit Notes</NavLink>
                                             <NavLink href="wh/shipments" class="@NestedNavLink" activeClass="@NestedNavActive">Shipments</NavLink>
@@ -303,6 +305,7 @@
                                     {
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="procurement/purchase-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase Orders</NavLink>
+                                            <NavLink href="/finance/ap-adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Ap Adjustment</NavLink>
                                             <NavLink href="/ap/direct-bills" class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
                                             <NavLink href="ap/bill-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Bills</NavLink>
                                             <NavLink href="purchases/returns" class="@NestedNavLink" activeClass="@NestedNavActive">Returns to Vendor</NavLink>
@@ -374,6 +377,7 @@
                                     @if (_inventoryTransOpen)
                                     {
                                         <div class="space-y-0.5 mb-2">
+                                            <NavLink href="/inventory/adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Adjustment</NavLink>
                                             <NavLink href="sc/stock-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Entry & Adj.</NavLink>
                                             <NavLink href="sc/transfers" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Transfer</NavLink>
                                             <NavLink href="supply-chain/issue-to-project" class="@NestedNavLink" activeClass="@NestedNavActive">Issue to Project</NavLink>
@@ -541,6 +545,12 @@
                     <div class="space-y-1 pt-1">
                         <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
                             <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
+                        </NavLink>
+                        <NavLink href="setup/gl-mapping" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Transaction Types
+                        </NavLink>
+                        <NavLink href="Setup/email-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Email configuration
                         </NavLink>
                         
                         <PermissionGate Key="USERS_SETUP_PAGE">

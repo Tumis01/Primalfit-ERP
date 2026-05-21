@@ -507,7 +507,7 @@
                             <h4 class="font-extrabold text-xs uppercase tracking-wider text-emerald-800 mb-4 flex items-center gap-2">
                                 Discount Received
                             </h4>
-                            <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label text-[10px]">Percentage (%)</label>
                                     <input type="number" @bind="currentOrder.DiscountPercentage"
@@ -522,24 +522,7 @@
                                 </div>
                             </div>
 
-                            @if ((currentOrder.DiscountPercentage > 0 || currentOrder.DiscountAmount > 0) && !IsLocked)
-                            {
-                                <div class="pt-2 border-t border-emerald-200/50">
-                                    <SearchableGlAccount Label="Discount Income Account (Credit)"
-                                                         Placeholder="Select Income GL..."
-                                                         Accounts="@discountAccounts"
-                                                         @bind-Value="SelectedDiscountGlAccountId"
-                                                         IsInvalid="@(currentOrder.DiscountGlAccountId == null || currentOrder.DiscountGlAccountId == Guid.Empty)" />
-                                </div>
-                            }
-                            else if (IsLocked && currentOrder.DiscountGlAccountId != null)
-                            {
-                                <div class="text-xs text-slate-500 font-bold bg-white p-3 rounded-lg border border-emerald-100 shadow-sm mt-2">
-                                    GL Acc: @(discountAccounts.FirstOrDefault(a => a.Id == currentOrder.DiscountGlAccountId)?.AccountCode ?? "Unknown")
-                                </div>
-                            }
                         </div>
-
                         <div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm">
                             <div class="flex justify-between">
                                 <span>Subtotal:</span>
@@ -650,16 +633,14 @@
                     <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
                 </div>
             </div>
-
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <button type="button" @onclick="() => showEmailPopup = false" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
                     Skip
                 </button>
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
                     @if (isSendingEmail)
                     {
-                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Sending...</span>
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
                     }
                     else
                     {
@@ -1065,18 +1046,31 @@
         }
     }
 
+    // --- REFACTORED INVOICE GENERATION PIPELINE ---
     private async Task AutoPostInvoice(PurchaseOrder po)
     {
         isPostingId = po.Id;
-
-        // Passed currentUserId here
         var err = await PurchService.AutoPostVendorBillFromPOAsync(po.Id, currentCompanyId, currentUserId);
-
         isPostingId = Guid.Empty;
 
         if (string.IsNullOrEmpty(err))
         {
             await LoadData();
+
+            // --- MULTI-TENANT TOGGLE CONTROL SWITCH ENFORCEMENT ---
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+            bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+            // If checked off, exit layout, alert user, and bypass email completely
+            if (!showPopupToggle)
+            {
+                await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
+                showEmailPopup = false;
+                activeTab = 0; // Cleanly drops out of document form mode back to listing view grid
+                StateHasChanged();
+                return;
+            }
 
             var vendor = vendors.FirstOrDefault(v => v.Id == po.VendorId);
             emailTargetPoId = po.Id;

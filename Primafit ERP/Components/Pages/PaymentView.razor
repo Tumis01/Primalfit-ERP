@@ -774,7 +774,6 @@
             activeTab = 0;
         }
     }
-
     private async Task PostPayment()
     {
         if (!HasInvoiceSelected) { await JS.InvokeVoidAsync("alert", "Please select a Sales Order Invoice."); return; }
@@ -805,12 +804,10 @@
             var saveErr = await PayService.SavePaymentAsync(payment);
             if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
 
-            // Passed currentUserId here
             var postErr = await PayService.PostPaymentAsync(payment.Id, currentUserId);
 
             if (string.IsNullOrEmpty(postErr))
             {
-                // Capture details for email BEFORE clearing the form
                 var cust = customers.FirstOrDefault(c => c.Id == payment.CustomerId);
                 Guid targetInvId = SelectedInvoice!.InvoiceId;
                 string invNum = SelectedInvoice!.OrderNumber;
@@ -825,7 +822,20 @@
                 payment.AmountReceived = 0;
                 payment.Reference = "";
 
-                // Prompt email instead of standard alert
+                // --- GLOBAL COMM PREFERENCE TOGGLE EVALUATION ---
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+                bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+                if (!showPopupToggle)
+                {
+                    await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!");
+                    showEmailPopup = false;
+                    activeTab = 0; // Drops out of payment collection wizard to statuses overview table
+                    StateHasChanged();
+                    return;
+                }
+
                 await PromptEmailPopup(cust, targetInvId, invNum, amt, remBal, cur);
             }
             else
@@ -840,6 +850,37 @@
         finally
         {
             isBusy = false;
+        }
+    }
+
+    private async Task PrepareEmailReceipt(Guid invoiceId)
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+        bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+        if (!showPopupToggle)
+        {
+            await JS.InvokeVoidAsync("alert", "Manual email composition prompts are currently disabled in ledger communication parameters.");
+            return;
+        }
+
+        emailTargetInvoiceId = invoiceId;
+        var row = invoiceStatuses.FirstOrDefault(i => i.InvoiceId == invoiceId);
+        var customer = customers.FirstOrDefault(c => c.Name == row?.CustomerName);
+
+        if (customer != null && !string.IsNullOrWhiteSpace(customer.Email))
+        {
+            emailCustomerName = customer.Name;
+            emailCustomerAddress = customer.Email;
+            emailSubject = $"Payment Receipt - {row?.OrderNumber}";
+            customEmailMessage = $"Dear {customer.Name},\n\nPlease find attached the payment receipt for {row?.OrderNumber}.\n\nCurrent Balance Due: {row?.CurrencyCode} {row?.BalanceDue:N2}\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
+
+            showEmailPopup = true;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "This customer does not have an email address on file.");
         }
     }
     private Guid emailTargetInvoiceId = Guid.Empty;
@@ -886,28 +927,7 @@
         }
     }
 
-    // --- 3. PREPARE EMAIL FROM TABLE BUTTON ---
-    private void PrepareEmailReceipt(Guid invoiceId)
-    {
-        emailTargetInvoiceId = invoiceId;
-        var row = invoiceStatuses.FirstOrDefault(i => i.InvoiceId == invoiceId);
-        var customer = customers.FirstOrDefault(c => c.Name == row?.CustomerName);
-
-        if (customer != null && !string.IsNullOrWhiteSpace(customer.Email))
-        {
-            emailCustomerName = customer.Name;
-            emailCustomerAddress = customer.Email;
-            emailSubject = $"Payment Receipt - {row?.OrderNumber}";
-
-            customEmailMessage = $"Dear {customer.Name},\n\nPlease find attached the payment receipt for {row?.OrderNumber}.\n\nCurrent Balance Due: {row?.CurrencyCode} {row?.BalanceDue:N2}\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
-
-            showEmailPopup = true;
-        }
-        else
-        {
-            JS.InvokeVoidAsync("alert", "This customer does not have an email address on file.");
-        }
-    }
+    
 
     // --- 4. DISPATCH EMAIL (WITH ATTACHMENT) ---
     private async Task DispatchEmail()

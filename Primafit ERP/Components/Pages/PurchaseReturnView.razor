@@ -3,7 +3,11 @@
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 @inject CreditNoteService CnService
@@ -165,9 +169,18 @@
             return;
         }
 
+        // 1. Get the current user's Company ID
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId == null) return;
+        var companyId = user.CompanyDetailsId.Value;
+
         using var ctx = await DbFactory.CreateDbContextAsync();
 
+        // 2. Filter the query strictly by CompanyId
         returns = await ctx.PurchaseReturns
+            .Where(r => r.CompanyId == companyId) 
             .Include(r => r.Lines)
             .OrderByDescending(r => r.ReturnDate)
             .AsNoTracking()

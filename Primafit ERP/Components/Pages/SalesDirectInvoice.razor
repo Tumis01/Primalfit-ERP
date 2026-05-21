@@ -6,6 +6,7 @@
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.IO
 
 @inject SalesService SalesService
 @inject CompanyApiService CompanyService
@@ -15,6 +16,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject ReportExportService ExportService
+@inject IEmailService EmailService
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
@@ -27,11 +29,11 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Direct AR Invoice</h1>
             <p class="text-sm text-slate-500 mt-1">Create free-text invoices directly to a GL Income account without affecting inventory.</p>
         </div>
-        
+
         @if (!showForm && HasCompany && !isLoading)
         {
             <PermissionGate Key="SALES_ORDER_CREATE">
-                 <Authorized>
+                <Authorized>
                     <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                         Create Invoice
@@ -50,12 +52,12 @@
         @if (showForm)
         {
             <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible mb-8">
-                
-                <EditForm Model="invoice"> 
+
+                <EditForm Model="invoice">
                     <DataAnnotationsValidator />
 
                     <div class="p-6 md:p-8 space-y-8">
-                        
+
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
                             <div>
                                 <label class="label">Customer <span class="text-rose-500">*</span></label>
@@ -73,17 +75,6 @@
                                 <input type="date" value="@invoice.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) invoice.Date = d; })" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
-                            <div class="hidden">
-                                <label class="label text-emerald-700">Credit GL Account (Revenue) <span class="text-rose-500">*</span></label>
-                                <select @bind="invoice.DirectIncomeGlAccountId" class="input-class bg-white border-emerald-200 font-bold text-emerald-800 focus:border-emerald-500" disabled="@IsLocked">
-                                    <option value="">-- Select Income Account --</option>
-                                    @foreach (var acc in revenueAccounts)
-                                    {
-                                        <option value="@acc.Id">@acc.AccountCode - @acc.Description</option>
-                                    }
-                                </select>
-                            </div>
-
                             <div>
                                 <label class="label">Currency & Rate</label>
                                 <div class="flex gap-2">
@@ -97,7 +88,7 @@
                                     <input type="number" step="0.01" @bind="invoice.ExchangeRate" class="input-class w-2/3 text-right font-mono font-bold bg-white" disabled="@IsLocked" />
                                 </div>
                             </div>
-                            
+
                             <div>
                                 <label class="label">Tax / VAT</label>
                                 <select value="@invoice.TaxId" @onchange="OnTaxChanged" class="input-class bg-white" disabled="@IsLocked">
@@ -108,18 +99,6 @@
                                     }
                                 </select>
                             </div>
-
-                            @if (invoice.TaxId != null)
-                            {
-                                <div class="hidden">
-                                    <SearchableGlAccount Label="Tax GL Account (Asset/Input)"
-                                                         Placeholder="Search Tax GL..."
-                                                         Accounts="@taxAccounts"
-                                                         Value="@(invoice.TaxGLAccountId ?? Guid.Empty)"
-                                                         ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => invoice.TaxGLAccountId = val == Guid.Empty ? null : val))"
-                                                         IsInvalid="@(invoice.TaxGLAccountId == null || invoice.TaxGLAccountId == Guid.Empty)" />
-                                </div>
-                            }
                         </div>
 
                         <div class="border border-slate-200 rounded-xl shadow-sm">
@@ -203,9 +182,12 @@
                                 <span class="px-3 py-1.5 bg-emerald-100 text-emerald-800 font-bold text-xs rounded-lg border border-emerald-200 uppercase tracking-wider flex items-center gap-1.5">
                                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Posted
                                 </span>
-                                
+
                                 <button type="button" @onclick="() => DownloadInvoice(invoice)" disabled="@isExporting" class="px-5 py-1.5 rounded-lg border border-slate-300 text-slate-700 bg-white font-bold text-xs hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:opacity-50 shadow-sm">
-                                    @if (isExporting) { <span class="animate-spin">↻</span> }
+                                    @if (isExporting)
+                                    {
+                                        <span class="animate-spin">↻</span>
+                                    }
                                     Download Invoice
                                 </button>
                             </div>
@@ -216,18 +198,29 @@
                         </button>
 
                         <button type="button" @onclick="() => ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty)" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-white transition-colors">
-                            @if (IsLocked) { <span>New Invoice</span> } else { <span>Clear</span> }
+                            @if (IsLocked)
+                            {
+                                <span>New Invoice</span>
+                            }
+                            else
+                            {
+
+                                <span>Clear</span>
+                            }
                         </button>
 
                         @if (!IsLocked)
                         {
                             <PermissionGate Key="SALES_INVOICE_POST">
-                                                    <Authorized>
-                            <button type="button" @onclick="PostInvoice" disabled="@isBusy" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
-                                @if (isBusy) { <span class="animate-spin">↻</span> }
-                                Post Invoice
-                            </button>
-                            </Authorized>
+                                <Authorized>
+                                    <button type="button" @onclick="PostInvoice" disabled="@isBusy" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                                        @if (isBusy)
+                                        {
+                                            <span class="animate-spin">↻</span>
+                                        }
+                                        Post Invoice
+                                    </button>
+                                </Authorized>
                             </PermissionGate>
                         }
                     </div>
@@ -265,7 +258,6 @@
                         {
                             @foreach (var pInv in pastInvoices)
                             {
-                                // We simplified the HTML block by calculating GrandTotal and AmountPaid safely in FetchPastInvoices
                                 decimal pGrandBase = pInv.GrandTotalForeign * (pInv.ExchangeRate > 0 ? pInv.ExchangeRate : 1);
                                 string pCurr = pInv.Currency?.CurrencyCode ?? "N/A";
 
@@ -296,7 +288,7 @@
                                         <button type="button" @onclick="() => LoadInvoiceForView(pInv)" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 text-xs font-bold transition-colors">
                                             View
                                         </button>
-                                        
+
                                         @if (pInv.Status == OrderStatus.Invoiced)
                                         {
                                             @if (pInv.IsFullyPaid)
@@ -321,15 +313,94 @@
                 </table>
             </div>
         </div>
-
     }
 </div>
 
+@if (showEmailPopup)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+
+            <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Invoice via Email</h3>
+                <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="label">To Customer:</label>
+                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailCustomerName} <{emailCustomerAddress}>")" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Subject:</label>
+                    <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Professional Message:</label>
+                    <textarea @bind="customEmailMessage" class="input-class h-36 resize-none text-sm text-slate-700"></textarea>
+                </div>
+
+                <div class="flex items-center gap-2 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-700 text-xs font-bold">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+                    A PDF copy of the invoice will be attached automatically.
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                    Skip
+                </button>
+                <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
+                    @if (isSendingEmail)
+                    {
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
+                    }
+                    else
+                    {
+                        <span>Send Email</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
-    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: border-color 0.2s; }
-    .input-class:focus { border-color: #059669; box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15); }
-    .input-class:disabled { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        color: #0f172a;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #059669;
+            box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+        }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
 </style>
 
 @code {
@@ -347,9 +418,18 @@
     private List<Tax> taxes = new();
     private List<SegChartOfAccount> revenueAccounts = new();
     private List<SegChartOfAccount> taxAccounts = new();
-    
+
     private string currencySymbol = "";
     private bool IsLocked => invoice.Status == OrderStatus.Invoiced;
+
+    // Email Modal Backing Fields
+    private bool showEmailPopup = false;
+    private bool isSendingEmail = false;
+    private Guid emailTargetInvoiceId = Guid.Empty;
+    private string emailCustomerName = "";
+    private string emailCustomerAddress = "";
+    private string emailSubject = "";
+    private string customEmailMessage = "";
 
     // Math logic mapped to handle foreign currency correctly
     private decimal SubTotalForeign => invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
@@ -370,7 +450,6 @@
         if (user?.CompanyDetailsId != null)
         {
             currentUserId = user.Id;
-
             selectedCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
         }
@@ -379,22 +458,22 @@
 
     private async Task LoadData()
     {
-        await using var ctx = await DbFactory.CreateDbContextAsync(); 
-        
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+
         customers = await ctx.Customers.Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
-        
-        revenueAccounts = allAccounts.Where(a => 
-        {
-            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-            return type != null && type.IsBalanceSheet == false && type.IsDebit == false && a.IsActive;
-        }).OrderBy(x => x.AccountCode).ToList();
 
-        taxAccounts = allAccounts.Where(a => 
+        revenueAccounts = allAccounts.Where(a =>
+                {
+                    var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                    return type != null && type.IsBalanceSheet == false && type.IsDebit == false && a.IsActive;
+                }).OrderBy(x => x.AccountCode).ToList();
+
+        taxAccounts = allAccounts.Where(a =>
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.IsBalanceSheet == true && a.IsActive;
@@ -403,24 +482,22 @@
         Guid defaultIncomeGl = revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty;
 
         await FetchPastInvoices();
-
         ResetForm(defaultIncomeGl);
     }
 
     private async Task FetchPastInvoices()
     {
         await using var ctx = await DbFactory.CreateDbContextAsync();
-        
-        var invoices = await ctx.SalesOrders
-            .Include(o => o.Customer)
-            .Include(o => o.Currency)
-            .Include(o => o.Lines)
-            .Where(o => o.CompanyId == selectedCompanyId && o.IsDirectInvoice)
-            .OrderByDescending(o => o.Date)
-            .AsNoTracking()
-            .ToListAsync();
 
-        // Ensure we load payment history so the "Paid" badge logic functions accurately
+        var invoices = await ctx.SalesOrders
+                    .Include(o => o.Customer)
+                    .Include(o => o.Currency)
+                    .Include(o => o.Lines)
+                    .Where(o => o.CompanyId == selectedCompanyId && o.IsDirectInvoice)
+                    .OrderByDescending(o => o.Date)
+                    .AsNoTracking()
+                    .ToListAsync();
+
         var invoiceIds = invoices.Select(i => i.Id).ToList();
         var payments = await ctx.PaymentApplications
             .Where(pa => invoiceIds.Contains(pa.InvoiceId))
@@ -428,14 +505,13 @@
             .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
             .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
-        // Pre-calculate math to hydrate the IsFullyPaid property
         foreach (var inv in invoices)
         {
             decimal pSubTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
             decimal pDiscount = inv.DiscountPercentage > 0 ? pSubTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
             decimal pNet = pSubTotal - pDiscount;
             decimal pTaxPer = inv.TaxId.HasValue && taxes.FirstOrDefault(t => t.Id == inv.TaxId) != null ? taxes.FirstOrDefault(t => t.Id == inv.TaxId)!.Per : 0;
-            
+
             inv.GrandTotalForeign = pNet + (pNet * (pTaxPer / 100));
             inv.AmountPaid = payments.ContainsKey(inv.Id) ? payments[inv.Id] : 0;
         }
@@ -456,9 +532,9 @@
 
     private void ResetForm(Guid defaultIncomeGl)
     {
-        invoice = new SalesOrder 
-        { 
-            CompanyId = selectedCompanyId, 
+        invoice = new SalesOrder
+        {
+            CompanyId = selectedCompanyId,
             Date = DateOnly.FromDateTime(DateTime.Today),
             ExchangeRate = 1,
             DirectIncomeGlAccountId = defaultIncomeGl
@@ -475,7 +551,7 @@
         {
             invoice.CustomerId = custId;
             var customer = customers.FirstOrDefault(c => c.Id == custId);
-            
+
             if (customer != null && customer.CurrencyId != Guid.Empty)
             {
                 invoice.CurrencyId = customer.CurrencyId;
@@ -534,13 +610,44 @@
         isBusy = true;
         StateHasChanged();
 
-        // Passed currentUserId here
         var err = await SalesService.PostDirectInvoiceAsync(invoice, currentUserId);
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Direct Invoice Posted Successfully!");
             await FetchPastInvoices();
+
+            // 1. Check corporate configuration safety toggle switch
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+            var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
+            bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+            if (!showPopupToggle)
+            {
+                await JS.InvokeVoidAsync("alert", "Direct Invoice Posted Successfully!");
+                showForm = false; // Collapse entry layout view back to historical grid list
+                ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
+                isBusy = false;
+                StateHasChanged();
+                return;
+            }
+
+            // 2. Hydrate composition context if configuration preference permits
+            var targetCustomer = customers.FirstOrDefault(c => c.Id == invoice.CustomerId);
+            if (targetCustomer != null && !string.IsNullOrWhiteSpace(targetCustomer.Email))
+            {
+                emailTargetInvoiceId = invoice.Id;
+                emailCustomerName = targetCustomer.Name;
+                emailCustomerAddress = targetCustomer.Email;
+                emailSubject = $"Invoice {invoice.OrderNumber} ";
+                customEmailMessage = $"Dear {targetCustomer.Name},\n\nPlease find attached our official invoice {invoice.OrderNumber} issued regarding services rendered.\n\nTotal Due: {currencySymbol}{invoice.GrandTotalForeign:N2}.\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
+
+                showEmailPopup = true;
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!\n(No email sent: Customer missing email address).");
+                showForm = false;
+            }
             ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
         }
         else
@@ -552,10 +659,47 @@
         StateHasChanged();
     }
 
+    private async Task DispatchEmail()
+    {
+        if (emailTargetInvoiceId == Guid.Empty) return;
+
+        isSendingEmail = true;
+        try
+        {
+            var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+            var printInvoice = pastInvoices.FirstOrDefault(i => i.Id == emailTargetInvoiceId) ?? invoice;
+
+            var pdfBytes = ExportService.GenerateDirectInvoicePdf(printInvoice, company);
+            var fileName = $"AR_Invoice_{printInvoice.OrderNumber}.pdf";
+
+            await EmailService.SendEmailAsync(
+                emailCustomerAddress,
+                emailSubject,
+                customEmailMessage.Replace("\n", "<br>"),
+                pdfBytes,
+                fileName
+            );
+
+            await JS.InvokeVoidAsync("alert", "Invoice emailed successfully!");
+            showEmailPopup = false;
+            showForm = false; // Safely return layout to view grid
+            emailTargetInvoiceId = Guid.Empty;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Failed to send email: {ex.Message}");
+        }
+        finally
+        {
+            isSendingEmail = false;
+            StateHasChanged();
+        }
+    }
+
     private void LoadInvoiceForView(SalesOrder selectedInvoice)
     {
         invoice = selectedInvoice;
-        
+
         var customer = customers.FirstOrDefault(c => c.Id == invoice.CustomerId);
         if (customer != null && customer.CurrencyId != Guid.Empty)
         {
@@ -570,7 +714,6 @@
         JS.InvokeVoidAsync("window.scrollTo", new { top = 0, behavior = "smooth" });
     }
 
-    // Handles the Payment navigation click
     private void NavigateToPayment(Guid invoiceId)
     {
         NavManager.NavigateTo($"/ar/payment-entry?invoiceId={invoiceId}");
@@ -579,20 +722,20 @@
     private async Task DownloadInvoice(SalesOrder targetInvoice)
     {
         if (targetInvoice == null || targetInvoice.Id == Guid.Empty) return;
-        
+
         isExporting = true;
         try
         {
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company == null) return;
 
-            targetInvoice.GrandTotalForeign = targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) 
+            targetInvoice.GrandTotalForeign = targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice)
                                             - (targetInvoice.DiscountPercentage > 0 ? targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) * (targetInvoice.DiscountPercentage / 100) : targetInvoice.DiscountAmount)
                                             + ((targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) - (targetInvoice.DiscountPercentage > 0 ? targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) * (targetInvoice.DiscountPercentage / 100) : targetInvoice.DiscountAmount)) * (taxes.FirstOrDefault(t => t.Id == targetInvoice.TaxId)?.Per ?? 0) / 100);
 
             var pdfBytes = ExportService.GenerateDirectInvoicePdf(targetInvoice, company);
             var fileName = $"AR_Invoice_{targetInvoice.OrderNumber}.pdf";
-            
+
             using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
             await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
         }
