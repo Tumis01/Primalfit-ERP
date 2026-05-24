@@ -66,7 +66,7 @@
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm md:col-span-2 flex flex-col justify-between h-full">
             <div>
                 <span class="text-[10px] font-extrabold uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-wider inline-block mb-2">Active Mapping Routing Pipeline</span>
-                <p class="text-xs text-slate-500">Every line item entered below will be automatically balanced by this designated GL offset account:</p>
+                <p class="text-xs text-slate-500">Every line item entered below will be automatically balanced by this designated GL account:</p>
             </div>
             <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 
@@ -139,7 +139,7 @@
         <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between mt-auto">
             <button type="button" @onclick="AddRow" class="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-900 uppercase tracking-wide flex items-center gap-1">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
-                Add Entry Row
+                Add Line
             </button>
             <div class="text-right flex items-center gap-8">
                 <div>
@@ -164,7 +164,7 @@
             }
             else
             {
-                <span>Commit AP Adjustments</span>
+                <span>Post Adjustments</span>
             }
         </button>
     </div>

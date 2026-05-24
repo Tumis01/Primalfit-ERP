@@ -1,6 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Primafit_ERP.Services
 {
@@ -29,7 +33,6 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        // --- NEW: Fetch shipped history ---
         public async Task<List<SalesShipment>> GetShipmentHistoryAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -42,7 +45,6 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        // --- NEW: Fetch orders/invoices that still have physical goods to ship ---
         public async Task<List<SalesOrder>> GetUnshippedOrdersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -54,7 +56,6 @@ namespace Primafit_ERP.Services
                              o.Status == OrderStatus.PartiallyShipped || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 
-            // Filter in memory to find orders where physical items haven't been fully shipped
             return orders.Where(o => o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity)).ToList();
         }
 
@@ -66,12 +67,9 @@ namespace Primafit_ERP.Services
 
             if (order == null) return "Order not found.";
 
-            // FIX: Removed the "Status == Invoiced" block. 
-            // We now ONLY check if physical items actually need shipping.
             bool allShipped = order.Lines.Where(l => l.Item != null && !l.Item.IsService).All(l => l.QtyShipped >= l.Quantity);
             if (allShipped) return "All physical items for this order/invoice have already been shipped.";
 
-            // Check if a pending shipment already exists for this order
             bool hasPending = await ctx.SalesShipments.AnyAsync(s => s.SalesOrderId == orderId && s.Status == ShipmentStatus.Pending);
             if (hasPending) return "A pending dispatch document already exists for this order. Please process it first.";
 
@@ -109,7 +107,6 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // Added userId to method signature
         public async Task<string> PostShipmentAsync(Guid shipmentId, List<SalesShipmentLine> actualShippedLines, string confirmedBy, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -123,8 +120,6 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(s => s.Id == shipmentId);
 
                 if (shipment == null) return "Shipment not found.";
-
-                // IDEMPOTENCY: Prevent double-posting
                 if (shipment.Status != ShipmentStatus.Pending) return "Shipment is already processed.";
 
                 var glLines = new List<GLJournalLine>();
@@ -140,15 +135,29 @@ namespace Primafit_ERP.Services
 
                     if (inputLine.QtyShipped < dbLine.QtyOrdered) isPartial = true;
 
-                    // STRICT RULE: Fetch FRESH WAC directly from DB at the exact moment of shipment
+                    // Fetch FRESH tracking item directly from DB context
                     var freshItem = await ctx.Items.FindAsync(dbLine.ItemId);
-                    decimal currentWac = freshItem.WeightedAverageCost;
+                    if (freshItem == null) return $"Item tracking ID reference broken for {dbLine.ItemId}";
+
+                    // ENHANCED: Dynamic Cost Routing Strategy Engine
+                    decimal resolvedUnitCost = freshItem.CostingType switch
+                    {
+                        CostingMethod.WACC => freshItem.WeightedAverageCost,
+                        CostingMethod.StandardCosting => freshItem.StandardCost,
+                        CostingMethod.UserSpecified => freshItem.UserSpecifiedCost,
+                        CostingMethod.MostRecentCost => freshItem.MostRecentCost,
+
+                        // Fallback safely to WACC for queuing lines if batch-level tracking data isn't initialized
+                        CostingMethod.FIFO => freshItem.WeightedAverageCost,
+                        CostingMethod.LIFO => freshItem.WeightedAverageCost,
+                        _ => freshItem.WeightedAverageCost
+                    };
 
                     decimal currentStock = await _invService.GetStockLevel(dbLine.ItemId, shipment.WarehouseId);
                     if (currentStock < inputLine.QtyShipped)
                         return $"Fulfillment failed: Insufficient physical stock for {freshItem.Name}. Have: {currentStock}, Need: {inputLine.QtyShipped}";
 
-                    // 1. Physical Ledger Entry
+                    // 1. Physical Stock Ledger Entry
                     ctx.StockLedgers.Add(new StockLedger
                     {
                         Id = Guid.NewGuid(),
@@ -157,41 +166,36 @@ namespace Primafit_ERP.Services
                         WarehouseId = shipment.WarehouseId,
                         QuantityChanged = -inputLine.QtyShipped,
                         Type = StockMovementType.Sale,
-                        CostAtTime = currentWac,
+                        CostAtTime = resolvedUnitCost, // Injected the dynamically resolved method cost
                         Reference = shipment.ShipmentNumber,
                         Date = DateTime.UtcNow
                     });
 
-                    // 2. Financial GL Entry (COGS & Inventory Asset)
-                    decimal cogsValueBase = Math.Round(inputLine.QtyShipped * currentWac, 2);
-                    if (cogsValueBase > 0)
+                    // 2. Financial GL Entry Balancing Pair (COGS vs Inventory Asset)
+                    decimal totalCogsValue = Math.Round(inputLine.QtyShipped * resolvedUnitCost, 2);
+                    if (totalCogsValue > 0)
                     {
                         if (freshItem.CostOfGoodsSoldAccountId == Guid.Empty || freshItem.InventoryAssetAccountId == Guid.Empty)
                             return $"Item '{freshItem.Name}' is missing COGS or Inventory Asset GL account mappings. Cannot post to ledger.";
 
-                        glLines.Add(new GLJournalLine { SegCoaId = freshItem.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {freshItem.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = freshItem.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {freshItem.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = freshItem.CostOfGoodsSoldAccountId, Debit = totalCogsValue, Credit = 0, Reference = $"COGS {freshItem.Name} ({freshItem.CostingType})" });
+                        glLines.Add(new GLJournalLine { SegCoaId = freshItem.InventoryAssetAccountId, Debit = 0, Credit = totalCogsValue, Reference = $"Stock Out {freshItem.Name} ({freshItem.CostingType})" });
                     }
 
-                    // 3. Update Order Line QtyShipped
+                    // 3. Update Order Lines and Tracking Data
                     var soLine = shipment.SalesOrder.Lines.First(l => l.Id == dbLine.SalesOrderLineId);
                     soLine.QtyShipped += inputLine.QtyShipped;
-
                     dbLine.QtyShipped = inputLine.QtyShipped;
                 }
 
-                // POST BATCH
+                // Post Financial Journal Batch
                 if (glLines.Any())
                 {
-                    // Enforce Period: Journal date must match shipment confirmation date
-                    // PASSED userId HERE
                     var (err, batchId) = await _glOps.CreateJournalEntryAsync(shipment.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Shipment", $"Ship {shipment.ShipmentNumber}", glLines, userId);
                     if (!string.IsNullOrEmpty(err)) throw new Exception($"Journal Creation Failed: {err}");
 
                     if (batchId.HasValue)
                     {
-                        // THE FIX: Actually capture and handle GL Engine posting failures
-                        // PASSED userId HERE
                         var postErr = await _glOps.PostBatchAsync(shipment.CompanyId, batchId.Value, userId);
                         if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
 
@@ -205,7 +209,6 @@ namespace Primafit_ERP.Services
 
                 bool allShipped = shipment.SalesOrder.Lines.Where(l => l.Item != null && !l.Item.IsService).All(l => l.QtyShipped >= l.Quantity);
 
-                // Update Order Status cleanly
                 if (shipment.SalesOrder.Status != OrderStatus.Invoiced && shipment.SalesOrder.Status != OrderStatus.PartiallyInvoiced)
                 {
                     shipment.SalesOrder.Status = allShipped ? OrderStatus.Shipped : OrderStatus.PartiallyShipped;
@@ -213,7 +216,7 @@ namespace Primafit_ERP.Services
 
                 if (isPartial)
                 {
-                    await CreateShipmentFromOrderAsync(shipment.SalesOrderId); // Spawns backorder
+                    await CreateShipmentFromOrderAsync(shipment.SalesOrderId); // Triggers continuous backorder tracking
                 }
 
                 await ctx.SaveChangesAsync();

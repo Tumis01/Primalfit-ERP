@@ -83,15 +83,17 @@ namespace Primafit_ERP.Services
         // 1) Create Standard Journal Entry (Wrapper)
         // =========================================================
         public async Task<(string error, Guid? batchId)> CreateJournalEntryAsync(
-            Guid companyId,
-            DateOnly txnDate,
-            string batchName,
-            string? description,
-            List<GLJournalLine> lines,
-            string userId)
+    Guid companyId,
+    DateOnly txnDate,
+    string batchName,
+    string? description,
+    List<GLJournalLine> lines,
+    string userId,
+    bool requireAllowJournal = false) // FIXED: Default to false to allow automated sub-ledgers to pass control accounts
         {
             string journalNumber = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
 
+            // Pass the bypass configuration down into the batch engine context
             var result = await CreateDraftBatchAsync(
                 companyId,
                 txnDate,
@@ -101,7 +103,8 @@ namespace Primafit_ERP.Services
                 description,
                 lines,
                 BatchType.Standard,
-                userId);
+                userId,
+                requireAllowJournal); // FIXED: Forwarding the configuration flag
 
             if (!string.IsNullOrWhiteSpace(result.error) || !result.batchId.HasValue)
                 return result;
@@ -169,7 +172,66 @@ namespace Primafit_ERP.Services
 
             return (string.Empty, batch.Id);
         }
+        public async Task<(string error, Guid? batchId)> CreateDraftBatchAsync(
+    Guid companyId,
+    DateOnly txnDate,
+    string batchName,
+    string? description,
+    string journalNumber,
+    string? narration,
+    List<GLJournalLine> lines,
+    BatchType type,
+    string userId,
+    bool? requireAllowJournalOverride = null)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            var cleanLines = lines
+                .Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0))
+                .ToList();
+
+            if (cleanLines.Count == 0) return ("No valid lines.", null);
+
+            if (type == BatchType.Standard && !IsBalanced(cleanLines))
+                return ("Journal is not balanced (Debits must equal Credits).", null);
+
+            AccountingPeriod period;
+            try { period = await ResolvePeriodOrThrow(ctx, companyId, txnDate); }
+            catch (Exception ex) { return (ex.Message, null); }
+
+            // FIXED: Evaluate if an explicit sub-ledger bypass override flag is passed down
+            bool requireAllowJournal = requireAllowJournalOverride ?? (type == BatchType.Standard);
+
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal);
+            if (!string.IsNullOrWhiteSpace(acctErr)) return (acctErr!, null);
+
+            var batch = new GLBatch
+            {
+                CompanyId = companyId,
+                AccountingPeriodId = period.Id,
+                BatchName = batchName,
+                Description = description,
+                Type = type,
+                Status = BatchStatus.Draft,
+                CreatedByUserId = userId,
+                ClearAfterPost = false
+            };
+
+            batch.Journals.Add(new GLJournalHeader
+            {
+                CompanyId = companyId,
+                AccountingPeriodId = period.Id,
+                JournalNumber = journalNumber,
+                Narration = narration,
+                TransactionDate = txnDate,
+                Lines = cleanLines
+            });
+
+            ctx.GLBatches.Add(batch);
+            await ctx.SaveChangesAsync();
+
+            return (string.Empty, batch.Id);
+        }
         // =========================================================
         // 3) Opening Balances (Migration)
         // =========================================================

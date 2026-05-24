@@ -878,66 +878,105 @@ namespace Primafit_ERP.Services
             reportData.Rows.Add(new List<string> { "", "GRAND TOTAL", "", "", "", "", totalOutstanding.ToString("N2") });
             return reportData;
         }
-
-        public async Task<StandardReportData> GenerateSalesAnalysisReportAsync(Guid companyId, DateOnly start, DateOnly end)
+        public async Task<StandardReportData> GenerateSalesAnalysisReportAsync(Guid companyId, DateOnly start, DateOnly end, string itemSearchQuery = "")
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { OrderStatus.PartiallyInvoiced, OrderStatus.Invoiced };
 
-            var lines = await ctx.SalesOrderLines
-                .Include(l => l.Header)
+            // 1. Fetch sales lines matching parameters. 
+            // CRITICAL FIX: Explicitly ignore direct invoices by filtering out entries without an Item ID
+            var query = ctx.SalesOrderLines
+                .Include(l => l.Header).ThenInclude(h => h.Customer)
                 .Include(l => l.Item)
                 .Where(l => l.Header != null
+                         && l.ItemId != null
                          && l.Header.CompanyId == companyId
                          && l.Header.Date >= start
                          && l.Header.Date <= end
                          && l.Header.OrderNumber.StartsWith("INV")
-                         && validStatuses.Contains(l.Header.Status))
-                .ToListAsync();
+                         && validStatuses.Contains(l.Header.Status));
+
+            var lines = await query.ToListAsync();
+
+            // 2. Filter solely by Item Name if a query string exists
+            if (!string.IsNullOrWhiteSpace(itemSearchQuery))
+            {
+                string term = itemSearchQuery.Trim().ToLower();
+                lines = lines.Where(l => l.Item?.Name != null && l.Item.Name.ToLower().Contains(term)).ToList();
+            }
 
             var reportData = new StandardReportData
             {
-                ReportName = "Sales Analysis by Item",
+                ReportName = "Sales Analysis Ledger Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string> { "Item Name", "Item Type", "Qty Sold", "Avg Unit Price (Base)", "Gross Revenue (Base)" },
+                // FIXED: Header titles explicitly modified to match required layout fields 
+                Headers = new List<string> { "Date / Reference", "Customer Name", "Type", "Quantity", "Price", "Amount" },
                 Rows = new List<List<string>>()
             };
 
+            // 3. Group and organize records strictly by item master names
             var groupedItems = lines
-                .GroupBy(l => l.Item)
-                .Select(g => new
-                {
-                    Item = g.Key,
-                    TotalQty = g.Sum(x => x.Quantity),
-                    GrossRevenueBase = g.Sum(x => (x.Quantity * x.UnitPrice) * (x.Header.ExchangeRate > 0 ? x.Header.ExchangeRate : 1))
-                })
-                .OrderByDescending(x => x.GrossRevenueBase)
+                .GroupBy(l => l.Item.Name)
+                .OrderBy(g => g.Key)
                 .ToList();
 
             decimal grandTotalRevenueBase = 0;
             decimal grandTotalQty = 0;
 
-            foreach (var row in groupedItems)
+            foreach (var group in groupedItems)
             {
-                decimal avgPriceBase = row.TotalQty > 0 ? row.GrossRevenueBase / row.TotalQty : 0;
+                string itemHeaderName = group.Key;
+                var representativeLine = group.First();
+                string itemType = representativeLine.Item.IsService ? "Service" : "Physical Goods";
 
-                reportData.Rows.Add(new List<string>
+                decimal itemGroupQty = group.Sum(x => x.Quantity);
+                decimal itemGroupRevenueBase = group.Sum(x =>
                 {
-                    row.Item?.Name ?? "Unknown Item",
-                    row.Item?.IsService == true ? "Service" : "Physical",
-                    row.TotalQty.ToString("N2"),
-                    avgPriceBase.ToString("N2"),
-                    row.GrossRevenueBase.ToString("N2")
+                    decimal rate = x.Header.ExchangeRate > 0 ? x.Header.ExchangeRate : 1;
+                    return (x.Quantity * x.UnitPrice) * rate;
                 });
 
-                grandTotalQty += row.TotalQty;
-                grandTotalRevenueBase += row.GrossRevenueBase;
+                // SECTION HEADER ROW (Pure slate theme styling applied via Razor layout)
+                reportData.Rows.Add(new List<string>
+        {
+            $"SECTION_HEADER:{itemHeaderName}",
+            itemType,
+            "",
+            itemGroupQty.ToString("N2"),
+            "",
+            itemGroupRevenueBase.ToString("N2")
+        });
+
+                // TRANSACTION LINE DETAIL ROWS
+                foreach (var line in group.OrderBy(l => l.Header.Date))
+                {
+                    decimal currentRate = line.Header.ExchangeRate > 0 ? line.Header.ExchangeRate : 1;
+                    decimal basePrice = line.UnitPrice * currentRate;
+                    decimal baseAmount = (line.Quantity * line.UnitPrice) * currentRate;
+
+                    reportData.Rows.Add(new List<string>
+            {
+                line.Header.Date.ToString("yyyy-MM-dd") + " (" + line.Header.OrderNumber + ")",
+                line.Header.Customer?.Name ?? "Unknown Customer",
+                itemType,
+                line.Quantity.ToString("N2"),
+                basePrice.ToString("N2"),
+                baseAmount.ToString("N2")
+            });
+                }
+
+                // SECTION FOOTER SPACER
+                reportData.Rows.Add(new List<string> { "SECTION_SPACER", "", "", "", "", "" });
+
+                grandTotalQty += itemGroupQty;
+                grandTotalRevenueBase += itemGroupRevenueBase;
             }
 
+            // FINAL GRAND TOTAL SUMMATION
             reportData.Rows.Add(new List<string>
-            {
-                "", "GRAND TOTAL", grandTotalQty.ToString("N2"), "", grandTotalRevenueBase.ToString("N2")
-            });
+    {
+        "REPORT_TOTAL:GRAND TOTAL", "", "", grandTotalQty.ToString("N2"), "", grandTotalRevenueBase.ToString("N2")
+    });
 
             return reportData;
         }

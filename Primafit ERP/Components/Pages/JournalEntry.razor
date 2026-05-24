@@ -353,6 +353,7 @@
 
     private List<GLBatch> activeBatches = new();
     private List<SegChartOfAccount> coaList = new();
+    private List<SegChartOfAccount> fullMasterCoaList = new();
 
     private GLBatch? selectedBatch;
     private GLJournalLine entryForm = new();
@@ -394,6 +395,11 @@
             if (company != null) companyName = company.CompanyName;
 
             var allCoa = await SetupService.GetCoaAsync(currentCompanyId);
+
+            // NEW: Cache the complete list so historical control accounts render names instead of 'Unknown Account'
+            fullMasterCoaList = allCoa.ToList();
+
+            // Keeps your strict constraint active for the manual entry searchable dropdown selector
             coaList = allCoa.Where(x => x.AllowJournal && x.IsActive).OrderBy(x => x.AccountCode).ToList();
 
             await LoadBatches();
@@ -561,8 +567,8 @@
         entryForm = new GLJournalLine();
     }
 
-    // --- HELPERS ---
-    private string GetAccountName(Guid id) => coaList.FirstOrDefault(a => a.Id == id)?.Description ?? "Unknown Account";
+    private string GetAccountName(Guid id) =>
+        fullMasterCoaList.FirstOrDefault(a => a.Id == id)?.Description ?? "Control Account";
 
     private string GetStatusColor(BatchStatus status) => status switch
     {

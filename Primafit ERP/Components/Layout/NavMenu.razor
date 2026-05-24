@@ -153,7 +153,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
                                             <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
-                                            <NavLink href="gl/adjustment" class="@NestedNavLink" activeClass="@NestedNavActive">Adjustment</NavLink>
+                                            <NavLink href="gl/adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Adjustment</NavLink>
                     
                                             @* Further restrict highly sensitive links inside the open folder *@
                                             <PermissionGate Key="RECON_START">
@@ -239,6 +239,7 @@
                                             <NavLink href="/finance/ar-adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Ar Adjustment</NavLink>
                                             <NavLink href="ar/payment-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Receipt</NavLink>
                                             <NavLink href="sales/credit-notes" class="@NestedNavLink" activeClass="@NestedNavActive">Credit Notes</NavLink>
+                                            <NavLink href="sales/credit-notes/refund" class="@NestedNavLink" activeClass="@NestedNavActive">Receipt Refund</NavLink>
                                             <NavLink href="wh/shipments" class="@NestedNavLink" activeClass="@NestedNavActive">Shipments</NavLink>
                                         </div>
                                     }
@@ -255,6 +256,7 @@
                                                     <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
                                                     <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
                                                     <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
+                                                    <NavLink href="reports/customer-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Statement</NavLink>
                                                 </div>
                                              
                                         </PermissionGate>
@@ -325,6 +327,7 @@
                                                     <NavLink href="/reports/partially-received" class="@NestedNavLink" activeClass="@NestedNavActive">Partially Received Items</NavLink>
                                                     <NavLink href="/reports/po-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Aging Report</NavLink>
                                                     <NavLink href="/reports/purchase-spend-by-vendor" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase By Vendor</NavLink>
+                                                    <NavLink href="reports/vendor-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Statement</NavLink>
                                                     <NavLink href="/reports/vendor-payment-history" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Payment History</NavLink>
                                                 </div>
                                              
