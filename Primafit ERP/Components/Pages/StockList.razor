@@ -4,6 +4,8 @@
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -145,6 +147,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_REPORTS_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return; // Stop rendering
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

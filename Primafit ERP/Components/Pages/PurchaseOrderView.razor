@@ -17,13 +17,15 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ReportExportService ReportExportService
+@inject IEmailService EmailService
+@inject PermissionCacheService PermissionCache
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="mx-auto max-w-[1400px] space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800">
+<div class="mx-auto max-w-[1400px] space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800 pb-16">
 
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div>
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="shrink-0">
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Purchase Orders</h1>
             @if (!string.IsNullOrEmpty(companyName))
             {
@@ -33,30 +35,36 @@
             }
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-4 items-center">
+        <div class="flex flex-col sm:flex-row flex-wrap gap-4 items-start sm:items-center w-full lg:w-auto lg:justify-end">
             @if (activeTab == 0 || activeTab == 2)
             {
-                <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-                    <input type="date" @bind="filterFromDate" class="px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
-                    <span class="text-slate-400 font-bold text-xs">-</span>
-                    <input type="date" @bind="filterToDate" class="px-2 py-1.5 text-xs font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
-                </div>
-                <div class="relative w-full sm:w-64">
-                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search Reference, Vendor..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                <div class="flex flex-col xl:flex-row gap-3 items-start xl:items-center w-full sm:w-auto">
+                    <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 w-full sm:w-auto overflow-x-auto shrink-0 scrollbar-hide h-[42px]">
+                        <input type="date" @bind="filterFromDate" class="px-2 py-1.5 text-xs font-bold bg-transparent text-slate-700 outline-none w-auto sm:w-32 cursor-pointer" />
+                        <span class="text-slate-400 font-bold text-xs shrink-0">-</span>
+                        <input type="date" @bind="filterToDate" class="px-2 py-1.5 text-xs font-bold bg-transparent text-slate-700 outline-none w-auto sm:w-32 cursor-pointer" />
+                    </div>
+                    <div class="relative w-full sm:w-64 xl:w-72 h-[42px] shrink-0">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search Reference, Vendor..." class="w-full h-full pl-9 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
+                    </div>
                 </div>
             }
 
-            <div class="flex bg-slate-100 p-1 rounded-xl">
-                <button @onclick="() => activeTab = 2" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 2 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+            <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto shrink-0">
+                <button @onclick="() => activeTab = 2" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 2 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     Requests
                 </button>
-                <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                <button @onclick="() => activeTab = 0" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     All Orders
                 </button>
-                <button @onclick="CreateNew" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                    New PO
-                </button>
+                <PermissionGate Key="PO_CREATE">
+                    <Authorized>
+                        <button @onclick="CreateNew" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                            New PO
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         </div>
     </div>
@@ -73,8 +81,8 @@
                 <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                     <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Purchase Requests</h3>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
+                <div class="overflow-x-auto w-full">
+                    <table class="w-full text-left text-sm whitespace-nowrap min-w-[1000px]">
                         <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                             <tr>
                                 <th class="px-6 py-4">Request Number</th>
@@ -87,7 +95,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            @foreach (var req in FilteredRequests)
+                            @foreach (var req in PagedRequests)
                             {
                                 var vendorName = vendors.FirstOrDefault(v => v.Id == req.VendorId)?.Name ?? "Unknown";
 
@@ -139,27 +147,45 @@
                                             }
                                             else
                                             {
-                                                <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                <button @onclick="() => ConvertRequestToOrder(req)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                <PermissionGate Key="PO_CREATE">
+                                                    <Authorized>
+                                                        <button @onclick="() => EditOrder(req)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
+                                                        <button @onclick="() => ConvertRequestToOrder(req)" class="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 shadow-sm">Make Order</button>
+                                                    </Authorized>
+                                                </PermissionGate>
                                             }
                                         </div>
                                     </td>
                                 </tr>
                             }
-                            @if (!FilteredRequests.Any())
+                            @if (!PagedRequests.Any())
                             {
                                 <tr><td colspan="7" class="p-16 text-center text-slate-400">No requests found matching your criteria.</td></tr>
                             }
                         </tbody>
                     </table>
                 </div>
+
+                @if (FilteredRequests.Any())
+                {
+                    <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 sm:mb-0">
+                            Showing @(((currentReqPage - 1) * pageSize) + 1) to @(Math.Min(currentReqPage * pageSize, FilteredRequests.Count())) of @FilteredRequests.Count() records
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @onclick="() => currentReqPage--" disabled="@(currentReqPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">Previous</button>
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">Page @currentReqPage of @TotalReqPages</span>
+                            <button @onclick="() => currentReqPage++" disabled="@(currentReqPage >= TotalReqPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">Next</button>
+                        </div>
+                    </div>
+                }
             </div>
         }
         else if (activeTab == 0)
         {
             <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden animate-in fade-in">
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm whitespace-nowrap">
+                <div class="overflow-x-auto w-full">
+                    <table class="w-full text-left text-sm whitespace-nowrap min-w-[1100px]">
                         <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                             <tr>
                                 <th class="px-6 py-4">PO Number</th>
@@ -173,7 +199,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            @foreach (var po in FilteredOrders)
+                            @foreach (var po in PagedOrders)
                             {
                                 var vendorName = vendors.FirstOrDefault(v => v.Id == po.VendorId)?.Name ?? "Unknown";
 
@@ -246,26 +272,48 @@
                                                 }
                                                 @if (!po.IsInvoicePosted && po.HasReceipt)
                                                 {
-                                                    <button @onclick="() => AutoPostInvoice(po)" disabled="@(isPostingId == po.Id)" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
-                                                        @(isPostingId == po.Id ? "Posting..." : "Post Invoice")
-                                                    </button>
+                                                    <PermissionGate Key="PO_INVOICE_POST">
+                                                        <Authorized>
+                                                            <button @onclick="() => AutoPostInvoice(po)" disabled="@(isPostingId == po.Id)" class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm">
+                                                                @(isPostingId == po.Id ? "Posting..." : "Post Invoice")
+                                                            </button>
+                                                        </Authorized>
+                                                    </PermissionGate>
                                                 }
                                                 else if (po.IsInvoicePosted && !po.IsFullyPaid)
                                                 {
-                                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Make Payment</button>
+                                                    <PermissionGate Key="PAYMENT_CREATE">
+                                                        <Authorized>
+                                                            <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={po.Id}")' class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">Make Payment</button>
+                                                        </Authorized>
+                                                    </PermissionGate>
                                                 }
                                             }
                                         </div>
                                     </td>
                                 </tr>
                             }
-                            @if (!FilteredOrders.Any())
+                            @if (!PagedOrders.Any())
                             {
                                 <tr><td colspan="8" class="p-16 text-center text-slate-400">No orders found matching your criteria.</td></tr>
                             }
                         </tbody>
                     </table>
                 </div>
+
+                @if (FilteredOrders.Any())
+                {
+                    <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 sm:mb-0">
+                            Showing @(((currentOrderPage - 1) * pageSize) + 1) to @(Math.Min(currentOrderPage * pageSize, FilteredOrders.Count())) of @FilteredOrders.Count() records
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @onclick="() => currentOrderPage--" disabled="@(currentOrderPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">Previous</button>
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">Page @currentOrderPage of @TotalOrderPages</span>
+                            <button @onclick="() => currentOrderPage++" disabled="@(currentOrderPage >= TotalOrderPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm">Next</button>
+                        </div>
+                    </div>
+                }
             </div>
         }
         else
@@ -324,19 +372,21 @@
 
                             <div>
                                 <label class="label text-indigo-700">Currency & Rate</label>
-                                <div class="flex gap-2">
-                                    <select value="@currentOrder.CurrencyId" class="input-class w-5/12 bg-slate-200 text-slate-500 font-bold cursor-not-allowed px-2" disabled>
+                                <div class="flex items-center gap-2">
+                                    <!-- Set a fixed width (w-20 or w-24) so it doesn't compress or expand unnecessarily -->
+                                    <select value="@currentOrder.CurrencyId" class="input-class w-24 shrink-0 bg-slate-200 text-slate-500 font-bold cursor-not-allowed px-2 text-center" disabled>
                                         <option value="@Guid.Empty">N/A</option>
                                         @foreach (var c in currencies)
                                         {
                                             <option value="@c.Id">@c.CurrencyCode</option>
                                         }
                                     </select>
-                                    <div class="relative w-7/12">
+                                    <!-- Use flex-1 so the input naturally fills the rest of the available space -->
+                                    <div class="relative flex-1">
                                         <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">x</span>
                                         <input type="number" step="0.01" @bind="currentOrder.ExchangeRate"
                                                @bind:after="RecalculatePrices"
-                                               class="input-class pl-6 pr-2 text-right font-mono font-bold text-indigo-700 border-indigo-200 focus:border-indigo-500 bg-white" disabled="@IsLocked" />
+                                               class="input-class w-full pl-6 pr-2 text-right font-mono font-bold text-indigo-700 border-indigo-200 focus:border-indigo-500 bg-white" disabled="@IsLocked" />
                                     </div>
                                 </div>
                             </div>
@@ -367,7 +417,7 @@
                                 <div class=" hidden lg:col-span-2">
                                     <label class="label text-slate-600">Tax GL Account (Asset/Input)</label>
                                     <div class="text-xs text-slate-500 font-bold bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                                       @(taxAccounts.FirstOrDefault(a => a.Id == currentOrder.TaxGLAccountId)?.Description ?? "Unknown")
+                                        @(taxAccounts.FirstOrDefault(a => a.Id == currentOrder.TaxGLAccountId)?.Description ?? "Unknown")
                                     </div>
                                 </div>
                             }
@@ -455,42 +505,24 @@
 
                         <div class="w-full md:w-1/2 p-5 border border-emerald-100 rounded-xl shadow-sm">
                             <h4 class="font-extrabold text-xs uppercase tracking-wider text-emerald-800 mb-4 flex items-center gap-2">
-
                                 Discount Received
                             </h4>
-                            <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label text-[10px]">Percentage (%)</label>
                                     <input type="number" @bind="currentOrder.DiscountPercentage"
-                                           @bind:after="() => { if(currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }"
+                                           @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }"
                                            class="input-class text-center font-bold text-emerald-700 border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                                 <div>
                                     <label class="label text-[10px]">Flat Amount (@currencySymbol)</label>
                                     <input type="number" @bind="currentOrder.DiscountAmount"
-                                           @bind:after="() => { if(currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }"
+                                           @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }"
                                            class="input-class text-right font-mono border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                             </div>
 
-                            @if ((currentOrder.DiscountPercentage > 0 || currentOrder.DiscountAmount > 0) && !IsLocked)
-                            {
-                                <div class="pt-2 border-t border-emerald-200/50">
-                                    <SearchableGlAccount Label="Discount Income Account (Credit)"
-                                                         Placeholder="Select Income GL..."
-                                                         Accounts="@discountAccounts"
-                                                         @bind-Value="SelectedDiscountGlAccountId"
-                                                         IsInvalid="@(currentOrder.DiscountGlAccountId == null || currentOrder.DiscountGlAccountId == Guid.Empty)" />
-                                </div>
-                            }
-                            else if (IsLocked && currentOrder.DiscountGlAccountId != null)
-                            {
-                                <div class="text-xs text-slate-500 font-bold bg-white p-3 rounded-lg border border-emerald-100 shadow-sm mt-2">
-                                    GL Acc: @(discountAccounts.FirstOrDefault(a => a.Id == currentOrder.DiscountGlAccountId)?.AccountCode ?? "Unknown")
-                                </div>
-                            }
                         </div>
-
                         <div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm">
                             <div class="flex justify-between">
                                 <span>Subtotal:</span>
@@ -532,22 +564,32 @@
                                 Download PO
                             </button>
                         }
-                        
+
                         @if (!IsLocked)
                         {
-                            <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
-                                Delete
-                            </button>
+                            <PermissionGate Key="PO_CREATE">
+                                <Authorized>
+                                    <button type="button" @onclick="TerminateOrder" class="px-5 py-2.5 rounded-xl border border-rose-200 text-rose-600 font-bold text-sm hover:bg-rose-50 transition-colors">
+                                        Delete
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
+
                             <button type="button" @onclick="() => activeTab = 0" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">
                                 Cancel
                             </button>
-                            <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isBusy">
-                                @if (isBusy)
-                                {
-                                    <span class="animate-spin">↻</span>
-                                }
-                                @(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")
-                            </button>
+
+                            <PermissionGate Key="PO_CREATE">
+                                <Authorized>
+                                    <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isBusy">
+                                        @if (isBusy)
+                                        {
+                                            <span class="animate-spin">↻</span>
+                                        }
+                                        @(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")
+                                    </button>
+                                </Authorized>
+                            </PermissionGate>
                         }
                         else
                         {
@@ -562,6 +604,53 @@
         }
     }
 </div>
+
+@if (showEmailPopup)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+
+            <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Document to Vendor</h3>
+                <button type="button" @onclick="() => showEmailPopup = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="label">To Vendor:</label>
+                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Subject:</label>
+                    <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Message:</label>
+                    <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
+                </div>
+            </div>
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                    Skip
+                </button>
+                <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
+                    @if (isSendingEmail)
+                    {
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
+                    }
+                    else
+                    {
+                        <span>Send Email</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 <style>
     .label {
@@ -607,10 +696,31 @@
 
     private bool IsLocked => currentOrder.HasReceipt || currentOrder.IsInvoicePosted || (currentOrder.Status == PurchaseOrderStatus.Request && orders.Any(o => o.ConvertedFromRequestNumber == currentOrder.OrderNumber));
 
-    // Filters
-    private string searchTerm = "";
-    private DateTime filterFromDate = DateTime.Today.AddDays(-30);
-    private DateTime filterToDate = DateTime.Today;
+    // Filters & Pagination State
+    private int pageSize = 15;
+    private int currentOrderPage = 1;
+    private int currentReqPage = 1;
+
+    private string _searchTerm = "";
+    private string searchTerm
+    {
+        get => _searchTerm;
+        set { _searchTerm = value; currentOrderPage = 1; currentReqPage = 1; }
+    }
+
+    private DateTime _filterFromDate = DateTime.Today.AddDays(-30);
+    private DateTime filterFromDate
+    {
+        get => _filterFromDate;
+        set { _filterFromDate = value; currentOrderPage = 1; currentReqPage = 1; }
+    }
+
+    private DateTime _filterToDate = DateTime.Today;
+    private DateTime filterToDate
+    {
+        get => _filterToDate;
+        set { _filterToDate = value; currentOrderPage = 1; currentReqPage = 1; }
+    }
 
     private List<PurchaseOrder> orders = new();
     private PurchaseOrder currentOrder = new();
@@ -632,6 +742,16 @@
     private Guid isPostingId = Guid.Empty;
     private bool isBusy = false;
     private bool isExporting = false;
+
+    // Email State
+    private bool showEmailPopup = false;
+    private bool isSendingEmail = false;
+    private Guid emailTargetPoId = Guid.Empty;
+    private string emailVendorName = "";
+    private string emailVendorAddress = "";
+    private string emailSubject = "";
+    private string customEmailMessage = "";
+
     // --- COMPUTED MATH ---
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
     private decimal DiscountValue => currentOrder.DiscountPercentage > 0
@@ -655,28 +775,46 @@
         set => currentOrder.TaxGLAccountId = value == Guid.Empty ? null : value;
     }
 
+    // --- FILTERS & PAGINATION CALCULATIONS ---
     private IEnumerable<PurchaseOrder> FilteredOrders => orders
-        .Where(o => o.Status != PurchaseOrderStatus.Request) // Exclude Requests from the Orders tab
+        .Where(o => o.Status != PurchaseOrderStatus.Request) // Exclude Requests
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || vendors.FirstOrDefault(v => v.Id == o.VendorId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true
-                 || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true));
+                 || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true))
+        .OrderByDescending(o => o.OrderDate);
+
+    private int TotalOrderPages => Math.Max(1, (int)Math.Ceiling(FilteredOrders.Count() / (double)pageSize));
+    private IEnumerable<PurchaseOrder> PagedOrders => FilteredOrders.Skip((currentOrderPage - 1) * pageSize).Take(pageSize);
+
 
     private IEnumerable<PurchaseOrder> FilteredRequests => orders
         .Where(o => o.Status == PurchaseOrderStatus.Request) // Only Requests
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
-                 || vendors.FirstOrDefault(v => v.Id == o.VendorId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true);
+                 || vendors.FirstOrDefault(v => v.Id == o.VendorId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true)
+        .OrderByDescending(o => o.OrderDate);
+
+    private int TotalReqPages => Math.Max(1, (int)Math.Ceiling(FilteredRequests.Count() / (double)pageSize));
+    private IEnumerable<PurchaseOrder> PagedRequests => FilteredRequests.Skip((currentReqPage - 1) * pageSize).Take(pageSize);
+    private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             if (company != null)
@@ -767,6 +905,7 @@
             VendorId = po.VendorId,
             OrderDate = po.OrderDate,
             OrderNumber = po.OrderNumber,
+            ConvertedFromRequestNumber = po.ConvertedFromRequestNumber,
             Status = po.Status,
             CurrencyId = po.CurrencyId,
             ExchangeRate = po.ExchangeRate,
@@ -794,13 +933,22 @@
         if (!confirm) return;
 
         var err = await PurchService.ConvertRequestToOrderAsync(req.Id);
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+        if (!string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", err);
+            return;
+        }
 
         await JS.InvokeVoidAsync("alert", "Request Successfully Converted to Purchase Order!");
         await LoadData();
 
+        activeTab = 0;
         var newOrder = orders.FirstOrDefault(o => o.ConvertedFromRequestNumber == req.OrderNumber);
-        if (newOrder != null) await EditOrder(newOrder);
+        if (newOrder != null)
+        {
+            await EditOrder(newOrder);
+        }
+        StateHasChanged();
     }
 
     private async Task OnVendorChanged(ChangeEventArgs e)
@@ -898,16 +1046,40 @@
         }
     }
 
+    // --- REFACTORED INVOICE GENERATION PIPELINE ---
     private async Task AutoPostInvoice(PurchaseOrder po)
     {
         isPostingId = po.Id;
-        var err = await PurchService.AutoPostVendorBillFromPOAsync(po.Id, currentCompanyId);
+        var err = await PurchService.AutoPostVendorBillFromPOAsync(po.Id, currentCompanyId, currentUserId);
         isPostingId = Guid.Empty;
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Vendor Bill posted successfully! You can now Make Payments.");
             await LoadData();
+
+            // --- MULTI-TENANT TOGGLE CONTROL SWITCH ENFORCEMENT ---
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+            bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+            // If checked off, exit layout, alert user, and bypass email completely
+            if (!showPopupToggle)
+            {
+                await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
+                showEmailPopup = false;
+                activeTab = 0; // Cleanly drops out of document form mode back to listing view grid
+                StateHasChanged();
+                return;
+            }
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == po.VendorId);
+            emailTargetPoId = po.Id;
+            emailVendorName = vendor?.Name ?? "Vendor";
+            emailVendorAddress = vendor?.Email ?? "";
+            emailSubject = $"Purchase Order Processing - {po.OrderNumber}";
+            customEmailMessage = $"Dear {emailVendorName},\n\nWe have successfully posted the invoice against Purchase Order {po.OrderNumber}.\n\nPlease find the referenced Purchase Order document attached for your records.\n\nBest Regards,\n{companyName} Procurement Team";
+
+            showEmailPopup = true;
         }
         else
         {
@@ -915,42 +1087,48 @@
         }
     }
 
+    private async Task<(byte[] Bytes, string FileName, string Subject, string VendorEmail)> GetPoPdfDataAsync(Guid poId)
+    {
+        var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var printOrder = await ctx.PurchaseOrders
+            .Include(p => p.Lines)
+            .Include(p => p.Currency)
+            .FirstOrDefaultAsync(p => p.Id == poId);
+
+        if (printOrder == null || company == null) return (null, "", "", "");
+
+        var vendor = vendors.FirstOrDefault(v => v.Id == printOrder.VendorId);
+        var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
+
+        decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+        decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
+        decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
+        printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));
+
+        var pdfBytes = ReportExportService.GeneratePurchaseOrderPdf(printOrder, company, vendor?.Name ?? "Vendor", vendor?.Email ?? "", itemNamesMap);
+        string fileName = $"PO_{printOrder.OrderNumber}.pdf";
+        string subject = $"Purchase Order {printOrder.OrderNumber} from {company.CompanyName}";
+
+        return (pdfBytes, fileName, subject, vendor?.Email ?? "");
+    }
+
     private async Task DownloadPO()
     {
         if (currentOrder == null || currentOrder.Id == Guid.Empty) return;
-        
+
         isExporting = true;
         try
         {
-            var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
-            if (company == null) return;
+            var data = await GetPoPdfDataAsync(currentOrder.Id);
+            if (data.Bytes == null)
+            {
+                await JS.InvokeVoidAsync("alert", "Failed to generate PO. Missing order or company data.");
+                return;
+            }
 
-            // Fetch clean data from DB (Without the broken ThenInclude)
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            var printOrder = await ctx.PurchaseOrders
-                .Include(p => p.Lines) // Removed the bad .ThenInclude(l => l.Item)
-                .Include(p => p.Currency)
-                .FirstOrDefaultAsync(p => p.Id == currentOrder.Id);
-
-            if (printOrder == null) return;
-
-            var vendor = vendors.FirstOrDefault(v => v.Id == printOrder.VendorId);
-            
-            // Map our pre-loaded items into a dictionary to pass to the PDF generator
-            var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
-
-            // Recalculate GrandTotal to ensure it prints properly
-            decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
-            decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
-            decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
-            printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));
-
-            // Generate the PDF, passing in the itemNamesMap!
-            var pdfBytes = ReportExportService.GeneratePurchaseOrderPdf(printOrder, company, vendor?.Name ?? "Vendor", vendor?.Email ?? "", itemNamesMap);
-            var fileName = $"{printOrder.OrderNumber}_{vendor?.Name?.Replace(" ", "_")}.pdf";
-            
-            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
-            await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(data.Bytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", data.FileName, streamRef);
         }
         catch (Exception ex)
         {
@@ -961,6 +1139,37 @@
             isExporting = false;
         }
     }
+
+    private async Task DispatchEmail()
+    {
+        isSendingEmail = true;
+        try
+        {
+            var data = await GetPoPdfDataAsync(emailTargetPoId);
+            if (data.Bytes == null) throw new Exception("Failed to generate PDF attachment.");
+
+            await EmailService.SendEmailAsync(
+                emailVendorAddress,
+                emailSubject,
+                customEmailMessage.Replace("\n", "<br>"),
+                data.Bytes,
+                data.FileName
+            );
+
+            await JS.InvokeVoidAsync("alert", "Document emailed successfully!");
+            showEmailPopup = false;
+            emailTargetPoId = Guid.Empty;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Failed to send email: {ex.Message}");
+        }
+        finally
+        {
+            isSendingEmail = false;
+        }
+    }
+
     private async Task TerminateOrder()
     {
         if (currentOrder.Id == Guid.Empty)

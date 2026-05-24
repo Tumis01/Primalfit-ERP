@@ -10,6 +10,9 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject CompanyApiService ApiService
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
+
 @inject IDbContextFactory<AppDbContext> DbFactory
 
 @* --- MOBILE OVERLAY --- *@
@@ -18,6 +21,7 @@
 
 @* --- TOP HEADER --- *@
 <header class="fixed top-0 left-0 right-0 z-30 flex h-16 items-center border-b border-slate-200/80 bg-white/90 backdrop-blur-xl transition-all duration-300 @(_isCollapsed ? "lg:left-[80px]" : "lg:left-[280px]") shadow-sm">
+    
     <div class="flex h-full w-full items-center gap-4 px-4 lg:px-6">
 
         @* Desktop Toggle Button *@
@@ -105,312 +109,372 @@
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Core Modules</div>
 
             @* 1. FINANCE & GL *@
-            <div class="space-y-1">
-                <button @onclick="ToggleFinanceMenu" class="@NavBase w-full justify-between" title="Finance & GL">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Finance & GL</span>
-                    </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_financeMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                @if (_financeMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-                            <button @onclick="ToggleFinanceSetup" class="@SubNavFolderBase">
-                                <span>Setup</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_financeSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_financeSetupOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
-                                    <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
-                                    <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
-                                </div>
-                            }
+            <PermissionGate Key="GL_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="ToggleFinanceMenu" class="@NavBase w-full justify-between" title="Finance & GL">
+                            <div class="flex items-center gap-3">
+                                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Finance & GL</span>
+                            </div>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_financeMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        @if (_financeMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+                                    <PermissionGate Key="GL_SEGMENT_SETUP_PAGE">
+                                         
+                                            <button @onclick="ToggleFinanceSetup" class="@SubNavFolderBase">
+                                                <span>Setup</span>
+                                                <svg class="h-3 w-3 text-slate-400 @(_financeSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                            </button>
+                                            @if (_financeSetupOpen)
+                                            {
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
+                                                    <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
+                                                    <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
+                                                </div>
+                                            }
+                                         
+                                    </PermissionGate>
 
-                            <button @onclick="ToggleFinanceTrans" class="@SubNavFolderBase">
-                                <span>Transaction</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_financeTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_financeTransOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
-                                    <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
-                                    <NavLink href="gl/bank-reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation</NavLink>
-                                    <NavLink href="finance/budget" class="@NestedNavLink" activeClass="@NestedNavActive">Budgets</NavLink>
-                                </div>
-                            }
+                                    @* Transaction Folder (Clerk has GL_JOURNAL_CREATE, so we leave this open, or gate specific links inside it) *@
+                                    <button @onclick="ToggleFinanceTrans" class="@SubNavFolderBase">
+                                        <span>Transaction</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_financeTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_financeTransOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="gl/journal-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Journal Entry</NavLink>
+                                            <NavLink href="gl/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">CashBook Batches</NavLink>
+                                            <NavLink href="gl/adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Adjustment</NavLink>
+                    
+                                            @* Further restrict highly sensitive links inside the open folder *@
+                                            <PermissionGate Key="RECON_START">
+                                                 
+                                                    <NavLink href="gl/bank-reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation</NavLink>
+                                                 
+                                            </PermissionGate>
+                    
+                                            <NavLink href="finance/budget" class="@NestedNavLink" activeClass="@NestedNavActive">Budgets</NavLink>
+                                        </div>
+                                    }
 
-                            <button @onclick="ToggleFinanceReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_financeReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
-                                    <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
-                                    <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
-                                    <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
-                                    <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
-                                    <NavLink href="/reports/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">Cashbook Report</NavLink>
-                                    <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
+                                    <PermissionGate Key="FINANCE_REPORTS_PAGE">
+                                         
+                                            <button @onclick="ToggleFinanceReport" class="@SubNavFolderBase">
+                                                <span>Report</span>
+                                                <svg class="h-3 w-3 text-slate-400 @(_financeReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                                </svg>
+                                            </button>
+
+                                            @if (_financeReportOpen)
+                                            {
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
+                                                    <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
+                                                    <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
+                                                    <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
+                                                    <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
+                                                    <NavLink href="/reports/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">Cashbook Report</NavLink>
+                                                    <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
+                                                </div>
+                                            }
+                                         
+                                    </PermissionGate>
                                 </div>
-                            }
-                        </div>
+                            </div>
+                        }
                     </div>
-                }
-            </div>
+                 
+            </PermissionGate>
 
             @* 2. AR & SALES *@
-            <div class="space-y-1">
-                <button @onclick="ToggleSalesMenu" class="@NavBase w-full justify-between" title="AR & Sales">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">AR & Sales</span>
+            <PermissionGate Key="SALES_ORDER_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="ToggleSalesMenu" class="@NavBase w-full justify-between" title="AR & Sales">
+                            <div class="flex items-center gap-3">
+                                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                </svg>
+                                <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">AR & Sales</span>
+                            </div>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_salesMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        @if (_salesMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+
+                                    <button @onclick="ToggleSalesSetup" class="@SubNavFolderBase">
+                                        <span>Setup</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_salesSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_salesSetupOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
+                                            <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleSalesTrans" class="@SubNavFolderBase">
+                                        <span>Transaction</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_salesTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_salesTransOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="sc/sales-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Orders</NavLink>
+                                            <NavLink href="/ar/direct-invoices" class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
+                                            <NavLink href="/finance/ar-adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Ar Adjustment</NavLink>
+                                            <NavLink href="ar/payment-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Receipt</NavLink>
+                                            <NavLink href="sales/credit-notes" class="@NestedNavLink" activeClass="@NestedNavActive">Credit Notes</NavLink>
+                                            <NavLink href="sales/credit-notes/refund" class="@NestedNavLink" activeClass="@NestedNavActive">Receipt Refund</NavLink>
+                                            <NavLink href="wh/shipments" class="@NestedNavLink" activeClass="@NestedNavActive">Shipments</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleSalesReport" class="@SubNavFolderBase">
+                                        <span>Report</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_salesReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_salesReportOpen)
+                                    {
+                                        <PermissionGate Key="SALES_REPORTS_PAGE">
+                                             
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
+                                                    <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
+                                                    <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
+                                                    <NavLink href="reports/customer-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Statement</NavLink>
+                                                </div>
+                                             
+                                        </PermissionGate>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_salesMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                @if (_salesMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-
-                            <button @onclick="ToggleSalesSetup" class="@SubNavFolderBase">
-                                <span>Setup</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_salesSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_salesSetupOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
-                                    <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleSalesTrans" class="@SubNavFolderBase">
-                                <span>Transaction</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_salesTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_salesTransOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="sc/sales-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Orders</NavLink>
-                                    <NavLink href="/ar/direct-invoices  " class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
-                                    <NavLink href="ar/payment-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Receipt</NavLink>
-                                    <NavLink href="sales/credit-notes" class="@NestedNavLink" activeClass="@NestedNavActive">Credit Notes</NavLink>
-                                    <NavLink href="wh/shipments" class="@NestedNavLink" activeClass="@NestedNavActive">Shipments</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleSalesReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_salesReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_salesReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="reports/customer-transactions" class="@NestedNavLink" activeClass="@NestedNavActive">Customer's Transactions</NavLink>
-                                    <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
-                                    <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
+                 
+            </PermissionGate>
 
             @* 3. AP & PURCHASING *@
-            <div class="space-y-1">
-                <button @onclick="TogglePurchasingMenu" class="@NavBase w-full justify-between" title="AP & Purchasing">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">AP & Purchasing</span>
+            <PermissionGate Key="PURCHASING_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="TogglePurchasingMenu" class="@NavBase w-full justify-between" title="AP & Purchasing">
+                            <div class="flex items-center gap-3">
+                                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                                <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">AP & Purchasing</span>
+                            </div>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_purchasingMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        @if (_purchasingMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+
+                                    <button @onclick="TogglePurchasingSetup" class="@SubNavFolderBase">
+                                        <span>Setup</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_purchasingSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_purchasingSetupOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
+                                            <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="TogglePurchasingTrans" class="@SubNavFolderBase">
+                                        <span>Transaction</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_purchasingTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_purchasingTransOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="procurement/purchase-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase Orders</NavLink>
+                                            <NavLink href="/finance/ap-adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Ap Adjustment</NavLink>
+                                            <NavLink href="/ap/direct-bills" class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
+                                            <NavLink href="ap/bill-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Bills</NavLink>
+                                            <NavLink href="purchases/returns" class="@NestedNavLink" activeClass="@NestedNavActive">Returns to Vendor</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="TogglePurchasingReport" class="@SubNavFolderBase">
+                                        <span>Report</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_purchasingReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_purchasingReportOpen)
+                                    {
+                                        <PermissionGate Key="PURCHASING_REPORTS_PAGE">
+                                             
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="/reports/discount-received-summary" class="@NestedNavLink" activeClass="@NestedNavActive">Discount Received Summary</NavLink>
+                                                    <NavLink href="/reports/partially-received" class="@NestedNavLink" activeClass="@NestedNavActive">Partially Received Items</NavLink>
+                                                    <NavLink href="/reports/po-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Aging Report</NavLink>
+                                                    <NavLink href="/reports/purchase-spend-by-vendor" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase By Vendor</NavLink>
+                                                    <NavLink href="reports/vendor-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Statement</NavLink>
+                                                    <NavLink href="/reports/vendor-payment-history" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Payment History</NavLink>
+                                                </div>
+                                             
+                                        </PermissionGate>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_purchasingMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                @if (_purchasingMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-
-                            <button @onclick="TogglePurchasingSetup" class="@SubNavFolderBase">
-                                <span>Setup</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_purchasingSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_purchasingSetupOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
-                                    <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="TogglePurchasingTrans" class="@SubNavFolderBase">
-                                <span>Transaction</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_purchasingTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_purchasingTransOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="procurement/purchase-orders" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase Orders</NavLink>
-                                    <NavLink href="/ap/direct-bills" class="@NestedNavLink" activeClass="@NestedNavActive">Direct Invoice</NavLink>
-                                    <NavLink href="ap/bill-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Bills</NavLink>
-                                    <NavLink href="purchases/returns" class="@NestedNavLink" activeClass="@NestedNavActive">Returns to Vendor</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="TogglePurchasingReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_purchasingReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_purchasingReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="/reports/discount-received-summary" class="@NestedNavLink" activeClass="@NestedNavActive">Discount Received Summary</NavLink>
-                                    <NavLink href="/reports/partially-received" class="@NestedNavLink" activeClass="@NestedNavActive">Partially Received Items</NavLink>
-                                    <NavLink href="/reports/po-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Aging Report</NavLink>
-                                    <NavLink href="/reports/purchase-spend-by-vendor" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase By Vendor</NavLink>
-                                    <NavLink href="/reports/vendor-payment-history" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Payment History</NavLink>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
+                 
+            </PermissionGate>
 
             @* 4. INVENTORY & STOCK *@
-            <div class="space-y-1">
-                <button @onclick="ToggleInventoryMenu" class="@NavBase w-full justify-between" title="Inventory & Stock">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Inventory & Stock</span>
+            <PermissionGate Key="INVENTORY_SETUP_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="ToggleInventoryMenu" class="@NavBase w-full justify-between" title="Inventory & Stock">
+                            <div class="flex items-center gap-3">
+                                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                </svg>
+                                <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Inventory & Stock</span>
+                            </div>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_inventoryMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                        @if (_inventoryMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+
+                                    <button @onclick="ToggleInventorySetup" class="@SubNavFolderBase">
+                                        <span>Setup</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_inventorySetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_inventorySetupOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="sc/items" class="@NestedNavLink" activeClass="@NestedNavActive">Items & Services</NavLink>
+                                            <NavLink href="/sc/item-categories" class="@NestedNavLink" activeClass="@NestedNavActive">Item Category</NavLink>
+                                            <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
+                                            <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleInventoryTrans" class="@SubNavFolderBase">
+                                        <span>Transaction</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_inventoryTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_inventoryTransOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="/inventory/adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Adjustment</NavLink>
+                                            <NavLink href="sc/stock-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Entry & Adj.</NavLink>
+                                            <NavLink href="sc/transfers" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Transfer</NavLink>
+                                            <NavLink href="supply-chain/issue-to-project" class="@NestedNavLink" activeClass="@NestedNavActive">Issue to Project</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleInventoryReport" class="@SubNavFolderBase">
+                                        <span>Report</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_inventoryReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_inventoryReportOpen)
+                                    {
+                                        <PermissionGate Key="INVENTORY_REPORTS_PAGE">
+                                             
+                                                <div class="space-y-0.5 mb-2">
+                                                    <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
+                                                    <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
+                                                    <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
+                                                    <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
+                                                </div>
+                                             
+                                        </PermissionGate>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_inventoryMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                @if (_inventoryMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-
-                            <button @onclick="ToggleInventorySetup" class="@SubNavFolderBase">
-                                <span>Setup</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_inventorySetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_inventorySetupOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="sc/items" class="@NestedNavLink" activeClass="@NestedNavActive">Items & Services</NavLink>
-                                    <NavLink href="/sc/item-categories" class="@NestedNavLink" activeClass="@NestedNavActive">Item Category</NavLink>
-                                    <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
-                                    <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleInventoryTrans" class="@SubNavFolderBase">
-                                <span>Transaction</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_inventoryTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_inventoryTransOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="sc/stock-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Entry & Adj.</NavLink>
-                                    <NavLink href="sc/transfers" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Transfer</NavLink>
-                                    <NavLink href="supply-chain/issue-to-project" class="@NestedNavLink" activeClass="@NestedNavActive">Issue to Project</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleInventoryReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_inventoryReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_inventoryReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
-                                    <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
-                                    <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
-                                    <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
+                 
+            </PermissionGate>
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Specialized</div>
 
             @* 5. HR & PAYROLL *@
-            <div class="space-y-1">
-                <button @onclick="ToggleHrMenu" class="@NavBase w-full justify-between" title="HR & Payroll">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">HR & Payroll</span>
+            <PermissionGate Key="HR_MANAGEMENT_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="ToggleHrMenu" class="@NavBase w-full justify-between" title="HR & Payroll">
+                            <div class="flex items-center gap-3">
+                                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                                <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">HR & Payroll</span>
+                            </div>
+                            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_hrMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+            
+                        @if (_hrMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+
+                                    <button @onclick="ToggleHrSetup" class="@SubNavFolderBase">
+                                        <span>Setup</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_hrSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_hrSetupOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="hr/master-data" class="@NestedNavLink" activeClass="@NestedNavActive">HR Master Data Setup</NavLink>
+                                            <NavLink href="hr/employees" class="@NestedNavLink" activeClass="@NestedNavActive">Employee Directory</NavLink>
+                                            <NavLink href="hr/settings" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Configuration</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleHrTrans" class="@SubNavFolderBase">
+                                        <span>Transaction</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_hrTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_hrTransOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="hr/payroll-manager" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Engine</NavLink>
+                                        </div>
+                                    }
+
+                                    <button @onclick="ToggleHrReport" class="@SubNavFolderBase">
+                                        <span>Report</span>
+                                        <svg class="h-3 w-3 text-slate-400 @(_hrReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                                    </button>
+                                    @if (_hrReportOpen)
+                                    {
+                                        <div class="space-y-0.5 mb-2">
+                                            <NavLink href="hr/payslips" class="@NestedNavLink" activeClass="@NestedNavActive">Payslips & Exports</NavLink>
+                                            <NavLink href="hr/compliance-reports" class="@NestedNavLink" activeClass="@NestedNavActive">Compliance Reports</NavLink>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_hrMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </button>
-                @if (_hrMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
+                 
+            </PermissionGate>
 
-                            <button @onclick="ToggleHrSetup" class="@SubNavFolderBase">
-                                <span>Setup</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_hrSetupOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_hrSetupOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="hr/master-data" class="@NestedNavLink" activeClass="@NestedNavActive">HR Master Data Setup</NavLink>
-                                    <NavLink href="hr/employees" class="@NestedNavLink" activeClass="@NestedNavActive">Employee Directory</NavLink>
-                                    <NavLink href="hr/settings" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Configuration</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleHrTrans" class="@SubNavFolderBase">
-                                <span>Transaction</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_hrTransOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_hrTransOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="hr/payroll-manager" class="@NestedNavLink" activeClass="@NestedNavActive">Payroll Engine</NavLink>
-                                </div>
-                            }
-
-                            <button @onclick="ToggleHrReport" class="@SubNavFolderBase">
-                                <span>Report</span>
-                                <svg class="h-3 w-3 text-slate-400 @(_hrReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
-                            </button>
-                            @if (_hrReportOpen)
-                            {
-                                <div class="space-y-0.5 mb-2">
-                                    <NavLink href="hr/payslips" class="@NestedNavLink" activeClass="@NestedNavActive">Payslips & Exports</NavLink>
-                                    <NavLink href="hr/compliance-reports" class="@NestedNavLink" activeClass="@NestedNavActive">Compliance Reports</NavLink>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-            </div>
 
             @* 6. PROJECTS *@
             <NavLink href="/projects" class="@NavBase" activeClass="@NavActive" title="Projects">
@@ -421,80 +485,114 @@
             </NavLink>
 
             @* 7. FIXED ASSETS *@
-            <div class="space-y-1">
-                <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between" title="Fixed Assets">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Fixed Assets</span>
+            <PermissionGate Key="FIXED_ASSETS_PAGE">
+                 
+                    <div class="space-y-1">
+                        <button @onclick="ToggleAssetsMenu" class="@NavBase w-full justify-between" title="Fixed Assets">
+                                        <div class="flex items-center gap-3">
+                                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                                        </svg>
+                                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Fixed Assets</span>
+                                    </div>
+                                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_assetsMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                        </button>
+                        @if (_assetsMenuOpen && !_isCollapsed)
+                        {
+                            <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
+                                <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                                <div class="space-y-1 pt-1">
+                                    <NavLink href="assets/register" class="@SubNavBase" activeClass="@SubNavActive">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Asset Register
+                                    </NavLink>
+                                    <NavLink href="assets/categories" class="@SubNavBase" activeClass="@SubNavActive">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Categories
+                                    </NavLink>
+                                    <NavLink href="assets/usage-logs" class="@SubNavBase" activeClass="@SubNavActive">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Usage Logs
+                                    </NavLink>
+                                    <NavLink href="reports/fixed-assets" class="@SubNavBase" activeClass="@SubNavActive">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Fixed Asset Report
+                                    </NavLink>
+                                </div>
+                            </div>
+                        }
                     </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_assetsMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                </button>
-                @if (_assetsMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-                            <NavLink href="assets/register" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Asset Register
-                            </NavLink>
-                            <NavLink href="assets/categories" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Categories
-                            </NavLink>
-                            <NavLink href="assets/usage-logs" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Usage Logs
-                            </NavLink>
-                        </div>
-                    </div>
-                }
-            </div>
+                 
+            </PermissionGate>
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Tools & Config</div>
 
             @* 8. SYSTEM SETUP *@
-            <div class="space-y-1">
-                <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between" title="System Setup">
-                    <div class="flex items-center gap-3">
-                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-                        </svg>
-                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">System Setup</span>
-                    </div>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_setupMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+           <PermissionGate Key="SYSTEM_SETUP_PAGE">
+     
+        <div class="space-y-1">
+            <button @onclick="ToggleSetupMenu" class="@NavBase w-full justify-between" title="System Setup">
+                <div class="flex items-center gap-3">
+                    <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
                     </svg>
-                </button>
-                @if (_setupMenuOpen && !_isCollapsed)
-                {
-                    <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
-                        <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
-                        <div class="space-y-1 pt-1">
-                            <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
-                            </NavLink>
-                            <NavLink href="users" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Users
-                            </NavLink>
-                            <NavLink href="roles" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Roles
-                            </NavLink>
-                            <NavLink href="tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Tax Setup
-                            </NavLink>
-                            <NavLink href="accounting-periods" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Fiscal Periods
-                            </NavLink>
-                            <NavLink href="currency-setup" class="@SubNavBase" activeClass="@SubNavActive">
-                                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Currency
-                            </NavLink>
-                        </div>
+                    <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">System Setup</span>
+                </div>
+                <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_setupMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+            </button>
+            @if (_setupMenuOpen && !_isCollapsed)
+            {
+                <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
+                    <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
+                    <div class="space-y-1 pt-1">
+                        <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
+                        </NavLink>
+                        <NavLink href="setup/gl-mapping" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Transaction Types
+                        </NavLink>
+                        <NavLink href="Setup/email-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Email configuration
+                        </NavLink>
+                        
+                        <PermissionGate Key="USERS_SETUP_PAGE">
+                             
+                                <NavLink href="users" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Users
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <PermissionGate Key="ROLES_SETUP_PAGE">
+                             
+                                <NavLink href="roles" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Roles
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <NavLink href="tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Tax Setup
+                        </NavLink>
+
+                        <PermissionGate Key="FISCAL_PERIODS_PAGE">
+                             
+                                <NavLink href="accounting-periods" class="@SubNavBase" activeClass="@SubNavActive">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Fiscal Periods
+                                </NavLink>
+                             
+                        </PermissionGate>
+
+                        <NavLink href="currency-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Currency
+                        </NavLink>
                     </div>
-                }
-            </div>
+                </div>
+            }
+        </div>
+     
+</PermissionGate>
 
         </nav>
 
@@ -580,6 +678,9 @@
 
             if (dbUser?.CompanyDetailsId != null)
             {
+                // ---> CRITICAL FIX: Load permissions into the cache before NavMenu renders <---
+                await PermissionCache.LoadAsync(dbUser.Id, dbUser.CompanyDetailsId.Value);
+
                 var company = await ctx.CompanyDetails.AsNoTracking().FirstOrDefaultAsync(c => c.CompanyDetailsId == dbUser.CompanyDetailsId.Value);
             
                 if (company != null && (string.IsNullOrWhiteSpace(company.BaseCurrency) || company.FiscalStartYear == null))
@@ -641,6 +742,9 @@
     
         _assetsMenuOpen = path.StartsWith("assets/");
         _setupMenuOpen = path is "companies" or "users" or "roles" or "tax-setup" or "accounting-periods" or "currency-setup";
+        
+        // Force Blazor to re-evaluate the gates now that the cache is definitely loaded
+        StateHasChanged();
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;

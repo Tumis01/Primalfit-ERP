@@ -1,0 +1,407 @@
+﻿@page "/finance/ap-adjustments"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.IO
+@using Microsoft.EntityFrameworkCore
+
+@inject TransactionMappingService MappingService
+@inject MasterDataService MasterService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6 font-sans text-slate-800">
+    
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Accounts Payable Balance Adjustments</h1>
+            <p class="text-sm text-slate-500 mt-1">Adjust outstanding balances across vendor accounts. Automatically balances individual lines against configured GL router offsets.</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @onclick="DownloadTemplate" class="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-colors shadow-sm active:scale-95">
+                Download Template
+            </button>
+            <label class="px-4 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 cursor-pointer mb-0 shadow-sm transition-colors active:scale-95">
+                <span>Import CSV</span>
+                <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" />
+            </label>
+        </div>
+    </div>
+
+    @if (isImporting)
+    {
+        <div class="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-center gap-3 animate-pulse">
+            <div class="h-4 w-4 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin"></div>
+            <span class="text-sm font-bold text-indigo-700">Parsing vendor adjustment sheet data... Please wait.</span>
+        </div>
+    }
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center h-full">
+            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">
+                Posting Date
+            </label>
+
+            <div class="relative w-full rounded-xl shadow-sm">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <input type="date"
+                       @bind="postingDate"
+                       class="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all cursor-pointer" />
+            </div>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm md:col-span-2 flex flex-col justify-between h-full">
+            <div>
+                <span class="text-[10px] font-extrabold uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-wider inline-block mb-2">Active Mapping Routing Pipeline</span>
+                <p class="text-xs text-slate-500">Every line item entered below will be automatically balanced by this designated GL account:</p>
+            </div>
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                <div class="p-3 bg-slate-50 border border-slate-200/60 rounded-xl">
+                    <span class="text-[9px] font-bold text-slate-400 block uppercase tracking-wider">Balancing Account</span>
+                    <span class="text-xs font-bold text-indigo-700 truncate block mt-0.5">@(string.IsNullOrWhiteSpace(debitAccountLabel) ? "NOT CONFIGURED" : debitAccountLabel)</span>
+                </div>
+            </div>
+        </div>  
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm whitespace-nowrap min-w-[850px]">
+                <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="p-4 w-[45%] pl-6">Vendor Profile Reference Identity</th>
+                        <th class="p-4 text-right w-[22%]">Debit Amount (Dr - Decrease/Prepay)</th>
+                        <th class="p-4 text-right w-[22%]">Credit Amount (Cr - Increase Balance)</th>
+                        <th class="p-4 text-center w-[11%] pr-6">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var line in lines)
+                    {
+                        <tr class="hover:bg-slate-50/80 transition-colors align-middle">
+                            <td class="p-3 pl-6">
+                                <select @bind="line.EntityId" class="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-white text-slate-900 focus:border-indigo-500 focus:outline-none transition-all">
+                                    <option value="@Guid.Empty">Select Vendor </option>
+                                    @foreach (var v in vendors)
+                                    {
+                                        <option value="@v.Id">@v.Name</option>
+                                    }
+                                </select>
+                            </td>
+
+                            <td class="p-3">
+                                <div class="relative rounded-xl shadow-sm">
+                                    <input type="number" step="0.01" min="0"
+                                           value="@(line.DebitAmount == 0 ? "" : line.DebitAmount.ToString())" 
+                                           @oninput="@(e => OnDebitChanged(line, e.Value?.ToString()))"
+                                           disabled="@line.IsDebitReadOnly"
+                                           class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all @(line.IsDebitReadOnly ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")" 
+                                           placeholder="0.00" />
+                                </div>
+                            </td>
+
+                            <td class="p-3">
+                                <div class="relative rounded-xl shadow-sm">
+                                    <input type="number" step="0.01" min="0"
+                                           value="@(line.CreditAmount == 0 ? "" : line.CreditAmount.ToString())" 
+                                           @oninput="@(e => OnCreditChanged(line, e.Value?.ToString()))"
+                                           disabled="@line.IsCreditReadOnly"
+                                           class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all @(line.IsCreditReadOnly ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")" 
+                                           placeholder="0.00" />
+                                </div>
+                            </td>
+
+                            <td class="p-3 text-center pr-6">
+                                <button type="button" @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
+                                    <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between mt-auto">
+            <button type="button" @onclick="AddRow" class="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-900 uppercase tracking-wide flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
+                Add Line
+            </button>
+            <div class="text-right flex items-center gap-8">
+                <div>
+                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Debits (Dr)</span>
+                    <span class="text-lg font-mono font-bold text-emerald-600">@lines.Sum(l => l.DebitAmount).ToString("N2")</span>
+                </div>
+                <div class="w-px h-8 bg-slate-200"></div>
+                <div>
+                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Credits (Cr)</span>
+                    <span class="text-lg font-mono font-bold text-rose-600">@lines.Sum(l => l.CreditAmount).ToString("N2")</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex justify-end pt-2">
+        <button @onclick="PostAdjustments" disabled="@(isBusy || isImporting || !lines.Any(l => l.EntityId != Guid.Empty && (l.DebitAmount > 0 || l.CreditAmount > 0)))" class="px-8 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 shadow-slate-100 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+            @if (isBusy)
+            {
+                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                <span>Posting Adjustments to GL...</span>
+            }
+            else
+            {
+                <span>Post Adjustments</span>
+            }
+        </button>
+    </div>
+</div>
+
+<style>
+    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
+    .input-class { width: 100%; border-radius: 0.75rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: all 0.2s; }
+</style>
+
+@code {
+    private Guid currentCompanyId;
+    private string currentUserId = "";
+    private bool isBusy = false;
+    private bool isImporting = false;
+    private DateOnly postingDate = DateOnly.FromDateTime(DateTime.Today);
+
+    // Routing Mapping Strings
+    private string debitAccountLabel = string.Empty;
+    private string creditAccountLabel = string.Empty;
+
+    private List<Vendor> vendors = new();
+    private List<VendorAdjustmentUiRowDto> lines = new();
+
+    public class VendorAdjustmentUiRowDto
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid EntityId { get; set; }
+        public string EntityName { get; set; } = string.Empty;
+        public decimal DebitAmount { get; set; }
+        public decimal CreditAmount { get; set; }
+
+        public bool IsDebitReadOnly => CreditAmount > 0;
+        public bool IsCreditReadOnly => DebitAmount > 0;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currentUserId = user.Id;
+            vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            
+            await LoadActiveRoutingConfigurationLabels();
+            lines.Add(new VendorAdjustmentUiRowDto());
+        }
+    }
+
+    private async Task LoadActiveRoutingConfigurationLabels()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var mappingConfig = await ctx.TransactionGlMappings
+            .Include(m => m.OverrideDebitAccount)
+            .Include(m => m.OverrideCreditAccount)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.TransactionType == SystemTransactionType.VendorOpeningBalance);
+
+        if (mappingConfig != null)
+        {
+            if (mappingConfig.OverrideDebitAccount != null)
+                debitAccountLabel = $"{mappingConfig.OverrideDebitAccount.AccountCode} - {mappingConfig.OverrideDebitAccount.Description}";
+            
+            if (mappingConfig.OverrideCreditAccount != null)
+                creditAccountLabel = $"{mappingConfig.OverrideCreditAccount.AccountCode} - {mappingConfig.OverrideCreditAccount.Description}";
+        }
+    }
+
+    private void OnDebitChanged(VendorAdjustmentUiRowDto line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res))
+        {
+            line.DebitAmount = res;
+            if (res > 0) line.CreditAmount = 0;
+        }
+        else line.DebitAmount = 0;
+    }
+
+    private void OnCreditChanged(VendorAdjustmentUiRowDto line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res))
+        {
+            line.CreditAmount = res;
+            if (res > 0) line.DebitAmount = 0;
+        }
+        else line.CreditAmount = 0;
+    }
+
+    private void AddRow() => lines.Add(new VendorAdjustmentUiRowDto());
+
+    private void RemoveLine(VendorAdjustmentUiRowDto line)
+    {
+        lines.Remove(line);
+        if (!lines.Any()) lines.Add(new VendorAdjustmentUiRowDto());
+    }
+
+    private void ClearLines()
+    {
+        lines.Clear();
+        lines.Add(new VendorAdjustmentUiRowDto());
+    }
+
+    private async Task PostAdjustments()
+    {
+        var targetRows = new List<OpeningBalanceLineDto>();
+
+        foreach (var uiLine in lines.Where(l => l.EntityId != Guid.Empty && (l.DebitAmount > 0 || l.CreditAmount > 0)))
+        {
+            // Normal AP balance is a Credit (positive), exceptional prepayment is a Debit (negative)
+            decimal evaluatedAmount = uiLine.CreditAmount > 0 ? uiLine.CreditAmount : -uiLine.DebitAmount;
+            
+            targetRows.Add(new OpeningBalanceLineDto
+            {
+                EntityId = uiLine.EntityId,
+                EntityName = vendors.FirstOrDefault(v => v.Id == uiLine.EntityId)?.Name ?? "Unknown Vendor",
+                BalanceAmount = evaluatedAmount
+            });
+        }
+
+        if (!targetRows.Any())
+        {
+            await JS.InvokeVoidAsync("alert", "Error: No valid lines containing adjustment inputs were provided.");
+            return;
+        }
+
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            var err = await MappingService.PostOpeningBalancesAsync(currentCompanyId, postingDate, false, targetRows, currentUserId);
+
+            if (string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", "Vendor transactions adjustment batch successfully submitted and balanced on the GL!");
+                ClearLines();
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", err);
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Posting Failed: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadTemplate()
+    {
+        var csv = "VendorName,DebitAmount,CreditAmount\nGlobal Logistics,0.00,4500.00\nAcme Manufacturing,1200.00,0.00";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+        using var streamRef = new DotNetStreamReference(new MemoryStream(bytes));
+        await JS.InvokeVoidAsync("downloadFileFromStream", "AP_Vendor_Adjustments_DualLine_Template.csv", streamRef);
+    }
+
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        if (e.File == null) return;
+
+        isImporting = true;
+        StateHasChanged();
+
+        try
+        {
+            using var memoryStream = new MemoryStream();
+            await e.File.OpenReadStream(2 * 1024 * 1024).CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            using var reader = new StreamReader(memoryStream, System.Text.Encoding.UTF8);
+            var headerLine = await reader.ReadLineAsync();
+
+            var importedLines = new List<VendorAdjustmentUiRowDto>();
+            string? rowData;
+
+            while ((rowData = await reader.ReadLineAsync()) != null)
+            {
+                if (string.IsNullOrWhiteSpace(rowData)) continue;
+
+                var columns = rowData.Replace("\r", "").Split(',');
+                if (columns.Length < 3) continue;
+
+                string rawName = columns[0].Trim();
+                string rawDebit = columns[1].Trim();
+                string rawCredit = columns[2].Trim();
+
+                decimal.TryParse(rawDebit, out decimal drAmt);
+                decimal.TryParse(rawCredit, out decimal crAmt);
+
+                if (drAmt != 0 || crAmt != 0)
+                {
+                    Guid entityId = vendors.FirstOrDefault(v => v.Name.Equals(rawName, StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty;
+
+                    if (entityId != Guid.Empty)
+                    {
+                        var row = new VendorAdjustmentUiRowDto { EntityId = entityId };
+                        if (drAmt > 0) { row.DebitAmount = drAmt; row.CreditAmount = 0; }
+                        else if (crAmt > 0) { row.CreditAmount = crAmt; row.DebitAmount = 0; }
+                        
+                        importedLines.Add(row);
+                    }
+                }
+            }
+
+            if (importedLines.Any())
+            {
+                lines = importedLines;
+                await JS.InvokeVoidAsync("alert", $"Import complete: Loaded {lines.Count} custom vendor rows successfully.");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Import warning: No vendor match was found inside your master records.");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import Parsing Error: {ex.Message}");
+        }
+        finally
+        {
+            if (!lines.Any()) lines.Add(new VendorAdjustmentUiRowDto());
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+}   

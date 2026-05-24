@@ -698,5 +698,294 @@ namespace Primafit_ERP.Services
             document.Close();
             return stream.ToArray();
         }
+        public byte[] GenerateSalesAnalysisPdf(StandardReportData data)
+        {
+            using var stream = new MemoryStream();
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+
+            var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            var fontNormal = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+            var fontItalic = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_OBLIQUE);
+
+            document.SetFont(fontNormal);
+
+            // --- 1. REPORT HEADER ---
+            document.Add(new Paragraph((data.CompanyName ?? "COMPANY NAME").ToUpper())
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFontSize(14)
+                .SetFont(fontBold)
+                .SetMarginBottom(0));
+
+            document.Add(new Paragraph(data.ReportName ?? "Sales Analysis Report")
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFontSize(12)
+                .SetFont(fontBold)
+                .SetMarginBottom(2));
+
+            document.Add(new Paragraph($"Reporting Period: {data.ReportingPeriod ?? "N/A"}")
+                .SetTextAlignment(TextAlignment.CENTER)
+                .SetFontSize(10)
+                .SetFontColor(ColorConstants.DARK_GRAY)
+                .SetMarginBottom(15));
+
+            // --- 2. DATA TABLE STRUCTURE ---
+            if (data.Headers != null && data.Headers.Any())
+            {
+                // Strict Column Matrices: Date/Ref, Customer Name, Type, Qty, Price, Amount
+                float[] columnWidths = { 3.5f, 5f, 2.5f, 2.2f, 2.5f, 2.8f };
+                bool[] isNumericColumn = { false, false, false, true, true, true };
+
+                var table = new Table(UnitValue.CreatePercentArray(columnWidths)).UseAllAvailableWidth();
+
+                // Column Label Headers Initialization
+                for (int i = 0; i < data.Headers.Count; i++)
+                {
+                    Cell cell = new Cell()
+                        .Add(new Paragraph(data.Headers[i]).SetFont(fontBold).SetFontSize(9))
+                        .SetBorder(Border.NO_BORDER)
+                        .SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f))
+                        .SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1f))
+                        .SetPaddingTop(4f)
+                        .SetPaddingBottom(4f)
+                        .SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
+
+                    table.AddHeaderCell(cell);
+                }
+
+                // Row Matrix Population Loop
+                if (data.Rows != null && data.Rows.Any())
+                {
+                    foreach (var row in data.Rows)
+                    {
+                        string trackingToken = row[0] ?? "";
+
+                        if (trackingToken == "SECTION_SPACER")
+                        {
+                            for (int i = 0; i < data.Headers.Count; i++)
+                            {
+                                table.AddCell(new Cell().SetBorder(Border.NO_BORDER).SetHeight(4f));
+                            }
+                            continue;
+                        }
+
+                        if (trackingToken.StartsWith("SECTION_HEADER:"))
+                        {
+                            string cleanedItemName = trackingToken.Replace("SECTION_HEADER:", "");
+                            string typeLabel = row.Count > 1 ? row[1] : "";
+                            string totalQty = row.Count > 3 ? row[3] : "0.00";
+                            string totalAmount = row.Count > 5 ? row[5] : "0.00";
+
+                            table.AddCell(new Cell(1, 2).Add(new Paragraph(cleanedItemName).SetFont(fontBold).SetFontSize(9)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(4f).SetBorder(Border.NO_BORDER));
+                            table.AddCell(new Cell().Add(new Paragraph(typeLabel).SetFont(fontBold).SetFontSize(8).SetTextAlignment(TextAlignment.CENTER)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(4f).SetBorder(Border.NO_BORDER));
+                            table.AddCell(new Cell().Add(new Paragraph(totalQty).SetFont(fontBold).SetFontSize(9).SetTextAlignment(TextAlignment.RIGHT)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(4f).SetBorder(Border.NO_BORDER));
+                            table.AddCell(new Cell().SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetBorder(Border.NO_BORDER));
+                            table.AddCell(new Cell().Add(new Paragraph(totalAmount).SetFont(fontBold).SetFontSize(9).SetTextAlignment(TextAlignment.RIGHT)).SetBackgroundColor(ColorConstants.LIGHT_GRAY).SetPadding(4f).SetBorder(Border.NO_BORDER));
+                            continue;
+                        }
+
+                        if (trackingToken.StartsWith("REPORT_TOTAL:"))
+                        {
+                            string totalLabel = trackingToken.Replace("REPORT_TOTAL:", "");
+                            string grandQty = row.Count > 3 ? row[3] : "0.00";
+                            string grandAmount = row.Count > 5 ? row[5] : "0.00";
+
+                            table.AddCell(new Cell(1, 3).Add(new Paragraph(totalLabel).SetFont(fontBold).SetFontSize(10)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
+                            table.AddCell(new Cell().Add(new Paragraph(grandQty).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
+                            table.AddCell(new Cell().SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)));
+                            table.AddCell(new Cell().Add(new Paragraph(grandAmount).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
+                            continue;
+                        }
+
+                        // Output Standard Details Row Cells
+                        for (int i = 0; i < row.Count; i++)
+                        {
+                            string cellText = row[i] ?? "";
+                            var p = new Paragraph(cellText).SetFontSize(8.5f);
+
+                            Cell cell = new Cell().Add(p)
+                                .SetBorder(Border.NO_BORDER)
+                                .SetBorderBottom(new SolidBorder(ColorConstants.LIGHT_GRAY, 0.3f))
+                                .SetPaddingTop(2f)
+                                .SetPaddingBottom(2f)
+                                .SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
+
+                            table.AddCell(cell);
+                        }
+                    }
+                }
+
+                document.Add(table);
+            }
+
+            // --- 3. FOOTER ---
+            document.Add(new Paragraph($"\nGenerated By: {data.GeneratedBy ?? "System User"} on {data.DateGenerated:yyyy-MM-dd HH:mm}")
+                .SetTextAlignment(TextAlignment.LEFT)
+                .SetFontSize(8)
+                .SetFont(fontItalic)
+                .SetFontColor(ColorConstants.GRAY));
+
+            document.Close();
+            return stream.ToArray();
+        }
+
+        /// <summary>
+        /// Isolated Excel Generator built specifically to parse structured item sales ledger headers.
+        /// </summary>
+        public byte[] GenerateSalesAnalysisExcel(StandardReportData data)
+        {
+            using var workbook = new XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Sales Ledger");
+
+            // --- 1. CORPORATE HEADER TITLE ROWS ---
+            worksheet.Cell(1, 1).Value = (data.CompanyName ?? "COMPANY NAME").ToUpper();
+            worksheet.Cell(1, 1).Style.Font.Bold = true;
+            worksheet.Cell(1, 1).Style.Font.FontSize = 14;
+
+            worksheet.Cell(2, 1).Value = data.ReportName ?? "Sales Analysis Report";
+            worksheet.Cell(2, 1).Style.Font.Bold = true;
+            worksheet.Cell(2, 1).Style.Font.FontSize = 12;
+
+            worksheet.Cell(3, 1).Value = $"Period: {data.ReportingPeriod ?? "N/A"}";
+            worksheet.Cell(3, 1).Style.Font.FontColor = XLColor.DarkGray;
+
+            int currentRow = 5;
+
+            // --- 2. DATA GRID STRUCTURE ---
+            if (data.Headers != null && data.Headers.Any())
+            {
+                bool[] isNumericColumn = { false, false, false, true, true, true };
+
+                // Build Table Columns Headers
+                for (int i = 0; i < data.Headers.Count; i++)
+                {
+                    var cell = worksheet.Cell(currentRow, i + 1);
+                    cell.Value = data.Headers[i];
+                    cell.Style.Font.Bold = true;
+                    cell.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                    cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+                    cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#F8FAFC");
+
+                    if (isNumericColumn[i])
+                        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+                }
+                currentRow++;
+
+                // Build Table Rows
+                if (data.Rows != null && data.Rows.Any())
+                {
+                    foreach (var row in data.Rows)
+                    {
+                        string trackingToken = row[0] ?? "";
+
+                        if (trackingToken == "SECTION_SPACER")
+                        {
+                            currentRow++;
+                            continue;
+                        }
+
+                        if (trackingToken.StartsWith("SECTION_HEADER:"))
+                        {
+                            string cleanedItemName = trackingToken.Replace("SECTION_HEADER:", "");
+
+                            var cellMain = worksheet.Cell(currentRow, 1);
+                            cellMain.Value = cleanedItemName;
+                            cellMain.Style.Font.Bold = true;
+
+                            worksheet.Cell(currentRow, 2).Value = "";
+
+                            var cellType = worksheet.Cell(currentRow, 3);
+                            cellType.Value = row[1];
+                            cellType.Style.Font.Bold = true;
+                            cellType.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                            if (decimal.TryParse(row[3].Replace(",", ""), out decimal qGroup))
+                            {
+                                var cQ = worksheet.Cell(currentRow, 4);
+                                cQ.Value = qGroup;
+                                cQ.Style.Font.Bold = true;
+                                cQ.Style.NumberFormat.Format = "#,##0.00";
+                            }
+                            if (decimal.TryParse(row[5].Replace(",", ""), out decimal aGroup))
+                            {
+                                var cA = worksheet.Cell(currentRow, 6);
+                                cA.Value = aGroup;
+                                cA.Style.Font.Bold = true;
+                                cA.Style.NumberFormat.Format = "#,##0.00";
+                            }
+
+                            var rowRange = worksheet.Range(currentRow, 1, currentRow, data.Headers.Count);
+                            rowRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#F1F5F9");
+                            rowRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                            rowRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+
+                            currentRow++;
+                            continue;
+                        }
+
+                        if (trackingToken.StartsWith("REPORT_TOTAL:"))
+                        {
+                            string totalLabel = trackingToken.Replace("REPORT_TOTAL:", "");
+
+                            var cellLabel = worksheet.Cell(currentRow, 1);
+                            cellLabel.Value = totalLabel;
+                            cellLabel.Style.Font.Bold = true;
+
+                            if (decimal.TryParse(row[3].Replace(",", ""), out decimal qGrand))
+                            {
+                                var cQ = worksheet.Cell(currentRow, 4);
+                                cQ.Value = qGrand;
+                                cQ.Style.Font.Bold = true;
+                                cQ.Style.NumberFormat.Format = "#,##0.00";
+                            }
+                            if (decimal.TryParse(row[5].Replace(",", ""), out decimal aGrand))
+                            {
+                                var cA = worksheet.Cell(currentRow, 6);
+                                cA.Value = aGrand;
+                                cA.Style.Font.Bold = true;
+                                cA.Style.NumberFormat.Format = "#,##0.00";
+                            }
+
+                            var totalRange = worksheet.Range(currentRow, 1, currentRow, data.Headers.Count);
+                            totalRange.Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                            totalRange.Style.Border.BottomBorder = XLBorderStyleValues.Double;
+
+                            currentRow++;
+                            continue;
+                        }
+
+                        // Write Standard Transaction Rows Data Cells
+                        for (int c = 0; c < row.Count; c++)
+                        {
+                            var cell = worksheet.Cell(currentRow, c + 1);
+                            string cellText = row[c] ?? "";
+
+                            if (isNumericColumn[c] && decimal.TryParse(cellText.Replace(",", ""), out decimal numericValue))
+                            {
+                                cell.Value = numericValue;
+                                cell.Style.NumberFormat.Format = "#,##0.00";
+                            }
+                            else
+                            {
+                                cell.Value = cellText;
+                            }
+                        }
+                        currentRow++;
+                    }
+                }
+
+                worksheet.Columns().AdjustToContents();
+            }
+
+            // --- 3. FOOTER LOGS ---
+            currentRow += 2;
+            worksheet.Cell(currentRow, 1).Value = $"Generated By: {data.GeneratedBy ?? "System User"} on {data.DateGenerated:yyyy-MM-dd HH:mm}";
+            worksheet.Cell(currentRow, 1).Style.Font.Italic = true;
+
+            using var memStream = new MemoryStream();
+            workbook.SaveAs(memStream);
+            return memStream.ToArray();
+        }
     }
 }

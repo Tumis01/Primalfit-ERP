@@ -7,7 +7,7 @@ namespace Primafit_ERP.Components.Models
     {
         public ApplicationRole() : base() { }
 
-        public ApplicationRole(string roleName, Guid companyId, string? description = null)
+        public ApplicationRole(string roleName, Guid companyId, string? description = null) 
         {
             CompanyId = companyId;
             DisplayName = roleName;

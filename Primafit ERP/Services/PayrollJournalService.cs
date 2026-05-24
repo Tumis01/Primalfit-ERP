@@ -16,7 +16,6 @@ namespace Primafit_ERP.Services
         }
 
         // 1. ACCRUAL: Recognize the expense and liabilities
-        // 1. ACCRUAL: Recognize the expense and liabilities
         public async Task<string> ApproveAndPostPayrollAsync(Guid runId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -34,15 +33,12 @@ namespace Primafit_ERP.Services
                 var glLines = new List<GLJournalLine>();
 
                 // --- 1. CALCULATE EXACT CREDITS FROM LINE ITEMS ---
-                // We sum directly from the items to avoid any 0.01 rounding errors or missing 'OtherEarnings'
                 decimal totalPaye = run.PayrollItems.Sum(i => i.PAYETax);
                 decimal totalPension = run.PayrollItems.Sum(i => i.EmployeePension + i.EmployerPension);
                 decimal totalOtherDeductions = run.PayrollItems.Sum(i => i.OtherDeductions);
                 decimal totalNetPay = run.PayrollItems.Sum(i => i.NetPay);
 
                 // --- 2. CALCULATE EXACT DEBIT ---
-                // By definition, the company's Total Expense MUST equal the sum of all liabilities generated.
-                // This guarantees the journal will balance perfectly.
                 decimal totalExpense = totalPaye + totalPension + totalOtherDeductions + totalNetPay;
 
                 // Dr: Salaries Expense
@@ -66,12 +62,12 @@ namespace Primafit_ERP.Services
                     glLines.Add(new GLJournalLine { SegCoaId = settings.SalariesPayableAccountId, Debit = 0, Credit = totalNetPay, Reference = $"Net Pay Liability: {run.Period}" });
 
                 // Post to GL Engine
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(run.RunDate), "Payroll Accrual", $"PR-{run.Period}", glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(run.RunDate), "Payroll Accrual", $"PR-{run.Period}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
                     run.GLBatchId = batchId;
                 }
@@ -90,7 +86,7 @@ namespace Primafit_ERP.Services
         }
 
         // 2. DISBURSEMENT: Pay the employees
-        public async Task<string> DisburseSalariesAsync(Guid runId, Guid bankAccountId, DateTime paymentDate, string reference)
+        public async Task<string> DisburseSalariesAsync(Guid runId, Guid bankAccountId, DateTime paymentDate, string reference, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -112,12 +108,12 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = run.TotalNetPay, Reference = $"Salary Payout: {run.Period} - {reference}" }
                 };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Salary Disbursement", reference, glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Salary Disbursement", reference, glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
 
                     run.DisbursementGLBatchId = batchId;
@@ -135,8 +131,8 @@ namespace Primafit_ERP.Services
             }
         }
 
-        // 3. REMITTANCE: Pay Taxes/Pension
-        public async Task<string> RemitStatutoryAsync(Guid runId, Guid bankAccountId, DateTime paymentDate, string reference, bool isPaye)
+        // 3. REMITTANCE: Pay Taxes/Pension (Added userId to signature)
+        public async Task<string> RemitStatutoryAsync(Guid runId, Guid bankAccountId, DateTime paymentDate, string reference, bool isPaye, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -176,12 +172,12 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = amount, Reference = $"{typeName} Remittance: {run.Period} - {reference}" }
                 };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Statutory Remittance", reference, glLines);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Statutory Remittance", reference, glLines, userId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
                 {
-                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value);
+                    var postErr = await _glOps.PostBatchAsync(run.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
 
                     if (isPaye) { run.IsPayeRemitted = true; run.PayeRemittanceGLBatchId = batchId; }

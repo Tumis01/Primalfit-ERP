@@ -1,0 +1,238 @@
+﻿@page "/reports/customer-statement"
+
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+
+@inject OperationalReportingService ReportingService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto mt-6 space-y-5 animate-in fade-in">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Customer Statement</h1>
+                <p class="text-sm text-slate-500 mt-1">
+                    Review customer opening balance, transactions, adjustments, and closing balance.
+                </p>
+            </div>
+
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="w-full md:w-64">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Customer</label>
+                    <select @bind="selectedCustomerId" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">
+                        <option value="@Guid.Empty">All Customers</option>
+                        @foreach (var customer in customers)
+                        {
+                            <option value="@customer.Id">@customer.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="w-full md:w-40">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
+                    <input type="date" @bind="startDate" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm" />
+                </div>
+
+                <div class="w-full md:w-40">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">End Date</label>
+                    <input type="date" @bind="endDate" class="w-full rounded-xl border-slate-200 bg-slate-50 px-3 py-2.5 text-sm" />
+                </div>
+
+                <button @onclick="LoadStatement" disabled="@busy" class="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-md hover:bg-slate-800 disabled:opacity-50">
+                    @(busy ? "Loading..." : "View Statement")
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 font-medium">
+            @error
+        </div>
+    }
+
+    @if (report != null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                    <div class="text-sm font-bold text-slate-900">Statement Output</div>
+                    <div class="text-xs text-slate-500">@report.ReportingPeriod</div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button @onclick="ExportPdf" disabled="@busy" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-rose-600 text-xs font-bold hover:bg-rose-50">
+                        PDF
+                    </button>
+                    <button @onclick="ExportExcel" disabled="@busy" class="px-4 py-2 rounded-lg border border-slate-200 bg-white text-emerald-600 text-xs font-bold hover:bg-emerald-50">
+                        Excel
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left whitespace-nowrap">
+                    <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                        <tr>
+                            <th class="p-4 pl-6">Date</th>
+                            <th class="p-4">Customer</th>
+                            <th class="p-4">Reference</th>
+                            <th class="p-4">Type</th>
+                            <th class="p-4">Description</th>
+                            <th class="p-4 text-right">Debit</th>
+                            <th class="p-4 text-right">Credit</th>
+                            <th class="p-4 pr-6 text-right">Balance</th>
+                        </tr>
+                    </thead>
+
+                    <tbody class="divide-y divide-slate-100">
+                        @if (!report.Lines.Any())
+                        {
+                            <tr>
+                                <td colspan="8" class="p-12 text-center text-slate-400">
+                                    No customer statement records found.
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var line in report.Lines)
+                            {
+                                <tr class="@(line.IsBalanceRow ? "bg-slate-50 font-bold text-slate-900" : "hover:bg-slate-50 text-slate-600")">
+                                    <td class="p-3 pl-6 font-mono text-xs">@(line.Date?.ToString("yyyy-MM-dd") ?? "")</td>
+                                    <td class="p-3">@line.CustomerName</td>
+                                    <td class="p-3 font-mono text-xs">@line.DocumentNumber</td>
+                                    <td class="p-3">@line.Type</td>
+                                    <td class="p-3">@line.Description</td>
+                                    <td class="p-3 text-right font-mono">@(line.Debit == 0 ? "-" : FormatMoney(line.Debit))</td>
+                                    <td class="p-3 text-right font-mono">@(line.Credit == 0 ? "-" : FormatMoney(line.Credit))</td>
+                                    <td class="p-3 pr-6 text-right font-mono font-bold">@FormatMoney(line.Balance)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private Guid companyId;
+    private Guid selectedCustomerId = Guid.Empty;
+
+    private DateOnly startDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-30));
+    private DateOnly endDate = DateOnly.FromDateTime(DateTime.Today);
+
+    private List<Customer> customers = new();
+    private CustomerStatementReport? report;
+
+    private bool busy;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("SALES_REPORTS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            companyId = user.CompanyDetailsId.Value;
+        }
+
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+
+        customers = await ctx.Customers
+            .AsNoTracking()
+            .Where(c => c.CompanyId == companyId)
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+    }
+
+    private async Task LoadStatement()
+    {
+        if (startDate > endDate)
+        {
+            await JS.InvokeVoidAsync("alert", "Start Date cannot be after End Date.");
+            return;
+        }
+
+        busy = true;
+        error = null;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            string generatedBy = authState.User.Identity?.Name ?? "System User";
+
+            report = await ReportingService.GenerateCustomerStatementAsync(
+                companyId,
+                selectedCustomerId,
+                startDate,
+                endDate,
+                generatedBy);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ExportPdf()
+    {
+        if (report == null) return;
+
+        byte[] fileBytes = ReportingService.GenerateCustomerStatementPdf(report);
+        string base64 = Convert.ToBase64String(fileBytes);
+
+        await JS.InvokeVoidAsync(
+            "downloadReportFile",
+            $"Customer_Statement_{DateTime.Now:yyyyMMdd}.pdf",
+            base64,
+            "application/pdf");
+    }
+
+    private async Task ExportExcel()
+    {
+        if (report == null) return;
+
+        byte[] fileBytes = ReportingService.GenerateCustomerStatementExcel(report);
+        string base64 = Convert.ToBase64String(fileBytes);
+
+        await JS.InvokeVoidAsync(
+            "downloadReportFile",
+            $"Customer_Statement_{DateTime.Now:yyyyMMdd}.xlsx",
+            base64,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private string FormatMoney(decimal value)
+    {
+        return value < 0
+            ? $"({Math.Abs(value):N2})"
+            : value.ToString("N2");
+    }
+}

@@ -601,6 +601,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("BudgetLineId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal?>("ForecastAmount")
+                        .HasColumnType("decimal(18, 6)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BudgetLineId");
@@ -669,6 +672,9 @@ namespace Primafit_ERP.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<bool>("ClearAfterPost")
+                        .HasColumnType("bit");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -732,6 +738,9 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("ForeignDebit")
                         .HasColumnType("decimal(18, 6)");
+
+                    b.Property<bool>("IsPosted")
+                        .HasColumnType("bit");
 
                     b.Property<Guid>("OffsetSegCoaId")
                         .HasColumnType("uniqueidentifier");
@@ -818,6 +827,35 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("CreatedByUserId");
 
                     b.ToTable("CompanyDetails");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyEmailSetting", b =>
+                {
+                    b.Property<Guid>("CompanyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("EnableInvoiceEmailPopup")
+                        .HasColumnType("bit");
+
+                    b.HasKey("CompanyId");
+
+                    b.ToTable("CompanyEmailSettings");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyRolePermission", b =>
+                {
+                    b.Property<string>("ApplicationRoleId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("PermissionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("ApplicationRoleId", "PermissionId");
+
+                    b.HasIndex("PermissionId");
+
+                    b.ToTable("CompanyRolePermissions");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CreditNote", b =>
@@ -974,6 +1012,37 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("CurrencyId");
 
                     b.ToTable("CurrencyManagements");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomTransactionType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CustomTransactionTypes");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Customer", b =>
@@ -1329,6 +1398,9 @@ namespace Primafit_ERP.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("ClearAfterPost")
+                        .HasColumnType("bit");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1459,6 +1531,9 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid>("HeaderId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsPosted")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Reference")
                         .HasColumnType("nvarchar(max)");
@@ -1998,6 +2073,38 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("PayrollSettings");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.Permission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ActionKey")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PageKey")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Permissions");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Project", b =>
@@ -3085,6 +3192,87 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("StockTransfers");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SystemRolePermission", b =>
+                {
+                    b.Property<int>("SystemRoleTemplateId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PermissionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("SystemRoleTemplateId", "PermissionId");
+
+                    b.HasIndex("PermissionId");
+
+                    b.ToTable("SystemRolePermissions");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SystemRoleTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsSystem")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("RoleName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SystemRoleTemplates");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionGlMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomTransactionTypeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("OverrideCreditGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OverrideDebitGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("TransactionType")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomTransactionTypeId");
+
+                    b.HasIndex("OverrideCreditGlAccountId");
+
+                    b.HasIndex("OverrideDebitGlAccountId");
+
+                    b.ToTable("TransactionGlMappings");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.UnitOfMeasure", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3105,6 +3293,27 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("UnitOfMeasures");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.UserSystemRole", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("SystemRoleTemplateId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AssignedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("UserId", "SystemRoleTemplateId", "CompanyId");
+
+                    b.HasIndex("SystemRoleTemplateId");
+
+                    b.ToTable("UserSystemRoles");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Vendor", b =>
@@ -3503,6 +3712,25 @@ namespace Primafit_ERP.Migrations
                         .HasForeignKey("CreatedByUserId");
 
                     b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CompanyRolePermission", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.ApplicationRole", "ApplicationRole")
+                        .WithMany()
+                        .HasForeignKey("ApplicationRoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.Permission", "Permission")
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApplicationRole");
+
+                    b.Navigation("Permission");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CreditNote", b =>
@@ -4049,6 +4277,65 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Item");
 
                     b.Navigation("ToWarehouse");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SystemRolePermission", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Permission", "Permission")
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.SystemRoleTemplate", "SystemRoleTemplate")
+                        .WithMany()
+                        .HasForeignKey("SystemRoleTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Permission");
+
+                    b.Navigation("SystemRoleTemplate");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionGlMapping", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CustomTransactionType", "CustomTransactionType")
+                        .WithMany()
+                        .HasForeignKey("CustomTransactionTypeId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "OverrideCreditAccount")
+                        .WithMany()
+                        .HasForeignKey("OverrideCreditGlAccountId");
+
+                    b.HasOne("Primafit_ERP.Components.Models.SegChartOfAccount", "OverrideDebitAccount")
+                        .WithMany()
+                        .HasForeignKey("OverrideDebitGlAccountId");
+
+                    b.Navigation("CustomTransactionType");
+
+                    b.Navigation("OverrideCreditAccount");
+
+                    b.Navigation("OverrideDebitAccount");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.UserSystemRole", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SystemRoleTemplate", "SystemRoleTemplate")
+                        .WithMany()
+                        .HasForeignKey("SystemRoleTemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SystemRoleTemplate");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.Vendor", b =>

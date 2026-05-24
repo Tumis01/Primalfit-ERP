@@ -3,9 +3,8 @@
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
-
-@* Make sure to add the using statement for wherever your SearchableGlAccount is located, e.g., *@
-@* @using Primafit_ERP.Components.Shared *@
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 
 @inject PayrollSettingsService SettingsService
 @inject SegCoaService GLService
@@ -109,10 +108,17 @@
 
                 <!-- Footer Actions -->
                 <div class="flex justify-end gap-3 mt-10 pt-6 border-t border-slate-100">
-                    <button type="submit" disabled="@isBusy" class="px-8 py-3 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-2">
-                        @if(isBusy) { <span class="animate-spin">↻</span> }
-                        <span>Save Configuration</span>
-                    </button>
+                    <PermissionGate Key="HR_MANAGEMENT_MANAGE">
+                        <Authorized>
+                            <button type="submit" disabled="@isBusy" class="px-8 py-3 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-2">
+                                @if (isBusy)
+                                {
+                                    <span class="animate-spin">↻</span>
+                                }
+                                <span>Save Configuration</span>
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
                 </div>
             </EditForm>
         </div>
@@ -135,6 +141,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("HR_MANAGEMENT_MANAGE")) // Allowed if they have either reporting or direct fixed asset rights
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 

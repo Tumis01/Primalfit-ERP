@@ -54,5 +54,30 @@ namespace Primafit_ERP.Services
 
             await ctx.SaveChangesAsync();
         }
+        public async Task<string> DeleteCategoryAsync(Guid categoryId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            var category = await ctx.AssetCategories.FindAsync(categoryId);
+            if (category == null) return "Category not found.";
+
+            // SAFETY CHECK: Prevent deleting categories that are currently assigned to assets
+            bool isInUse = await ctx.FixedAssets.AnyAsync(a => a.AssetCategoryId == categoryId);
+            if (isInUse)
+            {
+                return "STOP: Cannot delete this category because it is currently assigned to one or more registered assets. Reassign those assets first.";
+            }
+
+            try
+            {
+                ctx.AssetCategories.Remove(category);
+                await ctx.SaveChangesAsync();
+                return string.Empty; // Success
+            }
+            catch (Exception ex)
+            {
+                return $"Database Error: {ex.Message}";
+            }
+        }
     }
 }

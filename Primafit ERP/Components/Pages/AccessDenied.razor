@@ -1,0 +1,65 @@
+﻿@page "/access-denied"
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+
+<div class="min-h-[75vh] flex items-center justify-center p-4 animate-in fade-in duration-500">
+    <div class="max-w-md w-full bg-white rounded-3xl shadow-xl shadow-rose-900/5 border border-rose-100 overflow-hidden text-center p-8">
+
+        <!-- Lock Icon -->
+        <div class="mx-auto w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mb-6 border border-rose-100 ring-4 ring-rose-50/50">
+            <svg class="w-10 h-10 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+        </div>
+
+        <!-- Headers -->
+        <h1 class="text-3xl font-black text-slate-900 mb-2 tracking-tight">Access Denied</h1>
+        <p class="text-sm text-slate-500 mb-8 font-medium">You do not have the required permissions to view this content or perform this action.</p>
+
+        <!-- Conditional Detail Box -->
+        @if (!string.IsNullOrEmpty(ActionKey))
+        {
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-8 text-left relative overflow-hidden">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 ml-2">Restricted Action</div>
+                <div class="font-mono text-rose-600 font-bold text-sm ml-2">@ActionKey</div>
+                <div class="text-xs text-slate-500 mt-2 ml-2">Your current role does not grant you the rights to execute this specific function. Contact your system administrator to request an upgrade.</div>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(PageKey))
+        {
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-8 text-left relative overflow-hidden">
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 ml-2">Restricted Module</div>
+                <div class="font-mono text-rose-600 font-bold text-sm ml-2">@PageKey</div>
+                <div class="text-xs text-slate-500 mt-2 ml-2">Your current role does not include clearance for this page. Contact your system administrator to request access.</div>
+            </div>
+        }
+
+        <!-- Actions -->
+        <div class="flex flex-col gap-3">
+            <button @onclick="GoBack" class="w-full py-3 px-4 bg-slate-900 text-white text-sm font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                Go Back
+            </button>
+            <button @onclick='() => NavManager.NavigateTo("/")' class="w-full py-3 px-4 bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-50 transition-all">
+                Return to Dashboard
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    // Captures ?page=SOME_KEY from the URL
+    [SupplyParameterFromQuery(Name = "page")]
+    public string? PageKey { get; set; }
+
+    // Captures ?action=SOME_KEY from the URL
+    [SupplyParameterFromQuery(Name = "action")]
+    public string? ActionKey { get; set; }
+
+    private async Task GoBack()
+    {
+        // Uses JS interop to trigger the browser's back button
+        await JS.InvokeVoidAsync("history.back");
+    }
+}

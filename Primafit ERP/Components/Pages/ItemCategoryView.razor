@@ -1,15 +1,19 @@
 ﻿@page "/sc/item-categories"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
-
-@* @using Primafit_ERP.Components.Shared *@
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
 
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -20,10 +24,35 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Item Categories</h1>
             <p class="text-sm text-slate-500 mt-1">Configure predefined General Ledger templates for your inventory and services.</p>
         </div>
-        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            New Category
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+            <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+                <Authorized>
+                    <button @onclick="ExportCsv" class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Export CSV
+                    </button>
+
+                    <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0 text-sm">
+                        @if (isImporting)
+                        {
+                            <span class="animate-spin">↻</span>
+                            <span>Importing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span>Import CSV</span>
+                        }
+                        <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" disabled="@isImporting" />
+                    </label>
+
+                    <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        New Category
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        </div>
     </div>
 
     @if (showForm)
@@ -51,7 +80,7 @@
                 </div>
 
                 <div class="bg-50 p-6 rounded-xl border border-100 mb-6">
-                    <h4 class="text-xs font-bold text-indigo-900 uppercase mb-4 border-b border-indigo-200 pb-2"> General Ledger Maping</h4>
+                    <h4 class="text-xs font-bold text-indigo-900 uppercase mb-4 border-b border-indigo-200 pb-2"> General Ledger Mapping</h4>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -89,15 +118,23 @@
                 <div class="flex justify-end gap-3">
                     <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
                     <button type="submit" disabled="@isBusy" class="rounded-xl bg-slate-900 px-8 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                        @if(isBusy) { <span class="animate-spin">↻</span> } else { <span>@(isEditing ? "Update Category" : "Save Category")</span> }
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin">↻</span>
+                        }
+                        else
+                        {
+
+                            <span>@(isEditing ? "Update Category" : "Save Category")</span>
+                        }
                     </button>
                 </div>
             </EditForm>
         </div>
     }
 
-    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <table class="w-full text-left text-sm text-slate-900">
+    <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <table class="w-full text-left text-sm text-slate-900 min-w-[800px]">
             <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                 <tr>
                     <th class="p-4 pl-6">Category Name</th>
@@ -125,8 +162,12 @@
                             <td class="p-4 text-xs font-mono text-slate-500">@(incomeAcc?.Description ?? "Missing") (@(incomeAcc?.AccountCode ?? "Missing")) </td>
                             <td class="p-4 text-xs font-mono text-slate-500">@(cogsAcc?.Description ?? "Missing") (@(cogsAcc?.AccountCode ?? "Missing"))</td>
                             <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
-                                <button @onclick="() => Delete(c)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                                <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+                                    <Authorized>
+                                        <button @onclick="() => Edit(c)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs uppercase tracking-wider">Edit</button>
+                                        <button @onclick="() => Delete(c)" class="text-rose-500 font-bold hover:text-rose-700 text-xs uppercase tracking-wider">Delete</button>
+                                    </Authorized>
+                                </PermissionGate>
                             </td>
                         </tr>
                     }
@@ -141,9 +182,30 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
-    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+        outline: none;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
@@ -151,6 +213,7 @@
     private bool showForm = false;
     private bool isEditing = false;
     private bool isBusy = false;
+    private bool isImporting = false;
 
     private List<ItemCategory> categories = new();
     private ItemCategory currentCategory = new();
@@ -162,7 +225,6 @@
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegAccountType> accountTypes = new();
 
-    // Proxies for nullable GUIDs (SearchableGlAccount doesn't handle nullable GUIDs natively out-of-the-box easily without warnings)
     private Guid ProxyAssetAccountId
     {
         get => currentCategory.InventoryAssetAccountId ?? Guid.Empty;
@@ -176,6 +238,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_SETUP_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
@@ -238,7 +305,7 @@
     private async Task Delete(ItemCategory c)
     {
         if (!await JS.InvokeAsync<bool>("confirm", $"Permanently delete category '{c.Name}'?")) return;
-        
+
         var err = await MasterService.DeleteItemCategoryAsync(c.Id);
         if (string.IsNullOrEmpty(err))
         {
@@ -252,7 +319,6 @@
 
     private async Task SaveCategory()
     {
-        // Validation
         if (currentCategory.SalesIncomeAccountId == Guid.Empty || currentCategory.CostOfGoodsSoldAccountId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Sales Income and COGS accounts are strictly required.");
@@ -267,7 +333,7 @@
 
         isBusy = true;
         var err = await MasterService.SaveItemCategoryAsync(currentCategory);
-        
+
         if (string.IsNullOrEmpty(err))
         {
             showForm = false;
@@ -278,5 +344,153 @@
             await JS.InvokeVoidAsync("alert", err);
         }
         isBusy = false;
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("CategoryName,IsService,SalesIncomeGlCode,CogsGlCode,InventoryAssetGlCode,AdjustmentGlCode");
+
+            foreach (var c in categories)
+            {
+                var incomeCode = allAccounts.FirstOrDefault(a => a.Id == c.SalesIncomeAccountId)?.AccountCode ?? "";
+                var cogsCode = allAccounts.FirstOrDefault(a => a.Id == c.CostOfGoodsSoldAccountId)?.AccountCode ?? "";
+                var assetCode = allAccounts.FirstOrDefault(a => a.Id == c.InventoryAssetAccountId)?.AccountCode ?? "";
+                var adjCode = allAccounts.FirstOrDefault(a => a.Id == c.AdjustmentExpenseAccountId)?.AccountCode ?? "";
+
+                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",{c.IsService},\"{incomeCode}\",\"{cogsCode}\",\"{assetCode}\",\"{adjCode}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+
+            await JS.InvokeVoidAsync("downloadFileFromStream", "ItemCategories_Export.csv", streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+
+    // --- CSV IMPORT LOGIC ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        isImporting = true;
+        try
+        {
+            var file = e.File;
+            if (!file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                await JS.InvokeVoidAsync("alert", "Please upload a valid .csv file.");
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length <= 1)
+            {
+                await JS.InvokeVoidAsync("alert", "The file appears to be empty or missing data rows.");
+                return;
+            }
+
+            int successCount = 0;
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var cols = ParseCsvLine(lines[i]);
+
+                if (cols.Count >= 1)
+                {
+                    var name = cols[0].Trim();
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+
+                    var category = categories.FirstOrDefault(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                                   ?? new ItemCategory { CompanyId = currentCompanyId, Name = name };
+
+                    if (cols.Count > 1 && bool.TryParse(cols[1].Trim(), out bool isSvc))
+                    {
+                        category.IsService = isSvc;
+                    }
+
+                    // GL Mapping
+                    if (cols.Count > 2 && !string.IsNullOrWhiteSpace(cols[2]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[2].Trim());
+                        if (gl != null) category.SalesIncomeAccountId = gl.Id;
+                    }
+                    if (cols.Count > 3 && !string.IsNullOrWhiteSpace(cols[3]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[3].Trim());
+                        if (gl != null) category.CostOfGoodsSoldAccountId = gl.Id;
+                    }
+                    if (cols.Count > 4 && !string.IsNullOrWhiteSpace(cols[4]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[4].Trim());
+                        if (gl != null) category.InventoryAssetAccountId = gl.Id;
+                    }
+                    if (cols.Count > 5 && !string.IsNullOrWhiteSpace(cols[5]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[5].Trim());
+                        if (gl != null) category.AdjustmentExpenseAccountId = gl.Id;
+                    }
+
+                    // Strict Validation before saving
+                    if (category.SalesIncomeAccountId != Guid.Empty && category.CostOfGoodsSoldAccountId != Guid.Empty)
+                    {
+                        if (category.IsService || (category.InventoryAssetAccountId.HasValue && category.InventoryAssetAccountId != Guid.Empty))
+                        {
+                            await MasterService.SaveItemCategoryAsync(category);
+                            successCount++;
+                        }
+                    }
+                }
+            }
+
+            await LoadData();
+            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} categories mapped and saved successfully.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import error: {ex.Message}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper to safely parse CSV rows
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var currentField = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString());
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString());
+        return result;
     }
 }

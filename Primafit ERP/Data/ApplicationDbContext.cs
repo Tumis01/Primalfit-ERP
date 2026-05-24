@@ -68,7 +68,11 @@ namespace PrimafitERP.Data
         public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
         public DbSet<CreditNote> CreditNotes { get; set; }
         public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
-
+        public DbSet<Permission> Permissions { get; set; }
+        public DbSet<SystemRoleTemplate> SystemRoleTemplates { get; set; }
+        public DbSet<SystemRolePermission> SystemRolePermissions { get; set; }
+        public DbSet<UserSystemRole> UserSystemRoles { get; set; }
+        public DbSet<CompanyRolePermission> CompanyRolePermissions { get; set; }
         public DbSet<SegCoaConfig> SegCoaConfigs => Set<SegCoaConfig>();
         public DbSet<SegChartOfAccount> SegChartOfAccounts => Set<SegChartOfAccount>();
         public DbSet<AuditLog> AuditLogs { get; set; }
@@ -91,6 +95,9 @@ namespace PrimafitERP.Data
         public DbSet<PayrollSetting> PayrollSettings { get; set; }
         public DbSet<PayrollEarning> PayrollEarnings { get; set; }
         public DbSet<PayrollDeduction> PayrollDeductions { get; set; }
+        public DbSet<TransactionGlMapping> TransactionGlMappings { get; set; }
+        public DbSet<CompanyEmailSetting> CompanyEmailSettings { get; set; }
+        public DbSet<CustomTransactionType> CustomTransactionTypes { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
@@ -110,10 +117,6 @@ namespace PrimafitERP.Data
                 }
             }
 
-            // ... inside OnModelCreating ...
-
-            // --- CREDIT NOTE SAFE CONFIGURATION ---
-            // We explicitly disable cascading deletes here to prevent SQL Server Error 1785
 
             builder.Entity<CreditNote>(entity =>
             {
@@ -144,8 +147,6 @@ namespace PrimafitERP.Data
                    .WithMany(h => h.Lines)
                    .HasForeignKey(l => l.HeaderId)
                    .OnDelete(DeleteBehavior.Cascade);
-
-            // ... rest of your code ...
 
             builder.Entity<PurchaseReturnLine>()
                 .HasOne(l => l.VendorBillLine)
@@ -219,6 +220,14 @@ namespace PrimafitERP.Data
             builder.Entity<SegCoaConfig>()
                 .HasIndex(x => x.CompanyId)
                 .IsUnique();
+            builder.Entity<SystemRolePermission>()
+        .HasKey(srp => new { srp.SystemRoleTemplateId, srp.PermissionId });
+
+            builder.Entity<UserSystemRole>()
+                .HasKey(usr => new { usr.UserId, usr.SystemRoleTemplateId, usr.CompanyId });
+
+            builder.Entity<CompanyRolePermission>()
+                .HasKey(crp => new { crp.ApplicationRoleId, crp.PermissionId });
 
             builder.Entity<Segment0>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment1>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();

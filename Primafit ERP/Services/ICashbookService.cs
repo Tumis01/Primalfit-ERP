@@ -6,7 +6,7 @@ namespace Primafit_ERP.Services
     {
         Task<List<CashbookBatch>> GetActiveBatchesAsync(Guid companyId);
         Task<CashbookBatch> GetBatchByIdAsync(Guid id);
-        Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId, bool isForeign, Guid? currencyId, decimal exchangeRate);
+        Task<CashbookBatch> CreateBatchAsync(Guid companyId, Guid bankAccountId, string userId, bool isForeign, Guid? currencyId, decimal exchangeRate, bool clearAfterPost);
         Task<string> AddEntryAsync(CashbookEntry entry);
         Task<string> UpdateEntryAsync(CashbookEntry entry);
 

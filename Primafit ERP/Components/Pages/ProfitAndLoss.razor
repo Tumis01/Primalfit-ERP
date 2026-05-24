@@ -8,6 +8,8 @@
 @inject FinancialReportingService FinanceService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
@@ -22,6 +24,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("FINANCE_REPORTS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
     }

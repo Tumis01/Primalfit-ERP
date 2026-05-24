@@ -8,6 +8,8 @@
 @inject OperationalReportingService OpsService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
@@ -24,6 +26,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_REPORTS_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return; // Stop rendering
+        }
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null) companyId = user.CompanyDetailsId.Value;
     }

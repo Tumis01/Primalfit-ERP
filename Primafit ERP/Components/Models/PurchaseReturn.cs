@@ -16,7 +16,6 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid VendorId { get; set; }
         // We generally don't add the Vendor object here to keep the graph simple, 
-        // but you can if you need it for display: public Vendor? Vendor { get; set; }
 
         [Required]
         public Guid VendorBillId { get; set; }

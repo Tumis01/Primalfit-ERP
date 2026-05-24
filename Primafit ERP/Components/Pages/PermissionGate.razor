@@ -1,0 +1,39 @@
+﻿@using Primafit_ERP.Services
+@inject PermissionCacheService PermissionCache
+
+@if (PermissionCache.Has(Key))
+{
+    @if (Authorized != null)
+    {
+        @Authorized
+    }
+    else if (ChildContent != null)
+    {
+        @ChildContent
+    }
+}
+else
+{
+    @if (NotAuthorized != null)
+    {
+        @NotAuthorized
+    }
+}
+
+@code {
+    // The required permission key to check
+    [Parameter, EditorRequired]
+    public string Key { get; set; } = string.Empty;
+
+    // Catches standard HTML or whitespace
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    // Catches the <Authorized> tag
+    [Parameter]
+    public RenderFragment? Authorized { get; set; }
+
+    // Catches the <NotAuthorized> tag
+    [Parameter]
+    public RenderFragment? NotAuthorized { get; set; }
+}

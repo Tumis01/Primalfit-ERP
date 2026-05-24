@@ -36,8 +36,12 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal? Amount { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal? ForecastAmount { get; set; }
+
         [NotMapped] public string PeriodName { get; set; } = "";
     }
+
 
     public class BudgetTransferLine
     {
@@ -61,7 +65,6 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal? Amount { get; set; }
-
         [NotMapped] public string PeriodName { get; set; } = "";
     }
 }

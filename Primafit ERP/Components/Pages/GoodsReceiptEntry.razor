@@ -288,7 +288,7 @@
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
     private Guid currentCompanyId;
-    
+    private string currentUserId = "";
     private bool isBusy = false;
     private bool showLandedCostModal = false;
     private bool isValuationBusy = false;
@@ -303,6 +303,7 @@
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             currentGrn.CompanyId = currentCompanyId;
             
@@ -415,20 +416,21 @@
         isBusy = true;
         try
         {
-            string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId);
+            // Passed currentUserId here
+            string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId, currentUserId);
 
             if (string.IsNullOrEmpty(result))
             {
                 var whName = warehouses.FirstOrDefault(w => w.Id == selectedWarehouseId)?.Name ?? "the warehouse";
                 var receivedDetails = currentGrn.Lines
                     .Where(l => l.QuantityReceived > 0)
-                    .Select(l => 
+                    .Select(l =>
                     {
                         var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
                         var itemName = items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Item";
                         return $"{l.QuantityReceived} quantity of {itemName}";
                     });
-                
+
                 string msg = string.Join(", ", receivedDetails) + $" has been received in {whName}.";
                 await JS.InvokeVoidAsync("alert", msg);
 

@@ -1,498 +1,366 @@
-﻿    @page "/sales/credit-notes/entry/{Id:guid?}"
-    @using Primafit_ERP.Components.Models
-    @using Primafit_ERP.Services
-    @using PrimafitERP.Data
-    @using Microsoft.EntityFrameworkCore
-    @using Microsoft.AspNetCore.Identity
-    @using Microsoft.AspNetCore.Components.Authorization
+﻿@page "/sales/credit-notes/entry/{Id:guid?}"
 
-    @inject CreditNoteService CnService
-    @inject IDbContextFactory<AppDbContext> DbFactory
-    @inject NavigationManager Nav
-    @inject IJSRuntime JS
-    @inject UserManager<ApplicationUser> UserManager
-    @inject AuthenticationStateProvider AuthStateProvider
-    @rendermode InteractiveServer
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 
-    <div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800">
+@inject CreditNoteService CnService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject PermissionCacheService PermissionCache
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
 
-        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
-            <div class="space-y-1">
-                <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
-                    @(IsNew ? "New Credit Note" : $"Credit Note: {currentCn.CreditNoteNumber}")
-                </h1>
-                <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
-                    @(IsPosted ? "● Posted Document - Read Only" : "● Draft - Pending Approval")
-                </p>
-            </div>
-            <div class="flex flex-wrap gap-3">
-                <button @onclick='() => Nav.NavigateTo("/sales/credit-notes")'
-                        class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-colors shadow-sm">
-                    Back to List
-                </button>
+@rendermode InteractiveServer
 
-                @if (!IsPosted && !IsNew)
-                {
-                    <button @onclick="DeleteDraft"
-                            class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
-                        Delete Draft
-                    </button>
-                    <button @onclick="SaveDraft"
-                            class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
-                        Save Draft
-                    </button>
-                    <button @onclick="PostCreditNote"
-                            class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Post & Reverse GL
-                    </button>
-                }
-            </div>
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800">
+
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
+        <div class="space-y-1">
+            <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
+                @(IsNew ? "New Stock Return Credit Note" : $"Credit Note: {currentCn.CreditNoteNumber}")
+            </h1>
+            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
+                @(IsPosted ? "● Posted Document - Read Only" : "● Draft - Pending Approval")
+            </p>
         </div>
+        <div class="flex flex-wrap gap-3">
+            <button type="button" @onclick='() => Nav.NavigateTo("/sales/credit-notes")' class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-colors shadow-sm active:scale-95">
+                Back to List
+            </button>
 
-        @if (IsNew)
-        {
-            <div class="bg-white p-10 rounded-2xl border border-slate-200 shadow-sm max-w-2xl mx-auto mt-12 text-center">
-                <div class="mx-auto w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-6 border border-indigo-100">
-                    <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
-                </div>
-                <h3 class="text-xl font-extrabold text-slate-900 mb-2">Create a Credit Note</h3>
-                <p class="text-slate-500 text-sm mb-8 font-medium">Search and select a Posted Sales Invoice to initiate a refund or return.</p>
-
-                <div class="flex flex-col gap-4 max-w-sm mx-auto">
-                
-                    <div class="relative text-left">
-                        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Search Invoice</label>
-                    
-                        <div class="relative">
-                            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                            <input type="text"
-                                   @bind="invoiceSearchTerm"
-                                   @bind:event="oninput"
-                                   @onfocus="() => isInvoiceDropdownOpen = true"
-                                   @onblur="HideDropdownWithDelay"
-                                   disabled="@_busy"
-                                   placeholder="Type invoice # or customer..."
-                                   class="w-full pl-9 pr-4 py-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all disabled:opacity-50" />
-                        </div>
-
-                        @if (isInvoiceDropdownOpen)
-                        {
-                            <ul class="absolute z-10 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-auto animate-in fade-in slide-in-from-top-2">
-                                @if (FilteredEligibleInvoices.Any())
-                                {
-                                    @foreach (var inv in FilteredEligibleInvoices)
-                                    {
-                                        <li @onclick="() => SelectInvoice(inv.Id)"
-                                            class="px-4 py-3 hover:bg-indigo-50 cursor-pointer text-sm text-slate-700 font-medium border-b border-slate-50 last:border-0 transition-colors">
-                                            @inv.CustomerName
-                                        </li>
-                                    }
-                                }
-                                else
-                                {
-                                    <li class="px-4 py-4 text-sm text-slate-400 text-center font-medium">No invoices found matching your search.</li>
-                                }
-                            </ul>
-                        }
-                    </div>
-
-                    <button @onclick="InitializeDraft"
-                            disabled="@(_busy || selectedInvoiceId == Guid.Empty)"
-                            class="w-full mt-2 px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                        @if (_busy)
-                        {
-                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                            <span>Analyzing Returns...</span>
-                        }
-                        else
-                        {
-                            <span>Initialize Draft</span>
-                        }
-                    </button>
-
-                    @if (!string.IsNullOrWhiteSpace(_errMsg))
-                    {
-                        <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 text-sm font-medium text-left flex items-start gap-2">
-                            <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                            @_errMsg
-                        </div>
-                    }
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-                <div class="lg:col-span-4 space-y-6">
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-                        <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Credit Parameters</h3>
-
-                        <div>
-                            <label class="label">Date</label>
-                            <input type="date"
-                                   value="@currentCn.Date.ToString("yyyy-MM-dd")"
-                                   @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentCn.Date = d; })"
-                                   class="input-class" disabled="@IsPosted" />
-                        </div>
-
-                        <div>
-                            <label class="label">Reason for Return</label>
-                            <textarea @bind="currentCn.Reason" class="input-class h-24 resize-none" placeholder="e.g. Damaged goods, customer dissatisfied..." disabled="@IsPosted"></textarea>
-                        </div>
-
-                        <div class="pt-2 border-t border-slate-100">
-                            <label class="flex items-start gap-3 p-4 border border-slate-200 rounded-xl bg-slate-50 cursor-pointer hover:border-indigo-300 transition-colors">
-                                <input type="checkbox" @bind="currentCn.ReturnToStock" disabled="@IsPosted"
-                                       class="w-5 h-5 mt-0.5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" />
-                                <div>
-                                    <div class="text-sm font-bold text-slate-900 leading-none mb-1">Return Items to Stock?</div>
-                                    <div class="text-xs text-slate-500 leading-snug">Checking this box will reverse the COGS and physically add the quantity back into your warehouse inventory.</div>
-                                </div>
-                            </label>
-                        </div>
-
-                        @if (currentCn.ReturnToStock)
-                        {
-                            <div class="animate-in fade-in slide-in-from-top-2 pt-2">
-                                <label class="label text-indigo-700">Receiving Warehouse</label>
-                                <select @bind="currentCn.WarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/50 text-indigo-900" disabled="@IsPosted">
-                                    <option value="">-- Select Destination --</option>
-                                    @foreach (var w in warehouses)
-                                    {
-                                        <option value="@w.Id">@w.Name</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                    </div>
-                </div>
-
-                <div class="lg:col-span-8">
-                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-full flex flex-col">
-                        <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Items to Credit</h3>
-                            <span class="text-xs font-medium text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
-                                Ref: <span class="font-bold text-slate-800 font-mono">@currentCn.SalesOrder?.OrderNumber</span>
-                            </span>
-                        </div>
-
-                        <div class="overflow-x-auto flex-1">
-                            <table class="w-full text-left text-sm whitespace-nowrap">
-                                <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                                    <tr>
-                                        <th class="p-4 w-[35%]">Item Sold</th>
-                                        <th class="p-4 text-center">Original Sold</th>
-                                        <th class="p-4 text-center text-amber-600">Max Allowed</th>
-                                        <th class="p-4 text-center w-32">Return Qty</th>
-                                        <th class="p-4 text-right">Unit Price</th>
-                                        <th class="p-4 text-right pr-6">Credit Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    @foreach (var line in currentCn.Lines)
-                                    {
-                                        <tr class="hover:bg-slate-50/80 transition-colors align-middle">
-                                            <td class="p-4 font-bold text-slate-800">
-                                                @(line.Item?.Name ?? "Unknown Item")
-                                                @if (line.Item?.IsService == true)
-                                                {
-                                                    <span class="ml-2 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider bg-indigo-50 text-indigo-600 border border-indigo-100">Service</span>
-                                                }
-                                            </td>
-                                            <td class="p-4 text-center font-mono text-slate-500">
-                                                @line.OriginalSoldQty.ToString("G29")
-                                            </td>
-                                            <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/30">
-                                                @line.MaxReturnableQty.ToString("G29")
-                                            </td>
-                                            <td class="p-4">
-                                                <input type="number"
-                                                       value="@line.Quantity"
-                                                       @onchange="@(e => ValidateQuantity(line, e.Value?.ToString()))"
-                                                       disabled="@IsPosted"
-                                                       class="w-full text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-400" />
-                                            </td>
-                                            <td class="p-4 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
-                                            <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">@line.LineTotal.ToString("N2")</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="bg-slate-50 border-t border-slate-200 p-5 flex justify-end items-center gap-6 rounded-b-2xl">
-                            <div class="text-right">
-                                <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Total Credit to Customer (@currentCn.Currency?.CurrencyCode)
-                                </div>
-                                <div class="text-2xl font-mono font-black text-slate-900 leading-none">
-                                    @currentCn.Lines.Sum(l => l.LineTotal).ToString("N2")
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
+            @if (!IsPosted && !IsNew)
+            {
+                <PermissionGate Key="CREDIT_NOTE_CREATE">
+                    <Authorized>
+                        <button type="button" @onclick="DeleteDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm active:scale-95">
+                            Delete Draft
+                        </button>
+                        <button type="button" @onclick="SaveDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-indigo-600 text-sm font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
+                            Save Draft
+                        </button>
+                    </Authorized>
+                </PermissionGate>
+                <button type="button" @onclick="PostCreditNote" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                    Post Stock Return
+                </button>
+            }
+        </div>
     </div>
 
-    <style>
-        .label {
-            display: block;
-            font-size: 0.70rem;
-            font-weight: 800;
-            color: #64748b;
-            text-transform: uppercase;
-            margin-bottom: 0.35rem;
-            letter-spacing: .05em;
-        }
+    @if (IsNew)
+    {
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6 overflow-visible relative">
+            <h3 class="text-lg font-bold text-slate-900 text-center">Initialize Stock Credit Note</h3>
 
-        .input-class {
-            width: 100%;
-            border-radius: 0.75rem;
-            border: 1px solid #cbd5e1;
-            padding: 0.6rem 0.75rem;
-            font-size: 0.875rem;
-            outline: none;
-            background: #fff;
-            color: #1e293b;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+            <div class="relative overflow-visible">
+                <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 1: Select Target Customer Profile <span class="text-rose-500">*</span></label>
 
-            .input-class:focus {
-                border-color: #6366f1;
-                box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-            }
+                <div @onclick="ToggleCustomerDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
+                    <span class="@(selectedCustomerId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">
+                        @selectedCustomerName
+                    </span>
+                    <svg class="w-4 h-4 text-slate-400 transition-transform @(isCustomerDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </div>
 
-            .input-class:disabled {
-                background-color: #f8fafc;
-                color: #94a3b8;
-                cursor: not-allowed;
-                border-color: #e2e8f0;
-            }
-    </style>
+                @if (isCustomerDropdownOpen)
+                {
+                    <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-[100] p-3 space-y-3 animate-in fade-in zoom-in-95 duration-100">
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                            </div>
+                            <input type="text" @bind="customerSearchQuery" @bind:event="oninput" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all font-medium text-slate-800" placeholder="Filter customer names..." @onclick:stopPropagation />
+                        </div>
+                        <div class="max-h-48 overflow-y-auto pr-1 divide-y divide-slate-50">
+                            @foreach (var cust in customers.Where(c => c.Name.Contains(customerSearchQuery, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <div @onclick="() => SelectCustomer(cust)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900 rounded-lg transition-colors cursor-pointer">
+                                    @cust.Name
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
 
-    @code {
-        [Parameter] public Guid? Id { get; set; }
-        [SupplyParameterFromQuery] public Guid? InvoiceId { get; set; }
-
-        private bool IsNew => Id == null;
-        private bool IsPosted => currentCn.Status == CreditNoteStatus.Posted;
-
-        private CreditNote currentCn = new();
-        private List<InvoiceSelectorDto> eligibleInvoices = new();
-        private List<Warehouse> warehouses = new();
-
-        private Guid selectedInvoiceId;
-        private bool _busy = false;
-        private string _errMsg = string.Empty;
-    
-        // Custom Dropdown State
-        private string invoiceSearchTerm = "";
-        private bool isInvoiceDropdownOpen = false;
-    
-        private IEnumerable<InvoiceSelectorDto> FilteredEligibleInvoices => string.IsNullOrWhiteSpace(invoiceSearchTerm)
-            ? eligibleInvoices
-            : eligibleInvoices.Where(i => i.CustomerName.Contains(invoiceSearchTerm, StringComparison.OrdinalIgnoreCase));
-
-        // CHANGED: Using OnParametersSetAsync to correctly catch route ID changes without refreshing!
-        protected override async Task OnParametersSetAsync()
-        {
-            if (IsNew)
+            @if (selectedCustomerId != Guid.Empty)
             {
-                if (InvoiceId.HasValue && selectedInvoiceId != InvoiceId.Value)
-                {
-                    selectedInvoiceId = InvoiceId.Value;
-                    await InitializeDraft();
-                }
-                else if (!eligibleInvoices.Any())
-                {
-                    await LoadEligibleInvoices();
-                }
+                <div class="relative animate-in fade-in duration-300">
+                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Select Shipped Invoice Reference <span class="text-rose-500">*</span></label>
+                    <select @bind="selectedInvoiceId" class="input-class font-bold bg-slate-50 focus:bg-white text-sm text-slate-900 transition-all cursor-pointer outline-none">
+                        <option value="@Guid.Empty">-- Choose Shipped Invoice --</option>
+                        @foreach (var inv in eligibleInvoices)
+                        {
+                            <option value="@inv.Id">@inv.OrderNumber (@inv.Date.ToString("yyyy-MM-dd"))</option>
+                        }
+                    </select>
+                    @if (!eligibleInvoices.Any())
+                    {
+                        <p class="text-xs text-rose-600 font-bold mt-2">⚠️ No processed shipped quantities found for this customer.</p>
+                    }
+                </div>
             }
-            else
-            {
-                // The ID in the URL changed, so load the correct Credit Note data
-                var cn = await CnService.GetByIdAsync(Id.Value);
-                if (cn != null) currentCn = cn;
-                else Nav.NavigateTo("/sales/credit-notes");
 
-                if (!warehouses.Any())
+            <button type="button" @onclick="InitializeDraft" disabled="@(_busy || selectedInvoiceId == Guid.Empty)" class="w-full px-6 py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+                @if (_busy)
                 {
-                    using var ctx = await DbFactory.CreateDbContextAsync();
-                    warehouses = await ctx.Warehouses.AsNoTracking().ToListAsync();
+                    <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
                 }
+                <span>Initialize Draft Workspace</span>
+            </button>
+            @if (!string.IsNullOrWhiteSpace(_errMsg))
+            {
+                <div class="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold rounded-xl">@_errMsg</div>
             }
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10 overflow-visible">
+            <div class="lg:col-span-4 space-y-6">
+                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                    <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Operational Parameters</h3>
+                    <div>
+                        <label class="label">Adjustment Posting Date</label>
+                        <input type="date" value="@currentCn.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentCn.Date = d; })" class="input-class font-bold" disabled="@IsPosted" />
+                    </div>
+                    <div>
+                        <label class="label">Reason for Return</label>
+                        <textarea @bind="currentCn.Reason" class="input-class h-24 resize-none text-sm font-medium" placeholder="Provide return breakdown reason narrative logs..." disabled="@IsPosted"></textarea>
+                    </div>
+                    <div>
+                        <label class="label">Receiving Warehouse Location</label>
+                        <select @bind="currentCn.WarehouseId" class="input-class font-bold text-sm text-slate-900 bg-white" disabled="@IsPosted">
+                            <option value="">-- Choose Target Location --</option>
+                            @foreach (var w in warehouses)
+                            {
+                                <option value="@w.Id">@w.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-8 overflow-visible">
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full">
+                    <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Dispatched Line Items Allocation Matrix</h3>
+                        <span class="text-xs font-medium text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200 font-mono font-bold">Invoice Ref: @currentCn.SalesOrder?.OrderNumber</span>
+                    </div>
+
+                    <div class="overflow-x-auto overflow-visible relative">
+                        <table class="w-full text-left text-sm whitespace-nowrap overflow-visible relative" style="border-collapse: collapse;">
+                            <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider relative z-20">
+                                <tr>
+                                    <th class="p-4 pl-6">Item Name</th>
+                                    <th class="p-4 text-center">Total Shipped</th>
+                                    <th class="p-4 text-center text-amber-600">Max Allowed</th>
+                                    <th class="p-4 text-center w-32">Return Qty</th>
+                                    <th class="p-4 text-right">Unit Price</th>
+                                    <th class="p-4 text-right pr-6">Credit Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 overflow-visible relative z-10">
+                                @{
+                                    int gridRowIndex = 0;
+                                }
+                                @foreach (var line in currentCn.Lines)
+                                {
+                                    var localGridIndex = gridRowIndex++;
+                                    <tr class="hover:bg-slate-50/80 transition-colors align-middle relative overflow-visible" style="z-index: @(100 - localGridIndex);">
+                                        <td class="p-4 pl-6 font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Product Item")</td>
+                                        <td class="p-4 text-center font-mono font-semibold text-slate-500">@line.OriginalSoldQty.ToString("N2")</td>
+                                        <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@line.MaxReturnableQty.ToString("N2")</td>
+                                        <td class="p-4">
+                                            <input type="number" step="0.01" value="@line.Quantity" @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))" disabled="@IsPosted" class="w-full text-center font-mono font-black border border-slate-200 bg-white rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:outline-none transition-all" />
+                                        </td>
+                                        <td class="p-4 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">@line.LineTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="bg-slate-50 border-t border-slate-200 p-5 flex justify-end items-center mt-auto rounded-b-2xl">
+                        <div class="text-right">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Credit to Customer (@currentCn.Currency?.CurrencyCode)</div>
+                            <div class="text-2xl font-mono font-black text-slate-900">@currentCn.Lines.Sum(l => l.LineTotal).ToString("N2")</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: .05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.65rem 0.8rem;
+        font-size: 0.875rem;
+        outline: none;
+        transition: all 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
         }
 
-        private async Task LoadEligibleInvoices()
+    tr, td {
+        overflow: visible !important;
+    }
+</style>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private CreditNote currentCn = new();
+    private List<Customer> customers = new();
+    private List<SalesOrder> eligibleInvoices = new();
+    private List<Warehouse> warehouses = new();
+
+    private Guid selectedCustomerId = Guid.Empty;
+    private Guid selectedInvoiceId = Guid.Empty;
+
+    // Searchable dropdown binding elements
+    private bool isCustomerDropdownOpen = false;
+    private string customerSearchQuery = string.Empty;
+    private string selectedCustomerName = "-- Choose Target Customer Profile --";
+
+    private bool _busy = false;
+    private string _errMsg = string.Empty;
+
+    private bool IsNew => Id == null;
+    private bool IsPosted => currentCn.Status == CreditNoteStatus.Posted;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("CREDIT_NOTE_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId == null) return;
+
+        Guid companyId = user.CompanyDetailsId.Value;
+        warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
+        customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsNew)
         {
-            using var ctx = await DbFactory.CreateDbContextAsync();
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = await UserManager.GetUserAsync(authState.User);
-
-            if (user?.CompanyDetailsId != null)
-            {
-                var data = await ctx.SalesOrders
-                    .Where(s => s.Status == OrderStatus.Invoiced && s.CompanyId == user.CompanyDetailsId.Value)
-                    .Include(s => s.Customer)
-                    .OrderByDescending(s => s.Date)
-                    .Take(100)
-                    .Select(s => new { s.Id, s.OrderNumber, CustomerName = s.Customer.Name })
-                    .ToListAsync();
-
-                eligibleInvoices = data.Select(x => new InvoiceSelectorDto
-                {
-                    Id = x.Id,
-                    CustomerName = $"{x.OrderNumber} - {x.CustomerName}"
-                }).ToList();
-            }
-        }
-
-        // --- CUSTOM DROPDOWN LOGIC ---
-        private async Task HideDropdownWithDelay()
-        {
-            // Delay allows the click event on the <li> to register before the UL disappears
-            await Task.Delay(200);
-            isInvoiceDropdownOpen = false;
-            StateHasChanged();
-        }
-
-        private async Task SelectInvoice(Guid id)
-        {
-            selectedInvoiceId = id;
-            var selected = eligibleInvoices.FirstOrDefault(x => x.Id == id);
-            if (selected != null)
-            {
-                invoiceSearchTerm = selected.CustomerName;
-            }
-            isInvoiceDropdownOpen = false;
-            await OnInvoiceChanged();
-        }
-
-        private async Task OnInvoiceChanged()
-        {
-            _errMsg = string.Empty;
-            if (_busy || selectedInvoiceId == Guid.Empty) return;
-
-            _busy = true;
-            StateHasChanged();
-
-            try
-            {
-                await InitializeDraft();
-            }
-            finally
-            {
-                _busy = false;
-                StateHasChanged();
-            }
-        }
-
-        private async Task InitializeDraft()
-        {
-            if (_busy && selectedInvoiceId == Guid.Empty) return;
-
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = await UserManager.GetUserAsync(authState.User);
-            if (user == null)
-            {
-                _errMsg = "Login required.";
-                return;
-            }
-
-            try
-            {
-                var cn = await CnService.CreateDraftFromOrderAsync(selectedInvoiceId, Guid.Parse(user.Id));
-            
-                // This triggers OnParametersSetAsync because the URL parameter changes
-                Nav.NavigateTo($"/sales/credit-notes/entry/{cn.Id}");
-            }
-            catch (Exception ex)
-            {
-                _errMsg = ex.Message;
-            }
-        }
-
-        // --- UI VALIDATION LOGIC ---
-        private void ValidateQuantity(CreditNoteLine line, string? inputVal)
-        {
-            if (decimal.TryParse(inputVal, out decimal val))
-            {
-                if (val < 0) line.Quantity = 0;
-                else if (val > line.MaxReturnableQty)
-                {
-                    line.Quantity = line.MaxReturnableQty;
-                    JS.InvokeVoidAsync("alert", $"You cannot return more than the maximum allowed ({line.MaxReturnableQty}).");
-                }
-                else line.Quantity = val;
-            }
-            else
-            {
-                line.Quantity = 0;
-            }
-        }
-
-        private async Task SaveDraft()
-        {
-            // UI Safety Check before sending to backend
-            if (currentCn.Lines.Any(l => l.Quantity > l.MaxReturnableQty))
-            {
-                await JS.InvokeVoidAsync("alert", "One or more lines exceeds the maximum returnable quantity. Please correct them.");
-                return;
-            }
-
-            var err = await CnService.SaveDraftAsync(currentCn);
-            if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved Successfully.");
-            else await JS.InvokeVoidAsync("alert", err);
-        }
-
-        private async Task PostCreditNote()
-        {
-            if (currentCn.ReturnToStock && currentCn.WarehouseId == null)
-            {
-                await JS.InvokeVoidAsync("alert", "You must select a receiving warehouse to return physical items to stock.");
-                return;
-            }
-
-            var confirm = await JS.InvokeAsync<bool>("confirm", "This will permanently reverse revenue, deduct AR, and optionally adjust physical stock. Continue?");
-            if (!confirm) return;
-
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            var user = await UserManager.GetUserAsync(authState.User);
-            if (user == null) return;
-
-            // Auto-save any pending changes before posting
-            await SaveDraft();
-
-            var err = await CnService.PostCreditNoteAsync(currentCn.Id, Guid.Parse(user.Id));
-            if (string.IsNullOrEmpty(err))
-            {
-                await JS.InvokeVoidAsync("alert", "Credit Note Posted Successfully!");
-                currentCn = await CnService.GetByIdAsync(currentCn.Id) ?? currentCn;
-                StateHasChanged();
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("alert", "Error: " + err);
-            }
-        }
-
-        private async Task DeleteDraft()
-        {
-            if (!await JS.InvokeAsync<bool>("confirm", "Permanently delete this draft?")) return;
-
-            await CnService.DeleteDraftAsync(currentCn.Id);
-            Nav.NavigateTo("/sales/credit-notes");
-        }
-
-        public class InvoiceSelectorDto
-        {
-            public Guid Id { get; set; }
-            public string CustomerName { get; set; } = "";
+            var cn = await CnService.GetByIdAsync(Id.Value, user.CompanyDetailsId ?? Guid.Empty);
+            if (cn != null) currentCn = cn;
+            else Nav.NavigateTo("/sales/credit-notes");
         }
     }
+
+    private void ToggleCustomerDropdown() => isCustomerDropdownOpen = !isCustomerDropdownOpen;
+
+    private async Task SelectCustomer(Customer cust)
+    {
+        selectedCustomerId = cust.Id;
+        selectedCustomerName = cust.Name;
+        isCustomerDropdownOpen = false;
+        customerSearchQuery = string.Empty;
+
+        selectedInvoiceId = Guid.Empty;
+        eligibleInvoices.Clear();
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        _busy = true; StateHasChanged();
+        eligibleInvoices = await CnService.GetShippedInvoicesByCustomerAsync(user.CompanyDetailsId.Value, selectedCustomerId);
+        _busy = false; StateHasChanged();
+    }
+
+    private async Task InitializeDraft()
+    {
+        if (selectedInvoiceId == Guid.Empty) return;
+        _busy = true; _errMsg = string.Empty; StateHasChanged();
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = await UserManager.GetUserAsync(authState.User);
+            var cn = await CnService.CreateStockReturnDraftAsync(selectedInvoiceId, Guid.Parse(user.Id));
+            Nav.NavigateTo($"/sales/credit-notes/entry/{cn.Id}");
+        }
+        catch (Exception ex) { _errMsg = ex.Message; }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    private void ValidateQuantity(CreditNoteLine line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res))
+        {
+            if (res < 0) line.Quantity = 0;
+            else if (res > line.MaxReturnableQty) line.Quantity = line.MaxReturnableQty;
+            else line.Quantity = res;
+        }
+        else line.Quantity = 0;
+        StateHasChanged();
+    }
+
+    private async Task SaveDraft()
+    {
+        var err = await CnService.SaveDraftAsync(currentCn);
+        if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Workspace parameters saved successfully.");
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task PostCreditNote()
+    {
+        if (currentCn.WarehouseId == null || currentCn.WarehouseId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Fulfillment error: Select a valid destination inventory receiving warehouse location block.");
+            return;
+        }
+        if (!await JS.InvokeAsync<bool>("confirm", "Execute ledger posting? This will re-entry warehouse components instantly.")) return;
+
+        await SaveDraft();
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        var err = await CnService.PostStockCreditNoteAsync(currentCn.Id, Guid.Parse(user.Id));
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Stock Reversal Posted and Financial Ledger Balanced successfully!");
+            Nav.NavigateTo("/sales/credit-notes");
+        }
+        else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    private async Task DeleteDraft()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Permanently clear draft payload data?")) return;
+        await CnService.DeleteDraftAsync(currentCn.Id);
+        Nav.NavigateTo("/sales/credit-notes");
+    }
+}

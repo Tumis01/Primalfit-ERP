@@ -5,30 +5,60 @@
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
 
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 
 @rendermode InteractiveServer
 
-<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
 
-    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Vendor Groups</h1>
             <p class="text-sm text-slate-500">Categorize vendors and set default A/P accounts.</p>
         </div>
-        <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-colors">
-            + New Group
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+            <PermissionGate Key="VENDOR_GROUP_MANAGE">
+                <Authorized>
+                    <button @onclick="ExportCsv" class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Export CSV
+                    </button>
+
+                    <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0">
+                        @if (isImporting)
+                        {
+                            <span class="animate-spin">↻</span>
+                            <span>Importing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span>Import CSV</span>
+                        }
+                        <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" disabled="@isImporting" />
+                    </label>
+
+                    <button @onclick="CreateNew" class="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-sm transition-colors">
+                        + New Group
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        </div>
     </div>
 
     @if (showForm)
     {
-        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6">
+        <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl mb-6 animate-in slide-in-from-top-4">
             <h3 class="text-lg font-bold text-slate-800 mb-6">@(model.Id == Guid.Empty ? "Create Group" : "Edit Group")</h3>
 
             <EditForm Model="model" OnValidSubmit="Save">
@@ -45,7 +75,7 @@
                                              Placeholder="Search A/P accounts..."
                                              Accounts="@apAccounts"
                                              @bind-Value="PayablesAccountIdWrapper" />
-                        
+
                         <p class="text-[10px] text-slate-400 mt-1">
                             Selecting this group on a vendor will auto-fill this GL Account.
                         </p>
@@ -53,53 +83,61 @@
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold">Cancel</button>
-                    <button type="submit" class="px-5 py-2 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 shadow-md">Save Group</button>
+                    <button type="button" @onclick="() => showForm = false" class="px-5 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
+                    <button type="submit" class="px-5 py-2 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 shadow-md transition-colors">Save Group</button>
                 </div>
             </EditForm>
         </div>
     }
 
     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <table class="w-full text-left text-sm text-slate-600">
-            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
-                <tr>
-                    <th class="px-6 py-4">Group Name</th>
-                    <th class="px-6 py-4">Default A/P GL</th>
-                    <th class="px-6 py-4 text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @foreach (var item in groups)
-                {
-                    var gl = apAccounts.FirstOrDefault(a => a.Id == item.PayablesAccountId);
-                    <tr class="hover:bg-slate-50 transition-colors">
-                        <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
-                        <td class="px-6 py-4">
-                            @if (gl != null)
-                            {
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 text-xs font-bold border border-rose-100">
-                                    <span class="font-mono">@gl.AccountCode</span>
-                                    <span>@gl.Description</span>
-                                </span>
-                            }
-                            else
-                            {
-                                <span class="text-slate-400 italic text-xs">None set</span>
-                            }
-                        </td>
-                        <td class="px-6 py-4 text-right">
-                            <button @onclick="() => Edit(item)" class="text-indigo-600 font-bold hover:underline mr-3">Edit</button>
-                            <button @onclick="() => Delete(item)" class="text-rose-600 font-bold hover:underline">Delete</button>
-                        </td>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-600 min-w-[600px]">
+                <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                    <tr>
+                        <th class="px-6 py-4">Group Name</th>
+                        <th class="px-6 py-4">Default A/P GL</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
-                }
-                @if (!groups.Any())
-                {
-                    <tr><td colspan="3" class="p-8 text-center text-slate-400">No groups found.</td></tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var item in groups)
+                    {
+                        var gl = apAccounts.FirstOrDefault(a => a.Id == item.PayablesAccountId);
+                        <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
+                            <td class="px-6 py-4">
+                                @if (gl != null)
+                                {
+                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 text-xs font-bold border border-rose-100">
+                                        <span class="font-mono">@gl.AccountCode</span>
+                                        <span class="truncate max-w-[150px]" title="@gl.Description">@gl.Description</span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-slate-400 italic text-xs">None set</span>
+                                }
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <PermissionGate Key="VENDOR_GROUP_MANAGE">
+                                    <Authorized>
+                                        <div class="flex items-center justify-end gap-3">
+                                            <button @onclick="() => Edit(item)" class="text-indigo-600 font-bold hover:underline uppercase text-xs tracking-wider">Edit</button>
+                                            <button @onclick="() => Delete(item)" class="text-rose-600 font-bold hover:underline uppercase text-xs tracking-wider">Delete</button>
+                                        </div>
+                                    </Authorized>
+                                </PermissionGate>
+                            </td>
+                        </tr>
+                    }
+                    @if (!groups.Any())
+                    {
+                        <tr><td colspan="3" class="p-8 text-center text-slate-400">No groups found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
@@ -135,9 +173,9 @@
     private List<SegChartOfAccount> apAccounts = new();
     private VendorGroup model = new();
     private bool showForm = false;
+    private bool isImporting = false;
     private Guid currentCompanyId;
 
-    // Helper property for binding Guid? to SearchableGlAccount (which expects Guid)
     private Guid PayablesAccountIdWrapper
     {
         get => model.PayablesAccountId ?? Guid.Empty;
@@ -146,13 +184,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("MD_VENDOR_GROUPS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
+
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-            
-            // Load AP Accounts (Liabilities)
-            // Rule: IsBalanceSheet = TRUE (Liability) AND IsDebit = FALSE
+
             var types = await SegCoaService.GetAccountTypesAsync();
             var allCoa = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
 
@@ -206,5 +244,139 @@
         var err = await MasterService.DeleteVendorGroupAsync(item.Id);
         if (string.IsNullOrEmpty(err)) await LoadData();
         else await JS.InvokeVoidAsync("alert", err);
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            // Create headers
+            sb.AppendLine("GroupName,DefaultApGlAccountCode");
+
+            foreach (var g in groups)
+            {
+                var gl = apAccounts.FirstOrDefault(a => a.Id == g.PayablesAccountId);
+                // Wrap strings in quotes to prevent comma breaking
+                var name = $"\"{g.Name?.Replace("\"", "\"\"")}\"";
+                var code = $"\"{gl?.AccountCode ?? ""}\"";
+
+                sb.AppendLine($"{name},{code}");
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+
+            await JS.InvokeVoidAsync("downloadFileFromStream", "VendorGroups_Export.csv", streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+
+    // --- CSV IMPORT LOGIC ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        isImporting = true;
+        try
+        {
+            var file = e.File;
+            if (!file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                await JS.InvokeVoidAsync("alert", "Please upload a valid .csv file.");
+                return;
+            }
+
+            // Max size 5MB
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length <= 1)
+            {
+                await JS.InvokeVoidAsync("alert", "The file appears to be empty or missing data rows.");
+                return;
+            }
+
+            int successCount = 0;
+
+            // Start loop at 1 to skip the header row
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                // Simple CSV parsing, safely separating the two columns
+                var cols = ParseCsvLine(line);
+
+                if (cols.Count >= 1)
+                {
+                    var groupName = cols[0].Trim();
+                    if (string.IsNullOrWhiteSpace(groupName)) continue;
+
+                    // Update existing group or create a new one
+                    var group = groups.FirstOrDefault(g => g.Name.Equals(groupName, StringComparison.OrdinalIgnoreCase))
+                                ?? new VendorGroup { CompanyId = currentCompanyId, Name = groupName };
+
+                    // Map the GL account if a code was provided in column 2
+                    if (cols.Count >= 2)
+                    {
+                        var glCode = cols[1].Trim();
+                        if (!string.IsNullOrWhiteSpace(glCode))
+                        {
+                            var gl = apAccounts.FirstOrDefault(a => a.AccountCode == glCode);
+                            if (gl != null)
+                            {
+                                group.PayablesAccountId = gl.Id;
+                            }
+                        }
+                    }
+
+                    await MasterService.SaveVendorGroupAsync(group);
+                    successCount++;
+                }
+            }
+
+            await LoadData();
+            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} groups processed successfully.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import error: {ex.Message}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper to safely parse CSV rows
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var currentField = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString());
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString());
+        return result;
     }
 }

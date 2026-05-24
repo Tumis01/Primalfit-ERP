@@ -3,11 +3,16 @@
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using System.IO
+@using System.Text
 
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -19,10 +24,35 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Item Master</h1>
             <p class="text-sm text-slate-500 mt-1">Manage Inventory Items, Services, and their GL mappings.</p>
         </div>
-        <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            New Item
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+            <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+                <Authorized>
+                    <button @onclick="ExportCsv" class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 text-sm">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                        Export CSV
+                    </button>
+
+                    <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0 text-sm">
+                        @if (isImporting)
+                        {
+                            <span class="animate-spin">↻</span>
+                            <span>Importing...</span>
+                        }
+                        else
+                        {
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                            <span>Import CSV</span>
+                        }
+                        <InputFile OnChange="ImportCsv" accept=".csv" class="hidden" disabled="@isImporting" />
+                    </label>
+
+                    <button @onclick="CreateNew" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                        New Item
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        </div>
     </div>
 
     @if (showForm)
@@ -74,7 +104,7 @@
                             <label class="label">Reorder Level</label>
                             <InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class font-mono" />
                         </div>
-                        
+
                         <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-3">
                             <div>
                                 <label class="label text-indigo-700">Costing Method <span class="text-rose-500">*</span></label>
@@ -114,7 +144,7 @@
                         <InputNumber @bind-Value="currentItem.SellingPrice" class="input-class font-mono text-emerald-700 font-bold" />
                     </div>
                 </div>
-                
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <div class="mb-8 bg-slate-50 border border-slate-100 p-5 rounded-xl shadow-sm">
                         <label class="label text-indigo-900">Item Category </label>
@@ -133,7 +163,7 @@
                         </p>
                     </div>
                 </div>
-                
+
                 <div class="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6">
                     <h4 class="text-xs font-bold text-slate-500 uppercase mb-4 border-b border-slate-200 pb-2">Financial Ledger Routing</h4>
 
@@ -179,8 +209,8 @@
     }
 
     <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-slate-900 whitespace-nowrap">
+        <div class="overflow-x-auto w-full">
+            <table class="w-full text-left text-sm text-slate-900 whitespace-nowrap min-w-[1000px]">
                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                     <tr>
                         <th class="p-4 pl-6">CODE</th>
@@ -199,7 +229,9 @@
                         {
                             <tr class="hover:bg-slate-50 transition-colors group">
                                 <td class="p-4 pl-6 font-mono font-bold text-slate-700">@i.SKU</td>
-                                <td class="p-4 font-bold text-slate-900">@i.Name</td>
+                                <td class="p-4 font-bold text-slate-900">
+                                    <div class="truncate max-w-[250px]" title="@i.Name">@i.Name</div>
+                                </td>
                                 <td class="p-4 text-center">
                                     <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider @(i.IsService ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200")">
                                         @(i.IsService ? "Service" : "Goods")
@@ -216,12 +248,16 @@
                                     }
                                 </td>
                                 <td class="p-4 text-right font-mono font-bold text-emerald-600">@i.SellingPrice.ToString("N2")</td>
-                                
+
                                 <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N2")</td>
-                                
+
                                 <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs">Edit</button>
-                                    <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs">Delete</button>
+                                    <PermissionGate Key="INVENTORY_SETUP_MANAGE">
+                                        <Authorized>
+                                            <button @onclick="() => Edit(i)" class="text-indigo-600 font-bold hover:text-indigo-900 mr-4 text-xs uppercase tracking-wider">Edit</button>
+                                            <button @onclick="() => Delete(i)" class="text-rose-500 font-bold hover:text-rose-700 text-xs uppercase tracking-wider">Delete</button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 </td>
                             </tr>
                         }
@@ -237,15 +273,36 @@
 </div>
 
 <style>
-    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; font-size: 0.875rem; transition: all 0.2s; outline: none; }
-    .input-class:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15); }
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+        outline: none;
+    }
+
+        .input-class:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+        }
 </style>
 
 @code {
     private List<Item> items = new();
-    private List<UnitOfMeasure> uoms = new(); 
-    private List<ItemCategory> categories = new(); 
+    private List<UnitOfMeasure> uoms = new();
+    private List<ItemCategory> categories = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> assetAccounts = new();
@@ -256,10 +313,16 @@
     private Item currentItem = new();
     private bool showForm = false;
     private bool isEditing = false;
+    private bool isImporting = false;
     private Guid currentCompanyId;
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("INVENTORY_SETUP_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
@@ -269,14 +332,14 @@
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
             uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
-            categories = await MasterService.GetItemCategoriesAsync(currentCompanyId); 
+            categories = await MasterService.GetItemCategoriesAsync(currentCompanyId);
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            assetAccounts = FilterAccounts(true, true);   
-            revenueAccounts = FilterAccounts(false, false); 
-            expenseAccounts = FilterAccounts(false, true);  
+            assetAccounts = FilterAccounts(true, true);
+            revenueAccounts = FilterAccounts(false, false);
+            expenseAccounts = FilterAccounts(false, true);
         }
     }
 
@@ -305,15 +368,15 @@
         {
             Id = i.Id,
             CompanyId = i.CompanyId,
-            CategoryId = i.CategoryId, 
+            CategoryId = i.CategoryId,
             Name = i.Name,
             SKU = i.SKU,
             IsService = i.IsService,
             SellingPrice = i.SellingPrice,
             UoM = i.UoM,
             ReorderLevel = i.ReorderLevel,
-            CostingType = i.CostingType, 
-            WeightedAverageCost = i.WeightedAverageCost, 
+            CostingType = i.CostingType,
+            WeightedAverageCost = i.WeightedAverageCost,
             StandardCost = i.StandardCost,
             UserSpecifiedCost = i.UserSpecifiedCost,
             MostRecentCost = i.MostRecentCost,
@@ -348,14 +411,14 @@
                 {
                     currentItem.InventoryAssetAccountId = Guid.Empty;
                     currentItem.AdjustmentExpenseAccountId = Guid.Empty;
-                    currentItem.UoM = ""; 
+                    currentItem.UoM = "";
                     currentItem.ReorderLevel = 0;
                 }
             }
         }
         else
         {
-            currentItem.CategoryId = null; 
+            currentItem.CategoryId = null;
         }
     }
 
@@ -397,5 +460,174 @@
         {
             await JS.InvokeVoidAsync("alert", err);
         }
+    }
+
+    // --- CSV EXPORT LOGIC ---
+    private async Task ExportCsv()
+    {
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("SKU,Name,IsService,CategoryName,CostingType,UoM,ReorderLevel,SellingPrice,StandardCost,UserSpecifiedCost,SalesIncomeGlCode,CogsGlCode,InventoryAssetGlCode,AdjustmentGlCode");
+
+            foreach (var i in items)
+            {
+                var catName = categories.FirstOrDefault(c => c.Id == i.CategoryId)?.Name ?? "";
+                var incCode = allAccounts.FirstOrDefault(a => a.Id == i.SalesIncomeAccountId)?.AccountCode ?? "";
+                var cogsCode = allAccounts.FirstOrDefault(a => a.Id == i.CostOfGoodsSoldAccountId)?.AccountCode ?? "";
+                var assetCode = allAccounts.FirstOrDefault(a => a.Id == i.InventoryAssetAccountId)?.AccountCode ?? "";
+                var adjCode = allAccounts.FirstOrDefault(a => a.Id == i.AdjustmentExpenseAccountId)?.AccountCode ?? "";
+
+                sb.AppendLine($"\"{i.SKU?.Replace("\"", "\"\"")}\",\"{i.Name?.Replace("\"", "\"\"")}\",{i.IsService},\"{catName?.Replace("\"", "\"\"")}\",{i.CostingType},\"{i.UoM}\",{i.ReorderLevel},{i.SellingPrice},{i.StandardCost},{i.UserSpecifiedCost},\"{incCode}\",\"{cogsCode}\",\"{assetCode}\",\"{adjCode}\"");
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
+
+            await JS.InvokeVoidAsync("downloadFileFromStream", "ItemsMaster_Export.csv", streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+    }
+
+    // --- CSV IMPORT LOGIC ---
+    private async Task ImportCsv(InputFileChangeEventArgs e)
+    {
+        isImporting = true;
+        try
+        {
+            var file = e.File;
+            if (!file.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                await JS.InvokeVoidAsync("alert", "Please upload a valid .csv file.");
+                return;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
+
+            var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (lines.Length <= 1)
+            {
+                await JS.InvokeVoidAsync("alert", "The file appears to be empty or missing data rows.");
+                return;
+            }
+
+            int successCount = 0;
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var cols = ParseCsvLine(lines[i]);
+
+                if (cols.Count >= 2)
+                {
+                    var sku = cols[0].Trim();
+                    var name = cols[1].Trim();
+                    if (string.IsNullOrWhiteSpace(sku) || string.IsNullOrWhiteSpace(name)) continue;
+
+                    // Match by SKU to avoid duplicates
+                    var item = items.FirstOrDefault(x => x.SKU.Equals(sku, StringComparison.OrdinalIgnoreCase))
+                               ?? new Item { CompanyId = currentCompanyId, SKU = sku };
+
+                    item.Name = name;
+
+                    if (cols.Count > 2 && bool.TryParse(cols[2].Trim(), out bool isSvc)) item.IsService = isSvc;
+
+                    // Map Category
+                    if (cols.Count > 3 && !string.IsNullOrWhiteSpace(cols[3]))
+                    {
+                        var cat = categories.FirstOrDefault(c => c.Name.Equals(cols[3].Trim(), StringComparison.OrdinalIgnoreCase));
+                        if (cat != null) item.CategoryId = cat.Id;
+                    }
+
+                    // Map Costing Type
+                    if (cols.Count > 4 && Enum.TryParse<CostingMethod>(cols[4].Trim(), true, out var cType))
+                    {
+                        item.CostingType = cType;
+                    }
+
+                    if (cols.Count > 5) item.UoM = cols[5].Trim();
+                    if (cols.Count > 6 && decimal.TryParse(cols[6].Trim(), out decimal reorder)) item.ReorderLevel = reorder;
+                    if (cols.Count > 7 && decimal.TryParse(cols[7].Trim(), out decimal selling)) item.SellingPrice = selling;
+                    if (cols.Count > 8 && decimal.TryParse(cols[8].Trim(), out decimal stdCost)) item.StandardCost = stdCost;
+                    if (cols.Count > 9 && decimal.TryParse(cols[9].Trim(), out decimal usrCost)) item.UserSpecifiedCost = usrCost;
+
+                    // GL Mapping
+                    if (cols.Count > 10 && !string.IsNullOrWhiteSpace(cols[10]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[10].Trim());
+                        if (gl != null) item.SalesIncomeAccountId = gl.Id;
+                    }
+                    if (cols.Count > 11 && !string.IsNullOrWhiteSpace(cols[11]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[11].Trim());
+                        if (gl != null) item.CostOfGoodsSoldAccountId = gl.Id;
+                    }
+                    if (cols.Count > 12 && !string.IsNullOrWhiteSpace(cols[12]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[12].Trim());
+                        if (gl != null) item.InventoryAssetAccountId = gl.Id;
+                    }
+                    if (cols.Count > 13 && !string.IsNullOrWhiteSpace(cols[13]))
+                    {
+                        var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[13].Trim());
+                        if (gl != null) item.AdjustmentExpenseAccountId = gl.Id;
+                    }
+
+                    // Validate Required GLs before saving
+                    if (item.SalesIncomeAccountId != Guid.Empty && item.CostOfGoodsSoldAccountId != Guid.Empty)
+                    {
+                        if (item.IsService || (item.InventoryAssetAccountId != Guid.Empty))
+                        {
+                            await MasterService.SaveItemAsync(item);
+                            successCount++;
+                        }
+                    }
+                }
+            }
+
+            items = await MasterService.GetItemsAsync(currentCompanyId); // Refresh full list
+            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} items processed and mapped successfully.");
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Import error: {ex.Message}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper to safely parse CSV rows
+    private List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        bool inQuotes = false;
+        var currentField = new StringBuilder();
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '\"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(currentField.ToString());
+                currentField.Clear();
+            }
+            else
+            {
+                currentField.Append(c);
+            }
+        }
+        result.Add(currentField.ToString());
+        return result;
     }
 }

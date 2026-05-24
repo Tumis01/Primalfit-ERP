@@ -1,0 +1,508 @@
+﻿@page "/inventory/adjustments"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using System.IO
+
+@inject InventoryService InvService
+@inject MasterDataService MasterService
+@inject SegCoaService SegCoaService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6 font-sans text-slate-800">
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Physical Inventory Adjustments</h1>
+            <p class="text-sm text-slate-500 mt-1">
+                Perform stock quantity variances and financial cost ledger revaluations. Values automatically balance line-by-line against the system offset route.
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start relative z-20">
+
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm md:col-span-2 flex flex-col justify-between h-full">
+            <div>
+                <span class="text-[10px] font-extrabold uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-wider inline-block mb-2">
+                    Active Mapping Routing Pipeline
+                </span>
+                <p class="text-xs text-slate-500">Each adjustment row will be automatically balanced against this configured balancing offset account:</p>
+            </div>
+            <div class="mt-4">
+                <div class="p-3 bg-slate-50 border border-slate-200/60 rounded-xl">
+                    <span class="text-[9px] font-bold text-slate-400 block uppercase tracking-wider">Inventory Variance Balancing Offset Account</span>
+                    <span class="text-xs font-bold text-indigo-700 truncate block mt-0.5">
+                        @(string.IsNullOrWhiteSpace(balancingAccountLabel) ? "NOT CONFIGURED " : balancingAccountLabel)
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center h-full">
+            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">
+                Adjustment Posting Date
+            </label>
+            <div class="relative w-full rounded-xl shadow-sm">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </div>
+                <input type="date"
+                       @bind="postingDate"
+                       class="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all cursor-pointer" />
+            </div>
+        </div>
+
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col adj-table-card">
+
+        <div class="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white rounded-t-2xl">
+            <div>
+                <h2 class="text-xs font-black uppercase tracking-[0.18em] text-slate-700">
+                    Inventory Adjustment Journal Matrix
+                </h2>
+                <p class="text-xs text-slate-500 mt-1">
+                    Real-time inventory valuation adjustments and stock movement balancing entries.
+                </p>
+            </div>
+        </div>
+
+        <div class="adj-table-scroll">
+            <table class="w-full min-w-[1250px] text-sm text-left adj-table">
+                <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                    <tr>
+                        <th class="p-4 w-[28%] pl-6">Physical Inventory Item Reference</th>
+                        <th class="p-4 w-[18%]">Fulfillment Warehouse</th>
+                        <th class="p-4 text-center w-[11%]">Quantity Change</th>
+                        <th class="p-4 text-center w-[12%]">Stock Direction</th>
+                        <th class="p-4 text-right w-[11%]">Unit Cost</th>
+                        <th class="p-4 text-right w-[10%] text-emerald-700">Debit (Dr)</th>
+                        <th class="p-4 text-right w-[10%] text-rose-700">Credit (Cr)</th>
+                        <th class="p-4 pr-6 text-center w-[5%]">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody class="divide-y divide-slate-100">
+                    @{
+                        int rowIndex = 0;
+                    }
+                    @foreach (var line in lines)
+                    {
+                        var localIndex = rowIndex++;
+                        bool hasQty = line.QuantityChange > 0;
+
+                        <tr class="hover:bg-slate-50/80 transition-colors adj-row"
+                            style="z-index: @(500 - localIndex);">
+
+                            <td class="p-3 pl-6 adj-item-cell">
+                                <div class="adj-item-wrap">
+                                    <SearchableItem Label=""
+                                                    Items="@items"
+                                                    @bind-Value="line.ItemId"
+                                                    IsInvalid="@(line.ItemId == Guid.Empty)" />
+                                </div>
+                            </td>
+
+                            <td class="p-3 align-middle">
+                                <select @bind="line.WarehouseId"
+                                        class="w-full p-2.5 border border-slate-200 rounded-xl text-sm font-bold bg-white text-slate-900 focus:border-indigo-500 focus:outline-none transition-all">
+                                    <option value="@Guid.Empty">-- Select Warehouse --</option>
+                                    @foreach (var wh in warehouses)
+                                    {
+                                        <option value="@wh.Id">@wh.Name</option>
+                                    }
+                                </select>
+                            </td>
+
+
+                            <td class="p-3 align-middle">
+                                <input type="number" step="0.01" min="0"
+                                       value="@(line.QuantityChange == 0 ? "" : line.QuantityChange.ToString())"
+                                       @oninput="@(e => OnQtyChanged(line, e.Value?.ToString()))"
+                                       class="w-full p-2.5 border border-slate-200 rounded-xl text-center font-mono font-bold text-slate-900 focus:border-indigo-500 focus:outline-none transition-all"
+                                       placeholder="0.00" />
+                            </td>
+
+                            <td class="p-3 text-center align-middle">
+                                @if (hasQty)
+                                {
+                                    <select value="@line.IsIncrease.ToString()"
+                                            @onchange="@(e => OnDirectionChanged(line, e.Value?.ToString()))"
+                                            class="p-2 border border-slate-200 rounded-xl text-xs font-black outline-none cursor-pointer shadow-sm transition-all
+                                        @(line.IsIncrease ? "" : "")">
+                                        <option value="true">Increase (+)</option>
+                                        <option value="false">Decrease (-)</option>
+                                    </select>
+                                }
+                                else
+                                {
+                                    <span class="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1.5 text-[10px] font-bold text-slate-500 border border-slate-200 uppercase tracking-wider">
+                                        Cost Revaluation
+                                    </span>
+                                }
+                            </td>
+                            <td class="p-3 align-middle">
+                                <input type="number" step="0.01" min="0"
+                                       value="@(line.Cost == 0 ? "" : line.Cost.ToString())"
+                                       @oninput="@(e => OnCostChanged(line, e.Value?.ToString()))"
+                                       disabled="@(!hasQty)"
+                                       class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
+                                @(!hasQty ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
+                                       placeholder="0.00" />
+                            </td>
+
+                            <td class="p-3 align-middle">
+                                <div class="relative rounded-xl shadow-sm">
+                                    <input type="number" step="0.01" min="0"
+                                           value="@(line.DebitAmount == 0 ? "" : line.DebitAmount.ToString())"
+                                           @oninput="@(e => OnManualDebitChanged(line, e.Value?.ToString()))"
+                                           disabled="@(hasQty || line.CreditAmount > 0)"
+                                           class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
+                                    @(hasQty || line.CreditAmount > 0 ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
+                                           placeholder="0.00" />
+                                </div>
+                            </td>
+
+                            <td class="p-3 align-middle">
+                                <div class="relative rounded-xl shadow-sm">
+                                    <input type="number" step="0.01" min="0"
+                                           value="@(line.CreditAmount == 0 ? "" : line.CreditAmount.ToString())"
+                                           @oninput="@(e => OnManualCreditChanged(line, e.Value?.ToString()))"
+                                           disabled="@(hasQty || line.DebitAmount > 0)"
+                                           class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
+                                    @(hasQty || line.DebitAmount > 0 ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
+                                           placeholder="0.00" />
+                                </div>
+                            </td>
+
+                            <td class="p-3 pr-6 text-center align-middle">
+                                <button type="button" @onclick="() => RemoveLine(line)"
+                                        class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
+                                    <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between mt-auto relative z-20">
+            <button type="button" @onclick="AddRow" class="px-3 py-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-900 uppercase tracking-wide flex items-center gap-1 active:scale-95 transition-all">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Line</span>
+            </button>
+
+            <div class="flex items-center gap-8 text-right">
+                <div>
+                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Aggregate Value Debits (Dr)</span>
+                    <span class="text-lg font-mono font-bold text-emerald-600">@lines.Sum(l => l.DebitAmount).ToString("N2")</span>
+                </div>
+                <div class="w-px h-8 bg-slate-200"></div>
+                <div>
+                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Aggregate Value Credits (Cr)</span>
+                    <span class="text-lg font-mono font-bold text-rose-600">@lines.Sum(l => l.CreditAmount).ToString("N2")</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="flex justify-end pt-2">
+        <button @onclick="PostStockAdjustments" disabled="@(isBusy || balancingGlId == Guid.Empty || !lines.Any(l => l.ItemId != Guid.Empty && (l.DebitAmount > 0 || l.CreditAmount > 0)))" class="px-8 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+            @if (isBusy)
+            {
+                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                <span>Posting Balanced Stock Valuation Adjustments...</span>
+            }
+            else
+            {
+                <span>Commit Inventory Adjustments</span>
+            }
+        </button>
+    </div>
+</div>
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #475569;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    /* ── Table card: clip horizontally for scroll, stay open vertically for dropdowns ── */
+    .adj-table-card {
+        overflow: visible;
+    }
+
+    /* Horizontal scroll wrapper — does NOT clip vertical overflow */
+    .adj-table-scroll {
+        overflow-x: auto;
+        overflow-y: visible;
+        border-radius: 0 0 1rem 1rem;
+    }
+
+    /* The table itself must never clip its children */
+    .adj-table,
+    .adj-table thead,
+    .adj-table tbody,
+    .adj-table tr,
+    .adj-table th,
+    .adj-table td {
+        overflow: visible !important;
+    }
+
+    /* Each row is a stacking context so its z-index (set inline) isolates siblings */
+    .adj-row {
+        position: relative;
+        isolation: isolate;
+    }
+
+    /* Item cell: uniform padding like every other cell — no padding-bottom hack */
+    .adj-item-cell {
+        padding: 0.75rem 0.75rem 0.75rem 1.5rem;
+        vertical-align: middle;
+        position: relative;
+    }
+
+    /* Dropdown anchor: fills the cell width; the popover floats freely above siblings */
+    .adj-item-wrap {
+        position: relative;
+        z-index: 600;
+        width: 100%;
+    }
+
+        /* Ensure the SearchableItem popover (expected to be .absolute-positioned child) escapes */
+        .adj-item-wrap > * {
+            position: relative;
+            z-index: 600;
+        }
+</style>
+
+@code {
+    private Guid currentCompanyId;
+    private string currentUserId = "";
+    private bool isBusy = false;
+    private DateOnly postingDate = DateOnly.FromDateTime(DateTime.Today);
+
+    private Guid balancingGlId = Guid.Empty;
+    private string balancingAccountLabel = string.Empty;
+
+    private List<Item> items = new();
+    private List<Warehouse> warehouses = new();
+    private List<SegChartOfAccount> coaList = new();
+    private List<InventoryAdjustmentUiRowDto> lines = new();
+
+    public class InventoryAdjustmentUiRowDto
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid ItemId { get; set; }
+        public Guid WarehouseId { get; set; }
+        public decimal QuantityChange { get; set; }
+        public decimal Cost { get; set; }
+        public bool IsIncrease { get; set; } = true;
+
+        public decimal DebitAmount { get; set; }
+        public decimal CreditAmount { get; set; }
+
+        public bool IsDebitReadOnly => CreditAmount > 0;
+        public bool IsCreditReadOnly => DebitAmount > 0;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("INVENTORY_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currentUserId = user.Id;
+
+            items = await MasterService.GetItemsAsync(currentCompanyId);
+            warehouses = await MasterService.GetREAlWarehousesAsync(currentCompanyId);
+            coaList = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
+
+            await LoadActiveRoutingConfigurationLabels();
+            lines.Add(new InventoryAdjustmentUiRowDto());
+        }
+    }
+
+    private async Task LoadActiveRoutingConfigurationLabels()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var mappingConfig = await ctx.TransactionGlMappings
+            .Include(m => m.OverrideCreditAccount)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.TransactionType == SystemTransactionType.InventoryAdjustment);
+
+        if (mappingConfig != null && mappingConfig.OverrideCreditAccount != null)
+        {
+            balancingGlId = mappingConfig.OverrideCreditGlAccountId ?? Guid.Empty;
+            balancingAccountLabel = $"{mappingConfig.OverrideCreditAccount.AccountCode} - {mappingConfig.OverrideCreditAccount.Description}";
+        }
+    }
+
+    private void RecalculateLineFinancials(InventoryAdjustmentUiRowDto line)
+    {
+        if (line.QuantityChange > 0)
+        {
+            decimal totalProductValue = line.QuantityChange * line.Cost;
+            if (line.IsIncrease)
+            {
+                line.DebitAmount = totalProductValue;
+                line.CreditAmount = 0;
+            }
+            else
+            {
+                line.DebitAmount = 0;
+                line.CreditAmount = totalProductValue;
+            }
+        }
+    }
+
+    private void OnQtyChanged(InventoryAdjustmentUiRowDto line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res)) line.QuantityChange = res;
+        else line.QuantityChange = 0;
+
+        if (line.QuantityChange == 0)
+        {
+            line.Cost = 0;
+            line.DebitAmount = 0;
+            line.CreditAmount = 0;
+        }
+        else RecalculateLineFinancials(line);
+    }
+
+    private void OnCostChanged(InventoryAdjustmentUiRowDto line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res)) line.Cost = res;
+        else line.Cost = 0;
+
+        RecalculateLineFinancials(line);
+    }
+
+    private void OnDirectionChanged(InventoryAdjustmentUiRowDto line, string? val)
+    {
+        if (bool.TryParse(val, out bool res)) line.IsIncrease = res;
+        RecalculateLineFinancials(line);
+    }
+
+    private void OnManualDebitChanged(InventoryAdjustmentUiRowDto line, string? val)
+    {
+        if (line.QuantityChange > 0) return;
+
+        if (decimal.TryParse(val, out decimal res))
+        {
+            line.DebitAmount = res;
+            if (res > 0) line.CreditAmount = 0;
+        }
+        else line.DebitAmount = 0;
+    }
+
+    private void OnManualCreditChanged(InventoryAdjustmentUiRowDto line, string? val)
+    {
+        if (line.QuantityChange > 0) return;
+
+        if (decimal.TryParse(val, out decimal res))
+        {
+            line.CreditAmount = res;
+            if (res > 0) line.DebitAmount = 0;
+        }
+        else line.CreditAmount = 0;
+    }
+
+    private void AddRow() => lines.Add(new InventoryAdjustmentUiRowDto());
+
+    private void RemoveLine(InventoryAdjustmentUiRowDto line)
+    {
+        lines.Remove(line);
+        if (!lines.Any()) lines.Add(new InventoryAdjustmentUiRowDto());
+    }
+
+    private void ClearForm()
+    {
+        lines.Clear();
+        lines.Add(new InventoryAdjustmentUiRowDto());
+    }
+
+    private async Task PostStockAdjustments()
+    {
+        var activeLines = lines.Where(l => l.ItemId != Guid.Empty && (l.DebitAmount > 0 || l.CreditAmount > 0)).ToList();
+
+        if (activeLines.Any(l => l.WarehouseId == Guid.Empty && l.QuantityChange != 0))
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: A valid warehouse allocation is required for lines processing a stock quantity change.");
+            return;
+        }
+
+        isBusy = true;
+        StateHasChanged();
+
+        var mappedDtoLines = new List<InventoryAdjustmentLineDto>();
+
+        foreach (var uiLine in activeLines)
+        {
+            bool isDebit = uiLine.DebitAmount > 0;
+            decimal absoluteValueChange = isDebit ? uiLine.DebitAmount : uiLine.CreditAmount;
+
+            decimal computedQuantityChange = uiLine.QuantityChange > 0
+                ? (isDebit ? Math.Abs(uiLine.QuantityChange) : -Math.Abs(uiLine.QuantityChange))
+                : 0;
+
+            mappedDtoLines.Add(new InventoryAdjustmentLineDto
+            {
+                Id = uiLine.Id,
+                ItemId = uiLine.ItemId,
+                WarehouseId = uiLine.WarehouseId,
+                IsDebitInventory = isDebit,
+                QuantityChange = computedQuantityChange,
+                TotalValueChange = absoluteValueChange
+            });
+        }
+
+        var err = await InvService.PostInventoryAdjustmentBatchAsync(currentCompanyId, postingDate, balancingGlId, mappedDtoLines, currentUserId);
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Inventory adjustments committed and financial ledgers balanced successfully line-by-line!");
+            ClearForm();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+
+        isBusy = false;
+        StateHasChanged();
+    }
+}

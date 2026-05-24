@@ -8,6 +8,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -37,15 +39,20 @@
             <div class="h-8 w-px bg-slate-200 hidden md:block"></div>
 
             <div class="flex gap-2">
-                <button @onclick="OpenCurrencyForm" disabled="@(!HasCompany)"
-                        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all active:scale-95 disabled:opacity-50">
-                    New Currency
-                </button>
+                
+                <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                    <Authorized>
+                        <button @onclick="OpenCurrencyForm" disabled="@(!HasCompany)"
+                                class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 hover:text-indigo-600 transition-all active:scale-95 disabled:opacity-50">
+                            New Currency
+                        </button>
 
-                <button @onclick="OpenRateForm" disabled="@(!CanAddRate)"
-                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                    Add Rate
-                </button>
+                        <button @onclick="OpenRateForm" disabled="@(!CanAddRate)"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                            Add Rate
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             </div>
         </div>
     </div>
@@ -93,7 +100,12 @@
                     </div>
                     <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-slate-100">
                         <button type="button" @onclick="CloseCurrencyForm" class="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
-                        <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-md transition-colors">Save</button>
+                        
+                        <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                            <Authorized>
+                                <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-md transition-colors">Save</button>
+                            </Authorized>
+                        </PermissionGate>
                     </div>
                 </EditForm>
             </div>
@@ -134,9 +146,14 @@
                     </div>
                     <div class="mt-6 flex justify-end gap-3 pt-4 border-t border-indigo-100">
                         <button type="button" @onclick="CloseRateForm" class="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-white rounded-lg transition-colors">Cancel</button>
-                        <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md transition-colors">
-                            @(isEditingRate ? "Update Rate" : "Add Rate")
-                        </button>
+                        
+                        <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                            <Authorized>
+                                <button type="submit" class="px-5 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md transition-colors">
+                                    @(isEditingRate ? "Update Rate" : "Add Rate")
+                                </button>
+                            </Authorized>
+                        </PermissionGate>
                     </div>
                 </EditForm>
             </div>
@@ -158,9 +175,14 @@
                                 <td class="px-6 py-3 text-right">
                                     @if (!hasRates)
                                     {
-                                        <button @onclick="() => DeleteCurrency(c)" class="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
+                                        
+                                        <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                                            <Authorized>
+                                                <button @onclick="() => DeleteCurrency(c)" class="text-slate-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                </button>
+                                            </Authorized>
+                                        </PermissionGate>
                                     }
                                 </td>
                             </tr>
@@ -196,9 +218,14 @@
                                     <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@item.Rate.ToString("N2")</td>
                                     <td class="px-6 py-4 text-right">
                                         <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
-                                            <button @onclick="() => EditRate(item)" class="text-slate-600 hover:text-indigo-600 font-bold text-xs">Edit</button>
-                                            <button @onclick="() => DeleteRate(item)" class="text-slate-400 hover:text-red-600 font-bold text-xs">Delete</button>
+                                            <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                                                <Authorized>
+                                                    <button @onclick="() => EditRate(item)" class="text-slate-600 hover:text-indigo-600 font-bold text-xs">Edit</button>
+                                                    <button @onclick="() => DeleteRate(item)" class="text-slate-400 hover:text-red-600 font-bold text-xs">Delete</button>
+                                                </Authorized>
+                                            </PermissionGate>
                                         </div>
+                                        
                                     </td>
                                 </tr>
                             }
@@ -266,24 +293,11 @@
     private bool CanAddRate => HasCompany && !string.IsNullOrWhiteSpace(companyBaseCurrency) && (AvailableCurrenciesForRates.Any() || isEditingRate);
 
     // Filter Logic
-    private IEnumerable<Currency> AvailableCurrenciesForRates
-    {
-        get
-        {
-            if (!ratesList.Any()) return currencyList;
-
-            // Get IDs that already have rates
-            var usedIds = ratesList.Select(r => r.CurrencyId).ToHashSet();
-
-            // If editing, allow the current one
-            if (isEditingRate) usedIds.Remove(currentRate.CurrencyId);
-
-            return currencyList.Where(c => !usedIds.Contains(c.Id));
-        }
-    }
+    
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("SYSTEM_SETUP_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
 
@@ -306,6 +320,21 @@
             }
         }
         isLoading = false;
+    }
+    private IEnumerable<Currency> AvailableCurrenciesForRates
+    {
+        get
+        {
+            if (!ratesList.Any()) return currencyList;
+
+            // Get IDs that already have rates
+            var usedIds = ratesList.Select(r => r.CurrencyId).ToHashSet();
+
+            // If editing, allow the current one
+            if (isEditingRate) usedIds.Remove(currentRate.CurrencyId);
+
+            return currencyList.Where(c => !usedIds.Contains(c.Id));
+        }
     }
 
     private async Task LoadAll()

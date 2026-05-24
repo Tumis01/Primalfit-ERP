@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 font-sans text-slate-800">
@@ -33,23 +34,31 @@
 
             @if (!IsPosted && !IsNew)
             {
-                <button @onclick="TerminateReturn"
-                        class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
-                    Terminate
-                </button>
+                <PermissionGate Key="PO_RETURN_MANAGE">
+                    <Authorized>
+                        <button @onclick="TerminateReturn"
+                                class="px-5 py-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors">
+                            Terminate
+                        </button>
 
-                <button @onclick="SaveDraft"
-                        class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
-                    Save Draft
-                </button>
+                        <button @onclick="SaveDraft"
+                                class="px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-sm font-bold hover:bg-indigo-100 transition-colors shadow-sm">
+                            Save Draft
+                        </button>
+                    </Authorized>
+                </PermissionGate>
 
-                <button @onclick="PostReturn"
-                        class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Post Return
-                </button>
+                <PermissionGate Key="PO_RETURN_POST">
+                    <Authorized>
+                        <button @onclick="PostReturn"
+                                class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Post Return
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             }
         </div>
     </div>
@@ -64,7 +73,7 @@
             <p class="text-slate-500 text-sm mb-8 font-medium">Select a Posted Vendor Bill to initiate a return to the supplier.</p>
 
             <div class="flex flex-col gap-5 max-w-sm mx-auto text-left">
-                
+
                 <div>
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Vendor</label>
                     <select @onchange="OnVendorSelected" class="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" disabled="@_busy">
@@ -122,19 +131,23 @@
                     </select>
                 </div>
 
-                <button @onclick="InitializeReturn"
-                        disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
-                        class="mt-2 w-full px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                    @if (_busy)
-                    {
-                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                        <span>Loading Items...</span>
-                    }
-                    else
-                    {
-                        <span>Load Items & Create Draft</span>
-                    }
-                </button>
+                <PermissionGate Key="PO_RETURN_MANAGE">
+                    <Authorized>
+                        <button @onclick="InitializeReturn"
+                                disabled="@(_busy || selectedBillId == Guid.Empty || selectedWarehouseId == Guid.Empty)"
+                                class="mt-2 w-full px-6 py-3.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                            @if (_busy)
+                            {
+                                <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                                <span>Loading Items...</span>
+                            }
+                            else
+                            {
+                                <span>Load Items & Create Draft</span>
+                            }
+                        </button>
+                    </Authorized>
+                </PermissionGate>
 
                 @if (!string.IsNullOrWhiteSpace(_errMsg))
                 {
@@ -248,7 +261,7 @@
                                                     <input type="number"
                                                            value="@line.QtyReturning"
                                                            @onchange="@(e => UpdateQty(line, e.Value, max))"
-                                                           class="w-20 text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none transition-all"
+                                                           class="w-20 text-center font-mono font-bold border border-slate-300 rounded-lg px-2 py-1.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none transition-all disabled:bg-slate-100 disabled:text-slate-400"
                                                            min="0" max="@max" step="1" />
 
                                                     <button @onclick="() => { line.QtyReturning = max; }"
@@ -371,37 +384,54 @@
         ? eligibleBills
         : eligibleBills.Where(b => b.DisplayText.Contains(billSearchTerm, StringComparison.OrdinalIgnoreCase));
 
-    // --- CRITICAL LIFECYCLE FIX ---
-    // Switched to OnParametersSetAsync to re-fetch when URL changes (Draft Creation)
     protected override async Task OnParametersSetAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_PAGE"))
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        // Resolve user state context immediately to acquire Company Details
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId == null)
+        {
+            Nav.NavigateTo("/access-denied");
+            return;
+        }
+
+        Guid companyId = user.CompanyDetailsId.Value;
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         if (IsNew)
         {
             if (!vendors.Any())
             {
-                vendors = await ctx.Vendors.OrderBy(v => v.Name).ToListAsync();
-                warehouses = await ctx.Warehouses.ToListAsync();
+                // Only populate Dropdowns with company-specific masters
+                vendors = await ctx.Vendors.Where(v => v.CompanyId == companyId).OrderBy(v => v.Name).ToListAsync();
+                warehouses = await ctx.Warehouses.Where(w => w.CompanyId == companyId).ToListAsync();
             }
         }
         else
         {
+            // Prevent cross-company document access by parsing CompanyId into the query predicate
             currentRtv = await ctx.PurchaseReturns
                 .Include(r => r.Lines)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Id == Id);
+                .FirstOrDefaultAsync(r => r.Id == Id && r.CompanyId == companyId);
 
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
-            originalBill = await ctx.VendorBills.FindAsync(currentRtv.VendorBillId);
+            originalBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId && b.CompanyId == companyId);
             currentRtv.ExchangeRate = originalBill?.ExchangeRate ?? currentRtv.ExchangeRate;
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
-            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId).Select(v => v.Name).FirstOrDefaultAsync();
+            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId && v.CompanyId == companyId).Select(v => v.Name).FirstOrDefaultAsync();
             vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vName ?? "Unknown" } };
 
-            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId).Select(w => w.Name).FirstOrDefaultAsync();
+            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId && w.CompanyId == companyId).Select(w => w.Name).FirstOrDefaultAsync();
             warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = wName ?? "Unknown" } };
 
             var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
@@ -469,7 +499,6 @@
         selectedBillId = id;
         billSearchTerm = displayText;
         isBillDropdownOpen = false;
-        // Notice we do NOT auto-initialize here, because the user must also pick a Warehouse!
     }
 
     private async Task InitializeReturn()
@@ -484,15 +513,29 @@
             return;
         }
 
+        if (user.CompanyDetailsId == null)
+        {
+            _errMsg = "No active company profile found for this user account.";
+            await JS.InvokeVoidAsync("alert", _errMsg);
+            return;
+        }
+
         try
         {
             _busy = true;
-            currentRtv = await RtvService.CreateDraftFromBillAsync(selectedBillId, selectedWarehouseId, Guid.Parse(user.Id));
+            StateHasChanged();
+
+            // Pass user.CompanyDetailsId.Value as the 4th parameter to secure document isolation
+            currentRtv = await RtvService.CreateDraftFromBillAsync(
+                selectedBillId,
+                selectedWarehouseId,
+                Guid.Parse(user.Id),
+                user.CompanyDetailsId.Value
+            );
 
             var err = await RtvService.SaveDraftAsync(currentRtv);
             if (string.IsNullOrEmpty(err))
             {
-                // This triggers OnParametersSetAsync!
                 Nav.NavigateTo($"/purchases/returns/entry/{currentRtv.Id}");
             }
             else
@@ -509,10 +552,9 @@
         finally
         {
             _busy = false;
+            StateHasChanged();
         }
     }
-
-    // --- Validation logic explicitly kept identical to what was requested ---
 
     private async Task LoadValidationContext(AppDbContext ctx, Guid billId)
     {
@@ -545,6 +587,12 @@
 
     private async Task SaveDraft()
     {
+        if (currentRtv.Lines.Any(l => l.QtyReturning > (GetBilledQty(l.VendorBillLineId) - GetPrevReturnedQty(l.VendorBillLineId))))
+        {
+            await JS.InvokeVoidAsync("alert", "One or more lines exceeds the maximum returnable quantity.");
+            return;
+        }
+
         var err = await RtvService.SaveDraftAsync(currentRtv);
         if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved.");
         else await JS.InvokeVoidAsync("alert", err);

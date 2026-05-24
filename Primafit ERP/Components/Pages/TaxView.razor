@@ -11,6 +11,8 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -34,13 +36,18 @@
         <div class="flex gap-2">
             @if (!showForm)
             {
-                <button @onclick="ShowAddForm" disabled="@(!HasCompany)"
-                        class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Add Tax
-                </button>
+                
+                <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                    <Authorized>
+                        <button @onclick="ShowAddForm" disabled="@(!HasCompany)"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-slate-200 hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Add Tax
+                        </button>
+                    </Authorized>
+                </PermissionGate>
             }
         </div>
     </div>
@@ -149,8 +156,13 @@
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <div class="flex items-center justify-end gap-3 opacity-100">
-                                    <button @onclick="() => EditTax(item)" class="text-slate-600 hover:text-slate-900 font-bold hover:underline transition-all">Edit</button>
-                                    <button @onclick="() => DeleteTax(item)" class="text-slate-400 hover:text-red-600 font-bold hover:underline transition-all">Delete</button>
+                                    
+                                    <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                                        <Authorized>
+                                            <button @onclick="() => EditTax(item)" class="text-slate-600 hover:text-slate-900 font-bold hover:underline transition-all">Edit</button>
+                                            <button @onclick="() => DeleteTax(item)" class="text-slate-400 hover:text-red-600 font-bold hover:underline transition-all">Delete</button>
+                                        </Authorized>
+                                    </PermissionGate>
                                 </div>
                             </td>
                         </tr>
@@ -224,6 +236,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("SYSTEM_SETUP_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var userPrincipal = authState.User;
 

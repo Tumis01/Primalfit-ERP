@@ -186,6 +186,7 @@ namespace Primafit_ERP.Services
             var unpaidInvoices = await ctx.SalesOrders
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
+                            o.OrderNumber.StartsWith("INV") &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .AsNoTracking()
                 .ToListAsync();
@@ -257,6 +258,7 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Customer)
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
+                            o.OrderNumber.StartsWith("INV") &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced) &&
                             o.Date >= DateOnly.FromDateTime(startOfMonth))
                 .ToListAsync();

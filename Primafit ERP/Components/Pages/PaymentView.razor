@@ -10,257 +10,455 @@
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CurrencyService CurrService
+@inject IEmailService EmailService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
+@inject SalesService SalesService
+@inject CompanyApiService CompanyService
+@inject ReportExportService ReportExportService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 mb-16">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">Receive Payment</h1>
-            <p class="text-sm text-slate-500">Record incoming money against a specific sales order invoice.</p>
+            <h1 class="text-2xl font-bold text-slate-900">Accounts Receivable</h1>
+            <p class="text-sm text-slate-500">Track invoice statuses and receive incoming payments.</p>
         </div>
         <div class="flex items-center gap-4">
-            <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
-                @if (isBusy)
-                {
-                    <span class="animate-spin">↻</span> <span>Processing...</span>
-                }
-                else
-                {
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                    <span>Post Payment</span>
-                }
-            </button>
+            <div class="flex bg-slate-100 p-1 rounded-xl">
+                <button @onclick="() => activeTab = 0" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    Invoice Statuses
+                </button>
+                <button @onclick="() => activeTab = 1" class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                    Receive Payment
+                </button>
+            </div>
         </div>
     </div>
 
     @if (currentCompanyId != Guid.Empty)
     {
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        @if (activeTab == 0)
+        {
+            <div class="flex justify-between items-center mb-4 animate-in fade-in slide-in-from-bottom-2">
+                <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-[42px]">
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Filter Status:</span>
+                    <select @bind="statusFilter" class="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer">
+                        <option value="All">All Receipr</option>
+                        <option value="Unpaid">Unpaid</option>
+                        <option value="Partially Paid">Partially Paid</option>
+                        <option value="Paid in Full">Paid in Full</option>
+                    </select>
+                </div>
+            </div>
 
-            <div class="lg:col-span-4 space-y-6">
-                
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                    <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider">Transaction Details</h3>
-
-                    <div>
-                        <label class="label">Date Received</label>
-                        <input type="date" @bind="payment.Date" class="input-class" />
-                    </div>
-
-                    <div>
-                        <label class="label">Customer</label>
-                        <select value="@payment.CustomerId" @onchange="OnCustomerChanged" class="input-class font-bold text-slate-900 border-indigo-200 bg-indigo-50/30">
-                            <option value="@Guid.Empty">-- Select Customer --</option>
-                            @foreach (var c in customers)
+            <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-2">
+                <div class="overflow-x-auto w-full">
+                    <table class="w-full text-left text-sm text-slate-900 min-w-[900px]">
+                        <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-4">Invoice #</th>
+                                <th class="p-4">Date</th>
+                                <th class="p-4">Customer</th>
+                                <th class="p-4 text-right">Invoice Total</th>
+                                <th class="p-4 text-right">Amount Paid</th>
+                                <th class="p-4 text-right">Balance Due</th>
+                                <th class="p-4 text-center">Status</th>
+                                <th class="p-4 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <!-- NOTE: Changed to PagedInvoiceStatuses -->
+                            @foreach (var inv in PagedInvoiceStatuses)
                             {
-                                <option value="@c.Id">@c.Name</option>
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-4 font-mono font-bold text-indigo-700">@inv.OrderNumber</td>
+                                    <td class="p-4 font-mono text-slate-600 text-xs">@inv.Date.ToString("dd MMM, yyyy")</td>
+                                    <td class="p-4 font-medium">@inv.CustomerName</td>
+                                    <td class="p-4 text-right font-mono font-bold text-slate-800">@inv.CurrencyCode @inv.GrandTotal.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-emerald-600">@inv.CurrencyCode @inv.AmountPaid.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@inv.CurrencyCode @inv.BalanceDue.ToString("N2")</td>
+                                    <td class="p-4 text-center">
+                                        @if (inv.Status == "Paid in Full")
+                                        {
+                                            <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Paid in Full</span>
+                                        }
+                                        else if (inv.Status == "Partially Paid")
+                                        {
+                                            <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">Partially Paid</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider">Unpaid</span>
+                                        }
+                                    </td>
+                                    <td class="p-4 text-center">
+                                        <div class="flex items-center justify-center gap-2">
+                                            <button @onclick="() => DownloadReceipt(inv.InvoiceId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Receipt PDF">
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                            </button>
+                                            <button @onclick="() => PrepareEmailReceipt(inv.InvoiceId)" class="p-1.5 text-slate-400 hover:text-emerald-600 transition-colors" title="Email Receipt">
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
                             }
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="label text-indigo-600">Sales Order Invoice Number</label>
-                        <select value="@selectedInvoiceId" @onchange="OnInvoiceChanged" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@(payment.CustomerId == Guid.Empty)">
-                            <option value="@Guid.Empty">-- Select Order --</option>
-                            @foreach (var inv in openInvoices)
+                            @if (!PagedInvoiceStatuses.Any())
                             {
-                                <option value="@inv.InvoiceId">@inv.OrderNumber (Due: @inv.BalanceDue.ToString("N2"))</option>
+                                <tr><td colspan="7" class="p-12 text-center text-slate-400">No invoices found matching the selected filter.</td></tr>
                             }
-                        </select>
-                    </div>
+                        </tbody>
+                    </table>
+                </div>
 
-                    <div class="grid grid-cols-2 gap-3">
+                <!-- Pagination Footer -->
+                @if (FilteredInvoiceStatuses.Any())
+                {
+                    <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                        <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 sm:mb-0">
+                            Showing @(((currentPage - 1) * pageSize) + 1) to @(Math.Min(currentPage * pageSize, FilteredInvoiceStatuses.Count())) of @FilteredInvoiceStatuses.Count() records
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                Previous
+                            </button>
+
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
+                                Page @currentPage of @TotalPages
+                            </span>
+
+                            <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else if (activeTab == 1)
+        {
+            <div class="flex justify-end mb-4">
+                <PermissionGate Key="AR_PAYMENT_CREATE">
+                    <Authorized>
+                        <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
+                            @if (isBusy)
+                            {
+                                <span class="animate-spin">↻</span> <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                <span>Post Payment</span>
+                            }
+                        </button>
+                    </Authorized>
+                </PermissionGate>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-2">
+                <div class="lg:col-span-4 space-y-6">
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider">Transaction Details</h3>
+
                         <div>
-                            <label class="label">Currency</label>
-                            <select value="@payment.CurrencyId" class="input-class @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" disabled="@HasInvoiceSelected">
-                                <option value="@Guid.Empty">N/A</option>
-                                @foreach (var c in currencies)
+                            <label class="label">Date Received</label>
+                            <input type="date" @bind="payment.Date" class="input-class" />
+                        </div>
+
+                        <div>
+                            <label class="label">Customer</label>
+                            <select value="@payment.CustomerId" @onchange="OnCustomerChanged" class="input-class font-bold text-slate-900 border-indigo-200 bg-indigo-50/30">
+                                <option value="@Guid.Empty">-- Select Customer --</option>
+                                @foreach (var c in customers)
                                 {
-                                    <option value="@c.Id">@c.CurrencyCode</option>
+                                    <option value="@c.Id">@c.Name</option>
                                 }
                             </select>
                         </div>
+
                         <div>
-                            <label class="label">Exchange Rate</label>
-                            <input type="number" step="0.0001" @bind="payment.ExchangeRate" class="input-class font-mono text-right @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" readonly="@HasInvoiceSelected" />
+                            <label class="label text-indigo-600">Sales Order Invoice Number</label>
+                            <select value="@selectedInvoiceId" @onchange="OnInvoiceChanged" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@(payment.CustomerId == Guid.Empty)">
+                                <option value="@Guid.Empty">-- Select Order --</option>
+                                @foreach (var inv in openInvoices)
+                                {
+                                    <option value="@inv.InvoiceId">@inv.OrderNumber (Due: @inv.BalanceDue.ToString("N2"))</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="label">Currency</label>
+                                <select value="@payment.CurrencyId" class="input-class @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" disabled="@HasInvoiceSelected">
+                                    <option value="@Guid.Empty">N/A</option>
+                                    @foreach (var c in currencies)
+                                    {
+                                        <option value="@c.Id">@c.CurrencyCode</option>
+                                    }
+                                </select>
+                            </div>
+                            <div>
+                                <label class="label">Exchange Rate</label>
+                                <input type="number" step="0.0001" @bind="payment.ExchangeRate" class="input-class font-mono text-right @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" readonly="@HasInvoiceSelected" />
+                            </div>
+                        </div>
+
+                        <div class="pt-2">
+                            <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
+                            <div class="relative">
+                                <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
+                            </div>
+
+                            @if (HasInvoiceSelected)
+                            {
+                                <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
+                                    <span class="font-bold text-slate-400 uppercase">Ledger Value (Base)</span>
+                                    <div class="font-mono font-bold text-emerald-600">
+                                        @((payment.AmountReceived * payment.ExchangeRate).ToString("N2"))
+                                    </div>
+                                </div>
+                            }
                         </div>
                     </div>
 
-                    <div class="pt-2">
-                        <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
-                        <div class="relative">
-                            <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
-                        </div>
-                        
-                        @if (HasInvoiceSelected)
-                        {
-                            <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
-                                <span class="font-bold text-slate-400 uppercase">Ledger Value (Base)</span>
-                                <div class="font-mono font-bold text-emerald-600">
-                                    @((payment.AmountReceived * payment.ExchangeRate).ToString("N2"))
-                                </div>
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
+                            GL Mapping
+                            <span class="text-[10px] text-slate-400 font-normal normal-case">Required</span>
+                        </h3>
+
+                        <div class="space-y-3">
+                            <div>
+                                <SearchableGlAccount Label="Deposit To (Bank)"
+                                                     Placeholder="Search Bank Asset..."
+                                                     Accounts="@bankAccounts"
+                                                     @bind-Value="payment.DepositToGlAccountId"
+                                                     IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
                             </div>
-                        }
+
+                            <div>
+                                <label class="label">Crediting Account (A/R)</label>
+                                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 flex items-center justify-between cursor-not-allowed">
+                                    <span class="font-bold">@CustomerArAccountName</span>
+                                    <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                </div>
+                                <p class="text-[10px] text-slate-400 mt-1">This account was debited during invoicing.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                    <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
-                        GL Mapping
-                        <span class="text-[10px] text-slate-400 font-normal normal-case">Required</span>
-                    </h3>
+                <div class="lg:col-span-8">
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full min-h-[600px]">
 
-                    <div class="space-y-3">
-                        <div>
-                            <SearchableGlAccount Label="Deposit To (Bank)" 
-                                                 Placeholder="Search Bank Asset..." 
-                                                 Accounts="@bankAccounts" 
-                                                 @bind-Value="payment.DepositToGlAccountId" 
-                                                 IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
-                        </div>
-                        
-                        <div>
-                            <label class="label">Crediting Account (A/R)</label>
-                            <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 flex items-center justify-between cursor-not-allowed">
-                                <span class="font-bold">@CustomerArAccountName</span>
-                                <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                            </div>
-                            <p class="text-[10px] text-slate-400 mt-1">This account was debited during invoicing.</p>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            <div class="lg:col-span-8">
-                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full min-h-[600px]">
-                    
-                    @if (SelectedInvoice != null)
-                    {
-                        <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
-                                Invoice Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedInvoice.OrderNumber</span>
-                            </h3>
-                            
-                            <div class="grid grid-cols-3 gap-4 animate-in slide-in-from-bottom-2">
-                                <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
-                                    <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Invoice (@currencySymbol)</div>
-                                    <div class="text-xl font-mono font-black text-slate-900">@SelectedInvoice.OriginalTotal.ToString("N2")</div>
-                                </div>
-                                <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
-                                    <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
-                                    <div class="text-xl font-mono font-black text-emerald-700">@((SelectedInvoice.OriginalTotal - SelectedInvoice.BalanceDue).ToString("N2"))</div>
-                                </div>
-                                <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
-                                    <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Balance Due</div>
-                                    <div class="text-xl font-mono font-black text-rose-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Order Items</h3>
-                        </div>
-                    }
-
-                    <div class="overflow-x-auto flex-1 p-6">
                         @if (SelectedInvoice != null)
                         {
-                            <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
-                                <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
-                                    <tr>
-                                        <th class="px-4 py-3 w-[45%]">Item</th>
-                                        <th class="px-4 py-3 text-center">Qty</th>
-                                        <th class="px-4 py-3 text-right">Unit Price</th>
-                                        <th class="px-4 py-3 text-right pr-6">Total (@currencySymbol)</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-slate-100">
-                                    @foreach (var line in SelectedInvoice.Lines)
-                                    {
-                                        <tr class="hover:bg-slate-50 transition-colors">
-                                            <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Unknown Item")</td>
-                                            <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@line.Quantity</td>
-                                            <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
-                                            <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                                
-                                <tfoot class="bg-slate-50 border-t-2 border-slate-200 text-right text-slate-600">
-                                    <tr>
-                                        <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Subtotal:</td>
-                                        <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-700">@SelectedInvoice.SubTotal.ToString("N2")</td>
-                                    </tr>
-                                    @if (SelectedInvoice.DiscountValue > 0)
-                                    {
-                                        <tr class="text-rose-600">
-                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Discount:</td>
-                                            <td class="px-4 py-2 pr-6 font-mono font-bold">- @SelectedInvoice.DiscountValue.ToString("N2")</td>
-                                        </tr>
-                                    }
-                                    @if (SelectedInvoice.TaxAmount > 0)
-                                    {
-                                        <tr>
-                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">@SelectedInvoice.TaxDescription:</td>
-                                            <td class="px-4 py-2 pr-6 font-mono font-bold">+ @SelectedInvoice.TaxAmount.ToString("N2")</td>
-                                        </tr>
-                                    }
-                                    <tr class="text-slate-900 border-t border-slate-200 bg-slate-100/50">
-                                        <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Invoice Grand Total:</td>
-                                        <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-indigo-700">@currencySymbol@SelectedInvoice.OriginalTotal.ToString("N2")</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
+                            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
+                                    Invoice Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedInvoice.OrderNumber</span>
+                                </h3>
+
+                                <div class="grid grid-cols-3 gap-4 animate-in slide-in-from-bottom-2">
+                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
+                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Invoice (@currencySymbol)</div>
+                                        <div class="text-xl font-mono font-black text-slate-900">@SelectedInvoice.OriginalTotal.ToString("N2")</div>
+                                    </div>
+                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
+                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
+                                        <div class="text-xl font-mono font-black text-emerald-700">@((SelectedInvoice.OriginalTotal - SelectedInvoice.BalanceDue).ToString("N2"))</div>
+                                    </div>
+                                    <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
+                                        <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Balance Due</div>
+                                        <div class="text-xl font-mono font-black text-rose-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
+                                    </div>
+                                </div>
+                            </div>
                         }
                         else
                         {
-                            <div class="p-16 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
-                                <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                Please select a Customer and an Order to view items.
+                            <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Order Items</h3>
+                            </div>
+                        }
+
+                        <div class="overflow-x-auto flex-1 p-6">
+                            @if (SelectedInvoice != null)
+                            {
+                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                    <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
+                                        <tr>
+                                            <th class="px-4 py-3 w-[45%]">Item</th>
+                                            <th class="px-4 py-3 text-center">Qty</th>
+                                            <th class="px-4 py-3 text-right">Unit Price</th>
+                                            <th class="px-4 py-3 text-right pr-6">Total (@currencySymbol)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach (var line in SelectedInvoice.Lines)
+                                        {
+                                            <tr class="hover:bg-slate-50 transition-colors">
+                                                <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Unknown Item")</td>
+                                                <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@line.Quantity</td>
+                                                <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
+                                                <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N2"))</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+
+                                    <tfoot class="bg-slate-50 border-t-2 border-slate-200 text-right text-slate-600">
+                                        <tr>
+                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Subtotal:</td>
+                                            <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-700">@SelectedInvoice.SubTotal.ToString("N2")</td>
+                                        </tr>
+                                        @if (SelectedInvoice.DiscountValue > 0)
+                                        {
+                                            <tr class="text-rose-600">
+                                                <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Discount:</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-bold">- @SelectedInvoice.DiscountValue.ToString("N2")</td>
+                                            </tr>
+                                        }
+                                        @if (SelectedInvoice.TaxAmount > 0)
+                                        {
+                                            <tr>
+                                                <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">@SelectedInvoice.TaxDescription:</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-bold">+ @SelectedInvoice.TaxAmount.ToString("N2")</td>
+                                            </tr>
+                                        }
+                                        <tr class="text-slate-900 border-t border-slate-200 bg-slate-100/50">
+                                            <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Invoice Grand Total:</td>
+                                            <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-indigo-700">@currencySymbol@SelectedInvoice.OriginalTotal.ToString("N2")</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            }
+                            else
+                            {
+                                <div class="p-16 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-2xl m-4">
+                                    <svg class="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                    Please select a Customer and an Order to view items.
+                                </div>
+                            }
+                        </div>
+
+                        @if (SelectedInvoice != null)
+                        {
+                            <div class="border-t border-slate-200 bg-slate-50 p-5 grid grid-cols-12 gap-4 items-center mt-auto rounded-b-2xl">
+                                <div class="col-span-8 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">Payment Currently Applying:</div>
+                                <div class="col-span-4 text-right font-mono font-black text-emerald-600 text-2xl">@currencySymbol@payment.AmountReceived.ToString("N2")</div>
                             </div>
                         }
                     </div>
-                    
-                    @if (SelectedInvoice != null)
-                    {
-                        <div class="border-t border-slate-200 bg-slate-50 p-5 grid grid-cols-12 gap-4 items-center mt-auto rounded-b-2xl">
-                            <div class="col-span-8 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">Payment Currently Applying:</div>
-                            <div class="col-span-4 text-right font-mono font-black text-emerald-600 text-2xl">@currencySymbol@payment.AmountReceived.ToString("N2")</div>
-                        </div>
-                    }
                 </div>
             </div>
-        </div>
+        }
     }
 </div>
 
+@if (showEmailPopup)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+
+            <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Payment Receipt</h3>
+                <button type="button" @onclick="() => showEmailPopup = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="label">To Customer:</label>
+                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailCustomerName} <{emailCustomerAddress}>")" disabled />
+                </div>
+
+                <div>
+                    <label class="label">Subject:</label>
+                    <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
+                </div>
+
+                <div>
+                    <label class="label"> Content:</label>
+                    <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                    Skip
+                </button>
+                <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
+                    @if (isSendingEmail)
+                    {
+                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span>Sending...</span>
+                    }
+                    else
+                    {
+                        <span>Send Receipt</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
-    .label { display: block; font-size: 0.70rem; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 0.35rem; letter-spacing: 0.05em; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #0f172a; outline: none; transition: border-color 0.2s; }
-    .input-class:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
-    .input-class:disabled, .input-class[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; border-color: #e2e8f0; }
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: #0f172a;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        .input-class:disabled, .input-class[readonly] {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
+        }
 </style>
 
 @code {
     [SupplyParameterFromQuery]
     public Guid? invoiceId { get; set; }
 
+    private int activeTab = 0; // 0 = Invoice Status Grid, 1 = Receive Payment Form
+
     private CustomerPayment payment = new();
     private List<Customer> customers = new();
     private List<Currency> currencies = new();
-    
+
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
-    
+
     private Guid currentCompanyId;
     private bool isBusy = false;
     private string currencySymbol = "";
@@ -269,6 +467,23 @@
     private Guid selectedInvoiceId = Guid.Empty;
     private bool HasInvoiceSelected => selectedInvoiceId != Guid.Empty;
     private InvoiceRow? SelectedInvoice => openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
+
+    // Email State
+    private bool showEmailPopup = false;
+    private bool isSendingEmail = false;
+    private string emailCustomerName = "";
+    private string emailCustomerAddress = "";
+    private string emailSubject = "";
+    private string customEmailMessage = "";
+    private int pageSize = 15; // Set rows per page here
+    private int currentPage = 1;
+    private string currentUserId = "";
+    private string _statusFilter = "All";
+    private string statusFilter
+    {
+        get => _statusFilter;
+        set { _statusFilter = value; currentPage = 1; } // Always reset to page 1 on filter change
+    }
 
     public class InvoiceRow
     {
@@ -281,43 +496,60 @@
         public Guid CurrencyId { get; set; }
         public List<SalesOrderLine> Lines { get; set; } = new();
 
-        // --- NEW PROPERTIES FOR BREAKDOWN ---
         public decimal SubTotal { get; set; }
         public decimal DiscountValue { get; set; }
         public decimal TaxAmount { get; set; }
         public string TaxDescription { get; set; } = "Tax";
     }
 
+    public class InvoiceStatusRow
+    {
+        public Guid InvoiceId { get; set; }
+        public string OrderNumber { get; set; } = "";
+        public string CustomerName { get; set; } = "";
+        public DateTime Date { get; set; }
+        public decimal GrandTotal { get; set; }
+        public decimal AmountPaid { get; set; }
+        public decimal BalanceDue { get; set; }
+        public string Status { get; set; } = "";
+        public string CurrencyCode { get; set; } = "";
+    }
+
     private List<InvoiceRow> openInvoices = new();
+    private List<InvoiceStatusRow> invoiceStatuses = new();
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("AR_PAYMENT_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
-            
+
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            bankAccounts = allAccounts.Where(a => 
+            bankAccounts = allAccounts.Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && 
-                       type.Description.Trim().Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase) && 
-                       type.IsBalanceSheet == true && 
+                return type != null &&
+                       type.Description.Trim().Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase) &&
+                       type.IsBalanceSheet == true &&
                        type.IsDebit == true;
             }).OrderBy(x => x.AccountCode).ToList();
 
+            await LoadInvoiceStatuses();
             CreateNew();
 
             if (invoiceId.HasValue && invoiceId.Value != Guid.Empty)
             {
+                activeTab = 1; // Auto-switch to Form
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 var targetInvoice = await ctx.SalesOrders.FirstOrDefaultAsync(o => o.Id == invoiceId.Value);
                 if (targetInvoice != null)
@@ -329,12 +561,65 @@
         }
     }
 
+    private async Task LoadInvoiceStatuses()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToDictionaryAsync(t => t.Id, t => t.Per);
+
+        var invoices = await ctx.SalesOrders
+            .Include(o => o.Customer)
+            .Include(o => o.Currency)
+            .Include(o => o.Lines)
+            .Where(o => o.CompanyId == currentCompanyId &&
+                        o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                        (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
+            .OrderByDescending(o => o.Date)
+            .ToListAsync();
+
+        var invoiceIds = invoices.Select(i => i.Id).ToList();
+        var arPayments = await ctx.PaymentApplications
+            .Where(pa => invoiceIds.Contains(pa.InvoiceId))
+            .GroupBy(pa => pa.InvoiceId)
+            .Select(g => new { g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+            .ToDictionaryAsync(x => x.Key, x => x.Paid);
+
+        invoiceStatuses.Clear();
+        foreach (var inv in invoices)
+        {
+            decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
+            decimal discount = inv.DiscountPercentage > 0 ? subTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
+            decimal net = subTotal - discount;
+            decimal taxPer = inv.TaxId.HasValue && taxes.ContainsKey(inv.TaxId.Value) ? taxes[inv.TaxId.Value] : 0;
+            decimal grandTotal = net + (net * (taxPer / 100));
+
+            decimal paid = arPayments.GetValueOrDefault(inv.Id, 0);
+            decimal balance = grandTotal - paid;
+
+            string status = "Unpaid";
+            if (balance <= 0.01m) status = "Paid in Full";
+            else if (paid > 0) status = "Partially Paid";
+
+            invoiceStatuses.Add(new InvoiceStatusRow
+            {
+                InvoiceId = inv.Id,
+                OrderNumber = inv.OrderNumber,
+                CustomerName = inv.Customer?.Name ?? "Unknown",
+                Date = inv.Date.ToDateTime(TimeOnly.MinValue),
+                GrandTotal = grandTotal,
+                AmountPaid = paid,
+                BalanceDue = balance,
+                Status = status,
+                CurrencyCode = inv.Currency?.CurrencyCode ?? ""
+            });
+        }
+    }
+
     private void CreateNew()
     {
         payment = new CustomerPayment { CompanyId = currentCompanyId, Date = DateTime.Today, ExchangeRate = 1 };
         openInvoices.Clear();
         selectedInvoiceId = Guid.Empty;
-        
+
         if (currencies.Any())
         {
             var def = currencies.First();
@@ -348,7 +633,7 @@
         if (Guid.TryParse(e.Value?.ToString(), out var custId))
         {
             payment.CustomerId = custId;
-            
+
             var customer = customers.FirstOrDefault(c => c.Id == custId);
             if (customer != null && customer.ReceivablesAccountId.HasValue)
             {
@@ -376,21 +661,23 @@
             selectedInvoiceId = Guid.Empty;
         }
     }
-
     private async Task LoadCustomerInvoices(Guid customerId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
-        
+
         var invoices = await ctx.SalesOrders
-            .Include(o => o.Lines).ThenInclude(l => l.Item)
-            .Where(o => o.CompanyId == currentCompanyId && o.CustomerId == customerId && o.Status == OrderStatus.Invoiced)
-            .ToListAsync();
+                    .Include(o => o.Lines).ThenInclude(l => l.Item)
+                    .Where(o => o.CompanyId == currentCompanyId &&
+                                o.CustomerId == customerId &&
+                                o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                                (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
+                    .ToListAsync();
 
         openInvoices.Clear();
         foreach (var inv in invoices)
         {
             decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
-            
+
             decimal discountValue = inv.DiscountAmount;
             if (inv.DiscountPercentage > 0)
             {
@@ -403,13 +690,13 @@
             if (inv.TaxId.HasValue)
             {
                 var tax = await ctx.Taxes.FindAsync(inv.TaxId.Value);
-                if (tax != null) 
+                if (tax != null)
                 {
                     taxAmount = discountedSubTotal * (tax.Per / 100);
                     taxDesc = $"{tax.TaxName} ({tax.Per}%)";
                 }
             }
-            
+
             decimal grandTotal = discountedSubTotal + taxAmount;
 
             decimal paidAmount = await ctx.PaymentApplications
@@ -418,7 +705,7 @@
 
             decimal balanceDue = grandTotal - paidAmount;
 
-            if (balanceDue > 0.01m) 
+            if (balanceDue > 0.01m)
             {
                 openInvoices.Add(new InvoiceRow
                 {
@@ -430,7 +717,6 @@
                     OriginalRate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1,
                     CurrencyId = inv.CurrencyId,
                     Lines = inv.Lines.ToList(),
-                    // --- MAP THE NEW PROPERTIES ---
                     SubTotal = subTotal,
                     DiscountValue = discountValue,
                     TaxAmount = taxAmount,
@@ -438,7 +724,7 @@
                 });
             }
         }
-        
+
         openInvoices = openInvoices.OrderBy(i => i.Date).ToList();
     }
 
@@ -448,14 +734,14 @@
         {
             selectedInvoiceId = invId;
             var inv = SelectedInvoice;
-            
+
             if (inv != null)
             {
-                payment.AmountReceived = inv.BalanceDue; // Pre-fills balance but it's editable
-                payment.ExchangeRate = inv.OriginalRate; 
+                payment.AmountReceived = inv.BalanceDue;
+                payment.ExchangeRate = inv.OriginalRate;
                 payment.CurrencyId = inv.CurrencyId;
-                payment.Reference = inv.OrderNumber; 
-                
+                payment.Reference = inv.OrderNumber;
+
                 var c = currencies.FirstOrDefault(x => x.Id == payment.CurrencyId);
                 currencySymbol = c?.CurrencyCode ?? "";
             }
@@ -468,6 +754,26 @@
         }
     }
 
+    private async Task PromptEmailPopup(Customer customer, Guid invoiceId, string invoiceNum, decimal amountPaid, decimal remainingBalance, string currSymbol)
+    {
+        if (customer != null && !string.IsNullOrWhiteSpace(customer.Email))
+        {
+            emailTargetInvoiceId = invoiceId; // Assign the target ID for the PDF generator
+
+            emailCustomerName = customer.Name;
+            emailCustomerAddress = customer.Email;
+            emailSubject = $"Payment Receipt - Invoice {invoiceNum}";
+
+            customEmailMessage = $"Dear {customer.Name},\n\nThank you for your payment of {currSymbol}{amountPaid:N2} towards invoice {invoiceNum} today.\n\nYour remaining balance on this invoice is {currSymbol}{remainingBalance:N2}.\n\nPlease find your official receipt attached.\n\nWe appreciate your continued business!\n\nBest Regards,\nAccounts Receivable Team";
+
+            showEmailPopup = true;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!\n(No email sent: Customer missing email address).");
+            activeTab = 0;
+        }
+    }
     private async Task PostPayment()
     {
         if (!HasInvoiceSelected) { await JS.InvokeVoidAsync("alert", "Please select a Sales Order Invoice."); return; }
@@ -475,7 +781,6 @@
         if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
         if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Customer does not have a configured AR Account."); return; }
 
-        // --- NEW: OVERPAYMENT VALIDATION ---
         if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.BalanceDue)
         {
             await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N2}) cannot exceed the remaining balance due ({SelectedInvoice.BalanceDue:N2}).");
@@ -499,17 +804,39 @@
             var saveErr = await PayService.SavePaymentAsync(payment);
             if (!string.IsNullOrEmpty(saveErr)) throw new Exception(saveErr);
 
-            var postErr = await PayService.PostPaymentAsync(payment.Id);
+            var postErr = await PayService.PostPaymentAsync(payment.Id, currentUserId);
 
             if (string.IsNullOrEmpty(postErr))
             {
-                await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!");
-                
-                // Reload customer invoices to update the balance
+                var cust = customers.FirstOrDefault(c => c.Id == payment.CustomerId);
+                Guid targetInvId = SelectedInvoice!.InvoiceId;
+                string invNum = SelectedInvoice!.OrderNumber;
+                decimal amt = payment.AmountReceived;
+                decimal remBal = SelectedInvoice.BalanceDue - payment.AmountReceived;
+                string cur = currencySymbol;
+
                 await LoadCustomerInvoices(payment.CustomerId);
+                await LoadInvoiceStatuses();
+
                 selectedInvoiceId = Guid.Empty;
                 payment.AmountReceived = 0;
                 payment.Reference = "";
+
+                // --- GLOBAL COMM PREFERENCE TOGGLE EVALUATION ---
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+                bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+                if (!showPopupToggle)
+                {
+                    await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!");
+                    showEmailPopup = false;
+                    activeTab = 0; // Drops out of payment collection wizard to statuses overview table
+                    StateHasChanged();
+                    return;
+                }
+
+                await PromptEmailPopup(cust, targetInvId, invNum, amt, remBal, cur);
             }
             else
             {
@@ -525,4 +852,123 @@
             isBusy = false;
         }
     }
+
+    private async Task PrepareEmailReceipt(Guid invoiceId)
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+        bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+        if (!showPopupToggle)
+        {
+            await JS.InvokeVoidAsync("alert", "Manual email composition prompts are currently disabled in ledger communication parameters.");
+            return;
+        }
+
+        emailTargetInvoiceId = invoiceId;
+        var row = invoiceStatuses.FirstOrDefault(i => i.InvoiceId == invoiceId);
+        var customer = customers.FirstOrDefault(c => c.Name == row?.CustomerName);
+
+        if (customer != null && !string.IsNullOrWhiteSpace(customer.Email))
+        {
+            emailCustomerName = customer.Name;
+            emailCustomerAddress = customer.Email;
+            emailSubject = $"Payment Receipt - {row?.OrderNumber}";
+            customEmailMessage = $"Dear {customer.Name},\n\nPlease find attached the payment receipt for {row?.OrderNumber}.\n\nCurrent Balance Due: {row?.CurrencyCode} {row?.BalanceDue:N2}\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
+
+            showEmailPopup = true;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "This customer does not have an email address on file.");
+        }
+    }
+    private Guid emailTargetInvoiceId = Guid.Empty;
+
+    // --- 1. MASTER PDF GENERATOR ---
+    private async Task<(byte[] Bytes, string FileName, string Subject, string CustomerEmail)> GetReceiptDataAsync(Guid invoiceId)
+    {
+        var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+        var order = await SalesService.GetOrderByIdAsync(invoiceId);
+
+        if (order == null || company == null) return (null, "", "", "");
+
+        var currency = currencies.FirstOrDefault(c => c.Id == order.CurrencyId);
+        string curSymbol = currency?.CurrencyCode ?? "";
+
+        // Generates the PDF. Because GetOrderByIdAsync includes AmountPaid,
+        // this PDF acts perfectly as a Receipt showing the new balance.
+        byte[] pdfBytes = ReportExportService.GenerateInvoicePdf(order, company, curSymbol);
+
+        string fileName = $"Receipt_{order.OrderNumber}.pdf";
+        string subject = $"Payment Receipt - {order.OrderNumber} from {company.CompanyName}";
+
+        return (pdfBytes, fileName, subject, order.Customer?.Email ?? "");
+    }
+
+    // --- 2. DOWNLOAD RECEIPT BUTTON ---
+    private async Task DownloadReceipt(Guid invoiceId)
+    {
+        try
+        {
+            var data = await GetReceiptDataAsync(invoiceId);
+            if (data.Bytes == null)
+            {
+                await JS.InvokeVoidAsync("alert", "Failed to generate receipt. Missing order or company data.");
+                return;
+            }
+
+            using var streamRef = new DotNetStreamReference(stream: new MemoryStream(data.Bytes));
+            await JS.InvokeVoidAsync("downloadFileFromStream", data.FileName, streamRef);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Download Error: {ex.Message}");
+        }
+    }
+
+    
+
+    // --- 4. DISPATCH EMAIL (WITH ATTACHMENT) ---
+    private async Task DispatchEmail()
+    {
+        isSendingEmail = true;
+        try
+        {
+            // Generate the PDF on-the-fly to attach it
+            var data = await GetReceiptDataAsync(emailTargetInvoiceId);
+            if (data.Bytes == null) throw new Exception("Failed to generate PDF attachment.");
+
+            await EmailService.SendEmailAsync(
+                emailCustomerAddress,
+                emailSubject,
+                customEmailMessage.Replace("\n", "<br>"), // Format for HTML
+                data.Bytes,      // THE ATTACHMENT
+                data.FileName    // THE FILENAME
+            );
+
+            await JS.InvokeVoidAsync("alert", "Receipt emailed successfully!");
+            showEmailPopup = false;
+            emailTargetInvoiceId = Guid.Empty;
+            activeTab = 0;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Failed to send email: {ex.Message}");
+        }
+        finally
+        {
+            isSendingEmail = false;
+        }
+    }
+    private IEnumerable<InvoiceStatusRow> FilteredInvoiceStatuses => invoiceStatuses
+        .Where(i => statusFilter == "All" || i.Status == statusFilter);
+
+    // 2. Calculates total pages required
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredInvoiceStatuses.Count() / (double)pageSize));
+
+    // 3. Extracts exactly the items needed for the current page
+    private IEnumerable<InvoiceStatusRow> PagedInvoiceStatuses => FilteredInvoiceStatuses
+        .Skip((currentPage - 1) * pageSize)
+        .Take(pageSize);
 }
