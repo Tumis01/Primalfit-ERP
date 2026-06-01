@@ -85,14 +85,24 @@
             </div>
 
             <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl md:col-span-2">
-                <SearchableGlAccount 
-                    Label="GR/IR Clearing Account (Cr)" 
-                    Placeholder="Select Temporary Liability Acc..." 
-                    Accounts="@liabilityAccounts" 
-                    @bind-Value="currentGrn.InventoryGlAccountId" 
-                    IsInvalid="@(currentGrn.InventoryGlAccountId == Guid.Empty)" />
+                @if (isGrIrAccountLocked)
+                {
+                    <label class="label text-slate-600">GR/IR Clearing Account (Cr) <span class="text-[9px] text-rose-600 font-bold tracking-wide shrink-0 ml-1 uppercase">(Locked by First Receipt)</span></label>
+                    <div class="text-xs text-slate-700 font-bold bg-slate-100 p-3 rounded-lg border border-slate-200 shadow-inner select-none font-mono">
+                        @(liabilityAccounts.FirstOrDefault(a => a.Id == currentGrn.InventoryGlAccountId)?.AccountCode ?? "N/A") - 
+                        @(liabilityAccounts.FirstOrDefault(a => a.Id == currentGrn.InventoryGlAccountId)?.Description ?? "Locked Accrual Account")
+                    </div>
+                }
+                else
+                {
+                    <SearchableGlAccount 
+                        Label="GR/IR Clearing Account (Cr)" 
+                        Placeholder="Select Temporary Liability Acc..." 
+                        Accounts="@liabilityAccounts" 
+                        @bind-Value="currentGrn.InventoryGlAccountId" 
+                        IsInvalid="@(currentGrn.InventoryGlAccountId == Guid.Empty)" />
+                }
             </div>
-
         </div>
 
         @if (currentGrn.Lines.Any())
@@ -297,6 +307,7 @@
     private decimal newCostAmount;
     private AllocationMethod newAllocMethod = AllocationMethod.ByValue;
     private List<GrnLandedCost> addedCosts = new();
+    private bool isGrIrAccountLocked = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -358,22 +369,40 @@
             selectedPO = openPOs.FirstOrDefault(p => p.Id == parsedId);
             if (selectedPO != null)
             {
-                currentGrn = new GoodsReceipt 
-                { 
+                currentGrn = new GoodsReceipt
+                {
                     CompanyId = currentCompanyId,
                     PurchaseOrderId = selectedPO.Id,
-                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{new Random().Next(100,999)}",
+                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{new Random().Next(100, 999)}",
                     DateReceived = DateTime.Today
                 };
-                
+
                 using var ctx = await DbFactory.CreateDbContextAsync();
+
+                // --- 3-WAY MATCH CONTROL INTERCEPT: DETECT HISTORICAL SPLIT RECEIPTS ---
+                var historicalReceipts = await ctx.GoodsReceipts
+                    .AsNoTracking()
+                    .Where(g => g.PurchaseOrderId == selectedPO.Id && g.CompanyId == currentCompanyId)
+                    .ToListAsync();
+
+                if (historicalReceipts.Any())
+                {
+                    // Enforce structural continuity: lock downstream values onto the original account ID
+                    currentGrn.InventoryGlAccountId = historicalReceipts.First().InventoryGlAccountId;
+                    isGrIrAccountLocked = true;
+                }
+                else
+                {
+                    currentGrn.InventoryGlAccountId = Guid.Empty;
+                    isGrIrAccountLocked = false;
+                }
 
                 foreach (var line in selectedPO.Lines)
                 {
                     decimal alreadyReceived = await ctx.GoodsReceiptLines
                         .Where(x => x.PurchaseOrderLineId == line.Id)
                         .SumAsync(x => x.QuantityReceived);
-                        
+
                     decimal remainingToReceive = line.QuantityOrdered - alreadyReceived;
 
                     if (remainingToReceive > 0)

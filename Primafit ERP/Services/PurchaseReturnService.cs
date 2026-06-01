@@ -23,18 +23,29 @@ namespace Primafit_ERP.Services
             _mappingService = mappingService; // <-- NEW
         }
 
-        // 1. INITIALIZE RETURN (Wizard Step 1)
+        // 1. INITIALIZE RETURN FROM GRN-APPROVED SUPPLIER BILLS
         public async Task<PurchaseReturn> CreateDraftFromBillAsync(Guid billId, Guid warehouseId, Guid userId, Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Enforce company isolation by including CompanyId in the predicate
+            // Enforce strict 3-Way Match Audit boundaries: Validate the Bill is posted, belongs to this company, 
+            // and maps directly to an active invoice order that has logged a physical warehouse receipt.
             var bill = await ctx.VendorBills
                 .AsNoTracking()
                 .Include(b => b.Lines)
-                .FirstOrDefaultAsync(b => b.Id == billId && b.CompanyId == companyId);
+                .FirstOrDefaultAsync(b => b.Id == billId
+                                       && b.CompanyId == companyId
+                                       && b.IsPosted
+                                       && b.PurchaseOrderId != null);
 
-            if (bill == null) throw new Exception("Vendor Bill not found or access denied.");
+            if (bill == null) throw new Exception("Eligible posted inventory bill not found or access denied.");
+
+            // --- 3-WAY MATCH EXTRACTION PROTECTION: VALIDATE GRN LOG HISTORY ---
+            bool hasValidWarehouseReceipt = await ctx.GoodsReceipts
+                .AnyAsync(g => g.PurchaseOrderId == bill.PurchaseOrderId.Value && g.CompanyId == companyId);
+
+            if (!hasValidWarehouseReceipt)
+                throw new Exception("Operational Exception: This invoice cannot be returned. No validated physical Goods Receipt (GRN) was registered against this billing asset.");
 
             var rtv = new PurchaseReturn
             {
@@ -51,7 +62,7 @@ namespace Primafit_ERP.Services
                 ReturnNumber = $"RTV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}"
             };
 
-            var itemIds = bill.Lines.Select(l => l.ItemId).Distinct().ToList();
+            var itemIds = bill.Lines.Where(l => l.ItemId != null).Select(l => l.ItemId!.Value).Distinct().ToList();
             var itemsMap = await ctx.Items
                 .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
@@ -65,8 +76,8 @@ namespace Primafit_ERP.Services
 
             foreach (var billLine in bill.Lines)
             {
-                if (!itemsMap.TryGetValue(billLine.ItemId ?? Guid.Empty, out var item) || item.IsService)
-                    continue;
+                if (billLine.ItemId == null || !itemsMap.TryGetValue(billLine.ItemId.Value, out var item) || item.IsService)
+                    continue; // Skip non-stock line items or direct service allocations smoothly
 
                 decimal alreadyReturned = postedReturnLines
                     .Where(r => r.VendorBillLineId == billLine.Id)
@@ -81,7 +92,7 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         PurchaseReturnId = rtv.Id,
                         VendorBillLineId = billLine.Id,
-                        ItemId = billLine.ItemId ?? Guid.Empty,
+                        ItemId = billLine.ItemId.Value,
                         ItemName = item.Name,
                         UnitCost = billLine.UnitCostBilled,
                         QtyReturning = 0

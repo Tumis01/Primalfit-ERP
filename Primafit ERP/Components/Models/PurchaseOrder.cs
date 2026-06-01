@@ -3,19 +3,22 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
-    // 1. THE COMMITMENT (Purchase Order)
+    // =================================────────────────================
+    // 1. THE CORE DOCUMENT ENGINE (Handles Requests, POs, and Invoices)
+    // =================================────────────────================
     public class PurchaseOrder
     {
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
         public Guid CompanyId { get; set; }
+
         [ForeignKey(nameof(CurrencyId))]
         public Currency? Currency { get; set; }
 
         [Required]
         public Guid VendorId { get; set; }
-        public string OrderNumber { get; set; } = string.Empty;
+        public string OrderNumber { get; set; } = string.Empty; // Holds REQ-..., PO-..., or INV-...
         public DateTime OrderDate { get; set; } = DateTime.Today;
         public Guid? LinkedSalesOrderId { get; set; }
 
@@ -24,12 +27,13 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,6)")]
         public decimal ExchangeRate { get; set; } = 1;
+
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
         public string? ConvertedFromRequestNumber { get; set; }
-
-        // --- NEW: TAX & DISCOUNT PROPERTIES ---
+        public string? ConvertedFromPONumber { get; set; } 
+        public bool IsDirectInvoice { get; set; } = false;  
         public Guid? TaxId { get; set; }
-        public Guid? TaxGLAccountId { get; set; } // Maps to Input VAT / Tax Receivable (Asset)
+        public Guid? TaxGLAccountId { get; set; } 
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal DiscountPercentage { get; set; } = 0;
@@ -37,16 +41,14 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal DiscountAmount { get; set; } = 0;
 
-        public Guid? DiscountGlAccountId { get; set; } // Maps to Discount Received (Income/Credit)
+        public Guid? DiscountGlAccountId { get; set; }
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
-
         public bool HasReceipt { get; set; } = false;
         public bool IsFullyReceived { get; set; } = false;
         public bool IsInvoicePosted { get; set; } = false;
         public bool IsFullyPaid { get; set; } = false;
 
-        // --- UI COMPUTED HELPERS ---
         [NotMapped] public decimal GrandTotalForeign { get; set; }
     }
 
@@ -56,22 +58,26 @@ namespace Primafit_ERP.Components.Models
         public Guid PurchaseOrderId { get; set; }
         public Guid ItemId { get; set; }
         public decimal QuantityOrdered { get; set; }
-        public decimal UnitCost { get; set; } // The Agreed Price
+        public decimal UnitCost { get; set; } 
+        public decimal QuantityReceived { get; set; } = 0; 
+        public decimal QuantityBilled { get; set; } = 0;  
     }
 
-    // 2. THE PHYSICAL RECEIPT (GRN)
+    // =================================────────────────================
+    // 2. THE PHYSICAL LOGISTICS RECEIPT (GRN - Managed inside Invoice View)
+    // =================================────────────────================
     public class GoodsReceipt
     {
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public Guid CompanyId { get; set; } // <--- ADDED
+        public Guid CompanyId { get; set; }
 
         [Required]
         public Guid PurchaseOrderId { get; set; }
-        public string GrnNumber { get; set; }
+        public string GrnNumber { get; set; } = string.Empty;
         public DateTime DateReceived { get; set; } = DateTime.Today;
-        public Guid InventoryGlAccountId { get; set; }
+        public Guid InventoryGlAccountId { get; set; } 
         public List<GoodsReceiptLine> Lines { get; set; } = new();
     }
 
@@ -79,70 +85,71 @@ namespace Primafit_ERP.Components.Models
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid GoodsReceiptId { get; set; }
-        public Guid PurchaseOrderLineId { get; set; } // Link to specific PO Line
+        public Guid PurchaseOrderLineId { get; set; }
         public decimal QuantityReceived { get; set; }
         [NotMapped] public decimal MaxAllowed { get; set; }
     }
-    public class ItemCostHistory
-    {
-        [Key]
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid ItemId { get; set; }
-        public DateTime DateChanged { get; set; } = DateTime.UtcNow;
 
-        // The Snapshot
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal OldQty { get; set; }
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal OldWacc { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal NewQtyIn { get; set; }
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal NewCostIn { get; set; } // The cost of the new batch
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal ResultingWacc { get; set; }
-
-        public string Reference { get; set; } = string.Empty; // e.g. "GRN-1001"
-    }
-    // 3. THE FINANCIAL LIABILITY (Vendor Bill)
+    // =================================────────────────================
+    // 3. THE FINANCIAL LEDGER LIABILITIES (Unchanged for Backwards Compatibility)
+    // =================================================================
     public class VendorBill
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid VendorId { get; set; }
         [Required]
         public Guid CompanyId { get; set; }
-        public Guid? PurchaseOrderId { get; set; } 
+        public Guid? PurchaseOrderId { get; set; }
         public Guid AccountsPayableGlId { get; set; }
         public bool IsDirectBill { get; set; } = false;
         public string ExternalInvoiceNumber { get; set; } = "";
         public DateTime BillDate { get; set; }
-        public Guid CurrencyId { get; set; } 
+        public Guid CurrencyId { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
-        public decimal ExchangeRate { get; set; } = 1; 
+        public decimal ExchangeRate { get; set; } = 1;
         [Column(TypeName = "decimal(18,6)")]
         public decimal TotalAmountForeign { get; set; }
         public decimal TotalAmount { get; set; }
 
-        // 3-WAY MATCH STATUS
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
         public string MatchVarianceReason { get; set; } = "";
         public string? Description { get; set; }
         public Guid? TaxId { get; set; }
-        public Guid? TaxGLAccountId { get; set; } 
+        public Guid? TaxGLAccountId { get; set; }
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
         public virtual List<VendorPayment> Payments { get; set; } = new();
+
         [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount) ?? 0;
         [NotMapped] public decimal BalanceDue => TotalAmount - AmountPaid;
         [NotMapped] public bool IsFullyPaid => IsPosted && TotalAmount > 0 && BalanceDue <= 0;
-
+        [NotMapped]
+        public string CalculatedPaymentStatus
+        {
+            get
+            {
+                decimal totalPaid = Payments?.Sum(p => p.Amount) ?? 0;
+                if (totalPaid <= 0) return "Unpaid";
+                if (totalPaid >= TotalAmount - 0.01m) return "Paid in Full";
+                return "Partially Paid";
+            }
+        }
     }
+
+    public class VendorBillLine
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid VendorBillId { get; set; }
+        public Guid? ItemId { get; set; }
+        public Guid ExpenseGlAccountId { get; set; }
+        public string? Description { get; set; }
+        public decimal QuantityBilled { get; set; }
+        public decimal UnitCostBilled { get; set; }
+        public decimal LineTotal => QuantityBilled * UnitCostBilled;
+    }
+
     public class VendorPayment
     {
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
@@ -152,52 +159,51 @@ namespace Primafit_ERP.Components.Models
         public DateTime Date { get; set; } = DateTime.Today;
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal Amount { get; set; } // Amount paid in base currency
-
+        public decimal Amount { get; set; }
         public Guid BankGlAccountId { get; set; }
         public string Reference { get; set; } = string.Empty;
     }
 
-    public class VendorBillLine
+    public class ItemCostHistory
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid VendorBillId { get; set; }
-        public Guid? ItemId { get; set; }
-
-        // FLEXIBILITY: User selects the Expense/Asset Account per line
-        public Guid ExpenseGlAccountId { get; set; }
-        public string? Description { get; set; }
-
-        public decimal QuantityBilled { get; set; }
-        public decimal UnitCostBilled { get; set; }
-        public decimal LineTotal => QuantityBilled * UnitCostBilled;
+        [Key] public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid ItemId { get; set; }
+        public DateTime DateChanged { get; set; } = DateTime.UtcNow;
+        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
+        [Column(TypeName = "decimal(18,2)")] public decimal NewQtyIn { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal NewCostIn { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal ResultingWacc { get; set; }
+        public string Reference { get; set; } = string.Empty;
     }
+
     public class WaccHistory
     {
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid ItemId { get; set; }
         public DateTime DateChanged { get; set; } = DateTime.UtcNow;
-
-        // The Event
-        public string Reference { get; set; } = ""; // e.g. "GRN-1001"
-
-        // The Math
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal OldQty { get; set; }
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal OldWacc { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal IncomingQty { get; set; }
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal IncomingCost { get; set; }
-
-        [Column(TypeName = "decimal(18,4)")]
-        public decimal NewWacc { get; set; }
+        public string Reference { get; set; } = "";
+        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
+        [Column(TypeName = "decimal(18,2)")] public decimal IncomingQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal IncomingCost { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal NewWacc { get; set; }
     }
-    
+
+    // =================================================================
+    // 4. WORKFLOW LIFECYCLE ENUMS
+    // =================================────────────────================
+    public enum PurchaseOrderStatus
+    {
+        Open = 0,               
+        Request = 1,            
+        PartiallyReceived = 2,  
+        DraftInvoice = 3,       
+        Invoiced = 4,           
+        Closed = 5,             
+        Cancelled = 6          
+    }
+
     public enum BillMatchStatus
     {
         Pending,
@@ -205,12 +211,5 @@ namespace Primafit_ERP.Components.Models
         Variance,
         NoPoLinked
     }
-    public enum PurchaseOrderStatus
-    {
-        Open,
-        Request,
-        PartiallyReceived,
-        Closed,
-        Cancelled
-    }
+
 }

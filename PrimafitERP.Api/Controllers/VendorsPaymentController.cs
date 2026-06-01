@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims; 
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Api.DTOs;
 using Primafit_ERP.Services;
@@ -8,7 +9,7 @@ namespace PrimafitERP.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(Roles = "SuperAdmin, Chief Of Financial Officer, Accountant")] // Locked to finance users
+    [Authorize(Roles = "SuperAdmin, CFO, Accountant")] 
     public class AccountsPayableController : ControllerBase
     {
         private readonly PurchasingService _purchasingService;
@@ -18,19 +19,23 @@ namespace PrimafitERP.Api.Controllers
             _purchasingService = purchasingService;
         }
 
-        // 1. AUTO-INVOICE A PURCHASE ORDER
-        
-
-        // 2. CREATE MANUAL VENDOR BILL (Direct Expense without PO)
         [HttpPost("manual-bill")]
         public async Task<IActionResult> CreateManualBill([FromBody] CreateManualVendorBillDto dto)
         {
-            if (!ModelState.IsValid || !dto.Lines.Any()) return BadRequest("Invalid Bill data.");
+            // Secure Claims Extractions
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var companyClaim = User.FindFirst("CompanyId")?.Value;
+
+            if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+                return Unauthorized("User session configuration is invalid or expired.");
+
+            if (!ModelState.IsValid || dto.Lines == null || !dto.Lines.Any())
+                return BadRequest("Invalid Bill data.");
 
             var bill = new VendorBill
             {
                 Id = Guid.NewGuid(),
-                CompanyId = dto.CompanyId,
+                CompanyId = companyId, 
                 VendorId = dto.VendorId,
                 AccountsPayableGlId = dto.AccountsPayableGlId,
                 CurrencyId = dto.CurrencyId,
@@ -48,26 +53,35 @@ namespace PrimafitERP.Api.Controllers
                 }).ToList()
             };
 
-            // Calculate Totals based on Blazor logic
+            // Calculate Totals based on business logic rules
             bill.TotalAmountForeign = Math.Round(bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled), 2);
             bill.TotalAmount = bill.TotalAmountForeign * bill.ExchangeRate;
 
-            // 1. Save Bill
+            // Step A: Save Draft Bill
             var saveErr = await _purchasingService.SaveVendorBillAsync(bill);
             if (!string.IsNullOrEmpty(saveErr)) return BadRequest(new { message = saveErr });
 
-            // 2. Post Bill to GL
-            var postErr = await _purchasingService.PostVendorBillAsync(bill.Id);
+            // Step B: Post Bill to GL
+            // AUTOMATED FIX: Passed the verified claims string 'userId' into the signature parameters block
+            var postErr = await _purchasingService.PostVendorBillAsync(bill.Id, userId);
             if (!string.IsNullOrEmpty(postErr)) return BadRequest(new { message = $"Saved but failed to post: {postErr}" });
 
             return Ok(new { message = "Vendor Bill saved and posted successfully.", billId = bill.Id });
         }
 
-        // 3. PAY VENDOR BILL
+        // 2. PAY VENDOR BILL
         [HttpPost("{billId:guid}/pay")]
         public async Task<IActionResult> PayVendorBill(Guid billId, [FromBody] PayVendorBillDto dto)
         {
-            if (!ModelState.IsValid || dto.Amount <= 0) return BadRequest("Invalid payment amount.");
+            // Secure Claims Extractions
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var companyClaim = User.FindFirst("CompanyId")?.Value;
+
+            if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+                return Unauthorized("User session configuration is invalid or expired.");
+
+            if (!ModelState.IsValid || dto.Amount <= 0)
+                return BadRequest("Invalid payment amount.");
 
             var payment = new VendorPayment
             {
@@ -79,7 +93,9 @@ namespace PrimafitERP.Api.Controllers
                 Reference = dto.Reference
             };
 
-            var err = await _purchasingService.PostVendorPaymentAsync(payment, dto.CompanyId);
+            // AUTOMATED FIX: Synchronized method call to expect both company context and operator metadata string parameters
+            // Matches signature layout: PostVendorPaymentAsync(VendorPayment payment, Guid companyId, string userId)
+            var err = await _purchasingService.PostVendorPaymentAsync(payment, companyId, userId);
 
             if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
 

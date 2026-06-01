@@ -23,22 +23,35 @@ namespace Primafit_ERP.Services
     // ==========================================
     public class PermissionGuard : IPermissionGuard
     {
+        private readonly PermissionCacheService _cache;
+
+        public PermissionGuard(PermissionCacheService cache)
+        {
+            _cache = cache;
+        }
+
         public void Require(ClaimsPrincipal user, string permissionKey)
         {
-            // ---------------------------------------------------------
-            // SECURITY DISABLED: This method intentionally does nothing.
-            // It allows any user (even unauthenticated ones) to pass.
-            // ---------------------------------------------------------
-            return;
+            // SuperAdmin bypass - if the user has this claim, they bypass all checks
+            if (user.HasClaim("IsSuperAdmin", "true")) return;
+
+            // Check against the in-memory cache loaded during Phase 2
+            if (!_cache.Has(permissionKey))
+            {
+                throw new UnauthorizedAccessException($"Access denied. Required permission: {permissionKey}");
+            }
         }
 
         public string RequireUserId(ClaimsPrincipal user)
         {
-            // ---------------------------------------------------------
-            // SECURITY DISABLED: Always return a default "System" user.
-            // This prevents null reference errors in your logic.
-            // ---------------------------------------------------------
-            return "SYSTEM_USER";
+            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(userId))
+            {
+                throw new UnauthorizedAccessException("User is not authenticated or User ID is missing.");
+            }
+
+            return userId;
         }
     }
 

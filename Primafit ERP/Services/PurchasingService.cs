@@ -308,39 +308,116 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+        public async Task<string> ConvertPOToInvoiceAsync(Guid poId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var po = await ctx.PurchaseOrders
+                .Include(p => p.Lines)
+                .FirstOrDefaultAsync(p => p.Id == poId);
 
-        public async Task<string> AutoPostVendorBillFromPOAsync(Guid poId, Guid companyId, string userId)
+            if (po == null) return "Purchase Order not found.";
+            if (po.Status == PurchaseOrderStatus.Request) return "Cannot invoice a Request directly. Convert it to a Purchase Order first.";
+
+            // Prevent duplicate conversions up the pipeline chain
+            bool alreadyConverted = await ctx.PurchaseOrders.AnyAsync(o => o.ConvertedFromPONumber == po.OrderNumber && o.CompanyId == po.CompanyId);
+            if (alreadyConverted) return "This Purchase Order has already been converted to an invoice.";
+
+            // --- ENFORCE UNIQUE NUMBER GENERATION LOOP ---
+            bool isDuplicate = true;
+            string generatedInvoiceNumber = string.Empty;
+
+            while (isDuplicate)
+            {
+                generatedInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
+                isDuplicate = await ctx.PurchaseOrders.AnyAsync(o => o.CompanyId == po.CompanyId && o.OrderNumber == generatedInvoiceNumber);
+            }
+
+            var invoice = new PurchaseOrder
+            {
+                Id = Guid.NewGuid(),
+                CompanyId = po.CompanyId,
+                OrderNumber = generatedInvoiceNumber, // Assigned safely via the collision check
+                ConvertedFromPONumber = po.OrderNumber,
+                TaxId = po.TaxId,
+                TaxGLAccountId = po.TaxGLAccountId,
+                VendorId = po.VendorId,
+                OrderDate = DateTime.Today,
+                Status = PurchaseOrderStatus.DraftInvoice, // Initial state inside the Invoice workspace
+                CurrencyId = po.CurrencyId,
+                ExchangeRate = po.ExchangeRate,
+                DiscountPercentage = po.DiscountPercentage,
+                DiscountAmount = po.DiscountAmount,
+                DiscountGlAccountId = po.DiscountGlAccountId
+            };
+
+            foreach (var line in po.Lines)
+            {
+                invoice.Lines.Add(new PurchaseOrderLine
+                {
+                    Id = Guid.NewGuid(),
+                    PurchaseOrderId = invoice.Id,
+                    ItemId = line.ItemId,
+                    QuantityOrdered = line.QuantityOrdered,
+                    UnitCost = line.UnitCost
+                });
+            }
+
+            ctx.PurchaseOrders.Add(invoice);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+        public async Task<string> PostInvoiceOrderAsync(Guid invoiceOrderId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
 
             try
             {
-                var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == poId);
-                if (po == null) return "PO not found.";
-                if (po.IsInvoicePosted) return "Invoice already posted.";
+                var invoiceOrder = await ctx.PurchaseOrders
+                    .Include(p => p.Lines)
+                    .FirstOrDefaultAsync(p => p.Id == invoiceOrderId);
 
-                // We still check for at least ONE GRN just to extract the GR/IR account routing
-                var grns = await ctx.GoodsReceipts.Include(g => g.Lines).Where(g => g.PurchaseOrderId == poId).ToListAsync();
-                if (!grns.Any()) return "No Goods Receipt found. At least one receipt is required to establish the GR/IR routing.";
+                if (invoiceOrder == null) return "Invoice record not found.";
+                if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced) return "This invoice has already been posted to the ledger.";
 
-                var grIrAccountId = grns.First().InventoryGlAccountId;
-                if (grIrAccountId == Guid.Empty) return "GR/IR Clearing Account was not set on the Goods Receipt.";
+                // Validate that the document format is a draft invoice
+                bool isLegitDraft = invoiceOrder.Status == PurchaseOrderStatus.DraftInvoice ||
+                                    invoiceOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
 
-                var vendor = await ctx.Vendors.FindAsync(po.VendorId);
-                if (vendor?.PayablesAccountId == null) return "Vendor Payables account missing in Master Data.";
+                if (!isLegitDraft)
+                    return $"Validation Exception: Only Draft Invoices can be posted. Current Status: {invoiceOrder.Status}";
+
+                // --- 3-WAY MATCH CONTROL: LOCATE INVENTORY ALLOCATION ENTRIES ---
+                var grns = await ctx.GoodsReceipts
+                    .Include(g => g.Lines)
+                    .Where(g => g.PurchaseOrderId == invoiceOrderId)
+                    .ToListAsync();
+
+                // If physical items exist but no receipt has been logged, block posting
+                bool requiresPhysicalReceipt = invoiceOrder.Lines.Any();
+
+                if (requiresPhysicalReceipt && !grns.Any() && !invoiceOrder.IsDirectInvoice)
+                {
+                    return "3-Way Match Exception: No Goods Receipt found for this document. You must receive items inside the Invoice View first to balance inventory clearing accounts.";
+                }
+
+                // Extract the locked matching account ID from the very first historical warehouse log
+                Guid grIrAccountId = grns.Any() ? grns.First().InventoryGlAccountId : Guid.Empty;
+
+                var vendor = await ctx.Vendors.FindAsync(invoiceOrder.VendorId);
+                if (vendor?.PayablesAccountId == null) return "Accounts Payable configuration missing on Vendor Master Profile.";
 
                 var bill = new VendorBill
                 {
                     Id = Guid.NewGuid(),
-                    CompanyId = companyId,
-                    VendorId = po.VendorId,
-                    PurchaseOrderId = po.Id,
+                    CompanyId = invoiceOrder.CompanyId,
+                    VendorId = invoiceOrder.VendorId,
+                    PurchaseOrderId = invoiceOrder.Id,
                     AccountsPayableGlId = vendor.PayablesAccountId.Value,
-                    ExternalInvoiceNumber = $"INV-{po.OrderNumber}",
+                    ExternalInvoiceNumber = invoiceOrder.OrderNumber,
                     BillDate = DateTime.Today,
-                    CurrencyId = po.CurrencyId,
-                    ExchangeRate = po.ExchangeRate,
+                    CurrencyId = invoiceOrder.CurrencyId,
+                    ExchangeRate = invoiceOrder.ExchangeRate,
                     IsPosted = true,
                     PostedDate = DateTime.Now,
                     MatchStatus = BillMatchStatus.Matched
@@ -348,44 +425,47 @@ namespace Primafit_ERP.Services
 
                 decimal totalGrossForeign = 0;
 
-                foreach (var poLine in po.Lines)
+                foreach (var line in invoiceOrder.Lines)
                 {
-                    if (poLine.QuantityOrdered > 0)
+                    if (line.QuantityOrdered > 0)
                     {
+                        // Ensure the ledger entry debits the exact clearing account used during the warehouse intake
+                        Guid clearingTargetAccount = grIrAccountId != Guid.Empty ? grIrAccountId : vendor.PayablesAccountId.Value;
+
                         bill.Lines.Add(new VendorBillLine
                         {
                             Id = Guid.NewGuid(),
                             VendorBillId = bill.Id,
-                            ItemId = poLine.ItemId,
-                            QuantityBilled = poLine.QuantityOrdered, // Always bill the FULL ordered amount
-                            UnitCostBilled = poLine.UnitCost,
-                            ExpenseGlAccountId = grIrAccountId
+                            ItemId = line.ItemId,
+                            QuantityBilled = line.QuantityOrdered,
+                            UnitCostBilled = line.UnitCost,
+                            ExpenseGlAccountId = clearingTargetAccount
                         });
-                        totalGrossForeign += (poLine.QuantityOrdered * poLine.UnitCost);
+                        totalGrossForeign += (line.QuantityOrdered * line.UnitCost);
+                        line.QuantityBilled = line.QuantityOrdered;
                     }
                 }
 
-                // --- APPLY DISCOUNT & TAX MATH ---
-                decimal discountForeign = po.DiscountAmount;
-                if (po.DiscountPercentage > 0)
+                // --- COMPUTATION EXTRACTION PIPELINES ---
+                decimal discountForeign = invoiceOrder.DiscountAmount;
+                if (invoiceOrder.DiscountPercentage > 0)
                 {
-                    discountForeign = totalGrossForeign * (po.DiscountPercentage / 100);
+                    discountForeign = totalGrossForeign * (invoiceOrder.DiscountPercentage / 100);
                 }
                 decimal netForeign = totalGrossForeign - discountForeign;
 
                 decimal taxForeign = 0;
-                if (po.TaxId.HasValue)
+                if (invoiceOrder.TaxId.HasValue)
                 {
-                    var tax = await ctx.Taxes.FindAsync(po.TaxId);
+                    var tax = await ctx.Taxes.FindAsync(invoiceOrder.TaxId);
                     if (tax != null) taxForeign = netForeign * (tax.Per / 100);
                 }
 
                 bill.TotalAmountForeign = netForeign + taxForeign;
 
-                // Convert to Base Ledger Currency
-                decimal grossBase = Math.Round(totalGrossForeign * po.ExchangeRate, 2);
-                decimal discountBase = Math.Round(discountForeign * po.ExchangeRate, 2);
-                decimal taxBase = Math.Round(taxForeign * po.ExchangeRate, 2);
+                decimal grossBase = Math.Round(totalGrossForeign * invoiceOrder.ExchangeRate, 2);
+                decimal discountBase = Math.Round(discountForeign * invoiceOrder.ExchangeRate, 2);
+                decimal taxBase = Math.Round(taxForeign * invoiceOrder.ExchangeRate, 2);
                 decimal grandTotalBase = (grossBase - discountBase) + taxBase;
 
                 bill.TotalAmount = grandTotalBase;
@@ -393,59 +473,69 @@ namespace Primafit_ERP.Services
                 ctx.VendorBills.Add(bill);
                 ctx.VendorBillLines.AddRange(bill.Lines);
 
-                // --- CREATE GL JOURNAL ---
-                var glLines = new List<GLJournalLine>
-                {
-                    // 1. DEBIT: GR/IR (Clearing the full PO liability)
-                    new GLJournalLine { SegCoaId = grIrAccountId, Debit = grossBase, Credit = 0, Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}" }
-                };
+                // --- BUILD GENERAL LEDGER JOURNAL ---
+                var glLines = new List<GLJournalLine>();
 
-                // 2. DEBIT: Input Tax (Asset/Receivable from Govt)
-                if (taxBase > 0 && po.TaxGLAccountId.HasValue)
+                if (grossBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = po.TaxGLAccountId.Value, Debit = taxBase, Credit = 0, Reference = $"Input Tax: {bill.ExternalInvoiceNumber}" });
+                    // Debit the locked clearing account to clear out the temporary receipt liability
+                    Guid accountingDebitLeg = grIrAccountId != Guid.Empty ? grIrAccountId : vendor.PayablesAccountId.Value;
+                    glLines.Add(new GLJournalLine { SegCoaId = accountingDebitLeg, Debit = grossBase, Credit = 0, Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}" });
                 }
 
-                // 3. CREDIT: Discount Received (Income / Contra-Expense)
+                if (taxBase > 0 && invoiceOrder.TaxGLAccountId.HasValue)
+                {
+                    glLines.Add(new GLJournalLine { SegCoaId = invoiceOrder.TaxGLAccountId.Value, Debit = taxBase, Credit = 0, Reference = $"Input VAT: {bill.ExternalInvoiceNumber}" });
+                }
+
                 if (discountBase > 0)
                 {
-                    // --- THE FIX: INTERCEPT DISCOUNT RECEIVED ---
                     Guid discountAccount = await _mappingService.GetMappedAccountAsync(
-                        companyId,
+                        invoiceOrder.CompanyId,
                         SystemTransactionType.DiscountReceived,
-                        isDebit: false, // Discount Received is a Credit/Income
-                        defaultAccountId: po.DiscountGlAccountId ?? Guid.Empty);
+                        isDebit: false,
+                        defaultAccountId: invoiceOrder.DiscountGlAccountId ?? Guid.Empty);
 
-                    if (discountAccount == Guid.Empty) return "A discount was applied, but no Discount Received GL Account is mapped.";
-
-                    glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = discountBase, Reference = $"Discount Received: {bill.ExternalInvoiceNumber}" });
+                    if (discountAccount == Guid.Empty) return "Financial configuration missing: No Discount Received GL Account mapped.";
+                    glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = discountBase, Reference = $"Disc Received: {bill.ExternalInvoiceNumber}" });
                 }
 
-                // 4. CREDIT: Accounts Payable (The actual net amount we owe the vendor)
-                // --- THE FIX: INTERCEPT ACCOUNTS PAYABLE ---
+                // Credit the permanent Accounts Payable Trade liability account
                 Guid apAccount = await _mappingService.GetMappedAccountAsync(
-                    companyId,
+                    invoiceOrder.CompanyId,
                     SystemTransactionType.PurchaseInvoice,
-                    isDebit: false, // AP is a Credit
+                    isDebit: false,
                     defaultAccountId: bill.AccountsPayableGlId);
 
-                glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = 0, Credit = grandTotalBase, Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}" });
+                glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Auto-Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                // Post Entry directly to the General Ledger
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
+                if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
 
-                po.IsInvoicePosted = true;
+                // Update structural document states
+                invoiceOrder.Status = PurchaseOrderStatus.Invoiced;
+                invoiceOrder.IsInvoicePosted = true;
+
+                if (!string.IsNullOrEmpty(invoiceOrder.ConvertedFromPONumber))
+                {
+                    var parentPo = await ctx.PurchaseOrders.FirstOrDefaultAsync(p => p.OrderNumber == invoiceOrder.ConvertedFromPONumber && p.CompanyId == invoiceOrder.CompanyId);
+                    if (parentPo != null)
+                    {
+                        parentPo.IsInvoicePosted = true;
+                        parentPo.Status = PurchaseOrderStatus.Invoiced;
+                    }
+                }
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
-
                 return string.Empty;
             }
             catch (Exception ex)
             {
                 await tx.RollbackAsync();
-                return $"Error posting invoice: {ex.Message}";
+                return $"Procurement Posting Error: {ex.Message}";
             }
         }
 
@@ -544,14 +634,19 @@ namespace Primafit_ERP.Services
                     if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
                 }
 
-                // Update PO Status Tracking
+                // Update PO Status Tracking without breaking Invoice views
                 po.HasReceipt = true;
                 decimal totalOrdered = po.Lines.Sum(l => l.QuantityOrdered);
                 decimal totalCurrentlyReceiving = grn.Lines.Sum(l => l.QuantityReceived);
                 decimal totalPastReceived = pastReceipts.Sum(l => l.QuantityReceived);
 
                 if ((totalPastReceived + totalCurrentlyReceiving) >= totalOrdered) po.IsFullyReceived = true;
-                po.Status = PurchaseOrderStatus.PartiallyReceived;
+
+                // Preserve Invoice indicators if this is an inventory receipt linked through Tab 3
+                if (po.Status != PurchaseOrderStatus.DraftInvoice && po.Status != PurchaseOrderStatus.Invoiced)
+                {
+                    po.Status = PurchaseOrderStatus.PartiallyReceived;
+                }
 
                 await ctx.SaveChangesAsync();
                 await transaction.CommitAsync();
@@ -974,8 +1069,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 1. PO AGING REPORT
-        //    Shows all open POs bucketed by how long they've been outstanding.
+        // 1. PO AGING REPORT (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GeneratePOAgingReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -984,6 +1078,7 @@ namespace Primafit_ERP.Services
             var startDt = start.ToDateTime(TimeOnly.MinValue);
             var endDt = end.ToDateTime(TimeOnly.MaxValue);
 
+            // Fetch base open/active POs within range
             var pos = await ctx.PurchaseOrders
                 .AsNoTracking()
                 .Include(p => p.Lines)
@@ -993,7 +1088,20 @@ namespace Primafit_ERP.Services
                 .OrderBy(p => p.OrderDate)
                 .ToListAsync();
 
-            var vendorIds = pos.Select(p => p.VendorId).Distinct().ToList();
+            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
+
+            // Locate downstream invoices tied to these PO numbers
+            var invoices = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(i => i.CompanyId == companyId
+                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
+                         && poNumbers.Contains(i.ConvertedFromPONumber))
+                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
+
+            // FILTER: Keep only POs that possess an invoice number link
+            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
+
+            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
@@ -1002,11 +1110,11 @@ namespace Primafit_ERP.Services
 
             var reportData = new StandardReportData
             {
-                ReportName = "Purchase Order Aging Report",
+                ReportName = "Purchase Order Aging Report (Invoiced Orders)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "PO Number", "Vendor", "Order Date",
+                    "Invoice Order Number", "Vendor", "Order Date",
                     "Days Outstanding", "Order Value (Base)", "Status", "Aging Bucket"
                 },
                 Rows = new List<List<string>>()
@@ -1014,8 +1122,9 @@ namespace Primafit_ERP.Services
 
             decimal grandTotal = 0;
 
-            foreach (var po in pos)
+            foreach (var po in invoicedPOs)
             {
+                string invoiceNumber = invoices[po.OrderNumber]; // Guaranteed to exist via filter
                 decimal orderValue = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate;
                 int days = today.DayNumber - DateOnly.FromDateTime(po.OrderDate.Date).DayNumber;
 
@@ -1026,7 +1135,7 @@ namespace Primafit_ERP.Services
 
                 reportData.Rows.Add(new List<string>
                 {
-                    po.OrderNumber,
+                    invoiceNumber, // Replaced PO Number with Invoice Order Number
                     vendors.GetValueOrDefault(po.VendorId, "Unknown"),
                     po.OrderDate.ToString("MMM dd, yyyy"),
                     days.ToString("N0"),
@@ -1045,8 +1154,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 2. GOODS RECEIPT NOTE (GRN) LOG
-        //    Line-by-line log of all goods received within the date range.
+        // 2. GOODS RECEIPT NOTE (GRN) LOG (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateGRNLogReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1070,6 +1178,16 @@ namespace Primafit_ERP.Services
                 .Where(p => poIds.Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id);
 
+            var poNumbers = poDict.Values.Select(p => p.OrderNumber).ToList();
+
+            // Extract downstream mapped invoices
+            var invoices = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(i => i.CompanyId == companyId
+                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
+                         && poNumbers.Contains(i.ConvertedFromPONumber))
+                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
+
             var itemIds = poDict.Values
                 .SelectMany(p => p.Lines)
                 .Select(l => l.ItemId)
@@ -1087,11 +1205,11 @@ namespace Primafit_ERP.Services
 
             var reportData = new StandardReportData
             {
-                ReportName = "Goods Receipt Note (GRN) Log",
+                ReportName = "Goods Receipt Note (GRN) Log (Invoiced Orders)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "GRN Number", "PO Number", "Vendor", "Date Received",
+                    "GRN Number", "Invoice Order Number", "Vendor", "Date Received",
                     "Item", "Qty Received", "Unit Cost", "Line Value (Base)"
                 },
                 Rows = new List<List<string>>()
@@ -1103,20 +1221,23 @@ namespace Primafit_ERP.Services
             foreach (var grn in grns)
             {
                 var po = poDict.GetValueOrDefault(grn.PurchaseOrderId);
-                string vendorName = po != null ? vendors.GetValueOrDefault(po.VendorId, "Unknown") : "Unknown";
+                if (po == null || !invoices.ContainsKey(po.OrderNumber)) continue; // FILTER OUT NON-INVOICED POs
+
+                string invoiceNumber = invoices[po.OrderNumber];
+                string vendorName = vendors.GetValueOrDefault(po.VendorId, "Unknown");
 
                 foreach (var line in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
-                    var poLine = po?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                    var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
                     decimal unitCost = poLine?.UnitCost ?? 0;
-                    decimal rate = po?.ExchangeRate ?? 1;
+                    decimal rate = po.ExchangeRate;
                     decimal lineValue = Math.Round(line.QuantityReceived * unitCost * rate, 2);
                     string itemName = poLine != null ? items.GetValueOrDefault(poLine.ItemId, "Unknown") : "Unknown";
 
                     reportData.Rows.Add(new List<string>
                     {
                         grn.GrnNumber,
-                        po?.OrderNumber ?? "N/A",
+                        invoiceNumber, // Displays just the invoice order number
                         vendorName,
                         grn.DateReceived.ToString("MMM dd, yyyy"),
                         itemName,
@@ -1137,8 +1258,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 3. OVER / UNDER RECEIVING REPORT
-        //    Compares qty ordered vs qty received for each PO line.
+        // 3. OVER / UNDER RECEIVING REPORT (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateOverUnderReceivingReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1155,30 +1275,41 @@ namespace Primafit_ERP.Services
                          && p.OrderDate >= startDt && p.OrderDate <= endDt)
                 .ToListAsync();
 
-            var poLineIds = pos.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
+            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
+
+            var invoices = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(i => i.CompanyId == companyId
+                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
+                         && poNumbers.Contains(i.ConvertedFromPONumber))
+                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
+
+            // FILTER: Restrict collection to invoiced entities only
+            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
+            var poLineIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
 
             var receivedLines = await ctx.GoodsReceiptLines
                 .AsNoTracking()
                 .Where(l => poLineIds.Contains(l.PurchaseOrderLineId))
                 .ToListAsync();
 
-            var itemIds = pos.SelectMany(p => p.Lines).Select(l => l.ItemId).Distinct().ToList();
+            var itemIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.ItemId).Distinct().ToList();
             var items = await ctx.Items
                 .Where(i => itemIds.Contains(i.Id))
                 .ToDictionaryAsync(i => i.Id, i => i.Name);
 
-            var vendorIds = pos.Select(p => p.VendorId).Distinct().ToList();
+            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
             var reportData = new StandardReportData
             {
-                ReportName = "Over / Under Receiving Report",
+                ReportName = "Over / Under Receiving Report (Invoiced Orders)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "PO Number", "Vendor", "Item",
+                    "Invoice Order Number", "Vendor", "Item",
                     "Qty Ordered", "Qty Received", "Variance", "Status"
                 },
                 Rows = new List<List<string>>()
@@ -1187,8 +1318,9 @@ namespace Primafit_ERP.Services
             decimal totalOrdered = 0;
             decimal totalReceived = 0;
 
-            foreach (var po in pos.OrderByDescending(p => p.OrderDate))
+            foreach (var po in invoicedPOs.OrderByDescending(p => p.OrderDate))
             {
+                string invoiceNumber = invoices[po.OrderNumber];
                 string vendorName = vendors.GetValueOrDefault(po.VendorId, "Unknown");
 
                 foreach (var poLine in po.Lines)
@@ -1205,7 +1337,7 @@ namespace Primafit_ERP.Services
 
                     reportData.Rows.Add(new List<string>
                     {
-                        po.OrderNumber,
+                        invoiceNumber,
                         vendorName,
                         itemName,
                         poLine.QuantityOrdered.ToString("N2"),
@@ -1233,9 +1365,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 4. PARTIALLY RECEIVED POs
-        //    Lists POs that have at least one receipt but are not yet
-        //    fully received, showing how much stock is still outstanding.
+        // 4. PARTIALLY RECEIVED POs (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GeneratePartiallyReceivedPOsReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1255,25 +1385,36 @@ namespace Primafit_ERP.Services
                 .OrderBy(p => p.OrderDate)
                 .ToListAsync();
 
-            var poLineIds = pos.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
+            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
+
+            var invoices = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(i => i.CompanyId == companyId
+                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
+                         && poNumbers.Contains(i.ConvertedFromPONumber))
+                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
+
+            // FILTER: Keep only partially received POs that have been invoiced
+            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
+            var poLineIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
 
             var receivedLines = await ctx.GoodsReceiptLines
                 .AsNoTracking()
                 .Where(l => poLineIds.Contains(l.PurchaseOrderLineId))
                 .ToListAsync();
 
-            var vendorIds = pos.Select(p => p.VendorId).Distinct().ToList();
+            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
             var reportData = new StandardReportData
             {
-                ReportName = "Partially Received Purchase Orders",
+                ReportName = "Partially Received Purchase Orders (Invoiced)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "PO Number", "Vendor", "Order Date",
+                    "Invoice Order Number", "Vendor", "Order Date",
                     "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value (Base)"
                 },
                 Rows = new List<List<string>>()
@@ -1281,8 +1422,9 @@ namespace Primafit_ERP.Services
 
             decimal grandOrderValue = 0;
 
-            foreach (var po in pos)
+            foreach (var po in invoicedPOs)
             {
+                string invoiceNumber = invoices[po.OrderNumber];
                 var lineIds = po.Lines.Select(l => l.Id).ToHashSet();
 
                 decimal qtyOrdered = po.Lines.Sum(l => l.QuantityOrdered);
@@ -1296,7 +1438,7 @@ namespace Primafit_ERP.Services
 
                 reportData.Rows.Add(new List<string>
                 {
-                    po.OrderNumber,
+                    invoiceNumber,
                     vendors.GetValueOrDefault(po.VendorId, "Unknown"),
                     po.OrderDate.ToString("MMM dd, yyyy"),
                     qtyOrdered.ToString("N2"),
@@ -1316,9 +1458,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 5. VENDOR PAYMENT HISTORY
-        //    All payments made to vendors within the period, with bank
-        //    account and bill reference traceability.
+        // 5. VENDOR PAYMENT HISTORY 
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateVendorPaymentHistoryReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1327,30 +1467,35 @@ namespace Primafit_ERP.Services
             var startDt = start.ToDateTime(TimeOnly.MinValue);
             var endDt = end.ToDateTime(TimeOnly.MaxValue);
 
-            // Load all payments in the date window
+            // 1. Load historical payment segments within the date window, stripping out UI Workspace drafts
             var allPayments = await ctx.Set<VendorPayment>()
                 .AsNoTracking()
-                .Where(p => p.Date >= startDt && p.Date <= endDt)
+                .Where(p => p.Date >= startDt && p.Date <= endDt
+                         && (p.Reference == null || !p.Reference.ToLower().StartsWith("draft-"))) // <-- FIXED TRANSLATION HERE
                 .OrderByDescending(p => p.Date)
                 .ToListAsync();
 
             var billIds = allPayments.Select(p => p.VendorBillId).Distinct().ToList();
 
-            // Filter to this company via the bill's CompanyId
+            // 2. Cross-reference against Posted Vendor Bills ONLY (drops all unposted bill drafts)
             var bills = await ctx.VendorBills
                 .AsNoTracking()
-                .Where(b => billIds.Contains(b.Id) && b.CompanyId == companyId)
+                .Where(b => billIds.Contains(b.Id) && b.CompanyId == companyId && b.IsPosted == true)
                 .ToDictionaryAsync(b => b.Id);
 
             var companyBillIds = bills.Keys.ToHashSet();
-            var payments = allPayments.Where(p => companyBillIds.Contains(p.VendorBillId)).ToList();
+
+            // 3. FILTER: Keep payments only if they belong to a verified posted bill partition
+            var postedPayments = allPayments
+                .Where(p => companyBillIds.Contains(p.VendorBillId))
+                .ToList();
 
             var vendorIds = bills.Values.Select(b => b.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
-            var glIds = payments.Select(p => p.BankGlAccountId).Distinct().ToList();
+            var glIds = postedPayments.Select(p => p.BankGlAccountId).Distinct().ToList();
             var glAccounts = await ctx.SegChartOfAccounts
                 .Where(a => glIds.Contains(a.Id))
                 .ToDictionaryAsync(a => a.Id, a => a.Description);
@@ -1361,7 +1506,7 @@ namespace Primafit_ERP.Services
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "Payment Date", "Vendor", "Bill Reference",
+                    "Payment Date", "Vendor", "Invoice Order Number",
                     "Payment Reference", "Bank Account", "Amount Paid (Base)"
                 },
                 Rows = new List<List<string>>()
@@ -1369,11 +1514,16 @@ namespace Primafit_ERP.Services
 
             decimal grandTotal = 0;
 
-            foreach (var payment in payments)
+            foreach (var payment in postedPayments)
             {
                 var bill = bills.GetValueOrDefault(payment.VendorBillId);
                 string vendorName = bill != null ? vendors.GetValueOrDefault(bill.VendorId, "Unknown") : "Unknown";
                 string bankAcct = glAccounts.GetValueOrDefault(payment.BankGlAccountId, "Unknown Account");
+
+                // Format negative allocations (debit note reversals) into (XXX.XX) bracket notations
+                string formattedAmount = payment.Amount < 0
+                    ? $"({Math.Abs(payment.Amount):N2})"
+                    : payment.Amount.ToString("N2");
 
                 reportData.Rows.Add(new List<string>
                 {
@@ -1382,22 +1532,25 @@ namespace Primafit_ERP.Services
                     bill?.ExternalInvoiceNumber ?? "N/A",
                     payment.Reference ?? "",
                     bankAcct,
-                    payment.Amount.ToString("N2")
+                    formattedAmount
                 });
 
                 grandTotal += payment.Amount;
             }
 
+            // Apply bracket format to grand total if cumulative operations trend negative
+            string formattedGrandTotal = grandTotal < 0
+                ? $"({Math.Abs(grandTotal):N2})"
+                : grandTotal.ToString("N2");
+
             reportData.Rows.Add(new List<string>
-                { "", "GRAND TOTAL", "", "", "", grandTotal.ToString("N2") });
+                { "", "GRAND TOTAL", "", "", "", formattedGrandTotal });
 
             return reportData;
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 6. PURCHASE SPEND BY VENDOR
-        //    Summarises total billed, total paid, and outstanding balance
-        //    per vendor — great for AP exposure visibility.
+        // 6. PURCHASE SPEND BY VENDOR (INVOICED POs ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GeneratePurchaseSpendByVendorReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1406,6 +1559,7 @@ namespace Primafit_ERP.Services
             var startDt = start.ToDateTime(TimeOnly.MinValue);
             var endDt = end.ToDateTime(TimeOnly.MaxValue);
 
+            // 1. Fetch posted vendor bills within the range
             var bills = await ctx.VendorBills
                 .AsNoTracking()
                 .Include(b => b.Payments)
@@ -1414,14 +1568,29 @@ namespace Primafit_ERP.Services
                          && b.BillDate >= startDt && b.BillDate <= endDt)
                 .ToListAsync();
 
-            var vendorIds = bills.Select(b => b.VendorId).Distinct().ToList();
+            // 2. Identify which of these bills are linked to a PO pipeline via ConvertedFromPONumber
+            var invoiceNumbers = bills.Select(b => b.ExternalInvoiceNumber).Distinct().ToList();
+
+            var invoicedPOsDict = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(p => p.CompanyId == companyId
+                         && !string.IsNullOrEmpty(p.ConvertedFromPONumber)
+                         && invoiceNumbers.Contains(p.OrderNumber))
+                .ToDictionaryAsync(p => p.OrderNumber); // Keyed by the Invoice Order Number
+
+            // FILTER: Keep only the bills that exist as a valid Invoice Order in the PO pipeline
+            var filteredBills = bills
+                .Where(b => !string.IsNullOrEmpty(b.ExternalInvoiceNumber) && invoicedPOsDict.ContainsKey(b.ExternalInvoiceNumber))
+                .ToList();
+
+            var vendorIds = filteredBills.Select(b => b.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
             var reportData = new StandardReportData
             {
-                ReportName = "Purchase Spend by Vendor",
+                ReportName = "Purchase Spend by Vendor (Invoiced Orders Only)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
@@ -1431,7 +1600,8 @@ namespace Primafit_ERP.Services
                 Rows = new List<List<string>>()
             };
 
-            var grouped = bills
+            // Group the filtered invoiced bills by Vendor
+            var grouped = filteredBills
                 .GroupBy(b => b.VendorId)
                 .Select(g => new
                 {
@@ -1449,34 +1619,44 @@ namespace Primafit_ERP.Services
             {
                 decimal outstanding = row.TotalBilled - row.TotalPaid;
 
+                // Handle standard bracket formatting for any outstanding negative balances
+                string formattedBilled = row.TotalBilled.ToString("N2");
+                string formattedPaid = row.TotalPaid.ToString("N2");
+                string formattedOutstanding = outstanding < 0
+                    ? $"({Math.Abs(outstanding):N2})"
+                    : outstanding.ToString("N2");
+
                 reportData.Rows.Add(new List<string>
                 {
                     vendors.GetValueOrDefault(row.VendorId, "Unknown"),
                     row.BillCount.ToString("N0"),
-                    row.TotalBilled.ToString("N2"),
-                    row.TotalPaid.ToString("N2"),
-                    outstanding.ToString("N2")
+                    formattedBilled,
+                    formattedPaid,
+                    formattedOutstanding
                 });
 
                 grandBilled += row.TotalBilled;
                 grandPaid += row.TotalPaid;
             }
 
+            decimal grandOutstanding = grandBilled - grandPaid;
+            string formattedGrandOutstanding = grandOutstanding < 0
+                ? $"({Math.Abs(grandOutstanding):N2})"
+                : grandOutstanding.ToString("N2");
+
             reportData.Rows.Add(new List<string>
             {
                 "GRAND TOTAL", "",
                 grandBilled.ToString("N2"),
                 grandPaid.ToString("N2"),
-                (grandBilled - grandPaid).ToString("N2")
+                formattedGrandOutstanding
             });
 
             return reportData;
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 7. DISCOUNT RECEIVED SUMMARY
-        //    Reports every PO where a discount was applied, showing gross,
-        //    discount amount, and net value — feeds directly to GL reconcile.
+        // 7. DISCOUNT RECEIVED SUMMARY (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateDiscountReceivedSummaryReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1494,18 +1674,30 @@ namespace Primafit_ERP.Services
                 .OrderByDescending(p => p.OrderDate)
                 .ToListAsync();
 
-            var vendorIds = pos.Select(p => p.VendorId).Distinct().ToList();
+            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
+
+            var invoices = await ctx.PurchaseOrders
+                .AsNoTracking()
+                .Where(i => i.CompanyId == companyId
+                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
+                         && poNumbers.Contains(i.ConvertedFromPONumber))
+                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
+
+            // FILTER: Select only invoiced POs with promotional structures applied
+            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
+
+            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
             var reportData = new StandardReportData
             {
-                ReportName = "Discount Received Summary",
+                ReportName = "Discount Received Summary (Invoiced Orders)",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "PO Number", "Vendor", "Order Date",
+                    "Invoice Order Number", "Vendor", "Order Date",
                     "Gross Value (Base)", "Discount Type", "Discount Amount (Base)", "Net Value (Base)"
                 },
                 Rows = new List<List<string>>()
@@ -1514,8 +1706,9 @@ namespace Primafit_ERP.Services
             decimal grandGross = 0;
             decimal grandDiscount = 0;
 
-            foreach (var po in pos)
+            foreach (var po in invoicedPOs)
             {
+                string invoiceNumber = invoices[po.OrderNumber];
                 decimal grossForeign = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
                 decimal grossBase = Math.Round(grossForeign * po.ExchangeRate, 2);
 
@@ -1529,7 +1722,7 @@ namespace Primafit_ERP.Services
 
                 reportData.Rows.Add(new List<string>
                 {
-                    po.OrderNumber,
+                    invoiceNumber,
                     vendors.GetValueOrDefault(po.VendorId, "Unknown"),
                     po.OrderDate.ToString("MMM dd, yyyy"),
                     grossBase.ToString("N2"),
@@ -1625,6 +1818,118 @@ namespace Primafit_ERP.Services
                 { "", "GRAND TOTAL", "", "", grandTotal.ToString("N2"), "" });
 
             return reportData;
+        }
+        // =================================================================
+        // ACCOUNTS PAYABLE DEBIT NOTE (PAYMENT REVERSAL ENGINE - NO STOCK)
+        // =================================================================
+        public async Task<string> PostVendorPaymentReversalAsync(VendorPayment reversalPayment, Guid companyId, string userId)
+        {
+            if (reversalPayment.Amount <= 0) return "STOP: Reversal allocation amount must be greater than zero.";
+            if (reversalPayment.BankGlAccountId == Guid.Empty) return "STOP: Valid target Refund Bank/Asset GL account mapping is required.";
+
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                // Load the target vendor bill complete with its historical payments loop trace
+                var bill = await ctx.VendorBills
+                    .Include(b => b.Payments)
+                    .FirstOrDefaultAsync(b => b.Id == reversalPayment.VendorBillId && b.CompanyId == companyId);
+
+                if (bill == null) return "STOP: Target Vendor Bill not found or access boundary denied.";
+                if (!bill.IsPosted) return "STOP: Cannot reverse payments against an unposted draft ledger bill.";
+
+                decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
+
+    // Calculate the real ceiling limit for this reversal based on Foreign currency inputs
+    decimal totalHistoricallyPaidBase = bill.Payments.Sum(p => p.Amount);
+    decimal totalHistoricallyPaidForeign = Math.Round(totalHistoricallyPaidBase / rate, 2);
+
+                if (reversalPayment.Amount > totalHistoricallyPaidForeign)
+                {
+                    return $"3-Way Match Exception: Reversal allocation ({reversalPayment.Amount:N2}) exceeds the total historical cash accumulated on this bill ({totalHistoricallyPaidForeign:N2} {bill.ExternalInvoiceNumber}).";
+                }
+
+// --- CRITICAL MULTI-CURRENCY FIX ---
+// Calculate the true base value hitting your General Ledger and Vendor Master ledgers
+decimal finalAmountBase = Math.Round(reversalPayment.Amount * rate, 2);
+
+// Enforce proper accounting polarity by transforming the numeric inputs to negative markers
+var finalizedReversalLine = new VendorPayment
+{
+    Id = Guid.NewGuid(),
+    VendorBillId = bill.Id,
+    Date = reversalPayment.Date,
+    Amount = -finalAmountBase, // STORE TRUE BASE CURRENCY WITH NEGATIVE POLARITY
+    BankGlAccountId = reversalPayment.BankGlAccountId,
+    Reference = string.IsNullOrWhiteSpace(reversalPayment.Reference)
+        ? $"REV-{bill.ExternalInvoiceNumber}"
+        : reversalPayment.Reference
+};
+
+ctx.Set<VendorPayment>().Add(finalizedReversalLine);
+
+// --- DOUBLE-ENTRY JOURNAL DISTRIBUTION ---
+var glLines = new List<GLJournalLine>
+                {
+                    // 1. DEBIT: Bank/Cash Equivalents account (Refunding your base functional assets)
+                    new GLJournalLine
+                    {
+                        SegCoaId = finalizedReversalLine.BankGlAccountId,
+                        Debit = finalAmountBase, // Correctly applies multiplied baseline values
+                        Credit = 0,
+                        Reference = $"Refund Inflow: {finalizedReversalLine.Reference}"
+                    },
+
+                    // 2. CREDIT: Accounts Payable Trade Liability (Restoring your outstanding debt to supplier)
+                    new GLJournalLine
+                    {
+                        SegCoaId = bill.AccountsPayableGlId,
+                        Debit = 0,
+                        Credit = finalAmountBase, // Balanced base value entry
+                        Reference = $"AP Debt Restored: {finalizedReversalLine.Reference}"
+                    }
+                };
+
+// Stream the array directly to your transactional GL Posting Core
+var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
+    companyId,
+    DateOnly.FromDateTime(finalizedReversalLine.Date),
+    "AP Debit Note Reversal",
+    finalizedReversalLine.Reference,
+    glLines,
+    userId
+);
+
+if (!string.IsNullOrEmpty(glErr)) throw new Exception($"General Ledger Engine Rejection: {glErr}");
+if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+
+// --- DOWNSTREAM PROCUREMENT LINE STATUS ROLLBACKS ---
+if (bill.PurchaseOrderId.HasValue)
+{
+    var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
+    if (po != null)
+    {
+        po.IsFullyPaid = false;
+
+        decimal prospectiveNewPaidTotalBase = totalHistoricallyPaidBase - finalAmountBase;
+
+        po.Status = prospectiveNewPaidTotalBase <= 0
+            ? PurchaseOrderStatus.Open
+            : PurchaseOrderStatus.PartiallyReceived;
+    }
+}
+
+await ctx.SaveChangesAsync();
+await tx.CommitAsync();
+return string.Empty; 
+            }
+            catch (Exception ex)
+            {
+    await tx.RollbackAsync();
+    return $"Debit Note Reversal Crash: {ex.Message}";
+}
         }
 
 

@@ -360,6 +360,9 @@
     private Guid selectedBillId;
     private Guid selectedWarehouseId;
 
+    // Fixed: Standardize on a single tracking variable name matching initialization context maps
+    private Guid currentCompanyId = Guid.Empty;
+
     private List<VendorBillLine> sourceLines = new();
     private List<PurchaseReturnLine> historyLines = new();
     private Dictionary<Guid, decimal> stockLevels = new();
@@ -384,6 +387,19 @@
         ? eligibleBills
         : eligibleBills.Where(b => b.DisplayText.Contains(billSearchTerm, StringComparison.OrdinalIgnoreCase));
 
+    protected override async Task OnInitializedAsync()
+    {
+        // Fetch Tenant context early in OnInitialized to prevent lifecycle race blocks in OnVendorSelected
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currentRtv.CompanyId = currentCompanyId;
+        }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         if (!PermissionCache.Has("PURCHASING_PAGE"))
@@ -392,46 +408,42 @@
             return;
         }
 
-        // Resolve user state context immediately to acquire Company Details
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = await UserManager.GetUserAsync(authState.User);
-
-        if (user?.CompanyDetailsId == null)
+        if (currentCompanyId == Guid.Empty)
         {
-            Nav.NavigateTo("/access-denied");
-            return;
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = await UserManager.GetUserAsync(authState.User);
+            if (user?.CompanyDetailsId != null) currentCompanyId = user.CompanyDetailsId.Value;
         }
 
-        Guid companyId = user.CompanyDetailsId.Value;
+        if (currentCompanyId == Guid.Empty) { Nav.NavigateTo("/access-denied"); return; }
+
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         if (IsNew)
         {
             if (!vendors.Any())
             {
-                // Only populate Dropdowns with company-specific masters
-                vendors = await ctx.Vendors.Where(v => v.CompanyId == companyId).OrderBy(v => v.Name).ToListAsync();
-                warehouses = await ctx.Warehouses.Where(w => w.CompanyId == companyId).ToListAsync();
+                vendors = await ctx.Vendors.Where(v => v.CompanyId == currentCompanyId).OrderBy(v => v.Name).ToListAsync();
+                warehouses = await ctx.Warehouses.Where(w => w.CompanyId == currentCompanyId).ToListAsync();
             }
         }
         else
         {
-            // Prevent cross-company document access by parsing CompanyId into the query predicate
             currentRtv = await ctx.PurchaseReturns
                 .Include(r => r.Lines)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.Id == Id && r.CompanyId == companyId);
+                .FirstOrDefaultAsync(r => r.Id == Id && r.CompanyId == currentCompanyId);
 
             if (currentRtv == null) { Nav.NavigateTo("/purchases/returns"); return; }
 
-            originalBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId && b.CompanyId == companyId);
+            originalBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.Id == currentRtv.VendorBillId && b.CompanyId == currentCompanyId);
             currentRtv.ExchangeRate = originalBill?.ExchangeRate ?? currentRtv.ExchangeRate;
             await LoadValidationContext(ctx, currentRtv.VendorBillId);
 
-            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId && v.CompanyId == companyId).Select(v => v.Name).FirstOrDefaultAsync();
+            var vName = await ctx.Vendors.Where(v => v.Id == currentRtv.VendorId && v.CompanyId == currentCompanyId).Select(v => v.Name).FirstOrDefaultAsync();
             vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vName ?? "Unknown" } };
 
-            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId && w.CompanyId == companyId).Select(w => w.Name).FirstOrDefaultAsync();
+            var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId && w.CompanyId == currentCompanyId).Select(w => w.Name).FirstOrDefaultAsync();
             warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = wName ?? "Unknown" } };
 
             var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
@@ -442,8 +454,7 @@
     private async Task OnVendorSelected(ChangeEventArgs e)
     {
         _errMsg = string.Empty;
-
-        if (_busy) return;
+        eligibleBills.Clear(); // Flush stale cache array items safely
 
         if (Guid.TryParse(e.Value?.ToString(), out var vid))
         {
@@ -451,26 +462,51 @@
             selectedBillId = Guid.Empty;
             billSearchTerm = "";
 
+            // Safety check: Fallback validation recovery if standard circuit state delays loading parameters
+            if (currentCompanyId == Guid.Empty)
+            {
+                var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                var user = await UserManager.GetUserAsync(authState.User);
+                if (user?.CompanyDetailsId != null) currentCompanyId = user.CompanyDetailsId.Value;
+            }
+
             _busy = true;
             StateHasChanged();
 
             try
             {
                 using var ctx = await DbFactory.CreateDbContextAsync();
+
+                // 1. Fetch valid invoice order rows that have physical goods receipts logged
+                var activeGrnInvoiceIds = await ctx.GoodsReceipts
+                    .Where(g => g.CompanyId == currentCompanyId)
+                    .Select(g => g.PurchaseOrderId)
+                    .Distinct()
+                    .ToHashSetAsync();
+
+                // 2. Fetch posted bills for this supplier and tenant
                 var dbBills = await ctx.VendorBills
-                    .Where(b => b.VendorId == vid && b.IsPosted)
+                    .Where(b => b.VendorId == vid
+                             && b.IsPosted
+                             && b.PurchaseOrderId != null
+                             && b.CompanyId == currentCompanyId)
                     .OrderByDescending(b => b.BillDate)
                     .ToListAsync();
 
-                eligibleBills = dbBills.Select(b => new BillSelectorDto
+                // 3. Intersect variables: filter down rows whose baseline keys match cleared arrivals
+                var verifiedStockBills = dbBills
+                    .Where(b => activeGrnInvoiceIds.Contains(b.PurchaseOrderId!.Value))
+                    .ToList();
+
+                eligibleBills = verifiedStockBills.Select(b => new BillSelectorDto
                 {
                     Id = b.Id,
-                    DisplayText = $"Inv #{b.ExternalInvoiceNumber} ({b.BillDate.ToShortDateString()}) - Total: {b.TotalAmount:N2}"
+                    DisplayText = $"Invoice Ref: {b.ExternalInvoiceNumber} ({b.BillDate:yyyy-MM-dd}) - Bal: {b.TotalAmount:N2}"
                 }).ToList();
             }
             catch (Exception ex)
             {
-                _errMsg = "Failed to load bills: " + ex.Message;
+                _errMsg = "Failed to load matching supplier stock bills context layout: " + ex.Message;
             }
             finally
             {
@@ -506,16 +542,9 @@
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
-        if (user == null)
+        if (user == null || currentCompanyId == Guid.Empty)
         {
-            _errMsg = "User not authenticated.";
-            await JS.InvokeVoidAsync("alert", _errMsg);
-            return;
-        }
-
-        if (user.CompanyDetailsId == null)
-        {
-            _errMsg = "No active company profile found for this user account.";
+            _errMsg = "System Error: Missing active user authentication or company context assignment.";
             await JS.InvokeVoidAsync("alert", _errMsg);
             return;
         }
@@ -525,12 +554,11 @@
             _busy = true;
             StateHasChanged();
 
-            // Pass user.CompanyDetailsId.Value as the 4th parameter to secure document isolation
             currentRtv = await RtvService.CreateDraftFromBillAsync(
                 selectedBillId,
                 selectedWarehouseId,
                 Guid.Parse(user.Id),
-                user.CompanyDetailsId.Value
+                currentCompanyId
             );
 
             var err = await RtvService.SaveDraftAsync(currentRtv);
@@ -546,7 +574,7 @@
         }
         catch (Exception ex)
         {
-            _errMsg = "Error: " + ex.Message;
+            _errMsg = "Creation Error: " + ex.Message;
             await JS.InvokeVoidAsync("alert", _errMsg);
         }
         finally
@@ -565,7 +593,7 @@
             .Where(l => l.VendorBillLine.VendorBillId == billId && l.PurchaseReturn.Status == ReturnStatus.Posted)
             .ToListAsync();
 
-        var itemIds = sourceLines.Select(l => l.ItemId).Distinct().ToList();
+        var itemIds = sourceLines.Where(l => l.ItemId != null).Select(l => l.ItemId!.Value).Distinct().ToList();
 
         stockLevels = await ctx.StockLedgers
             .Where(s => itemIds.Contains(s.ItemId) && s.WarehouseId == currentRtv.WarehouseId)
@@ -594,13 +622,13 @@
         }
 
         var err = await RtvService.SaveDraftAsync(currentRtv);
-        if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved.");
+        if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Draft Saved Successfully.");
         else await JS.InvokeVoidAsync("alert", err);
     }
 
     private async Task TerminateReturn()
     {
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this return? This cannot be undone.");
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this return worksheet permanently? This action cannot be undone.");
         if (!confirm) return;
 
         var err = await RtvService.TerminateReturnAsync(currentRtv.Id);
@@ -616,14 +644,14 @@
     {
         if (!currentRtv.Lines.Any(l => l.QtyReturning > 0))
         {
-            await JS.InvokeVoidAsync("alert", "Please enter a return quantity > 0.");
+            await JS.InvokeVoidAsync("alert", "Please enter a return quantity greater than 0 on at least one item line.");
             return;
         }
 
         var saveErr = await RtvService.SaveDraftAsync(currentRtv);
-        if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", "Error saving: " + saveErr); return; }
+        if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", "Error saving before post execution: " + saveErr); return; }
 
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Confirm posting? This will deduct stock.");
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Confirm posting? This will permanently deduct warehouse stock levels.");
         if (!confirm) return;
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -634,7 +662,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Return Posted Successfully.");
+            await JS.InvokeVoidAsync("alert", "Purchase Return Posted and Finalized Successfully.");
             using var ctx = await DbFactory.CreateDbContextAsync();
             currentRtv = await ctx.PurchaseReturns.Include(r => r.Lines).FirstAsync(r => r.Id == currentRtv.Id);
             StateHasChanged();

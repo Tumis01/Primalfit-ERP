@@ -21,11 +21,17 @@ namespace Primafit_ERP.Components.Models
         // Balances
         public decimal OpeningBalance { get; set; }
 
+
         // Sum of Debits (Money In)
         public decimal TotalDebits { get; set; }
 
         // Sum of Credits (Money Out)
         public decimal TotalCredits { get; set; }
+        public bool IsForeignCurrency { get; set; } = false;
+        public Guid? CurrencyId { get; set; }
+
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal ExchangeRate { get; set; } = 1;
 
         [NotMapped]
         public decimal ClosingBalance => OpeningBalance + TotalDebits - TotalCredits;
@@ -33,6 +39,7 @@ namespace Primafit_ERP.Components.Models
         public BatchStatus Status { get; set; } = BatchStatus.Draft;
         public Guid? PostedGLBatchId { get; set; }
 
+        public bool ClearAfterPost { get; set; } = true;
         public virtual List<CashbookEntry> Entries { get; set; } = new();
     }
 
@@ -53,13 +60,17 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal Credit { get; set; }
 
-
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal ForeignDebit { get; set; }
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal ForeignCredit { get; set; }
         public Guid OffsetSegCoaId { get; set; } // was OffsetAccountId
 
 
         [Required(ErrorMessage = "Reference is required")] 
         [MaxLength(50)]
         public string Reference { get; set; } = "";
+        public bool IsPosted { get; set; } = false;
         public Guid? ProjectId { get; set; }
     }
 }

@@ -149,6 +149,7 @@ namespace Primafit_ERP.Services
         }
 
         // --- DELETE ---
+        // --- DELETE ---
         public async Task<string> DeleteSegmentAsync<T>(Guid id) where T : class
         {
             try
@@ -158,19 +159,49 @@ namespace Primafit_ERP.Services
 
                 if (entity == null) return "Record not found.";
 
-                // Optional: Check if used in existing COA before deleting?
-                // For simplicity, we just delete. EF Foreign Keys will throw error if used.
+                // 1. Identify which segment column we are checking based on the generic Type
+                var tName = typeof(T).Name;
+                var linkedCoasQuery = ctx.SegChartOfAccounts.AsQueryable();
+
+                if (tName == "Segment0") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment0Id == id);
+                else if (tName == "Segment1") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment1Id == id);
+                else if (tName == "Segment2") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment2Id == id);
+                else if (tName == "Segment3") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment3Id == id);
+                else if (tName == "Segment4") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment4Id == id);
+                else if (tName == "Segment5") linkedCoasQuery = linkedCoasQuery.Where(c => c.Segment5Id == id);
+
+                // Fetch the IDs and Codes of any COA using this segment
+                var linkedCoas = await linkedCoasQuery.Select(c => new { c.Id, c.AccountCode }).ToListAsync();
+
+                if (linkedCoas.Any())
+                {
+                    var coaIds = linkedCoas.Select(c => c.Id).ToList();
+
+                    // 2. Check if any of these connected COAs have transactions or drafts
+                    bool hasTransactions = await ctx.GLTransactions.AnyAsync(t => coaIds.Contains(t.SegCoaId));
+                    bool hasDrafts = await ctx.Set<GLJournalLine>().AnyAsync(l => coaIds.Contains(l.SegCoaId));
+
+                    // Join the account codes for the warning message (limit to first 5 to avoid massive popups)
+                    var displayCodes = string.Join(", ", linkedCoas.Select(c => c.AccountCode).Take(5));
+                    if (linkedCoas.Count > 5) displayCodes += " and others...";
+
+                    if (hasTransactions || hasDrafts)
+                    {
+                        return $"Cannot delete: This segment value is used by Account(s) [{displayCodes}] which have existing transactions. You must deactivate those accounts instead.";
+                    }
+                    else
+                    {
+                        return $"Cannot delete: This segment value is currently linked to Account(s) [{displayCodes}]. Please delete or edit those accounts first.";
+                    }
+                }
+
                 ctx.Remove(entity);
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
-            catch (DbUpdateException)
-            {
-                return "Cannot delete: This segment value is currently in use by an account.";
-            }
             catch (Exception ex)
             {
-                return ex.Message;
+                return $"Error: {ex.Message}";
             }
         }
 
@@ -298,6 +329,7 @@ namespace Primafit_ERP.Services
             }
         }
 
+
         // Basic CSV Parser handles "Lagos, Main" quotes
         private List<string> ParseCsvLine(string line)
         {
@@ -313,6 +345,7 @@ namespace Primafit_ERP.Services
             result.Add(sb.ToString());
             return result;
         }
+
 
         // Backward compatibility wrappers if needed by the View for specific Add methods
         public Task<string> AddSegment0Async(Guid cId, string code, string desc) => SaveSegmentAsync(new Segment0 { CompanyId = cId, Code = code, Description = desc });

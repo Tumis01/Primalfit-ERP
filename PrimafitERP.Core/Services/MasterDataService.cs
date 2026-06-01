@@ -86,36 +86,29 @@ namespace Primafit_ERP.Services
         public async Task<List<Item>> GetItemsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Items.Where(i => i.CompanyId == companyId).ToListAsync();
+            return await ctx.Items.Include(i => i.Category).Where(i => i.CompanyId == companyId).ToListAsync();
         }
 
         public async Task<string> SaveItemAsync(Item item)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Security & Basic Validation
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
-            if (string.IsNullOrWhiteSpace(item.SKU)) return "SKU is required.";
+            if (string.IsNullOrWhiteSpace(item.SKU)) return "Code is required.";
 
-            // 2. Validate Seg COA Accounts (Only if it's a physical good)
-            if (!item.IsService)
-            {
-                if (item.InventoryAssetAccountId == Guid.Empty)
-                    return "Inventory Asset Account is required for physical goods.";
-            }
+            if (!item.IsService && item.InventoryAssetAccountId == Guid.Empty)
+                return "Inventory Asset Account is required for physical goods.";
 
             if (item.SalesIncomeAccountId == Guid.Empty) return "Sales Income Account is required.";
             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return "COGS/Expense Account is required.";
 
-            // 3. Check for Duplicate SKU or Name
             bool isSkuDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.SKU == item.SKU && i.Id != item.Id);
             if (isSkuDuplicate) return ($"The SKU '{item.SKU}' is already in use.");
 
             bool isNameDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.Name == item.Name && i.Id != item.Id);
             if (isNameDuplicate) return ($"The Item Name '{item.Name}' is already in use.");
 
-            // 4. Save Logic
             if (item.Id == Guid.Empty || !await ctx.Items.AnyAsync(x => x.Id == item.Id))
             {
                 if (item.Id == Guid.Empty) item.Id = Guid.NewGuid();
@@ -123,16 +116,20 @@ namespace Primafit_ERP.Services
             }
             else
             {
-                ctx.Items.Update(item);
+                // THE FIX: Protect system-calculated costs from being overwritten by the UI!
+                var existingItem = await ctx.Items.FindAsync(item.Id);
+                if (existingItem != null)
+                {
+                    item.WeightedAverageCost = existingItem.WeightedAverageCost;
+                    item.MostRecentCost = existingItem.MostRecentCost;
+
+                    ctx.Entry(existingItem).CurrentValues.SetValues(item);
+                }
             }
 
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-
-       
-        
-
         public async Task<string> DeleteVendorAsync(Guid id)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -291,5 +288,71 @@ namespace Primafit_ERP.Services
             }
             return string.Empty;
         }
+        public async Task<List<ItemCategory>> GetItemCategoriesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.ItemCategories
+                .Where(c => c.CompanyId == companyId)
+                .OrderBy(c => c.Name)
+                .AsNoTracking()
+                .ToListAsync();
+        }
+        public async Task<string> SaveItemCategoryAsync(ItemCategory category)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (await ctx.ItemCategories.AnyAsync(c => c.CompanyId == category.CompanyId && c.Name.ToLower() == category.Name.ToLower() && c.Id != category.Id))
+                return "A category with this name already exists.";
+
+            if (category.IsService)
+            {
+                category.InventoryAssetAccountId = null;
+                category.AdjustmentExpenseAccountId = null;
+            }
+
+            // Check if it's an empty Guid OR if the record simply doesn't exist in the DB yet
+            bool exists = category.Id != Guid.Empty && await ctx.ItemCategories.AnyAsync(c => c.Id == category.Id);
+
+            if (!exists)
+            {
+                if (category.Id == Guid.Empty) category.Id = Guid.NewGuid();
+                ctx.ItemCategories.Add(category);
+            }
+            else
+            {
+                ctx.ItemCategories.Update(category);
+            }
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteItemCategoryAsync(Guid id)
+        {
+            try
+            {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+                var entity = await ctx.ItemCategories.FindAsync(id);
+                if (entity == null) return "Not found.";
+
+                ctx.ItemCategories.Remove(entity);
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch
+            {
+                return "Cannot delete this category. It is currently assigned to one or more items in your inventory.";
+            }
+        }
+        public async Task<List<Warehouse>> GetREAlWarehousesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Warehouses
+                .AsNoTracking()
+                .Where(w => w.CompanyId == companyId)
+                .OrderBy(w => w.Name)
+                .ToListAsync();
+        }
+
     }
 }

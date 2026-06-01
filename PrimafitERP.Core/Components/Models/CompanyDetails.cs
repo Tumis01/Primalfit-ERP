@@ -11,12 +11,12 @@ namespace Primafit_ERP.Components.Models
         public string CompanyEmail { get; set; }
         public string? PhysicalAddress { get; set; }
         public string? PostalAddress { get; set; }
-        public DateOnly FiscalStartYear { get; set; }
-        public DateOnly FiscalEndYear { get;set; }
-        public string country { get; set; }
+        public DateOnly? FiscalStartYear { get; set; }
+        public DateOnly? FiscalEndYear { get;set; }
+        public string? country { get; set; }
         public string? CompanyWebsite { get; set; }
-        public string FunctionalCurrency { get;set; }
-        public string BaseCurrency { get; set; }
+        public string? FunctionalCurrency { get;set; }
+        public string? BaseCurrency { get; set; }
         public CompanyType Type { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }

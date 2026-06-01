@@ -17,7 +17,7 @@ namespace Primafit_ERP.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.5")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -2158,6 +2158,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ConvertedFromPONumber")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ConvertedFromRequestNumber")
                         .HasColumnType("nvarchar(max)");
 
@@ -2177,6 +2180,9 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("decimal(18, 6)");
 
                     b.Property<bool>("HasReceipt")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDirectInvoice")
                         .HasColumnType("bit");
 
                     b.Property<bool>("IsFullyPaid")
@@ -2229,7 +2235,13 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("PurchaseOrderId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<decimal>("QuantityBilled")
+                        .HasColumnType("decimal(18, 6)");
+
                     b.Property<decimal>("QuantityOrdered")
+                        .HasColumnType("decimal(18, 6)");
+
+                    b.Property<decimal>("QuantityReceived")
                         .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitCost")
@@ -3503,7 +3515,7 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("VendorBillId");
 
-                    b.ToTable("VendorPayment");
+                    b.ToTable("VendorPayments");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.WaccHistory", b =>
