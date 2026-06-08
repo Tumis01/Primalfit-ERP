@@ -99,6 +99,8 @@ namespace PrimafitERP.Data
         public DbSet<TransactionGlMapping> TransactionGlMappings { get; set; }
         public DbSet<CompanyEmailSetting> CompanyEmailSettings { get; set; }
         public DbSet<CustomTransactionType> CustomTransactionTypes { get; set; }
+        public DbSet<ReceiptRefund> ReceiptRefunds { get; set; }
+        public DbSet<ReceiptRefundLine> ReceiptRefundLines { get; set; }
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
@@ -141,7 +143,11 @@ namespace PrimafitERP.Data
                 entity.HasIndex(c => new { c.CompanyId, c.CreditNoteNumber })
                       .IsUnique();
             });
-
+            builder.Entity<ReceiptRefund>()
+                .HasMany(r => r.Lines)
+                .WithOne(l => l.Header)
+                .HasForeignKey(l => l.HeaderId)
+                .OnDelete(DeleteBehavior.Cascade);
             // Credit Note Lines can cascade (if header dies, lines die)
             builder.Entity<CreditNoteLine>()
                    .HasOne(l => l.Header)
@@ -236,6 +242,25 @@ namespace PrimafitERP.Data
             builder.Entity<Segment3>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment4>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment5>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<ReceiptRefund>()
+        .HasMany(r => r.Lines)
+        .WithOne(l => l.Header)
+        .HasForeignKey(l => l.HeaderId)
+        .OnDelete(DeleteBehavior.Cascade);
+
+            // 2. FIXED: Restrict parent Customer cascade pathway to resolve the cyclical collision
+            builder.Entity<ReceiptRefund>()
+                .HasOne(r => r.Customer)
+                .WithMany() // Leave empty if Customer doesn't have an explicit virtual collection property
+                .HasForeignKey(r => r.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // 3. FIXED: Restrict parent SalesOrder cascade pathway to ensure transaction isolation
+            builder.Entity<ReceiptRefund>()
+                .HasOne(r => r.SalesOrder)
+                .WithMany() // Leave empty if SalesOrder doesn't have an explicit virtual collection property
+                .HasForeignKey(r => r.SalesOrderId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

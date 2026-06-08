@@ -8,7 +8,7 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-@inject PurchasingService PurchService
+@inject PurchaseReturnService ReturnService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CurrencyService CurrService
@@ -28,11 +28,11 @@
             <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
                 @if (IsListMode)
                 {
-                    <span>Purchase Debit Notes Ledger</span>
+                    <span>Debit Notes </span>
                 }
                 else if (IsNewInitialization)
                 {
-                    <span>Initialize Supplier Cash Refund</span>
+                    <span>Initialize Cash Refund</span>
                 }
                 else
                 {
@@ -42,7 +42,7 @@
             <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
                 @if (IsListMode)
                 {
-                    <span class="text-slate-500">Review, track, and manage historical outgoing banking recovery adjustments.</span>
+                    <span class="text-slate-500">Review, track, and manage Debit Note</span>
                 }
                 else if (IsPosted)
                 {
@@ -50,7 +50,7 @@
                 }
                 else
                 {
-                    <span>● Draft Debit Note - Pending Ledger Posting</span>
+                    <span>● Draft Debit Note </span>
                 }
             </p>
         </div>
@@ -109,7 +109,7 @@
                         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                         <input type="text" @bind="listSearchTerm" @bind:event="oninput" placeholder="Search reference, bill hash..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-rose-500 transition-all" />
                     </div>
-                    <div class="text-xs text-slate-400 font-medium italic">Displaying financial banking recoveries without stock updates.</div>
+                    <div class="text-xs text-slate-400 font-medium italic"> </div>
                 </div>
 
                 <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
@@ -120,7 +120,7 @@
                                     <th class="px-6 py-4">Document Ref</th>
                                     <th class="px-6 py-4">Execution Date</th>
                                     <th class="px-6 py-4">Vendor Partner</th>
-                                    <th class="px-6 py-4">Settled Invoice Link</th>
+                                    <th class="px-6 py-4">Invoice</th>
                                     <th class="px-6 py-4">Refunding Bank Account</th>
                                     <th class="px-6 py-4 text-center">Status</th>
                                     <th class="px-6 py-4 text-right">Refund Amount (Foreign)</th>
@@ -187,7 +187,7 @@
                 <h3 class="text-lg font-bold text-slate-900 text-center">Initialize Refund Voucher</h3>
 
                 <div class="relative overflow-visible z-50">
-                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 1: Select Vendor Partner Target <span class="text-rose-500">*</span></label>
+                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
                     <div @onclick="ToggleVendorDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
                         <span class="@(selectedVendorId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedVendorName</span>
                         <svg class="w-4 h-4 text-slate-400 transition-transform @(isVendorDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
@@ -215,7 +215,7 @@
                 @if (selectedVendorId != Guid.Empty)
                 {
                     <div class="relative animate-in fade-in duration-300 z-40">
-                        <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Choose Settled Supplier Invoice <span class="text-rose-500">*</span></label>
+                        <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Choose Invoice <span class="text-rose-500">*</span></label>
                         <div @onclick="ToggleBillDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
                             <span class="@(selectedBillId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedBillName</span>
                             <svg class="w-4 h-4 text-slate-400 transition-transform @(isBillDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
@@ -254,7 +254,7 @@
                     {
                         <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
                     }
-                    <span>Open Form Workspace</span>
+                    <span>Open </span>
                 </button>
                 @if (!string.IsNullOrEmpty(_errMsg))
                 {
@@ -271,12 +271,12 @@
                         <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Operational Parameters</h3>
 
                         <div>
-                            <label class="label">Date of Recovery</label>
+                            <label class="label">Date:</label>
                             <input type="date" value="@targetReversalDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) targetReversalDate = d; })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
                         </div>
 
                         <div>
-                            <label class="label text-slate-500">Vendor Partner</label>
+                            <label class="label text-slate-500">Vendor </label>
                             <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
                                 @(vendors.FirstOrDefault(v => v.Id == selectedVendorId)?.Name ?? "Loaded Supplier Master Profile")
                             </div>
@@ -295,7 +295,7 @@
                         </div>
 
                         <div class="relative overflow-visible z-50">
-                            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Bank Account Target (Inflow) <span class="text-rose-500">*</span></label>
+                            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Bank Account<span class="text-rose-500">*</span></label>
                             <div @onclick="ToggleBankDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none @(IsPosted ? "bg-slate-50 opacity-60 cursor-not-allowed" : "")">
                                 <span class="@(targetBankGlAccountId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedBankGlName</span>
                                 @if (!IsPosted)
@@ -333,7 +333,7 @@
                         {
                             <div class="p-6 border-b border-slate-100 bg-slate-50/50">
                                 <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
-                                    AP Exposure Matrix Verification: <span class="text-rose-600 font-mono ml-2">@SelectedBillRow.RefNumber</span> (@currencySymbol)
+                                    Reference Invoice: <span class="text-rose-600 font-mono ml-2">@SelectedBillRow.RefNumber</span> (@currencySymbol)
                                 </h3>
                                 <div class="grid grid-cols-3 gap-4">
                                     <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
@@ -341,7 +341,7 @@
                                         <div class="text-xl font-mono font-bold text-slate-900">@SelectedBillRow.TotalForeign.ToString("N2")</div>
                                     </div>
                                     <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Historical Cash Paid</div>
+                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Cash Paid</div>
                                         <div class="text-xl font-mono font-black text-emerald-700">@SelectedBillRow.TotalPaidForeign.ToString("N2")</div>
                                     </div>
 
@@ -358,7 +358,7 @@
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
                                             <th class="px-4 py-3">Purchase Item / Service Segment</th>
-                                            <th class="px-4 py-3 text-center">Billed Quantity</th>
+                                            <th class="px-4 py-3 text-center">Quantity</th>
                                             <th class="px-4 py-3 text-right">Unit Settlement Cost (@currencySymbol)</th>
                                             <th class="px-4 py-3 text-right pr-6">Line Valuation Gross (@currencySymbol)</th>
                                         </tr>
@@ -378,7 +378,7 @@
                             </div>
 
                             <div class="border border-slate-100 rounded-2xl p-5 bg-slate-50/30 space-y-4 max-w-xl mx-6 mb-6">
-                                <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Voucher Recovery Allocation</h4>
+                                <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2"></h4>
 
                                 @if (SelectedBillRow.ExchangeRate == 1)
                                 {
@@ -621,54 +621,233 @@
             await LoadFromExistingPayment(Id.Value);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // LOAD EXISTING PAYMENT
-    // Shared by both lifecycle hooks — always runs after repositories are ready.
-    // ─────────────────────────────────────────────────────────────────────────
-    private async Task LoadFromExistingPayment(Guid paymentId)
+    private async Task LoadFromExistingPayment(Guid returnId)
     {
         _isFormWorkspaceOpen = true;
-        currentPaymentId = paymentId;
+        currentPaymentId = returnId;
 
         using var ctx = await DbFactory.CreateDbContextAsync();
 
-        var paymentRow = await ctx.VendorPayments
-            .Include(p => p.VendorBill)
-            .FirstOrDefaultAsync(p => p.Id == paymentId);
+        var returnRow = await ctx.PurchaseReturns
+            .Include(r => r.VendorBill)
+            .FirstOrDefaultAsync(r => r.Id == returnId);
 
-        if (paymentRow == null || paymentRow.VendorBill == null)
+        if (returnRow == null)
         {
-            _errMsg = "The requested debit note record could not be found.";
+            _errMsg = "The requested purchase debit note record could not be found.";
             ResetFormStateContainers();
             return;
         }
 
-        selectedVendorId = paymentRow.VendorBill.VendorId;
-        selectedBillId = paymentRow.VendorBillId;
-        targetReversalDate = paymentRow.Date;
+        selectedVendorId = returnRow.VendorId;
+        selectedBillId = returnRow.VendorBillId;
+        targetReversalDate = returnRow.ReturnDate;
 
-        IsDraftRecord = paymentRow.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase);
+        IsDraftRecord = returnRow.Status == ReturnStatus.Draft;
 
         var vendorObj = vendors.FirstOrDefault(v => v.Id == selectedVendorId);
         if (vendorObj != null) selectedVendorName = vendorObj.Name;
 
-        // forCreation: false — load ALL bills with real payments, including fully
-        // reversed ones, so SelectedBillRow can always resolve for view/edit.
         await LoadVendorBills(selectedVendorId, forCreation: false);
 
-        decimal rate = paymentRow.VendorBill.ExchangeRate > 0 ? paymentRow.VendorBill.ExchangeRate : 1.0m;
-        baseCurrencyRefundDisplayValue = Math.Abs(paymentRow.Amount);
-        amountToReverseForeign = Math.Round(baseCurrencyRefundDisplayValue / rate, 2);
-
-        customReferenceInput = IsDraftRecord
-            ? paymentRow.Reference.Substring(6)
-            : paymentRow.Reference;
-
-        targetBankGlAccountId = paymentRow.BankGlAccountId;
+        amountToReverseForeign = returnRow.TotalAmount;
+        baseCurrencyRefundDisplayValue = Math.Round(amountToReverseForeign * returnRow.ExchangeRate, 2);
+        customReferenceInput = returnRow.ReturnNumber;
+        targetBankGlAccountId = returnRow.BankGlAccountId;
 
         SyncBillSelectionMetrics();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // COMPUTE HISTORICAL BILL OUTSTANDING RECOVERY CEILINGS
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task LoadVendorBills(Guid vendorId, bool forCreation = true)
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        var bills = await ctx.VendorBills
+            .Include(b => b.Lines)
+            .Include(b => b.Payments)
+            .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
+            .ToListAsync();
+
+        var billIds = bills.Select(b => b.Id).ToList();
+
+        // Extract ONLY historical finalized financial debit notes (drops warehouse returns)
+        var historicalReturnsMap = await ctx.PurchaseReturns
+            .Where(r => billIds.Contains(r.VendorBillId)
+                     && r.Status == ReturnStatus.Posted
+                     && r.WarehouseId == null) // FIX: Factor only cash-refund allocations into the ceiling balance
+            .GroupBy(r => r.VendorBillId)
+            .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
+
+        openBills.Clear();
+
+        foreach (var b in bills)
+        {
+            decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1m;
+
+            decimal totalPaidBase = b.Payments?
+                .Where(p => p.Amount > 0 && !p.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase))
+                .Sum(p => p.Amount) ?? 0m;
+
+            if (totalPaidBase <= 0.01m) continue;
+
+            decimal totalPaidForeign = Math.Round(totalPaidBase / rate, 2);
+            decimal alreadyReversedForeign = historicalReturnsMap.ContainsKey(b.Id) ? historicalReturnsMap[b.Id] : 0m;
+
+            decimal remainingRefundableForeign = Math.Max(0m, Math.Round(totalPaidForeign - alreadyReversedForeign, 2));
+
+            if (forCreation && remainingRefundableForeign <= 0.01m) continue;
+
+            openBills.Add(new LocalBillRow
+            {
+                BillId = b.Id,
+                RefNumber = b.ExternalInvoiceNumber,
+                TotalForeign = b.TotalAmountForeign,
+                TotalPaidForeign = totalPaidForeign,
+                RemainingRefundableForeign = remainingRefundableForeign,
+                ExchangeRate = rate,
+                CurrencyId = b.CurrencyId,
+                Lines = b.Lines.ToList()
+            });
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GRID SUMMARY MONITOR LOG LINES
+    // ─────────────────────────────────────────────────────────────────────────
+    // Inside your Blazor Component Code Block
+    private async Task LoadHistoricalReversalsGrid()
+    {
+        _loadingList = true;
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        var rawReturns = await ctx.PurchaseReturns
+            .Include(p => p.VendorBill)
+            .Where(p => p.CompanyId == currentCompanyId
+                     && p.WarehouseId == null) // FIX: Isolate only pure financial debit note entries
+            .OrderByDescending(p => p.ReturnDate)
+            .ToListAsync();
+
+        historicalReversals = rawReturns.Select(r =>
+        {
+            decimal rate = r.ExchangeRate > 0 ? r.ExchangeRate : 1.0m;
+            bool posted = r.Status == ReturnStatus.Posted;
+            return new LocalReversalRow
+            {
+                PaymentId = r.Id,
+                Date = r.ReturnDate,
+                Reference = r.ReturnNumber,
+                BillRef = r.VendorBill?.ExternalInvoiceNumber ?? "DIRECT-EXPENSE",
+                VendorName = vendors.FirstOrDefault(v => v.Id == r.VendorId)?.Name ?? "Unknown Supplier",
+                GlAccountDescription = allAccounts.FirstOrDefault(a => a.Id == r.BankGlAccountId)?.Description ?? "Liquid Asset Account",
+                Amount = -r.TotalAmount,
+                AmountForeign = r.TotalAmount,
+                AmountBase = Math.Round(r.TotalAmount * rate, 2),
+                CurrencyCode = currencies.FirstOrDefault(c => c.Id == r.CurrencyId)?.CurrencyCode ?? "BASE",
+                IsPosted = posted
+            };
+        }).ToList();
+
+        _loadingList = false;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PERSIST DATA PARAMETERS DRAFT WORKSPACE
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task SaveDraftWorkspace()
+    {
+        if (SelectedBillRow == null || amountToReverseForeign <= 0 || targetBankGlAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: Verify inputs before saving.");
+            return;
+        }
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        var existingDraft = await ctx.PurchaseReturns.FirstOrDefaultAsync(p => p.Id == currentPaymentId);
+
+        if (existingDraft == null)
+        {
+            var newReturnDraft = new PurchaseReturn
+            {
+                Id = currentPaymentId == Guid.Empty ? Guid.NewGuid() : currentPaymentId,
+                CompanyId = currentCompanyId,
+                VendorId = selectedVendorId,
+                VendorBillId = selectedBillId,
+                ReturnDate = targetReversalDate,
+                ReturnNumber = string.IsNullOrWhiteSpace(customReferenceInput) ? $"DN-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}" : customReferenceInput,
+                CurrencyId = SelectedBillRow.CurrencyId,
+                ExchangeRate = SelectedBillRow.ExchangeRate,
+                TotalAmount = amountToReverseForeign,
+                Status = ReturnStatus.Draft,
+                BankGlAccountId = targetBankGlAccountId,
+                CreatedByUserId = Guid.Parse(currentUserId)
+            };
+            ctx.PurchaseReturns.Add(newReturnDraft);
+        }
+        else
+        {
+            existingDraft.ReturnDate = targetReversalDate;
+            existingDraft.TotalAmount = amountToReverseForeign;
+            existingDraft.ReturnNumber = customReferenceInput;
+            existingDraft.BankGlAccountId = targetBankGlAccountId;
+            ctx.PurchaseReturns.Update(existingDraft);
+        }
+
+        await ctx.SaveChangesAsync();
+        await JS.InvokeVoidAsync("alert", "Debit Note draft saved successfully.");
+        await LoadHistoricalReversalsGrid();
+        NavigateToListView();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ATOMIC LEDGER TRANSMISSION
+    // ─────────────────────────────────────────────────────────────────────────
+    private async Task ExecutePaymentReversalPost()
+    {
+        if (SelectedBillRow == null || amountToReverseForeign <= 0 || targetBankGlAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: Verify workspace settings.");
+            return;
+        }
+
+        var confirmation = await JS.InvokeAsync<bool>("confirm", $"Post financial adjustment for {currencySymbol} {amountToReverseForeign:N2} to the General Ledger?");
+        if (!confirmation) return;
+
+        isBusy = true;
+        StateHasChanged();
+
+        Guid executionId = currentPaymentId == Guid.Empty ? Guid.NewGuid() : currentPaymentId;
+
+        string result = await ReturnService.PostFinancialDebitNoteAsync(
+            executionId,
+            selectedVendorId,
+            selectedBillId,
+            targetReversalDate,
+            customReferenceInput,
+            amountToReverseForeign,
+            SelectedBillRow.ExchangeRate,
+            SelectedBillRow.CurrencyId,
+            targetBankGlAccountId,
+            currentCompanyId,
+            currentUserId);
+
+        if (string.IsNullOrEmpty(result))
+        {
+            await JS.InvokeVoidAsync("alert", "Debit Note posted to the General Ledger successfully.");
+            await LoadHistoricalReversalsGrid();
+            ResetFormStateContainers();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", result);
+        }
+
+        isBusy = false;
+        StateHasChanged();
+    }
     // ─────────────────────────────────────────────────────────────────────────
     // NAVIGATION
     // ─────────────────────────────────────────────────────────────────────────
@@ -799,103 +978,6 @@
     //                        ALL bills with at least one real payment are included
     //                        regardless of remaining ceiling, so the form can always
     //                        resolve SelectedBillRow and render correctly.
-    private async Task LoadVendorBills(Guid vendorId, bool forCreation = true)
-    {
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var bills = await ctx.VendorBills
-            .Include(b => b.Lines)
-            .Include(b => b.Payments)
-            .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
-            .ToListAsync();
-
-        openBills.Clear();
-
-        foreach (var b in bills)
-        {
-            decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1m;
-
-            // ── Step 1: Real cash paid ────────────────────────────────────────
-            // Only positive, non-draft payments count as genuine cash settled.
-            decimal totalPaidBase = b.Payments?
-                .Where(p => p.Amount > 0
-                         && !p.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase))
-                .Sum(p => p.Amount) ?? 0m;
-
-            // No real payment ever made — nothing to show, skip regardless of mode.
-            if (totalPaidBase <= 0.01m) continue;
-
-            decimal totalPaidForeign = Math.Round(totalPaidBase / rate, 2);
-
-            // ── Step 2: Already-posted reversals against this bill ────────────
-            // Negative, non-draft payments are finalised debit notes.
-            // Sum their absolute values to know how much has already been reversed.
-            decimal alreadyReversedBase = b.Payments?
-                .Where(p => p.Amount < 0
-                         && !p.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase))
-                .Sum(p => Math.Abs(p.Amount)) ?? 0m;
-
-            decimal alreadyReversedForeign = Math.Round(alreadyReversedBase / rate, 2);
-
-            // ── Step 3: Net remaining refundable ceiling ──────────────────────
-            decimal remainingRefundableForeign =
-                Math.Max(0m, Math.Round(totalPaidForeign - alreadyReversedForeign, 2));
-
-            // When building the new-creation dropdown, skip bills that have
-            // nothing left to refund — there is no point offering them.
-            // When loading for view/edit, always include the bill so the form
-            // can render the existing record even if the ceiling is now zero.
-            if (forCreation && remainingRefundableForeign <= 0.01m) continue;
-
-            openBills.Add(new LocalBillRow
-            {
-                BillId = b.Id,
-                RefNumber = b.ExternalInvoiceNumber,
-                TotalForeign = b.TotalAmountForeign,
-                TotalPaidForeign = totalPaidForeign,           // raw paid — "Historical Cash Paid" tile
-                RemainingRefundableForeign = remainingRefundableForeign, // net ceiling — validations & default amount
-                ExchangeRate = rate,
-                CurrencyId = b.CurrencyId,
-                Lines = b.Lines.ToList()
-            });
-        }
-    }
-
-    private async Task LoadHistoricalReversalsGrid()
-    {
-        _loadingList = true;
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var rawPayments = await ctx.VendorPayments
-            .Include(p => p.VendorBill)
-            .Where(p => p.Amount < 0
-                     && p.VendorBill.CompanyId == currentCompanyId
-                     && (p.Reference == null || !p.Reference.ToLower().StartsWith("draft-"))) // <-- FIXED TRANSLATION HERE
-            .OrderByDescending(p => p.Date)
-            .ToListAsync();
-
-        historicalReversals = rawPayments.Select(p =>
-        {
-            decimal rate = p.VendorBill?.ExchangeRate > 0 ? p.VendorBill.ExchangeRate : 1.0m;
-            bool posted = !p.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase);
-            return new LocalReversalRow
-            {
-                PaymentId = p.Id,
-                Date = p.Date,
-                Reference = p.Reference,
-                BillRef = p.VendorBill?.ExternalInvoiceNumber ?? "DIRECT-EXPENSE",
-                VendorName = vendors.FirstOrDefault(v => v.Id == p.VendorBill.VendorId)?.Name ?? "Unknown Supplier",
-                GlAccountDescription = allAccounts.FirstOrDefault(a => a.Id == p.BankGlAccountId)?.Description ?? "Liquid Asset Account",
-                Amount = p.Amount,
-                AmountForeign = Math.Round(Math.Abs(p.Amount) / rate, 2),
-                AmountBase = Math.Abs(p.Amount),
-                CurrencyCode = currencies.FirstOrDefault(c => c.Id == p.VendorBill.CurrencyId)?.CurrencyCode ?? "Base",
-                IsPosted = posted
-            };
-        }).ToList();
-
-        _loadingList = false;
-    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // CALCULATION HELPERS
@@ -991,77 +1073,6 @@
         StateHasChanged();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // SAVE / POST / DELETE
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private async Task SaveDraftWorkspace()
-    {
-        if (SelectedBillRow == null)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Please select an active invoice target first.");
-            return;
-        }
-        if (amountToReverseForeign <= 0)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Refund amount must be greater than zero.");
-            return;
-        }
-        if (amountToReverseForeign > SelectedBillRow.RemainingRefundableForeign)
-        {
-            await JS.InvokeVoidAsync("alert",
-                $"Validation Error: Refund amount ({amountToReverseForeign:N2}) cannot exceed the remaining " +
-                $"refundable balance ({SelectedBillRow.RemainingRefundableForeign:N2} {currencySymbol}). " +
-                $"Previously reversed: {(SelectedBillRow.TotalPaidForeign - SelectedBillRow.RemainingRefundableForeign):N2} {currencySymbol}.");
-            return;
-        }
-        if (targetBankGlAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Please select a Bank Account before saving the draft.");
-            return;
-        }
-        if (targetReversalDate == default || targetReversalDate > DateTime.Today)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Please enter a valid date that is not in the future.");
-            return;
-        }
-
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        string draftRef = customReferenceInput.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase)
-            ? customReferenceInput
-            : $"DRAFT-{customReferenceInput}";
-
-        decimal rate = SelectedBillRow.ExchangeRate > 0 ? SelectedBillRow.ExchangeRate : 1.0m;
-
-        var existingDraft = await ctx.VendorPayments.FirstOrDefaultAsync(p => p.Id == currentPaymentId);
-
-        if (existingDraft == null)
-        {
-            ctx.VendorPayments.Add(new VendorPayment
-            {
-                Id = Guid.NewGuid(),
-                VendorBillId = selectedBillId,
-                Date = targetReversalDate,
-                Amount = -Math.Round(amountToReverseForeign * rate, 2),
-                BankGlAccountId = targetBankGlAccountId,
-                Reference = draftRef
-            });
-        }
-        else
-        {
-            existingDraft.Date = targetReversalDate;
-            existingDraft.Amount = -Math.Round(amountToReverseForeign * rate, 2);
-            existingDraft.BankGlAccountId = targetBankGlAccountId;
-            existingDraft.Reference = draftRef;
-            ctx.VendorPayments.Update(existingDraft);
-        }
-
-        await ctx.SaveChangesAsync();
-        await JS.InvokeVoidAsync("alert", "Debit Note draft saved successfully.");
-        await LoadHistoricalReversalsGrid();
-        NavigateToListView();
-    }
 
     private async Task PostDebitNoteAdjustment()
     {
@@ -1078,87 +1089,6 @@
         }
     }
 
-    private async Task ExecutePaymentReversalPost()
-    {
-        if (SelectedBillRow == null)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Please select an invoice.");
-            return;
-        }
-        if (amountToReverseForeign <= 0)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Refund amount must be greater than zero.");
-            return;
-        }
-        if (amountToReverseForeign > SelectedBillRow.RemainingRefundableForeign)
-        {
-            await JS.InvokeVoidAsync("alert",
-                $"Validation Error: Refund amount ({amountToReverseForeign:N2}) exceeds the remaining " +
-                $"refundable balance ({SelectedBillRow.RemainingRefundableForeign:N2} {currencySymbol}). " +
-                $"Previously reversed: {(SelectedBillRow.TotalPaidForeign - SelectedBillRow.RemainingRefundableForeign):N2} {currencySymbol}.");
-            return;
-        }
-        if (targetBankGlAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Ledger Error: A valid refund bank account mapping is required before posting.");
-            return;
-        }
-        if (targetReversalDate == default || targetReversalDate > DateTime.Today)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Please enter a valid date that is not in the future.");
-            return;
-        }
-
-        var confirmation = await JS.InvokeAsync<bool>("confirm",
-            $"Post financial reversal for {currencySymbol} {amountToReverseForeign:N2} to the General Ledger?");
-        if (!confirmation) return;
-
-        isBusy = true;
-        StateHasChanged();
-
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        string postedRef = customReferenceInput.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase)
-            ? customReferenceInput.Substring(6)
-            : customReferenceInput;
-
-        var reversalWrapper = new VendorPayment
-        {
-            VendorBillId = selectedBillId,
-            Date = targetReversalDate,
-            Amount = amountToReverseForeign, // service layer handles base conversion & polarity
-            BankGlAccountId = targetBankGlAccountId,
-            Reference = postedRef
-        };
-
-        string result = await PurchService.PostVendorPaymentReversalAsync(reversalWrapper, currentCompanyId, currentUserId);
-
-        if (string.IsNullOrEmpty(result))
-        {
-            // Clean up the draft row now that the real posted entry exists
-            if (currentPaymentId != Guid.Empty)
-            {
-                var looseDraft = await ctx.VendorPayments.FindAsync(currentPaymentId);
-                if (looseDraft != null)
-                {
-                    ctx.VendorPayments.Remove(looseDraft);
-                    await ctx.SaveChangesAsync();
-                }
-            }
-
-            await JS.InvokeVoidAsync("alert", "Debit Note posted to the General Ledger successfully.");
-            await LoadHistoricalReversalsGrid();
-            ResetFormStateContainers();
-            NavigateToListView();
-        }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", result);
-        }
-
-        isBusy = false;
-        StateHasChanged();
-    }
 
     private async Task DeleteDraft()
     {

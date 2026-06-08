@@ -444,7 +444,7 @@
             vendors = new List<Vendor> { new Vendor { Id = currentRtv.VendorId, Name = vName ?? "Unknown" } };
 
             var wName = await ctx.Warehouses.Where(w => w.Id == currentRtv.WarehouseId && w.CompanyId == currentCompanyId).Select(w => w.Name).FirstOrDefaultAsync();
-            warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId, Name = wName ?? "Unknown" } };
+            warehouses = new List<Warehouse> { new Warehouse { Id = currentRtv.WarehouseId ?? Guid.Empty, Name = wName ?? "Unknown" } };
 
             var currency = await ctx.Currencies.FindAsync(currentRtv.CurrencyId);
             currencyCode = currency?.CurrencyCode ?? "";

@@ -73,7 +73,6 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            <!-- NOTE: Changed to PagedInvoiceStatuses -->
                             @foreach (var inv in PagedInvoiceStatuses)
                             {
                                 <tr class="hover:bg-slate-50 transition-colors">
@@ -99,6 +98,20 @@
                                     </td>
                                     <td class="p-4 text-center">
                                         <div class="flex items-center justify-center gap-2">
+                                            @* FIXED: Load Wizard Button Element inserted here before the download action *@
+                                            @if (inv.Status != "Paid in Full")
+                                            {
+                                                <button @onclick="() => SelectAndLoadInvoice(inv)" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Load Invoice into Payment Form">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                                    </svg>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <div class="w-7 h-7"></div> @* Layout Spacer element placeholder for paid items *@
+                                            }
+
                                             <button @onclick="() => DownloadReceipt(inv.InvoiceId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Receipt PDF">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                             </button>
@@ -111,7 +124,7 @@
                             }
                             @if (!PagedInvoiceStatuses.Any())
                             {
-                                <tr><td colspan="7" class="p-12 text-center text-slate-400">No invoices found matching the selected filter.</td></tr>
+                                <tr><td colspan="8" class="p-12 text-center text-slate-400">No invoices found matching the selected filter.</td></tr>
                             }
                         </tbody>
                     </table>
@@ -260,24 +273,43 @@
 
                         @if (SelectedInvoice != null)
                         {
-                            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
-                                    Invoice Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedInvoice.OrderNumber</span>
-                                </h3>
+                            <div class="p-6 border-b border-slate-100 bg-slate-50/50 rounded-t-2xl">
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                                        Invoice Tracking: <span class="text-indigo-600 font-mono ml-1 text-base">@SelectedInvoice.OrderNumber</span>
+                                    </h3>
+                                    <span class="text-xs font-semibold text-slate-400 font-mono">Date Issued: @SelectedInvoice.Date.ToString("yyyy-MM-dd")</span>
+                                </div>
 
-                                <div class="grid grid-cols-3 gap-4 animate-in slide-in-from-bottom-2">
-                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Invoice (@currencySymbol)</div>
+                                @* FIXED: Hard-locked grid tracking to 2 columns to prevent sidebar squeezing *@
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 duration-300">
+
+                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
+                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wide">Invoice Total (@currencySymbol)</div>
                                         <div class="text-xl font-mono font-black text-slate-900">@SelectedInvoice.OriginalTotal.ToString("N2")</div>
                                     </div>
-                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
-                                        <div class="text-xl font-mono font-black text-emerald-700">@((SelectedInvoice.OriginalTotal - SelectedInvoice.BalanceDue).ToString("N2"))</div>
+
+                                    @if (SelectedInvoice.CreditNoteTotal > 0)
+                                    {
+                                        <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] animate-in zoom-in-95 duration-200">
+                                            <div class="text-[10px] text-rose-700 uppercase font-bold mb-1 tracking-wide">Credit Adjustments</div>
+                                            <div class="text-xl font-mono font-black text-rose-700">@SelectedInvoice.CreditNoteTotal.ToString("N2")</div>
+                                        </div>
+                                    }
+
+                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
+                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1 tracking-wide">Prior Cash Paid</div>
+                                        <div class="text-xl font-mono font-black text-emerald-700">
+                                            @((SelectedInvoice.OriginalTotal - SelectedInvoice.BalanceDue - SelectedInvoice.CreditNoteTotal).ToString("N2"))
+                                        </div>
                                     </div>
-                                    <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Balance Due</div>
-                                        <div class="text-xl font-mono font-black text-rose-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
+
+                                    @* FIXED: Dynamically expands to full width on row 2 if no credit adjustments exist to keep elements balanced *@
+                                    <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] @(SelectedInvoice.CreditNoteTotal > 0 ? "" : "sm:col-span-2")">
+                                        <div class="text-[10px] text-indigo-700 uppercase font-bold mb-1 tracking-wide">Net Balance Due</div>
+                                        <div class="text-xl font-mono font-black text-indigo-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
                                     </div>
+
                                 </div>
                             </div>
                         }
@@ -500,6 +532,7 @@
         public decimal DiscountValue { get; set; }
         public decimal TaxAmount { get; set; }
         public string TaxDescription { get; set; } = "Tax";
+        public decimal CreditNoteTotal { get; set; }
     }
 
     public class InvoiceStatusRow
@@ -560,7 +593,6 @@
             }
         }
     }
-
     private async Task LoadInvoiceStatuses()
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
@@ -571,17 +603,26 @@
             .Include(o => o.Currency)
             .Include(o => o.Lines)
             .Where(o => o.CompanyId == currentCompanyId &&
-                        o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                        o.OrderNumber.StartsWith("INV") &&
                         (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .OrderByDescending(o => o.Date)
             .ToListAsync();
 
         var invoiceIds = invoices.Select(i => i.Id).ToList();
-        var arPayments = await ctx.PaymentApplications
-            .Where(pa => invoiceIds.Contains(pa.InvoiceId))
-            .GroupBy(pa => pa.InvoiceId)
-            .Select(g => new { g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
-            .ToDictionaryAsync(x => x.Key, x => x.Paid);
+
+        // FIXED: Filter out draft records by joining on the parent payment status
+        var arPayments = await (from pa in ctx.PaymentApplications
+                                join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
+                                where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
+                                group pa by pa.InvoiceId into g
+                                select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                                .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
+
+        var creditNotesMap = await ctx.CreditNotes
+            .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+            .GroupBy(cn => cn.SalesOrderId)
+            .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+            .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
 
         invoiceStatuses.Clear();
         foreach (var inv in invoices)
@@ -593,7 +634,9 @@
             decimal grandTotal = net + (net * (taxPer / 100));
 
             decimal paid = arPayments.GetValueOrDefault(inv.Id, 0);
-            decimal balance = grandTotal - paid;
+            decimal credited = creditNotesMap.GetValueOrDefault(inv.Id, 0);
+
+            decimal balance = grandTotal - paid - credited;
 
             string status = "Unpaid";
             if (balance <= 0.01m) status = "Paid in Full";
@@ -612,6 +655,47 @@
                 CurrencyCode = inv.Currency?.CurrencyCode ?? ""
             });
         }
+    }
+    private async Task SelectAndLoadInvoice(InvoiceStatusRow statusRow)
+    {
+        // 1. Locate the master customer profile mapping via name reference string
+        var targetCustomer = customers.FirstOrDefault(c => c.Name == statusRow.CustomerName);
+        if (targetCustomer == null) return;
+
+        // FIXED: Swapped _busy for your page's existing isBusy variable
+        isBusy = true; StateHasChanged();
+
+        // 2. Initialize the base transaction header container details
+        payment.CustomerId = targetCustomer.Id;
+        if (targetCustomer.ReceivablesAccountId.HasValue)
+        {
+            payment.CreditGlAccountId = targetCustomer.ReceivablesAccountId.Value;
+            var arAcc = allAccounts.FirstOrDefault(a => a.Id == payment.CreditGlAccountId);
+            CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.Description}" : "Unknown Account";
+        }
+
+        // 3. Force-load the customer's invoices dropdown list array
+        await LoadCustomerInvoices(targetCustomer.Id);
+
+        // 4. Bind the select menu values to populate the tracking cards
+        selectedInvoiceId = statusRow.InvoiceId;
+
+        var loadedInvoice = openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
+        if (loadedInvoice != null)
+        {
+            payment.AmountReceived = loadedInvoice.BalanceDue;
+            payment.ExchangeRate = loadedInvoice.OriginalRate;
+            payment.CurrencyId = loadedInvoice.CurrencyId;
+            payment.Reference = loadedInvoice.OrderNumber;
+
+            var currencyObj = currencies.FirstOrDefault(x => x.Id == payment.CurrencyId);
+            currencySymbol = currencyObj?.CurrencyCode ?? "";
+        }
+
+        // 5. Shift UI context index directly over to the "Receive Payment" tab form
+        activeTab = 1;
+        isBusy = false; // FIXED here as well
+        StateHasChanged();
     }
 
     private void CreateNew()
@@ -669,9 +753,25 @@
                     .Include(o => o.Lines).ThenInclude(l => l.Item)
                     .Where(o => o.CompanyId == currentCompanyId &&
                                 o.CustomerId == customerId &&
-                                o.OrderNumber.StartsWith("INV") && // <-- STRICT FILTER ADDED HERE
+                                o.OrderNumber.StartsWith("INV") &&
                                 (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
                     .ToListAsync();
+
+        var invoiceIds = invoices.Select(i => i.Id).ToList();
+
+        var creditNotesMap = await ctx.CreditNotes
+            .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+            .GroupBy(cn => cn.SalesOrderId)
+            .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+            .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+
+        // FIXED: Exclude current browser layout allocations from dropdown metrics
+        var arPaymentsMap = await (from pa in ctx.PaymentApplications
+                                   join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
+                                   where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
+                                   group pa by pa.InvoiceId into g
+                                   select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                                   .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
 
         openInvoices.Clear();
         foreach (var inv in invoices)
@@ -699,11 +799,10 @@
 
             decimal grandTotal = discountedSubTotal + taxAmount;
 
-            decimal paidAmount = await ctx.PaymentApplications
-                .Where(a => a.InvoiceId == inv.Id)
-                .SumAsync(a => a.AppliedAmount + a.CashDiscountTaken);
+            decimal paidAmount = arPaymentsMap.GetValueOrDefault(inv.Id, 0);
+            decimal creditedAmount = creditNotesMap.GetValueOrDefault(inv.Id, 0);
 
-            decimal balanceDue = grandTotal - paidAmount;
+            decimal balanceDue = grandTotal - paidAmount - creditedAmount;
 
             if (balanceDue > 0.01m)
             {
@@ -720,7 +819,8 @@
                     SubTotal = subTotal,
                     DiscountValue = discountValue,
                     TaxAmount = taxAmount,
-                    TaxDescription = taxDesc
+                    TaxDescription = taxDesc,
+                    CreditNoteTotal = creditedAmount
                 });
             }
         }
@@ -780,10 +880,9 @@
         if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount received must be greater than zero."); return; }
         if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
         if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Customer does not have a configured AR Account."); return; }
-
         if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.BalanceDue)
         {
-            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N2}) cannot exceed the remaining balance due ({SelectedInvoice.BalanceDue:N2}).");
+            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N2}) cannot exceed the remaining adjusted balance due ({SelectedInvoice.BalanceDue:N2}) after credit note deductions.");
             return;
         }
 

@@ -95,6 +95,8 @@ builder.Services.AddScoped<PermissionCacheService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<TransactionMappingService>();
+builder.Services.AddScoped<ReceiptRefundService>();
+
 var app = builder.Build();
 
 

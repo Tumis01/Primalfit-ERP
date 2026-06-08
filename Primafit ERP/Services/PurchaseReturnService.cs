@@ -224,7 +224,7 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         CompanyId = rtv.CompanyId,
                         ItemId = line.ItemId,
-                        WarehouseId = rtv.WarehouseId,
+                        WarehouseId = rtv.WarehouseId.Value,
                         QuantityChanged = -line.QtyReturning, // NEGATIVE
                         Type = StockMovementType.PurchaseReturn,
                         CostAtTime = line.UnitCost,
@@ -337,6 +337,100 @@ namespace Primafit_ERP.Services
                 }
             }
             return string.Empty;
+        }
+        public async Task<string> PostFinancialDebitNoteAsync(
+    Guid returnId, Guid vendorId, Guid billId, DateTime returnDate, string returnNumber,
+    decimal amountForeign, decimal exchangeRate, Guid currencyId, Guid targetBankGlId,
+    Guid companyId, string userId)
+        {
+            if (amountForeign <= 0) return "STOP: Debit Note recovery amount must be greater than zero.";
+            if (targetBankGlId == Guid.Empty) return "STOP: Valid target Refund Bank/Asset GL account mapping is required.";
+
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            using var tx = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                var originalBill = await ctx.VendorBills.FindAsync(billId);
+                if (originalBill == null) return "Original supplier billing reference not found.";
+
+                decimal rate = exchangeRate > 0 ? exchangeRate : 1.0m;
+                decimal finalAmountBase = Math.Round(amountForeign * rate, 2);
+
+                var existingReturn = await ctx.PurchaseReturns.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == returnId);
+
+                if (existingReturn == null)
+                {
+                    existingReturn = new PurchaseReturn
+                    {
+                        Id = returnId,
+                        CompanyId = companyId,
+                        VendorId = vendorId,
+                        VendorBillId = billId,
+                        ReturnDate = returnDate,
+                        ReturnNumber = returnNumber,
+                        CurrencyId = currencyId,
+                        ExchangeRate = rate,
+                        TotalAmount = amountForeign,
+                        Status = ReturnStatus.Posted,
+                        CreatedByUserId = Guid.Parse(userId),
+                        PostedByUserId = Guid.Parse(userId),
+                        PostedAt = DateTime.UtcNow,
+                        BankGlAccountId = targetBankGlId,
+                        WarehouseId = null // Purely financial
+                    };
+                    ctx.PurchaseReturns.Add(existingReturn);
+                }
+                else
+                {
+                    existingReturn.ReturnDate = returnDate;
+                    existingReturn.ReturnNumber = returnNumber;
+                    existingReturn.TotalAmount = amountForeign;
+                    existingReturn.Status = ReturnStatus.Posted;
+                    existingReturn.PostedByUserId = Guid.Parse(userId);
+                    existingReturn.PostedAt = DateTime.UtcNow;
+                    existingReturn.BankGlAccountId = targetBankGlId;
+                    ctx.PurchaseReturns.Update(existingReturn);
+                }
+
+                // --- DOUBLE-ENTRY JOURNAL DISTRIBUTION ---
+                var glLines = new List<GLJournalLine>
+        {
+            // 1. DEBIT: Bank/Cash Account (Refunding your base functional assets)
+            new GLJournalLine
+            {
+                SegCoaId = targetBankGlId,
+                Debit = finalAmountBase,
+                Credit = 0,
+                Reference = $"Refund Inflow: {returnNumber}"
+            },
+
+            // 2. CREDIT: Accounts Payable Trade Liability (Restoring outstanding supplier balance)
+            new GLJournalLine
+            {
+                SegCoaId = originalBill.AccountsPayableGlId,
+                Debit = 0,
+                Credit = finalAmountBase,
+                Reference = $"AP Debt Restored: {returnNumber}"
+            }
+        };
+
+                // Post Entry directly to General Ledger Core Engine
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
+                    companyId, DateOnly.FromDateTime(returnDate), "AP Debit Note Reversal", returnNumber, glLines, userId);
+
+                if (!string.IsNullOrEmpty(glErr)) throw new Exception($"GL Posting Engine Exception: {glErr}");
+                if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+
+                await ctx.SaveChangesAsync();
+                await tx.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await tx.RollbackAsync();
+                return $"Debit Note Ledger Crash: {ex.Message}";
+            }
         }
     }
 }

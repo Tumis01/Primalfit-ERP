@@ -58,7 +58,6 @@ namespace Primafit_ERP.Services
 
             return orders.Where(o => o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity)).ToList();
         }
-
         public async Task<string> CreateShipmentFromOrderAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -67,8 +66,24 @@ namespace Primafit_ERP.Services
 
             if (order == null) return "Order not found.";
 
-            bool allShipped = order.Lines.Where(l => l.Item != null && !l.Item.IsService).All(l => l.QtyShipped >= l.Quantity);
-            if (allShipped) return "All physical items for this order/invoice have already been shipped.";
+            // 1. Fetch all historically posted pre-shipment credit notes for this specific invoice
+            var creditedQuantitiesMap = await ctx.CreditNoteLines
+                .Include(cnl => cnl.Header)
+                .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status == CreditNoteStatus.Posted)
+                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
+            // 2. FIXED: Evaluate fulfillment ceiling based on net requirements (Invoice Qty - Credit Notes)
+            bool allShipped = order.Lines
+                .Where(l => l.Item != null && !l.Item.IsService)
+                .All(l =>
+                {
+                    decimal alreadyCredited = creditedQuantitiesMap.TryGetValue(l.Id, out var creditedQty) ? creditedQty : 0;
+                    decimal adjustedTargetQty = l.Quantity - alreadyCredited;
+                    return l.QtyShipped >= adjustedTargetQty;
+                });
+
+            if (allShipped) return "All valid physical items for this invoice have already been dispatched or adjusted out.";
 
             bool hasPending = await ctx.SalesShipments.AnyAsync(s => s.SalesOrderId == orderId && s.Status == ShipmentStatus.Pending);
             if (hasPending) return "A pending dispatch document already exists for this order. Please process it first.";
@@ -78,27 +93,32 @@ namespace Primafit_ERP.Services
             {
                 if (line.Item != null && line.Item.IsService) continue;
 
-                decimal remainingToShip = line.Quantity - line.QtyShipped;
+                // 3. Subtract credited quantities out of the remaining dispatch equations
+                decimal alreadyCredited = creditedQuantitiesMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
+
+                decimal remainingToShip = line.Quantity - line.QtyShipped - alreadyCredited;
+
                 if (remainingToShip > 0)
                 {
                     shipmentLines.Add(new SalesShipmentLine
                     {
                         SalesOrderLineId = line.Id,
                         ItemId = line.ItemId ?? Guid.Empty,
-                        QtyOrdered = remainingToShip,
+                        // Assign the new adjusted target order number so the warehouse picker sees true demand
+                        QtyOrdered = line.Quantity - alreadyCredited,
                         QtyShipped = remainingToShip
                     });
                 }
             }
 
-            if (!shipmentLines.Any()) return "No physical items remaining to ship.";
+            if (!shipmentLines.Any()) return "No physical items remaining to ship after taking active adjustments into account.";
 
             var shipment = new SalesShipment
             {
                 CompanyId = order.CompanyId,
                 SalesOrderId = order.Id,
                 WarehouseId = order.WarehouseId,
-                ShipmentNumber = $"SHP-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}",
+                ShipmentNumber = $"SHP-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}",
                 Lines = shipmentLines
             };
 

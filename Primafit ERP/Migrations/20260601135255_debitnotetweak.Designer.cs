@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260601135255_debitnotetweak")]
+    partial class debitnotetweak
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2348,113 +2351,6 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("PurchaseReturnLines");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ReceiptRefund", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("BankAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CurrencyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CustomerId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("date");
-
-                    b.Property<Guid?>("DestinationWarehouseId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid?>("GlBatchId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("PostedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("PostedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("RefundNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("RefundType")
-                        .HasColumnType("int");
-
-                    b.Property<Guid>("SalesOrderId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CurrencyId");
-
-                    b.HasIndex("CustomerId");
-
-                    b.HasIndex("DestinationWarehouseId");
-
-                    b.HasIndex("SalesOrderId");
-
-                    b.ToTable("ReceiptRefunds");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ReceiptRefundLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("HeaderId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.Property<Guid>("SalesOrderLineId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18, 6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("HeaderId");
-
-                    b.HasIndex("ItemId");
-
-                    b.HasIndex("SalesOrderLineId");
-
-                    b.ToTable("ReceiptRefundLines");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoice", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4212,66 +4108,6 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("VendorBillLine");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ReceiptRefund", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.Currency", "Currency")
-                        .WithMany()
-                        .HasForeignKey("CurrencyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.Customer", "Customer")
-                        .WithMany()
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.Warehouse", "DestinationWarehouse")
-                        .WithMany()
-                        .HasForeignKey("DestinationWarehouseId");
-
-                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", "SalesOrder")
-                        .WithMany()
-                        .HasForeignKey("SalesOrderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Currency");
-
-                    b.Navigation("Customer");
-
-                    b.Navigation("DestinationWarehouse");
-
-                    b.Navigation("SalesOrder");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ReceiptRefundLine", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.ReceiptRefund", "Header")
-                        .WithMany("Lines")
-                        .HasForeignKey("HeaderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.Item", "Item")
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.SalesOrderLine", "SalesOrderLine")
-                        .WithMany()
-                        .HasForeignKey("SalesOrderLineId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Header");
-
-                    b.Navigation("Item");
-
-                    b.Navigation("SalesOrderLine");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesInvoiceLine", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", null)
@@ -4632,11 +4468,6 @@ namespace Primafit_ERP.Migrations
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.PurchaseReturn", b =>
-                {
-                    b.Navigation("Lines");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ReceiptRefund", b =>
                 {
                     b.Navigation("Lines");
                 });

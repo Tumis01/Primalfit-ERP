@@ -20,7 +20,6 @@ namespace Primafit_ERP.Services
             _mappingService = mappingService;
         }
 
-        // 1. GET ORDERS
         public async Task<List<SalesOrder>> GetOrdersAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -30,41 +29,56 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Where(o => o.CompanyId == companyId)
                 .OrderByDescending(o => o.Date)
-                .AsNoTracking()
                 .ToListAsync();
 
-            var invoiceIds = orders.Where(o => o.Status == OrderStatus.Invoiced).Select(o => o.Id).ToList();
+            var invoiceIds = orders.Where(o => o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced).Select(o => o.Id).ToList();
+
             var payments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
                 .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
+            var creditNotesMap = await ctx.CreditNotes
+                .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+                .GroupBy(cn => cn.SalesOrderId)
+                .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+
+            // FIXED: Fetch line-level credited item quantities in batch across all matching active invoices
+            var lineCreditsMap = await ctx.CreditNoteLines
+                .Include(cnl => cnl.Header)
+                .Where(cnl => invoiceIds.Contains(cnl.Header!.SalesOrderId) && cnl.Header.Status == CreditNoteStatus.Posted)
+                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
             var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
 
             foreach (var o in orders)
             {
-                decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
-
-                decimal discountValue = o.DiscountAmount;
-                if (o.DiscountPercentage > 0)
+                // Hydrate each row line with its corresponding credited count
+                foreach (var line in o.Lines)
                 {
-                    discountValue = subTotal * (o.DiscountPercentage / 100);
+                    line.QtyCredited = lineCreditsMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
                 }
 
+                decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                decimal discountValue = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
                 decimal discountedSubTotal = subTotal - discountValue;
 
                 decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
                 decimal taxValue = discountedSubTotal * (taxPer / 100);
 
-                o.GrandTotalForeign = discountedSubTotal + taxValue;
-                o.AmountPaid = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
+                decimal rawGrandTotal = discountedSubTotal + taxValue;
+                decimal totalCredited = creditNotesMap.TryGetValue(o.Id, out var creditedAmt) ? creditedAmt : 0;
+
+                o.CreditNoteTotal = totalCredited;
+                o.GrandTotalForeign = rawGrandTotal;
+                o.AmountPaid = payments.TryGetValue(o.Id, out var paidAmt) ? paidAmt : 0;
             }
 
             return orders;
-        }
-
-        // 2. GET SINGLE ORDER
+        }   
         public async Task<SalesOrder?> GetOrderByIdAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -75,6 +89,7 @@ namespace Primafit_ERP.Services
 
             if (order != null)
             {
+                // 1. Calculate totals based strictly on absolute original un-mutated quantities
                 decimal subTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
 
                 decimal discountValue = order.DiscountAmount;
@@ -91,10 +106,15 @@ namespace Primafit_ERP.Services
                     var tax = await ctx.Taxes.FindAsync(order.TaxId.Value);
                     if (tax != null) taxPer = tax.Per;
                 }
-
                 decimal taxValue = discountedSubTotal * (taxPer / 100);
 
+                // FIXED: Leave GrandTotalForeign as the original invoice total value
                 order.GrandTotalForeign = discountedSubTotal + taxValue;
+
+                // FIXED: Expose the cumulative adjustment total as a standalone property for layout visibility
+                order.CreditNoteTotal = await ctx.CreditNotes
+                    .Where(cn => cn.SalesOrderId == orderId && cn.Status == CreditNoteStatus.Posted)
+                    .SumAsync(cn => cn.TotalAmount);
 
                 order.AmountPaid = await ctx.PaymentApplications
                     .Where(pa => pa.InvoiceId == order.Id)
@@ -103,6 +123,7 @@ namespace Primafit_ERP.Services
 
             return order;
         }
+
 
         // =========================================================
         // FIXED: CREATE / UPDATE ORDER (With Collision Avoidance)
@@ -342,41 +363,69 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.Status == OrderStatus.Shipped) return "Order has already been completely fulfilled.";
+
+            // 1. Fetch all historically posted pre-shipment credit notes for this invoice
+            var creditedQuantitiesMap = await ctx.CreditNoteLines
+                .Include(cnl => cnl.Header)
+                .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status == CreditNoteStatus.Posted)
+                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var glLines = new List<GLJournalLine>();
+            bool physicalItemsProcessed = false;
 
             foreach (var line in order.Lines)
             {
                 if (!line.ItemId.HasValue || line.Item == null || line.Item.IsService) continue;
 
-                decimal currentStock = await _invService.GetStockLevel(line.ItemId.Value, warehouseId);
-                if (currentStock < line.Quantity)
-                    return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Need: {line.Quantity}";
+                // 2. Compute the actual net quantity remaining to ship after balancing adjustments
+                decimal alreadyCredited = creditedQuantitiesMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
+                decimal netQtyToShip = line.Quantity - alreadyCredited;
 
+                // If a credit note completely wiped this line item out, skip shipment mechanics entirely
+                if (netQtyToShip <= 0)
+                {
+                    line.QtyShipped = 0;
+                    continue;
+                }
+
+                physicalItemsProcessed = true;
+
+                // 3. Validate actual warehouse stock availability against the balanced net target
+                decimal currentStock = await _invService.GetStockLevel(line.ItemId.Value, warehouseId);
+                if (currentStock < netQtyToShip)
+                    return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Balanced Target Need: {netQtyToShip}";
+
+                // 4. Log physical stock ledger depletion matching the balanced quantity
                 ctx.StockLedgers.Add(new StockLedger
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = order.CompanyId,
                     ItemId = line.ItemId.Value,
                     WarehouseId = warehouseId,
-                    QuantityChanged = -line.Quantity,
+                    QuantityChanged = -netQtyToShip,
                     Type = StockMovementType.Sale,
                     CostAtTime = line.Item.WeightedAverageCost,
                     Reference = order.OrderNumber,
                     Date = DateTime.UtcNow
                 });
 
-                decimal cogsValueBase = line.Quantity * line.Item.WeightedAverageCost;
+                // 5. Compute true Cost of Goods Sold (COGS) strictly on what is physically leaving
+                decimal cogsValueBase = Math.Round(netQtyToShip * line.Item.WeightedAverageCost, 2);
                 if (cogsValueBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU} (Net Shipped)" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU} (Net Shipped)" });
                 }
+
+                line.QtyShipped = netQtyToShip; // Save the exact net count dispatched to database records
             }
 
+            // 6. Post balanced inventory revaluation components to the general ledger
             if (glLines.Any())
             {
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment", $"Ship {order.OrderNumber}", glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment Fulfillment", $"Ship {order.OrderNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) return err;
 
                 if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
@@ -743,22 +792,29 @@ namespace Primafit_ERP.Services
             }
 
             var orders = await query.OrderByDescending(o => o.Date).ToListAsync();
-
             var invoiceIds = orders.Select(o => o.Id).ToList();
+
             var payments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
                 .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
+            var creditNotesMap = await ctx.CreditNotes
+                .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+                .GroupBy(cn => cn.SalesOrderId)
+                .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+
             var reportData = new StandardReportData
             {
                 ReportName = "Customer Transaction Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
+                // UPDATED: Appended Credit Note and Net Total headers for audit visibility
                 Headers = new List<string> {
-                    "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
-                    "Order Discount", "Order Tax", "Amount Paid (Foreign)", "Amount Paid (Base)"
-                },
+            "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
+            "Order Discount", "Order Tax", "Credit Applied", "Net Invoice Total", "Amount Paid (Foreign)", "Amount Paid (Base)"
+        },
                 Rows = new List<List<string>>()
             };
 
@@ -771,10 +827,14 @@ namespace Primafit_ERP.Services
                 decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
                 decimal taxForeign = netForeign * (taxPer / 100);
 
-                decimal paidForeign = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
-
+                decimal paidForeign = payments.TryGetValue(o.Id, out var pAmt) ? pAmt : 0;
                 decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1;
                 decimal paidBase = paidForeign * rate;
+
+                // FIXED: Replaced undeclared discountedSubTotal with netForeign variable to fix compilation error
+                decimal rawGrandTotal = netForeign + taxForeign;
+                decimal creditedForeign = creditNotesMap.TryGetValue(o.Id, out var credAmt) ? credAmt : 0;
+                decimal netGrandTotalForeign = rawGrandTotal - creditedForeign;
 
                 string curr = o.Currency?.CurrencyCode ?? "";
 
@@ -782,19 +842,22 @@ namespace Primafit_ERP.Services
                 foreach (var line in o.Lines)
                 {
                     var row = new List<string>
-                    {
-                        isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
-                        isFirstLine ? o.OrderNumber : "",
-                        isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
-                        line.Item?.Name ?? "Unknown",
-                        line.Quantity.ToString("N2"),
-                        line.UnitPrice.ToString("N2"),
-                        (line.Quantity * line.UnitPrice).ToString("N2"),
-                        isFirstLine ? discountForeign.ToString("N2") : "",
-                        isFirstLine ? taxForeign.ToString("N2") : "",
-                        isFirstLine ? $"{curr} {paidForeign:N2}" : "",
-                        isFirstLine ? paidBase.ToString("N2") : ""
-                    };
+            {
+                isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
+                isFirstLine ? o.OrderNumber : "",
+                isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
+                line.Item?.Name ?? "Unknown",
+                line.Quantity.ToString("N2"),
+                line.UnitPrice.ToString("N2"),
+                (line.Quantity * line.UnitPrice).ToString("N2"),
+                isFirstLine ? discountForeign.ToString("N2") : "",
+                isFirstLine ? taxForeign.ToString("N2") : "",
+                // FIXED: Mapping the actual credit adjustments onto the data grid rows row-by-row
+                isFirstLine ? (creditedForeign > 0 ? $"({creditedForeign.ToString("N2")})" : "0.00") : "",
+                isFirstLine ? netGrandTotalForeign.ToString("N2") : "",
+                isFirstLine ? $"{curr} {paidForeign:N2}" : "",
+                isFirstLine ? paidBase.ToString("N2") : ""
+            };
                     reportData.Rows.Add(row);
                     isFirstLine = false;
                 }
@@ -802,7 +865,6 @@ namespace Primafit_ERP.Services
 
             return reportData;
         }
-
         public async Task<StandardReportData> GenerateAgeAnalysisReportAsync(Guid companyId, DateOnly asOfDate)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -820,6 +882,13 @@ namespace Primafit_ERP.Services
                 .GroupBy(pa => pa.InvoiceId)
                 .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
+
+            // FEATURE: Batch load credit notes to correctly calculate aging buckets
+            var creditNotesMap = await ctx.CreditNotes
+                .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+                .GroupBy(cn => cn.SalesOrderId)
+                .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
 
             var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
 
@@ -846,8 +915,9 @@ namespace Primafit_ERP.Services
                     decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
                     decimal grandTotal = net + (net * (taxPer / 100));
 
-                    decimal paid = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
-                    decimal balance = grandTotal - paid;
+                    decimal paid = payments.TryGetValue(o.Id, out var paidAmt) ? paidAmt : 0;
+                    decimal credited = creditNotesMap.TryGetValue(o.Id, out var creditedAmt) ? creditedAmt : 0;
+                    decimal balance = grandTotal - paid - credited;
 
                     if (balance > 0.01m)
                     {
@@ -905,11 +975,18 @@ namespace Primafit_ERP.Services
                 lines = lines.Where(l => l.Item?.Name != null && l.Item.Name.ToLower().Contains(term)).ToList();
             }
 
+            // FEATURE: Extract target line IDs and build a look-up map for all matching posted credit note reductions
+            var lineIds = lines.Select(l => l.Id).ToList();
+            var lineCreditsMap = await ctx.CreditNoteLines
+                .Include(cl => cl.Header)
+                .Where(cl => lineIds.Contains(cl.SalesOrderLineId) && cl.Header!.Status == CreditNoteStatus.Posted)
+                .GroupBy(cl => cl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
             var reportData = new StandardReportData
             {
                 ReportName = "Sales Analysis Ledger Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                // FIXED: Header titles explicitly modified to match required layout fields 
                 Headers = new List<string> { "Date / Reference", "Customer Name", "Type", "Quantity", "Price", "Amount" },
                 Rows = new List<List<string>>()
             };
@@ -929,14 +1006,23 @@ namespace Primafit_ERP.Services
                 var representativeLine = group.First();
                 string itemType = representativeLine.Item.IsService ? "Service" : "Physical Goods";
 
-                decimal itemGroupQty = group.Sum(x => x.Quantity);
+                // FIXED: Compute true Net Quantity for the section header
+                decimal itemGroupQty = group.Sum(x =>
+                {
+                    decimal creditedQty = lineCreditsMap.TryGetValue(x.Id, out var qty) ? qty : 0;
+                    return x.Quantity - creditedQty;
+                });
+
+                // FIXED: Compute true Net Revenue Base Value for the section header
                 decimal itemGroupRevenueBase = group.Sum(x =>
                 {
                     decimal rate = x.Header.ExchangeRate > 0 ? x.Header.ExchangeRate : 1;
-                    return (x.Quantity * x.UnitPrice) * rate;
+                    decimal creditedQty = lineCreditsMap.TryGetValue(x.Id, out var qty) ? qty : 0;
+                    decimal netQty = x.Quantity - creditedQty;
+                    return (netQty * x.UnitPrice) * rate;
                 });
 
-                // SECTION HEADER ROW (Pure slate theme styling applied via Razor layout)
+                // SECTION HEADER ROW (Reflects true balanced adjustments)
                 reportData.Rows.Add(new List<string>
         {
             $"SECTION_HEADER:{itemHeaderName}",
@@ -951,17 +1037,22 @@ namespace Primafit_ERP.Services
                 foreach (var line in group.OrderBy(l => l.Header.Date))
                 {
                     decimal currentRate = line.Header.ExchangeRate > 0 ? line.Header.ExchangeRate : 1;
+
+                    // FIXED: Isolate line-level reductions to modify line display variables dynamically
+                    decimal creditedQty = lineCreditsMap.TryGetValue(line.Id, out var qty) ? qty : 0;
+                    decimal netLineQty = line.Quantity - creditedQty;
+
                     decimal basePrice = line.UnitPrice * currentRate;
-                    decimal baseAmount = (line.Quantity * line.UnitPrice) * currentRate;
+                    decimal baseAmount = (netLineQty * line.UnitPrice) * currentRate;
 
                     reportData.Rows.Add(new List<string>
             {
                 line.Header.Date.ToString("yyyy-MM-dd") + " (" + line.Header.OrderNumber + ")",
                 line.Header.Customer?.Name ?? "Unknown Customer",
                 itemType,
-                line.Quantity.ToString("N2"),
+                netLineQty.ToString("N2"), // Shows net quantity after credit note deductions
                 basePrice.ToString("N2"),
-                baseAmount.ToString("N2")
+                baseAmount.ToString("N2") // Shows net baseline amount after credit note deductions
             });
                 }
 
