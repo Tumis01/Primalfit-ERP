@@ -1,95 +1,147 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Api.DTOs;
 using Primafit_ERP.Services;
 
-namespace PrimafitERP.Api.Controllers
+namespace PrimafitERP.Api.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+[Authorize(Roles = "SuperAdmin, CFO, Accountant")] // Locked to authorized backend and financial personnel
+public class InventoryController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    [Authorize]
-    public class InventoryController : ControllerBase
+    private readonly InventoryService _inventoryService;
+
+    public InventoryController(InventoryService inventoryService)
     {
-        private readonly InventoryService _inventoryService;
+        _inventoryService = inventoryService;
+    }
 
-        public InventoryController(InventoryService inventoryService)
+    // 1. GET STOCK LEVEL (Existing)
+    [HttpGet("stock/{warehouseId:guid}/{itemId:guid}")]
+    public async Task<IActionResult> GetItemStock(Guid warehouseId, Guid itemId)
+    {
+        var stockLevel = await _inventoryService.GetStockLevel(itemId, warehouseId);
+
+        return Ok(new
         {
-            _inventoryService = inventoryService;
-        }
+            WarehouseId = warehouseId,
+            ItemId = itemId,
+            QuantityOnHand = stockLevel
+        });
+    }
 
-        // 1. GET STOCK LEVEL (Existing)
-        [HttpGet("stock/{warehouseId:guid}/{itemId:guid}")]
-        public async Task<IActionResult> GetItemStock(Guid warehouseId, Guid itemId)
-        {
-            var stockLevel = await _inventoryService.GetStockLevel(itemId, warehouseId);
+    // 2. DIRECT RECEIPT (Purchasing without a PO)
+    [HttpPost("direct-receipt")]
+    public async Task<IActionResult> DirectReceipt([FromBody] DirectReceiptDto dto)
+    {
+        // Secure Claim Extractions
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var companyClaim = User.FindFirst("CompanyId")?.Value;
 
-            return Ok(new
-            {
-                WarehouseId = warehouseId,
-                ItemId = itemId,
-                QuantityOnHand = stockLevel
-            });
-        }
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+            return Unauthorized("User session configuration is invalid or expired.");
 
-        // 2. DIRECT RECEIPT (Purchasing without a PO)
-        [HttpPost("direct-receipt")]
-        public async Task<IActionResult> DirectReceipt([FromBody] DirectReceiptDto dto)
-        {
-            if (!ModelState.IsValid || dto.TotalLandedCost <= 0) return BadRequest("Invalid receipt data. Cost must be > 0.");
+        if (!ModelState.IsValid || dto.TotalLandedCost <= 0)
+            return BadRequest("Invalid receipt data. Cost must be > 0.");
 
-            var err = await _inventoryService.ReceiveStockAsync(
-                dto.CompanyId, dto.ItemId, dto.WarehouseId, dto.Quantity, dto.TotalLandedCost, dto.VendorId, dto.Reference);
+        // Synchronized with: ReceiveStockAsync(Guid companyId, ..., string userId)
+        var err = await _inventoryService.ReceiveStockAsync(
+            companyId,
+            dto.ItemId,
+            dto.WarehouseId,
+            dto.Quantity,
+            dto.TotalLandedCost,
+            dto.VendorId,
+            dto.Reference,
+            userId
+        );
 
-            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+        if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
 
-            return Ok(new { message = "Stock received and WACC updated successfully." });
-        }
+        return Ok(new { message = "Stock received and WACC updated successfully." });
+    }
 
-        // 3. STOCK ADJUSTMENT (Audits, Damages, Revaluations)
-        [HttpPost("adjust")]
-        public async Task<IActionResult> AdjustStock([FromBody] StockAdjustmentDto dto)
-        {
-            if (!ModelState.IsValid) return BadRequest("Invalid adjustment data.");
+    // 3. STOCK ADJUSTMENT (Audits, Damages, Revaluations)
+    [HttpPost("adjust")]
+    public async Task<IActionResult> AdjustStock([FromBody] StockAdjustmentDto dto)
+    {
+        // Secure Claim Extractions
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var companyClaim = User.FindFirst("CompanyId")?.Value;
 
-            if (dto.AdjustmentType == StockEntryType.DirectReceipt)
-                return BadRequest("Use the /direct-receipt endpoint for vendor purchases.");
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+            return Unauthorized("User session configuration is invalid or expired.");
 
-            var err = await _inventoryService.AdjustStockAsync(
-                dto.CompanyId, dto.ItemId, dto.WarehouseId, dto.AdjustmentType, dto.Quantity, dto.TotalValueChange, dto.Reference);
+        if (!ModelState.IsValid) return BadRequest("Invalid adjustment data.");
 
-            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+        if (dto.AdjustmentType == StockEntryType.DirectReceipt)
+            return BadRequest("Use the /direct-receipt endpoint for vendor purchases.");
 
-            return Ok(new { message = $"Inventory adjustment ({dto.AdjustmentType}) processed successfully." });
-        }
+        // Synchronized with: AdjustStockAsync(Guid companyId, ..., string userId)
+        var err = await _inventoryService.AdjustStockAsync(
+            companyId,
+            dto.ItemId,
+            dto.WarehouseId,
+            dto.AdjustmentType,
+            dto.Quantity,
+            dto.TotalValueChange,
+            dto.Reference,
+            userId
+        );
 
-       
+        if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
 
-        // 5. SHIP TRANSFER (Warehouse A -> Transit)
-        [HttpPost("transfer/ship")]
-        public async Task<IActionResult> ShipTransfer([FromBody] ShipTransferDto dto)
-        {
-            if (!ModelState.IsValid || dto.Quantity <= 0) return BadRequest("Invalid transfer data.");
+        return Ok(new { message = $"Inventory adjustment ({dto.AdjustmentType}) processed successfully." });
+    }
 
-            var err = await _inventoryService.ShipTransferAsync(
-                dto.CompanyId, dto.ItemId, dto.FromWarehouseId, dto.ToWarehouseId, dto.Quantity, dto.TransitAccountId, dto.Note);
+    // 4. SHIP TRANSFER (Warehouse A -> Transit)
+    [HttpPost("transfer/ship")]
+    public async Task<IActionResult> ShipTransfer([FromBody] ShipTransferDto dto)
+    {
+        // Secure Claim Extractions
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var companyClaim = User.FindFirst("CompanyId")?.Value;
 
-            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+        if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+            return Unauthorized("User session configuration is invalid or expired.");
 
-            return Ok(new { message = "Stock shipped to transit account successfully." });
-        }
+        if (!ModelState.IsValid || dto.Quantity <= 0) return BadRequest("Invalid transfer data.");
 
-        // 6. RECEIVE TRANSFER (Transit -> Warehouse B)
-        [HttpPost("transfer/receive")]
-        public async Task<IActionResult> ReceiveTransfer([FromBody] ReceiveTransferDto dto)
-        {
-            if (!ModelState.IsValid || dto.ActualQuantityReceived < 0) return BadRequest("Invalid receipt data.");
+        // Synchronized with: ShipTransferAsync(Guid companyId, ..., string userId)
+        var err = await _inventoryService.ShipTransferAsync(
+            companyId,
+            dto.ItemId,
+            dto.FromWarehouseId,
+            dto.ToWarehouseId,
+            dto.Quantity,
+            dto.TransitAccountId,
+            dto.Note,
+            userId
+        );
 
-            var err = await _inventoryService.ReceiveTransferAsync(dto.TransferId, dto.ActualQuantityReceived);
+        if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
 
-            if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+        return Ok(new { message = "Stock shipped to transit account successfully." });
+    }
 
-            return Ok(new { message = "Transferred stock received successfully. Transit account cleared." });
-        }
+    // 5. RECEIVE TRANSFER (Transit -> Warehouse B)
+    [HttpPost("transfer/receive")]
+    public async Task<IActionResult> ReceiveTransfer([FromBody] ReceiveTransferDto dto)
+    {
+        // Secure Operator Extractions
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId)) return Unauthorized("User session identifier context is invalid or expired.");
+
+        if (!ModelState.IsValid || dto.ActualQuantityReceived < 0) return BadRequest("Invalid receipt data.");
+
+        // Synchronized with: ReceiveTransferAsync(Guid transferId, decimal actualQtyReceived, string userId)
+        var err = await _inventoryService.ReceiveTransferAsync(dto.TransferId, dto.ActualQuantityReceived, userId);
+
+        if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
+
+        return Ok(new { message = "Transferred stock received successfully. Transit account cleared and sub-ledger balanced." });
     }
 }

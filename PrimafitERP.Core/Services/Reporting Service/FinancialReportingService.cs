@@ -31,21 +31,26 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================
-        // 1. TRIAL BALANCE
+        // HELPER: FORMAT NEGATIVE NUMBERS WITH PARENTHESES
+        // =========================================================
+        private string FormatCurrency(decimal amount)
+        {
+            return amount < 0 ? $"({Math.Abs(amount):N2})" : amount.ToString("N2");
+        }
+        // =========================================================
+        // 1. TRIAL BALANCE (Period Net Movement Format)
         // =========================================================
         public async Task<StandardReportData> GenerateTrialBalanceAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Fetch & Group: Sum all debits and credits per account
-            // NOTE: Joined with GLBatches to explicitly exclude Draft/Unposted transactions (Status == 2 is typically 'Posted')
+            // 1. Fetch & Group: Sum debits and credits strictly within the selected date range.
+            // Querying GLTransactions directly ensures retained/open batches are included.
             var query = await (from t in ctx.GLTransactions.AsNoTracking()
                                join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
-                               join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
                                where t.CompanyId == companyId
                                   && t.PostingDate >= startDate
                                   && t.PostingDate <= endDate
-                                  && (int)b.Status == 2 // Enforcing Posted Only
                                group t by new { t.SegCoaId, a.AccountCode, a.Description } into g
                                orderby g.Key.AccountCode
                                select new
@@ -60,8 +65,8 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Trial Balance",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                // Removed "Net Balance" header, keeping it strictly Debit & Credit
-                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit" }
+                Headers = new List<string> { "Account Code", "Account Name", "Debit", "Credit" },
+                Rows = new List<List<string>>()
             };
 
             decimal grandDebit = 0;
@@ -69,10 +74,10 @@ namespace Primafit_ERP.Services
 
             foreach (var row in query)
             {
-                // 2. Calculate the Net Difference
+                // 2. Calculate the Net Difference for the period
                 decimal netBalance = row.TotalDebit - row.TotalCredit;
 
-                // Skip accounts with absolutely zero net balance to keep the report clean
+                // Skip accounts with absolutely zero net movement in this period
                 if (netBalance == 0) continue;
 
                 decimal finalDebit = 0;
@@ -86,30 +91,31 @@ namespace Primafit_ERP.Services
                 }
                 else if (netBalance < 0)
                 {
-                    finalCredit = Math.Abs(netBalance); // Remove the negative sign
+                    finalCredit = Math.Abs(netBalance); // Remove the negative sign for display
                     grandCredit += finalCredit;
                 }
 
                 // 4. Format Output: Use "-" to visually leave the inactive column empty
                 report.Rows.Add(new List<string>
-        {
-            row.AccountCode,
-            row.AccountName,
-            finalDebit > 0 ? finalDebit.ToString("N2") : "-",
-            finalCredit > 0 ? finalCredit.ToString("N2") : "-"
-        });
+                {
+                    row.AccountCode,
+                    row.AccountName,
+                    finalDebit > 0 ? FormatCurrency(finalDebit) : "-",
+                    finalCredit > 0 ? FormatCurrency(finalCredit) : "-"
+                });
             }
 
             // 5. Mathematical Proof Footer
             string status = Math.Round(grandDebit, 2) == Math.Round(grandCredit, 2) ? "BALANCED" : "UNBALANCED";
 
+            report.Rows.Add(new List<string> { "", "", "", "" }); // Blank spacer row
             report.Rows.Add(new List<string>
-    {
-        "",
-        $"GRAND TOTAL ({status})",
-        grandDebit.ToString("N2"),
-        grandCredit.ToString("N2")
-    });
+            {
+                "",
+                $"GRAND TOTAL ({status})",
+                FormatCurrency(grandDebit),
+                FormatCurrency(grandCredit)
+            });
 
             return report;
         }
@@ -133,7 +139,8 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Profit & Loss Statement",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                Headers = new List<string> { "Type", "Account", "Amount" }
+                Headers = new List<string> { "Type", "Account", "Amount" },
+                Rows = new List<List<string>>()
             };
 
             decimal totalRevenue = 0, totalCogs = 0, totalExpenses = 0;
@@ -159,10 +166,10 @@ namespace Primafit_ERP.Services
                     decimal balance = type.IsDebit ? (debit - credit) : (credit - debit);
                     sectionTotal += balance;
 
-                    report.Rows.Add(new List<string> { "", $"{acct.Key.AccountCode} - {acct.Key.Description}", balance.ToString("N2") });
+                    report.Rows.Add(new List<string> { "", $"{acct.Key.AccountCode} - {acct.Key.Description}", FormatCurrency(balance) });
                 }
 
-                report.Rows.Add(new List<string> { "", $"Total {type.Description}", sectionTotal.ToString("N2") });
+                report.Rows.Add(new List<string> { "", $"Total {type.Description}", FormatCurrency(sectionTotal) });
                 report.Rows.Add(new List<string> { "", "", "" }); // Spacer
 
                 // Categorize for Gross/Net Profit math based on your Seed Data IDs
@@ -175,9 +182,9 @@ namespace Primafit_ERP.Services
             decimal grossProfit = totalRevenue - totalCogs;
             decimal netProfit = grossProfit - totalExpenses;
 
-            report.Rows.Add(new List<string> { "", "GROSS PROFIT", grossProfit.ToString("N2") });
-            report.Rows.Add(new List<string> { "", "TOTAL EXPENSES", totalExpenses.ToString("N2") });
-            report.Rows.Add(new List<string> { "", "NET PROFIT (LOSS)", netProfit.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "GROSS PROFIT", FormatCurrency(grossProfit) });
+            report.Rows.Add(new List<string> { "", "TOTAL EXPENSES", FormatCurrency(totalExpenses) });
+            report.Rows.Add(new List<string> { "", "NET PROFIT (LOSS)", FormatCurrency(netProfit) });
 
             return report;
         }
@@ -207,7 +214,8 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Balance Sheet",
                 ReportingPeriod = $"As of {asOfDate:MMM dd, yyyy}",
-                Headers = new List<string> { "Classification", "Account", "Balance" }
+                Headers = new List<string> { "Classification", "Account", "Balance" },
+                Rows = new List<List<string>>()
             };
 
             decimal totalAssets = 0, totalLiabilities = 0, totalEquity = 0;
@@ -218,7 +226,7 @@ namespace Primafit_ERP.Services
             {
                 totalAssets += ProcessBsSection(txns, type, report);
             }
-            report.Rows.Add(new List<string> { "", "TOTAL ASSETS", totalAssets.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "TOTAL ASSETS", FormatCurrency(totalAssets) });
             report.Rows.Add(new List<string> { "", "", "" });
 
             // 2. LIABILITIES
@@ -227,7 +235,7 @@ namespace Primafit_ERP.Services
             {
                 totalLiabilities += ProcessBsSection(txns, type, report);
             }
-            report.Rows.Add(new List<string> { "", "TOTAL LIABILITIES", totalLiabilities.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "TOTAL LIABILITIES", FormatCurrency(totalLiabilities) });
             report.Rows.Add(new List<string> { "", "", "" });
 
             // 3. EQUITY
@@ -247,14 +255,14 @@ namespace Primafit_ERP.Services
                 currentNetIncome += type.IsDebit ? -amount : amount; // Income increases Equity, Expense decreases Equity
             }
 
-            report.Rows.Add(new List<string> { "", "Current Year Net Income", currentNetIncome.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "Current Year Net Income", FormatCurrency(currentNetIncome) });
             totalEquity += currentNetIncome;
 
-            report.Rows.Add(new List<string> { "", "TOTAL EQUITY", totalEquity.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "TOTAL EQUITY", FormatCurrency(totalEquity) });
             report.Rows.Add(new List<string> { "", "", "" });
 
             // VALIDATION
-            report.Rows.Add(new List<string> { "CHECK", "TOTAL LIABILITIES & EQUITY", (totalLiabilities + totalEquity).ToString("N2") });
+            report.Rows.Add(new List<string> { "CHECK", "TOTAL LIABILITIES & EQUITY", FormatCurrency(totalLiabilities + totalEquity) });
 
             return report;
         }
@@ -275,7 +283,7 @@ namespace Primafit_ERP.Services
 
                 if (bal != 0)
                 {
-                    report.Rows.Add(new List<string> { type.Description, $"{acct.Key.AccountCode} - {acct.Key.Description}", bal.ToString("N2") });
+                    report.Rows.Add(new List<string> { type.Description, $"{acct.Key.AccountCode} - {acct.Key.Description}", FormatCurrency(bal) });
                     sectionTotal += bal;
                 }
             }
@@ -285,46 +293,74 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 4. CASHBOOK BATCH REPORT
         // =========================================================
-        public async Task<StandardReportData> GenerateCashbookReportAsync(Guid batchId)
+        public async Task<StandardReportData> GenerateBankLedgerAsync(Guid companyId, Guid bankAccountId, DateOnly startDate, DateOnly endDate)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            var batch = await ctx.CashbookBatches
-                .Include(b => b.Entries)
-                .FirstOrDefaultAsync(b => b.Id == batchId);
+            var bankAcct = await ctx.SegChartOfAccounts.FindAsync(bankAccountId);
+            if (bankAcct == null) throw new Exception("Bank account not found.");
 
-            if (batch == null) throw new Exception("Batch not found.");
+            // 1. Calculate TRUE Opening Balance
+            // Removed b.Status == 2 filter
+            decimal openingBalance = await (from t in ctx.GLTransactions.AsNoTracking()
+                                            where t.CompanyId == companyId
+                                               && t.SegCoaId == bankAccountId
+                                               && t.PostingDate < startDate
+                                            select t.Debit - t.Credit).SumAsync();
 
-            // Fetch Bank Account Info
-            var bankAcct = await ctx.SegChartOfAccounts.FindAsync(batch.BankSegCoaId);
+            // 2. Fetch Transactions IN the period
+            // Kept join for b.Description, but removed b.Status == 2 filter
+            var periodTxns = await (from t in ctx.GLTransactions.AsNoTracking()
+                                    join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
+                                    where t.CompanyId == companyId
+                                       && t.SegCoaId == bankAccountId
+                                       && t.PostingDate >= startDate
+                                       && t.PostingDate <= endDate
+                                    orderby t.PostingDate, t.CreatedAt
+                                    select new
+                                    {
+                                        t.PostingDate,
+                                        b.Description,
+                                        t.Narration,
+                                        t.Debit,
+                                        t.Credit
+                                    }).ToListAsync();
+
+            decimal totalDebits = periodTxns.Sum(t => t.Debit);
+            decimal totalCredits = periodTxns.Sum(t => t.Credit);
+            decimal closingBalance = openingBalance + totalDebits - totalCredits;
 
             var report = new StandardReportData
             {
-                ReportName = "Cashbook Batch Detail",
-                ReportingPeriod = $"Batch Ref: {batch.BatchReference}",
-                Headers = new List<string> { "Date", "Reference", "Description", "Money In (Dr)", "Money Out (Cr)", "Running Balance" }
+                CompanyName = "Primafit Enterprise",
+                ReportName = "Cashbook / Bank Ledger",
+                ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
+                GeneratedBy = "System User",
+                DateGenerated = DateTime.UtcNow,
+                Headers = new List<string> { "Date", "Reference", "Narration", "Money In (Dr)", "Money Out (Cr)", "Running Balance" },
+                Rows = new List<List<string>>()
             };
 
-            report.Rows.Add(new List<string> { "INFO", $"Bank Account: {bankAcct?.AccountCode} - {bankAcct?.Description}", "", "", "", "" });
-            report.Rows.Add(new List<string> { "", "OPENING BALANCE", "", "", "", batch.OpeningBalance.ToString("N2") });
+            report.Rows.Add(new List<string> { "INFO", $"Bank Account: {bankAcct.AccountCode} - {bankAcct.Description}", "", "", "", "" });
+            report.Rows.Add(new List<string> { "", "OPENING BALANCE", "", "", "", FormatCurrency(openingBalance) });
 
-            decimal runningBal = batch.OpeningBalance;
+            decimal runningBal = openingBalance;
 
-            foreach (var entry in batch.Entries.OrderBy(e => e.TransactionDate))
+            foreach (var txn in periodTxns)
             {
-                runningBal = runningBal + entry.Debit - entry.Credit;
+                runningBal = runningBal + txn.Debit - txn.Credit;
                 report.Rows.Add(new List<string>
                 {
-                    entry.TransactionDate.ToString("yyyy-MM-dd"),
-                    entry.Reference,
-                    entry.Description,
-                    entry.Debit > 0 ? entry.Debit.ToString("N2") : "-",
-                    entry.Credit > 0 ? entry.Credit.ToString("N2") : "-",
-                    runningBal.ToString("N2")
+                    txn.PostingDate.ToString("yyyy-MM-dd"),
+                    txn.Description ?? "-",
+                    txn.Narration ?? "No Description",
+                    txn.Debit > 0 ? FormatCurrency(txn.Debit) : "-",
+                    txn.Credit > 0 ? FormatCurrency(txn.Credit) : "-",
+                    FormatCurrency(runningBal)
                 });
             }
 
-            report.Rows.Add(new List<string> { "", "CLOSING BALANCE", batch.TotalDebits.ToString("N2"), batch.TotalCredits.ToString("N2"), "", batch.ClosingBalance.ToString("N2") });
+            report.Rows.Add(new List<string> { "", "CLOSING BALANCE", FormatCurrency(totalDebits), FormatCurrency(totalCredits), "", FormatCurrency(closingBalance) });
 
             return report;
         }

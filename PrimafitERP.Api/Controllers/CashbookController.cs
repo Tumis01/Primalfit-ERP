@@ -9,21 +9,25 @@ namespace PrimafitERP.Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
+    [Authorize(Roles = "SuperAdmin, CFO, Accountant")] // Secured to validated financial system roles
     public class CashbookController : ControllerBase
     {
-        private readonly CashbookService _cashbookService;
+        private readonly ICashbookService _cashbookService;
 
-        public CashbookController(CashbookService cashbookService)
+        public CashbookController(ICashbookService cashbookService)
         {
             _cashbookService = cashbookService;
         }
 
         // --- GET METHODS ---
 
-        [HttpGet("active-batches/{companyId:guid}")]
-        public async Task<IActionResult> GetActiveBatches(Guid companyId)
+        [HttpGet("active-batches")]
+        public async Task<IActionResult> GetActiveBatches()
         {
+            var companyClaim = User.FindFirst("CompanyId")?.Value;
+            if (!Guid.TryParse(companyClaim, out Guid companyId))
+                return Unauthorized("User session company configuration context is missing or invalid.");
+
             var batches = await _cashbookService.GetActiveBatchesAsync(companyId);
             return Ok(batches);
         }
@@ -33,7 +37,7 @@ namespace PrimafitERP.Api.Controllers
         {
             var batch = await _cashbookService.GetBatchByIdAsync(batchId);
             if (batch == null) return NotFound(new { message = "Batch not found." });
-            
+
             return Ok(batch);
         }
 
@@ -42,13 +46,27 @@ namespace PrimafitERP.Api.Controllers
         [HttpPost("create-batch")]
         public async Task<IActionResult> CreateBatch([FromBody] CreateCashbookBatchDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest("Invalid batch data.");
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var companyClaim = User.FindFirst("CompanyId")?.Value;
 
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "API_USER";
+            if (string.IsNullOrEmpty(userId) || !Guid.TryParse(companyClaim, out Guid companyId))
+                return Unauthorized("User session configuration is invalid or expired.");
+
+            if (!ModelState.IsValid) return BadRequest("Invalid batch data.");
 
             try
             {
-                var batch = await _cashbookService.CreateBatchAsync(dto.CompanyId, dto.BankAccountId, userId);
+                // Synchronized with the updated multi-currency & recycling parameters inside the service layer
+                var batch = await _cashbookService.CreateBatchAsync(
+                    companyId,
+                    dto.BankAccountId,
+                    userId,
+                    dto.IsForeignCurrency,
+                    dto.CurrencyId,
+                    dto.ExchangeRate,
+                    dto.ClearAfterPost
+                );
+
                 return Ok(new { message = "Cashbook batch created successfully.", batchId = batch.Id, reference = batch.BatchReference });
             }
             catch (Exception ex)
@@ -78,7 +96,8 @@ namespace PrimafitERP.Api.Controllers
         [HttpPost("{batchId:guid}/post")]
         public async Task<IActionResult> PostBatch(Guid batchId)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "API_USER";
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId)) return Unauthorized("User identifier missing from security context context token.");
 
             var err = await _cashbookService.PostBatchAsync(batchId, userId);
             if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });
@@ -111,7 +130,8 @@ namespace PrimafitERP.Api.Controllers
                 Description = dto.Description,
                 OffsetSegCoaId = dto.OffsetSegCoaId,
                 Debit = dto.Debit,
-                Credit = dto.Credit
+                Credit = dto.Credit,
+                IsPosted = false
             };
 
             var err = await _cashbookService.AddEntryAsync(entry);

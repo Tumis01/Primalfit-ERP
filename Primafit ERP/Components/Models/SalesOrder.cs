@@ -58,6 +58,8 @@ namespace Primafit_ERP.Components.Models
         [NotMapped] public decimal GrandTotalForeign { get; set; }
         [NotMapped] public decimal AmountPaid { get; set; }
         [NotMapped] public decimal BalanceDue => GrandTotalForeign - AmountPaid;
+        [NotMapped]
+        public decimal CreditNoteTotal { get; set; }
     }
 
     public class SalesOrderLine
@@ -86,6 +88,8 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal QtyInvoiced { get; set; } = 0;
         public string? Description { get; set; }
+        [NotMapped]
+        public decimal QtyCredited { get; set; }
     }
     public class SalesInvoice
     {

@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Services;
 using PrimafitERP.Data;
@@ -11,11 +11,11 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Connect to the Database
+// 1. Connect to the Database Instance
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Register Core Services
+// 2. Register Core & Sub-Ledger Transaction Services
 builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<PurchasingService>();
 builder.Services.AddScoped<GLOperationsService>();
@@ -29,15 +29,17 @@ builder.Services.AddScoped<CompanyApiService>();
 builder.Services.AddScoped<ShipmentService>();
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<CreditNoteService>();
-builder.Services.AddScoped<InventoryValuationService>();
 
-// Configure Identity
+builder.Services.AddScoped<TransactionMappingService>();
+builder.Services.AddScoped<ICashbookService, CashbookService>();
+
+// 3. Configure Multi-Tenant Identity Core
 builder.Services.AddIdentityCore<ApplicationUser>()
     .AddRoles<ApplicationRole>()
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
-// Configure JWT Authentication
+// 4. Configure Secure JWT Authentication Scheme
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -59,14 +61,14 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Configure API Controllers and JSON Options
+// 5. Configure API Controllers and Prevent JSON Entity Reference Loops
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 
-// Configure Swagger
+// Configure Swagger/OpenAPI v1 Documentation via Swashbuckle v10+ Engine
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -83,27 +85,18 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter: Bearer {your JWT token}"
+        Description = "Enter token payload directly: Bearer {your JWT token}"
     });
 
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
+        [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>()
     });
 });
 
 var app = builder.Build();
 
+// 7. Request Processing Pipeline Mapping Operations
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
@@ -112,6 +105,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 }
 
 app.UseHttpsRedirection();
+
 app.UseAuthentication();
 app.UseAuthorization();
 

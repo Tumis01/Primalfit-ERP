@@ -141,9 +141,19 @@
                                             foreach (var l in previewLines)
                                             {
                                                 var itemName = items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? "Unknown Item";
-                                                <div class="truncate w-40" title="@itemName">
-                                                    <span class="text-slate-700">@itemName</span>
-                                                    <span class="text-slate-400 text-xs font-bold ml-1">(x@(l.Quantity.ToString("G29")))</span>
+                                                <div class="w-40 mb-2 last:mb-0" title="@itemName">
+                                                    <div class="truncate flex items-center justify-between">
+                                                        <span class="text-slate-700 truncate">@itemName</span>
+                                                        <span class="text-slate-400 text-xs font-bold ml-1 whitespace-nowrap">(x@(l.Quantity.ToString("G29")))</span>
+                                                    </div>
+
+                                                    @* FIXED: Display the reduction metadata row cleanly underneath if adjustments exist *@
+                                                    @if (l.QtyCredited > 0)
+                                                    {
+                                                        <span class="block text-[11px] font-semibold font-mono mt-0.5 animate-in fade-in duration-200">
+                                                            Credit Note qty: (@(l.QtyCredited.ToString("G29")))
+                                                        </span>
+                                                    }
                                                 </div>
                                             }
                                             if (o.Lines.Count > 2)
@@ -168,31 +178,30 @@
                                                     @(o.Status == OrderStatus.Draft ? "Draft Inv" : "Invoiced")
                                                 </span>
 
-                                                @if (recordFilter == "Invoices" && o.Status != OrderStatus.Draft)
+                                                @if (o.Status != OrderStatus.Draft)
                                                 {
-                                                    var physicalLines = o.Lines.Where(l => l.Item != null && !l.Item.IsService).ToList();
+                                                    var physicalLines = o.Lines?.Where(l => l.Item != null && !l.Item.IsService).ToList() ?? new List<SalesOrderLine>();
                                                     if (physicalLines.Any())
                                                     {
+                                                        // FIXED: Shipped ceiling now factors in credit note line write-downs
                                                         var totalOrdered = physicalLines.Sum(l => l.Quantity);
                                                         var totalShipped = physicalLines.Sum(l => l.QtyShipped);
+                                                        var totalCredited = physicalLines.Sum(l => l.QtyCredited);
 
-                                                        if (totalShipped == 0)
+                                                        // Adjusted target target value
+                                                        var remainingToShip = totalOrdered - totalCredited;
+
+                                                        if (totalShipped == 0 && remainingToShip > 0)
                                                         {
-                                                            <span class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider shadow-sm">
-                                                                Unshipped
-                                                            </span>
+                                                            <span class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wider shadow-sm">Unshipped</span>
                                                         }
-                                                        else if (totalShipped < totalOrdered)
+                                                        else if (totalShipped < remainingToShip)
                                                         {
-                                                            <span class="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 uppercase tracking-wider shadow-sm">
-                                                                Partially Shipped
-                                                            </span>
+                                                            <span class="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700 uppercase tracking-wider shadow-sm">Partially Shipped</span>
                                                         }
                                                         else
                                                         {
-                                                            <span class="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 uppercase tracking-wider shadow-sm">
-                                                                Shipped
-                                                            </span>
+                                                            <span class="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 uppercase tracking-wider shadow-sm">Shipped</span>
                                                         }
                                                     }
                                                 }
@@ -204,6 +213,12 @@
                                     </td>
                                     <td class="p-4 text-right font-mono font-bold text-emerald-600 border-r border-slate-100">
                                         @((o.GrandTotalForeign * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
+                                        @if (o.CreditNoteTotal > 0)
+                                        {
+                                            <span class="block text-[11px] font-mono font-semibold text-rose-600  mt-1 ">
+                                                credit note:(@((o.CreditNoteTotal * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2")))
+                                            </span>
+                                        }
                                     </td>
                                     <td class="p-4">
                                         <div class="flex items-center justify-center gap-2">
@@ -228,7 +243,6 @@
                                             else if (o.Status == OrderStatus.Order || (o.OrderNumber.StartsWith("ORD") && o.Status == OrderStatus.Invoiced))
                                             {
                                                 bool isConverted = o.Status == OrderStatus.Invoiced || orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
-
                                                 if (isConverted)
                                                 {
                                                     <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
@@ -263,7 +277,11 @@
                                                 {
                                                     <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
 
-                                                    bool needsShipping = o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity);
+                                                    // --- FIXED: WAREHOUSE SHIPMENT ACCORDING TO CREDIT NOTE ADJUSTED VALUES ---
+                                                    var physicalLines = o.Lines?.Where(l => l.Item != null && !l.Item.IsService).ToList() ?? new List<SalesOrderLine>();
+
+                                                    // An item line needs shipping only if shipped quantity is less than (ordered quantity minus credited quantity)
+                                                    bool needsShipping = physicalLines.Any(l => l.QtyShipped < (l.Quantity - l.QtyCredited));
 
                                                     @if (needsShipping)
                                                     {
@@ -272,6 +290,10 @@
                                                                 <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
                                                             </Authorized>
                                                         </PermissionGate>
+                                                    }
+                                                    else if (physicalLines.Any())
+                                                    {
+                                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded border border-slate-200">Dispatched</span>
                                                     }
 
                                                     @if (o.IsFullyPaid)

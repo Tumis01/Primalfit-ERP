@@ -20,7 +20,7 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<SegCoaConfig> GetOrCreateConfigAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             var cfg = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == companyId);
             if (cfg != null) return cfg;
 
@@ -34,7 +34,7 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var existing = await ctx.Set<SegCoaConfig>().FirstOrDefaultAsync(x => x.CompanyId == cfg.CompanyId);
 
                 if (existing == null)
@@ -69,7 +69,7 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<List<Segment0>> GetSegment0Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment0s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -78,7 +78,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment1>> GetSegment1Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment1s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -87,7 +87,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment2>> GetSegment2Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment2s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -96,7 +96,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment3>> GetSegment3Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment3s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -105,7 +105,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment4>> GetSegment4Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment4s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -114,7 +114,7 @@ namespace Primafit_ERP.Services
 
         public async Task<List<Segment5>> GetSegment5Async(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Segment5s
                 .Where(s => s.CompanyId == companyId)
                 .OrderBy(s => s.Code)
@@ -123,7 +123,7 @@ namespace Primafit_ERP.Services
 
         private async Task<List<T>> GetSegmentsAsync<T>(Guid companyId) where T : class
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<T>()
                 .AsNoTracking()
                 .OrderBy(x => EF.Property<string>(x, "Code"))
@@ -147,7 +147,7 @@ namespace Primafit_ERP.Services
                 if (string.IsNullOrWhiteSpace(code)) return "Code is required.";
                 if (string.IsNullOrWhiteSpace(description)) return "Description is required.";
 
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var entity = new T();
                 Set(entity, "Id", Guid.NewGuid());
                 Set(entity, "CompanyId", companyId);
@@ -165,7 +165,7 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var entity = await ctx.Set<T>().FindAsync(id);
                 if (entity == null) return "Record not found.";
                 ctx.Remove(entity);
@@ -180,13 +180,13 @@ namespace Primafit_ERP.Services
         // -----------------------------
         public async Task<List<SegAccountType>> GetAccountTypesAsync()
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<SegAccountType>().AsNoTracking().OrderBy(x => x.Id).ToListAsync();
         }
 
         public async Task<List<SegChartOfAccount>> GetCoaAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
@@ -218,22 +218,20 @@ namespace Primafit_ERP.Services
         {
             try
             {
-                using var ctx = _dbFactory.CreateDbContext();
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var cfg = await GetOrCreateConfigAsync(draft.CompanyId);
 
-                // 1. Base Requirements
+                // 1. Base Requirements Validation
                 if (draft.Segment0Id == Guid.Empty) return ("Segment0 is required.", null);
                 if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
 
-                // 2. BULLETPROOF "All-or-Nothing" Validation
-                // Check which segments actually have a valid selected value
+                // 2. All-or-Nothing Segment Selection Validation
                 bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
                 bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
                 bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
                 bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
                 bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
 
-                // Count how many segments are globally configured as Active
                 int activeCount = 0;
                 if (cfg.Segment1Active) activeCount++;
                 if (cfg.Segment2Active) activeCount++;
@@ -241,7 +239,6 @@ namespace Primafit_ERP.Services
                 if (cfg.Segment4Active) activeCount++;
                 if (cfg.Segment5Active) activeCount++;
 
-                // Count how many of those active segments the user actually filled out
                 int selectedCount = 0;
                 if (cfg.Segment1Active && hasS1) selectedCount++;
                 if (cfg.Segment2Active && hasS2) selectedCount++;
@@ -249,10 +246,9 @@ namespace Primafit_ERP.Services
                 if (cfg.Segment4Active && hasS4) selectedCount++;
                 if (cfg.Segment5Active && hasS5) selectedCount++;
 
-                // The Core Rule: If they started picking sub-segments, they must pick ALL of them.
                 if (selectedCount > 0 && selectedCount < activeCount)
                 {
-                    return ($"select a value for all {activeCount} active segments.", null);
+                    return ($"Select a value for all {activeCount} active segments.", null);
                 }
 
                 // 3. Compute Code & Description
@@ -264,7 +260,7 @@ namespace Primafit_ERP.Services
                 var finalDesc = string.IsNullOrWhiteSpace(draft.Description) ? computedDesc : draft.Description.Trim();
                 if (string.IsNullOrWhiteSpace(finalDesc)) return ("Description is required.", null);
 
-                // 4. Duplicate Check (Exclude self if updating)
+                // 4. Duplicate Check
                 var codeExistsQuery = ctx.Set<SegChartOfAccount>()
                     .Where(x => x.CompanyId == draft.CompanyId && x.AccountCode == accountCode);
 
@@ -278,15 +274,18 @@ namespace Primafit_ERP.Services
                     return ($"Account code '{accountCode}' already exists.", null);
                 }
 
+                // FALLBACK LOGIC: Automatically determine control account constraints (IDs: 24, 25, 26)
+                bool isControlAccount = draft.SegAccountTypeId == 24 || draft.SegAccountTypeId == 25 || draft.SegAccountTypeId == 26;
+                bool enforcedAllowJournal = isControlAccount ? false : draft.AllowJournal;
+
                 SegChartOfAccount account;
 
                 if (draft.Id.HasValue)
                 {
-                    // --- UPDATE ---
+                    // --- UPDATE EXISTING ---
                     account = await ctx.Set<SegChartOfAccount>().FindAsync(draft.Id.Value);
                     if (account == null) return ("Account not found for update.", null);
 
-                    // Update Fields (we safely assign null if they cleared the optional segments)
                     account.Segment0Id = draft.Segment0Id;
                     account.Segment1Id = hasS1 ? draft.Segment1Id : null;
                     account.Segment2Id = hasS2 ? draft.Segment2Id : null;
@@ -297,14 +296,14 @@ namespace Primafit_ERP.Services
                     account.AccountCode = accountCode;
                     account.Description = finalDesc;
                     account.SegAccountTypeId = draft.SegAccountTypeId;
-                    account.AllowJournal = draft.AllowJournal;
+                    account.AllowJournal = enforcedAllowJournal; // Force update mapping parameters
                     account.IsActive = draft.IsActive;
 
                     ctx.Update(account);
                 }
                 else
                 {
-                    // --- CREATE ---
+                    // --- CREATE NEW ---
                     account = new SegChartOfAccount
                     {
                         Id = Guid.NewGuid(),
@@ -318,8 +317,8 @@ namespace Primafit_ERP.Services
                         AccountCode = accountCode,
                         Description = finalDesc,
                         SegAccountTypeId = draft.SegAccountTypeId,
-                        AllowJournal = draft.AllowJournal,
-                        IsActive = draft.IsActive
+                        AllowJournal = enforcedAllowJournal, // Force creation mapping parameters
+                        IsActive = true
                     };
                     ctx.Add(account);
                 }
@@ -335,7 +334,7 @@ namespace Primafit_ERP.Services
 
         public async Task ToggleActiveStatusAsync(Guid accountId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
             var acc = await ctx.Set<SegChartOfAccount>().FindAsync(accountId);
             if (acc != null)
             {
@@ -345,7 +344,7 @@ namespace Primafit_ERP.Services
         }
         public async Task<List<SegChartOfAccount>> GetActiveCoaAsync(Guid companyId)
         {
-            using var ctx = _dbFactory.CreateDbContext();
+            using var ctx = await _dbFactory.CreateDbContextAsync();
 
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()
@@ -413,6 +412,44 @@ namespace Primafit_ERP.Services
             return await q
                 .OrderBy(c => c.AccountCode)
                 .ToListAsync();
+        }
+        public async Task<string?> DeleteAccountAsync(Guid accountId)
+        {
+            try
+            {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
+
+                // 1. Check for Posted Transactions
+                bool hasPostedTransactions = await ctx.GLTransactions
+                    .AnyAsync(t => t.SegCoaId == accountId);
+
+                if (hasPostedTransactions)
+                {
+                    return "Cannot delete this account because it has posted transactions tied to it. Consider deactivating it instead to hide it from future use.";
+                }
+
+                // 2. Check for Unposted Drafts (Journal Lines)
+                bool hasUnpostedJournals = await ctx.Set<GLJournalLine>()
+                    .AnyAsync(l => l.SegCoaId == accountId);
+
+                if (hasUnpostedJournals)
+                {
+                    return "Cannot delete this account because it is currently being used in an unposted Draft Journal Entry. Delete the journal line first, or deactivate the account.";
+                }
+
+                // 3. Safe to Delete
+                var account = await ctx.SegChartOfAccounts.FindAsync(accountId);
+                if (account == null) return "Account not found.";
+
+                ctx.SegChartOfAccounts.Remove(account);
+                await ctx.SaveChangesAsync();
+
+                return null; // Success
+            }
+            catch (Exception ex)
+            {
+                return $"Error deleting account: {ex.Message}";
+            }
         }
         // --- NEW: CSV PARSER HELPER ---
         private List<string> ParseCsvLine(string line)
@@ -620,6 +657,10 @@ namespace Primafit_ERP.Services
                         continue;
                     }
 
+                    // FALLBACK SYSTEM DETECTION LOGIC: Set status to false if mapping onto control account layers
+                    // Type 24 = Inventories, Type 25 = Trade Receivables, Type 26 = Trade Payables
+                    bool isControlAccountType = typeId == 24 || typeId == 25 || typeId == 26;
+
                     // ── 4e. Build account record ──
                     var acc = new SegChartOfAccount
                     {
@@ -629,7 +670,7 @@ namespace Primafit_ERP.Services
                         AccountCode = rawCode.Trim(),
                         Description = string.IsNullOrWhiteSpace(rawDesc) ? rawCode.Trim() : rawDesc.Trim(),
                         SegAccountTypeId = typeId,
-                        AllowJournal = true,
+                        AllowJournal = !isControlAccountType, // Enforce false for control classifications
                         IsActive = true
                     };
 

@@ -22,7 +22,7 @@
     <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
         <div class="space-y-1">
             <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
-                @(IsNew ? "New Stock Return Credit Note" : $"Credit Note: {currentCn.CreditNoteNumber}")
+                @(IsNew ? "New Invoice Adjustment Credit Note" : $"Credit Note: {currentCn.CreditNoteNumber}")
             </h1>
             <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
                 @(IsPosted ? "● Posted Document - Read Only" : "● Draft - Pending Approval")
@@ -46,7 +46,7 @@
                     </Authorized>
                 </PermissionGate>
                 <button type="button" @onclick="PostCreditNote" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                    Post Stock Return
+                    Post Invoice Adjustment
                 </button>
             }
         </div>
@@ -55,7 +55,7 @@
     @if (IsNew)
     {
         <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6 overflow-visible relative">
-            <h3 class="text-lg font-bold text-slate-900 text-center">Initialize Stock Credit Note</h3>
+            <h3 class="text-lg font-bold text-slate-900 text-center">Initialize Invoice Credit Note</h3>
 
             <div class="relative overflow-visible">
                 <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 1: Select Target Customer Profile <span class="text-rose-500">*</span></label>
@@ -93,9 +93,9 @@
             @if (selectedCustomerId != Guid.Empty)
             {
                 <div class="relative animate-in fade-in duration-300">
-                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Select Shipped Invoice Reference <span class="text-rose-500">*</span></label>
+                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Select Open Invoice Reference <span class="text-rose-500">*</span></label>
                     <select @bind="selectedInvoiceId" class="input-class font-bold bg-slate-50 focus:bg-white text-sm text-slate-900 transition-all cursor-pointer outline-none">
-                        <option value="@Guid.Empty">-- Choose Shipped Invoice --</option>
+                        <option value="@Guid.Empty">-- Choose Target Invoice --</option>
                         @foreach (var inv in eligibleInvoices)
                         {
                             <option value="@inv.Id">@inv.OrderNumber (@inv.Date.ToString("yyyy-MM-dd"))</option>
@@ -103,7 +103,7 @@
                     </select>
                     @if (!eligibleInvoices.Any())
                     {
-                        <p class="text-xs text-rose-600 font-bold mt-2">⚠️ No processed shipped quantities found for this customer.</p>
+                        <p class="text-xs text-rose-600 font-bold mt-2">⚠️ No outstanding posted invoices available for adjustment.</p>
                     }
                 </div>
             }
@@ -129,21 +129,11 @@
                     <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Operational Parameters</h3>
                     <div>
                         <label class="label">Adjustment Posting Date</label>
-                        <input type="date" value="@currentCn.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentCn.Date = d; })" class="input-class font-bold" disabled="@IsPosted" />
+                        <input type="date" value="@currentCn.Date.ToString("yyyy-MM-dd")" @onchange="OnAdjustmentDateChanged" class="input-class font-bold" disabled="@IsPosted" />
                     </div>
                     <div>
-                        <label class="label">Reason for Return</label>
-                        <textarea @bind="currentCn.Reason" class="input-class h-24 resize-none text-sm font-medium" placeholder="Provide return breakdown reason narrative logs..." disabled="@IsPosted"></textarea>
-                    </div>
-                    <div>
-                        <label class="label">Receiving Warehouse Location</label>
-                        <select @bind="currentCn.WarehouseId" class="input-class font-bold text-sm text-slate-900 bg-white" disabled="@IsPosted">
-                            <option value="">-- Choose Target Location --</option>
-                            @foreach (var w in warehouses)
-                            {
-                                <option value="@w.Id">@w.Name</option>
-                            }
-                        </select>
+                        <label class="label">Reason for Adjustment</label>
+                        <textarea @bind="currentCn.Reason" class="input-class h-32 resize-none text-sm font-medium" placeholder="Provide invoice re-balancing justification logs..." disabled="@IsPosted"></textarea>
                     </div>
                 </div>
             </div>
@@ -151,7 +141,7 @@
             <div class="lg:col-span-8 overflow-visible">
                 <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col h-full">
                     <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Dispatched Line Items Allocation Matrix</h3>
+                        <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Line Items Value Balancing Matrix</h3>
                         <span class="text-xs font-medium text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200 font-mono font-bold">Invoice Ref: @currentCn.SalesOrder?.OrderNumber</span>
                     </div>
 
@@ -160,21 +150,17 @@
                             <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider relative z-20">
                                 <tr>
                                     <th class="p-4 pl-6">Item Name</th>
-                                    <th class="p-4 text-center">Total Shipped</th>
-                                    <th class="p-4 text-center text-amber-600">Max Allowed</th>
-                                    <th class="p-4 text-center w-32">Return Qty</th>
+                                    <th class="p-4 text-center">Invoiced Qty</th>
+                                    <th class="p-4 text-center text-amber-600">Max Adjustable</th>
+                                    <th class="p-4 text-center w-32">Adjustment Qty</th>
                                     <th class="p-4 text-right">Unit Price</th>
                                     <th class="p-4 text-right pr-6">Credit Total</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 overflow-visible relative z-10">
-                                @{
-                                    int gridRowIndex = 0;
-                                }
                                 @foreach (var line in currentCn.Lines)
                                 {
-                                    var localGridIndex = gridRowIndex++;
-                                    <tr class="hover:bg-slate-50/80 transition-colors align-middle relative overflow-visible" style="z-index: @(100 - localGridIndex);">
+                                    <tr class="hover:bg-slate-50/80 transition-colors align-middle relative overflow-visible">
                                         <td class="p-4 pl-6 font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Product Item")</td>
                                         <td class="p-4 text-center font-mono font-semibold text-slate-500">@line.OriginalSoldQty.ToString("N2")</td>
                                         <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@line.MaxReturnableQty.ToString("N2")</td>
@@ -191,7 +177,7 @@
 
                     <div class="bg-slate-50 border-t border-slate-200 p-5 flex justify-end items-center mt-auto rounded-b-2xl">
                         <div class="text-right">
-                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Credit to Customer (@currentCn.Currency?.CurrencyCode)</div>
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Balanced Credit to Customer (@currentCn.Currency?.CurrencyCode)</div>
                             <div class="text-2xl font-mono font-black text-slate-900">@currentCn.Lines.Sum(l => l.LineTotal).ToString("N2")</div>
                         </div>
                     </div>
@@ -243,7 +229,6 @@
     private Guid selectedCustomerId = Guid.Empty;
     private Guid selectedInvoiceId = Guid.Empty;
 
-    // Searchable dropdown binding elements
     private bool isCustomerDropdownOpen = false;
     private string customerSearchQuery = string.Empty;
     private string selectedCustomerName = "-- Choose Target Customer Profile --";
@@ -296,7 +281,7 @@
         var user = await UserManager.GetUserAsync(authState.User);
 
         _busy = true; StateHasChanged();
-        eligibleInvoices = await CnService.GetShippedInvoicesByCustomerAsync(user.CompanyDetailsId.Value, selectedCustomerId);
+        eligibleInvoices = await CnService.GetInvoicesEligibleForAdjustmentAsync(user.CompanyDetailsId.Value, selectedCustomerId);
         _busy = false; StateHasChanged();
     }
 
@@ -314,6 +299,14 @@
         }
         catch (Exception ex) { _errMsg = ex.Message; }
         finally { _busy = false; StateHasChanged(); }
+    }
+
+    private void OnAdjustmentDateChanged(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParse(e.Value?.ToString(), out var parsedDate))
+        {
+            currentCn.Date = parsedDate;
+        }
     }
 
     private void ValidateQuantity(CreditNoteLine line, string? val)
@@ -337,12 +330,7 @@
 
     private async Task PostCreditNote()
     {
-        if (currentCn.WarehouseId == null || currentCn.WarehouseId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Fulfillment error: Select a valid destination inventory receiving warehouse location block.");
-            return;
-        }
-        if (!await JS.InvokeAsync<bool>("confirm", "Execute ledger posting? This will re-entry warehouse components instantly.")) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "Execute ledger posting? This will re-balance the invoice financial components instantly.")) return;
 
         await SaveDraft();
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -351,7 +339,7 @@
         var err = await CnService.PostStockCreditNoteAsync(currentCn.Id, Guid.Parse(user.Id));
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Stock Reversal Posted and Financial Ledger Balanced successfully!");
+            await JS.InvokeVoidAsync("alert", "Invoice Adjustment Posted and Financial Ledger Balanced successfully!");
             Nav.NavigateTo("/sales/credit-notes");
         }
         else await JS.InvokeVoidAsync("alert", err);

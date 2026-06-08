@@ -15,21 +15,18 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid VendorId { get; set; }
-        // We generally don't add the Vendor object here to keep the graph simple, 
 
         [Required]
         public Guid VendorBillId { get; set; }
         [ForeignKey("VendorBillId")]
-        public VendorBill? VendorBill { get; set; } // Link to source bill
+        public VendorBill? VendorBill { get; set; }
 
-        [Required]
-        public Guid WarehouseId { get; set; }
+        public Guid? WarehouseId { get; set; }
 
         public string ReturnNumber { get; set; } = "";
         public DateTime ReturnDate { get; set; } = DateTime.Today;
         public string Reason { get; set; } = "";
 
-        // Financials
         public Guid CurrencyId { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
@@ -40,7 +37,7 @@ namespace Primafit_ERP.Components.Models
 
         public ReturnStatus Status { get; set; } = ReturnStatus.Draft;
 
-        // Audit
+        public Guid BankGlAccountId { get; set; }
         public Guid CreatedByUserId { get; set; }
         public Guid? PostedByUserId { get; set; }
         public DateTime? PostedAt { get; set; }
