@@ -26,10 +26,7 @@
                 @(IsNew ? "Receipt Returns & Payout Refunds" : $"Voucher Window: {currentRefund.RefundNumber}")
             </h1>
             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                <span class="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider
-                    @(IsPosted ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")">
-                    @(IsPosted ? "Posted — Ledger Locked" : "Draft Return Workspace")
-                </span>
+                
                 @if (!IsNew && currentRefund.SalesOrder != null)
                 {
                     <span class="text-xs text-slate-400 font-mono font-bold">Linked Invoice: @currentRefund.SalesOrder.OrderNumber</span>
@@ -74,10 +71,10 @@
     {
         <div class="flex bg-slate-100 p-1 rounded-xl w-fit">
             <button @onclick="() => dashboardTab = 0" class="px-5 py-2 rounded-lg text-sm font-bold transition-all @(dashboardTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                Voucher Registry Log
+                Overview
             </button>
             <button @onclick="() => dashboardTab = 1" class="px-5 py-2 rounded-lg text-sm font-bold transition-all @(dashboardTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                + Issue Return Refund
+                Issue Return Refund
             </button>
         </div>
 

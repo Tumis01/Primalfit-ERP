@@ -7,6 +7,7 @@
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.IO
 
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
@@ -19,6 +20,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
+@inject TransactionMappingService MappingService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @rendermode InteractiveServer
@@ -99,6 +101,19 @@
                                     </td>
                                     <td class="p-4 text-center">
                                         <div class="flex items-center justify-center gap-2">
+                                            @if (bill.Status != "Paid in Full")
+                                            {
+                                                <button @onclick="() => SelectAndLoadBill(bill)" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Load Bill into Payment Form">
+                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                                                    </svg>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <div class="w-7 h-7"></div>
+                                            }
+
                                             <button @onclick="() => DownloadReceipt(bill.BillId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Receipt PDF">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                             </button>
@@ -117,7 +132,6 @@
                     </table>
                 </div>
 
-                <!-- Pagination Footer -->
                 @if (FilteredBillStatuses.Any())
                 {
                     <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
@@ -128,9 +142,11 @@
                             <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
                                 Previous
                             </button>
+
                             <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
                                 Page @currentPage of @TotalPages
                             </span>
+
                             <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
                                 Next
                             </button>
@@ -232,28 +248,30 @@
                         </div>
                     </div>
 
+                    <!-- GL MAPPING OVERRIDES -->
                     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                         <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
-                            GL Mapping
-                            <span class="text-[10px] text-slate-400 font-normal normal-case">Required</span>
+                            GL Mapping Configuration
+                            <span class="text-[10px] text-slate-400 font-normal normal-case">Overrides Mapping Router</span>
                         </h3>
 
-                        <div class="space-y-3">
+                        <div class="space-y-4">
                             <div>
-                                <SearchableGlAccount Label="Pay From (Bank / Asset)"
-                                                     Placeholder="Search Bank..."
+                                <SearchableGlAccount Label="Pay From (Bank / Asset - Credit)"
+                                                     Placeholder="Search Bank Asset..."
                                                      Accounts="@bankAccounts"
                                                      @bind-Value="payment.BankGlAccountId"
                                                      IsInvalid="@(payment.BankGlAccountId == Guid.Empty)" />
+                                <p class="text-[10px] text-slate-400 mt-1">Disbursement Bank account (credited on payment).</p>
                             </div>
 
                             <div>
-                                <label class="label">Accounts Payable (Liability)</label>
-                                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 flex items-center justify-between cursor-not-allowed">
-                                    <span class="font-bold">@VendorApAccountName</span>
-                                    <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                </div>
-                                <p class="text-[10px] text-slate-400 mt-1">This account was credited during bill posting.</p>
+                                <SearchableGlAccount Label="Accounts Payable (A/P Liability - Debit)"
+                                                     Placeholder="Search Accounts Payable..."
+                                                     Accounts="@allAccounts"
+                                                     @bind-Value="selectedApAccountId"
+                                                     IsInvalid="@(selectedApAccountId == Guid.Empty)" />
+                                <p class="text-[10px] text-slate-400 mt-1">Vendor A/P control account (debited on payment).</p>
                             </div>
                         </div>
                     </div>
@@ -377,7 +395,6 @@
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
-
             <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Payment Remittance</h3>
                 <button type="button" @onclick="() => showEmailPopup = false" class="text-slate-400 hover:text-rose-600 transition-colors">
@@ -462,7 +479,7 @@
     [SupplyParameterFromQuery] public Guid? billId { get; set; }
     [SupplyParameterFromQuery] public Guid? poId { get; set; }
 
-    private int activeTab = 0; // 0 = Bill Statuses, 1 = Make Payment
+    private int activeTab = 0;
 
     private VendorPayment payment = new();
     private List<Vendor> vendors = new();
@@ -478,7 +495,6 @@
     private string companyName = "";
     private bool isBusy = false;
     private string currencySymbol = "";
-    private string VendorApAccountName = "Select Vendor First";
 
     private Guid selectedVendorId = Guid.Empty;
     private Guid selectedBillId = Guid.Empty;
@@ -499,10 +515,9 @@
     private string emailSubject = "";
     private string customEmailMessage = "";
 
-    // --- FILTERS & PAGINATION STATE ---
+    // Filters & Pagination
     private int pageSize = 15;
     private int currentPage = 1;
-
     private string _statusFilter = "All";
     private string statusFilter
     {
@@ -593,13 +608,13 @@
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadBillStatuses();
-            CreateNew();
+            await CreateNewAsync();
 
             Guid? actualTargetId = RouteBillId ?? billId;
 
             if (actualTargetId.HasValue && actualTargetId.Value != Guid.Empty)
             {
-                activeTab = 1; // Auto-switch to Form
+                activeTab = 1;
                 var targetBill = await ctx.VendorBills.FindAsync(actualTargetId.Value);
                 if (targetBill != null)
                 {
@@ -609,7 +624,7 @@
             }
             else if (poId.HasValue && poId.Value != Guid.Empty)
             {
-                activeTab = 1; // Auto-switch to Form
+                activeTab = 1;
                 var targetBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.PurchaseOrderId == poId.Value);
                 if (targetBill != null)
                 {
@@ -661,14 +676,29 @@
             });
         }
     }
-
-    private void CreateNew()
+    private async Task CreateNewAsync()
     {
-        payment = new VendorPayment { Date = DateTime.Today };
+        payment = new VendorPayment
+        {
+            Date = DateTime.Today,
+            BankGlAccountId = Guid.Empty // Explicitly empty
+        };
         openBills.Clear();
         selectedBillId = Guid.Empty;
         selectedVendorId = Guid.Empty;
         selectedApAccountId = Guid.Empty;
+
+        // Only preset if explicitly mapped in GL Mapping router
+        Guid defaultBank = await MappingService.GetMappedAccountAsync(
+            currentCompanyId,
+            SystemTransactionType.VendorPayment,
+            isDebit: false,
+            defaultAccountId: Guid.Empty);
+
+        if (defaultBank != Guid.Empty)
+        {
+            payment.BankGlAccountId = defaultBank;
+        }
 
         if (currencies.Any())
         {
@@ -678,24 +708,58 @@
         }
     }
 
+    private async Task SelectAndLoadBill(BillStatusRow statusRow)
+    {
+        var targetVendor = vendors.FirstOrDefault(v => v.Name == statusRow.VendorName);
+        if (targetVendor == null) return;
+
+        isBusy = true; StateHasChanged();
+
+        selectedVendorId = targetVendor.Id;
+
+        // Resolve AP Control account override from GL router first, fallback to Vendor master
+        Guid defaultApId = targetVendor.PayablesAccountId ?? Guid.Empty;
+        selectedApAccountId = await MappingService.GetMappedAccountAsync(
+            currentCompanyId,
+            SystemTransactionType.VendorPayment,
+            isDebit: true, // Debit leg = AP Liability Reduction
+            defaultAccountId: defaultApId);
+
+        await LoadVendorBills(targetVendor.Id);
+
+        selectedBillId = statusRow.BillId;
+
+        var loadedBill = openBills.FirstOrDefault(b => b.BillId == selectedBillId);
+        if (loadedBill != null)
+        {
+            amountPaidForeign = Math.Round(loadedBill.BalanceDueForeign, 2);
+            payment.Reference = loadedBill.RefNumber;
+            selectedCurrencyId = loadedBill.CurrencyId;
+
+            var currencyObj = currencies.FirstOrDefault(x => x.Id == loadedBill.CurrencyId);
+            currencySymbol = currencyObj?.CurrencyCode ?? "";
+        }
+
+        activeTab = 1;
+        isBusy = false;
+        StateHasChanged();
+    }
+
     private async Task OnVendorChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var venId))
+        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
         {
             selectedVendorId = venId;
 
             var vendor = vendors.FirstOrDefault(c => c.Id == venId);
-            if (vendor != null && vendor.PayablesAccountId.HasValue)
-            {
-                selectedApAccountId = vendor.PayablesAccountId.Value;
-                var apAcc = allAccounts.FirstOrDefault(a => a.Id == selectedApAccountId);
-                VendorApAccountName = apAcc != null ? $"{apAcc.AccountCode} - {apAcc.Description}" : "Unknown Account";
-            }
-            else
-            {
-                selectedApAccountId = Guid.Empty;
-                VendorApAccountName = "⚠️ Vendor Missing AP Account!";
-            }
+            Guid defaultApId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+            // Resolve AP Control account override from GL router first, fallback to Vendor master
+            selectedApAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId,
+                SystemTransactionType.VendorPayment,
+                isDebit: true, // Debit leg = AP Liability Reduction
+                defaultAccountId: defaultApId);
 
             await LoadVendorBills(venId);
             selectedBillId = Guid.Empty;
@@ -706,7 +770,6 @@
         {
             selectedVendorId = Guid.Empty;
             selectedApAccountId = Guid.Empty;
-            VendorApAccountName = "Select Vendor First";
             openBills.Clear();
             selectedBillId = Guid.Empty;
             amountPaidForeign = 0;
@@ -718,10 +781,10 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         var bills = await ctx.VendorBills
-                    .Include(b => b.Lines)
-                    .Include(b => b.Payments)
-                    .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
-                    .ToListAsync();
+            .Include(b => b.Lines)
+            .Include(b => b.Payments)
+            .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
+            .ToListAsync();
 
         var poIds = bills.Where(b => b.PurchaseOrderId.HasValue).Select(b => b.PurchaseOrderId!.Value).ToList();
         var relatedPOs = await ctx.PurchaseOrders
@@ -776,6 +839,7 @@
                     BalanceDueForeign = balBase / rate,
                     ExchangeRate = rate,
                     CurrencyId = bill.CurrencyId,
+                    AccountsPayableGlId = bill.AccountsPayableGlId,
                     Lines = bill.Lines.ToList(),
                     SubTotalForeign = pSubTotal,
                     DiscountAmountForeign = pDiscount,
@@ -788,7 +852,7 @@
 
     private void OnBillChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var invId))
+        if (Guid.TryParse(e.Value?.ToString(), out var invId) && invId != Guid.Empty)
         {
             selectedBillId = invId;
             var bill = SelectedBill;
@@ -812,10 +876,6 @@
         }
     }
 
-    // --- 1. MASTER PDF GENERATOR ---
-    // Note: If you have a specific GenerateVendorBillPdf method, update the call below.
-    // For now, we will fetch the related PurchaseOrder to render the PO as the receipt,
-    // or use a generic payment receipt approach.
     private async Task<(byte[] Bytes, string FileName, string Subject, string VendorEmail)> GetReceiptDataAsync(Guid targetBillId)
     {
         var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
@@ -827,8 +887,6 @@
         var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
         string vEmail = vendor?.Email ?? "";
 
-        // If the bill came from a PO, generate the PO PDF as proof.
-        // *Adjust this to ReportExportService.GenerateVendorBillPdf if you have a custom layout for AP.*
         if (bill.PurchaseOrderId.HasValue)
         {
             var printOrder = await ctx.PurchaseOrders
@@ -840,7 +898,6 @@
             {
                 var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
 
-                // Keep the math aligned for the receipt
                 decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
                 decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
                 decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
@@ -856,7 +913,6 @@
         return (null, "", "", "");
     }
 
-    // --- 2. DOWNLOAD RECEIPT BUTTON ---
     private async Task DownloadReceipt(Guid bId)
     {
         try
@@ -877,7 +933,6 @@
         }
     }
 
-    // --- 3. PREPARE EMAIL FROM TABLE BUTTON ---
     private void PrepareEmailReceipt(Guid bId)
     {
         emailTargetBillId = bId;
@@ -900,22 +955,20 @@
         }
     }
 
-    // --- 4. DISPATCH EMAIL (WITH ATTACHMENT) ---
     private async Task DispatchEmail()
     {
         isSendingEmail = true;
         try
         {
-            // Generate the PDF on-the-fly to attach it
             var data = await GetReceiptDataAsync(emailTargetBillId);
             if (data.Bytes == null) throw new Exception("Failed to generate PDF attachment.");
 
             await EmailService.SendEmailAsync(
                 emailVendorAddress,
                 emailSubject,
-                customEmailMessage.Replace("\n", "<br>"), // Format for HTML
-                data.Bytes,      // THE ATTACHMENT
-                data.FileName    // THE FILENAME
+                customEmailMessage.Replace("\n", "<br>"),
+                data.Bytes,
+                data.FileName
             );
 
             await JS.InvokeVoidAsync("alert", "Remittance advice emailed successfully!");
@@ -952,13 +1005,15 @@
             activeTab = 0;
         }
     }
+
     private async Task PostPayment()
     {
         if (!HasBillSelected) { await JS.InvokeVoidAsync("alert", "Please select a Vendor Bill."); return; }
         if (amountPaidForeign <= 0) { await JS.InvokeVoidAsync("alert", "Amount paid must be greater than zero."); return; }
         if (payment.BankGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Pay From (Bank / Asset) account."); return; }
+        if (selectedApAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select an Accounts Payable liability account."); return; }
 
-        if (SelectedBill != null && amountPaidForeign > SelectedBill.BalanceDueForeign)
+        if (SelectedBill != null && amountPaidForeign > SelectedBill.BalanceDueForeign + 0.01m)
         {
             await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({amountPaidForeign:N2}) cannot exceed the remaining balance due ({SelectedBill.BalanceDueForeign:N2}).");
             return;
@@ -970,12 +1025,21 @@
             payment.VendorBillId = selectedBillId;
             payment.Amount = Math.Round(amountPaidForeign * SelectedBill!.ExchangeRate, 2);
 
-            // Passed currentUserId here as the 3rd parameter
+            // Update user-selected AP account directly onto the bill prior to posting
+            using (var ctx = await DbFactory.CreateDbContextAsync())
+            {
+                var billToUpdate = await ctx.VendorBills.FindAsync(selectedBillId);
+                if (billToUpdate != null && billToUpdate.AccountsPayableGlId != selectedApAccountId)
+                {
+                    billToUpdate.AccountsPayableGlId = selectedApAccountId;
+                    await ctx.SaveChangesAsync();
+                }
+            }
+
             var err = await PurchService.PostVendorPaymentAsync(payment, currentCompanyId, currentUserId);
 
             if (string.IsNullOrEmpty(err))
             {
-                // Capture details before clearing
                 var vendor = vendors.FirstOrDefault(v => v.Id == selectedVendorId);
                 Guid targetBId = selectedBillId;
                 string billNum = SelectedBill.RefNumber;
@@ -991,7 +1055,6 @@
                 payment.Reference = "";
                 currencySymbol = "";
 
-                // Prompt email or alert success
                 await PromptEmailPopup(vendor, targetBId, billNum, amt, remBal, cur);
             }
             else

@@ -1,7 +1,6 @@
 ﻿@page "/setup/gl-mapping"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
@@ -129,7 +128,7 @@
 @if (showModal)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 animate-in zoom-in-95 duration-200 overflow-visible flex flex-col">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col">
 
             <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">
@@ -147,7 +146,7 @@
                 </button>
             </div>
 
-            <div class="p-6 overflow-y-auto max-h-[60vh] pb-36 overflow-visible flex-1 content-box">
+            <div class="p-6 overflow-visible flex-1 content-box">
 
                 @if (isCreatingCustom || (editingMap != null && editingMap.TransactionType == SystemTransactionType.CustomGlAdjustment))
                 {
@@ -181,7 +180,7 @@
                                          ValueChanged="@((Guid val) => tempDebit = val == Guid.Empty ? null : val)" />
                 </div>
 
-                <div class="h-4"></div>
+                <div class="h-6"></div>
 
                 <div class="space-y-2 relative z-30">
                     <div class="flex justify-between items-center">
@@ -285,13 +284,14 @@
     {
         coaList = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
 
+        await MappingService.GetMappingsAsync(currentCompanyId);
+
         using var ctx = await DbFactory.CreateDbContextAsync();
         var rawMappings = await ctx.TransactionGlMappings
             .Include(m => m.CustomTransactionType)
             .Where(m => m.CompanyId == currentCompanyId)
             .ToListAsync();
 
-        // FIXED: Order by system defaults first (0), followed directly sequentially by custom entries (1)
         mappings = rawMappings
             .Where(m => (int)m.TransactionType != 0)
             .OrderBy(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment ? 1 : 0)
@@ -307,7 +307,6 @@
         tempDebit = map.OverrideDebitGlAccountId;
         tempCredit = map.OverrideCreditGlAccountId;
 
-        // FIXED: Hydrate input boxes if configuring an existing custom record template
         if (map.TransactionType == SystemTransactionType.CustomGlAdjustment && map.CustomTransactionType != null)
         {
             newCustomName = map.CustomTransactionType.Name;
@@ -394,7 +393,6 @@
                     targetRecord.UpdatedByUserId = currentUserId;
                     targetRecord.UpdatedAt = DateTime.UtcNow;
 
-                    // FIXED: Commit updates onto underlying custom text profiles during configurations updates
                     if (targetRecord.TransactionType == SystemTransactionType.CustomGlAdjustment && targetRecord.CustomTransactionTypeId.HasValue)
                     {
                         var existingCustom = await ctx.CustomTransactionTypes.FindAsync(targetRecord.CustomTransactionTypeId.Value);
@@ -427,21 +425,18 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to permanently delete the template category '{map.CustomTransactionType?.Name}'?\n\nThis will clear its ledger router mappings completely.");
         if (!confirm) return;
 
-        using var ctx = await DbFactory.CreateDbContextAsync();
         try
         {
-            var mappingRecord = await ctx.TransactionGlMappings.FindAsync(map.Id);
-            if (mappingRecord != null) ctx.TransactionGlMappings.Remove(mappingRecord);
-
-            if (map.CustomTransactionTypeId.HasValue)
+            bool deleted = await MappingService.DeleteCustomTransactionTypeAsync(map.Id, currentCompanyId);
+            if (deleted)
             {
-                var customRecord = await ctx.CustomTransactionTypes.FindAsync(map.CustomTransactionTypeId.Value);
-                if (customRecord != null) ctx.CustomTransactionTypes.Remove(customRecord);
+                await RefreshDataset();
+                await JS.InvokeVoidAsync("alert", "Custom transaction configuration template removed successfully.");
             }
-
-            await ctx.SaveChangesAsync();
-            await RefreshDataset();
-            await JS.InvokeVoidAsync("alert", "Custom transaction configuration template removed successfully.");
+            else
+            {
+                await JS.InvokeVoidAsync("alert", "Could not locate the template to remove.");
+            }
         }
         catch (Exception ex)
         {
@@ -458,7 +453,6 @@
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
 
-    // ADDED: Descriptions text resolution workflow engine helper mapping utility
     private string GetRowDescription(TransactionGlMapping map)
     {
         if (map.TransactionType == SystemTransactionType.CustomGlAdjustment)
@@ -475,14 +469,18 @@
             SystemTransactionType.DirectPurchaseInvoice => "Non-inventory direct accounts payable supplier bills.",
             SystemTransactionType.DirectSalesInvoice => "Non-inventory free-text customer invoicing revenues.",
             SystemTransactionType.DiscountAllowed => "Financial ledger routing for sales discounts granted.",
-            SystemTransactionType.DiscountReceived => "Financial ledger routing for purchasing discounts captured.",
+            SystemTransactionType.DiscountReceived => "Financial ledger routing for purchasing discounts captured / rolled back.",
             SystemTransactionType.SalesInvoice => "Standard inventory-tracked client invoicing ledger paths.",
             SystemTransactionType.PurchaseInvoice => "Standard inventory-tracked vendor procurement receipts.",
             SystemTransactionType.CreditNote => "Customer returns and accounts receivable sales credits.",
-            SystemTransactionType.ReturnToVendor => "Supplier purchase returns and inventory rollbacks.",
+            SystemTransactionType.ReturnToVendor => "Vendor cash payment refunds (Deposit Bank vs AP liability restoration).",
+            SystemTransactionType.DebitNote => "Purchase invoice line item corrections (AP vs GR/IR clearing/expense).",
+            SystemTransactionType.CustomerPayment => "Customer receipts and cash collections (Deposit Bank Asset vs Customer AR).",
+            SystemTransactionType.VendorPayment => "Vendor bill outgoing payments (AP Liability Reduction vs Disbursement Bank).",
             SystemTransactionType.ArAdjustment => "Accounts receivable sub-ledger transaction modifications.",
             SystemTransactionType.ApAdjustment => "Accounts payable sub-ledger transaction modifications.",
             SystemTransactionType.InventoryAdjustment => "Physical stock counts and WACC revaluation updates.",
+            SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts & stock returns.",
             _ => "Core System Default Route Configuration."
         };
     }
@@ -498,14 +496,18 @@
                 SystemTransactionType.DirectPurchaseInvoice => "NOT SET [Expense Account]",
                 SystemTransactionType.DirectSalesInvoice => "System Default [Customer AR]",
                 SystemTransactionType.DiscountAllowed => "System Default [Order Discount Acc]",
-                SystemTransactionType.DiscountReceived => "System Default [Vendor AP]",
+                SystemTransactionType.DiscountReceived => "NOT SET [Discount Rollback Debit Acc]",
                 SystemTransactionType.SalesInvoice => "System Default [Customer AR]",
                 SystemTransactionType.PurchaseInvoice => "System Default [Line Expense / Asset]",
                 SystemTransactionType.CreditNote => "NOT SET [Item Revenue Account]",
-                SystemTransactionType.ReturnToVendor => "System Default [Vendor AP]",
+                SystemTransactionType.DebitNote => "System Default [Vendor AP Control]",
+                SystemTransactionType.CustomerPayment => "NOT SET [Deposit Bank / Cash Asset]",
+                SystemTransactionType.VendorPayment => "System Default [Vendor AP Control]",
+                SystemTransactionType.ReturnToVendor => "NOT SET [Deposit Bank / Cash Asset]",
                 SystemTransactionType.ArAdjustment => "System Default [Customer AR Control]",
-                SystemTransactionType.ApAdjustment => "NOT SET [ Suspense Offset]",
+                SystemTransactionType.ApAdjustment => "NOT SET [Suspense Offset]",
                 SystemTransactionType.InventoryAdjustment => "System Default [Inventory Stock Asset]",
+                SystemTransactionType.GoodsReceipt => "System Default [Inventory Asset Account]",
                 _ => "System Default"
             };
         }
@@ -516,16 +518,20 @@
                 SystemTransactionType.CustomerOpeningBalance => "System Default [Suspense / Equity]",
                 SystemTransactionType.VendorOpeningBalance => "System Default [Vendor AP]",
                 SystemTransactionType.DirectPurchaseInvoice => "System Default [Vendor AP]",
-                SystemTransactionType.DirectSalesInvoice => "NOT SET [ Revenue Account]",
+                SystemTransactionType.DirectSalesInvoice => "NOT SET [Revenue Account]",
                 SystemTransactionType.DiscountAllowed => "System Default [Customer AR]",
-                SystemTransactionType.DiscountReceived => "System Default [Line Discount Acc]",
+                SystemTransactionType.DiscountReceived => "System Default [Line Discount Received Acc]",
                 SystemTransactionType.SalesInvoice => "System Default [Item Revenue Account]",
                 SystemTransactionType.PurchaseInvoice => "System Default [Vendor AP]",
                 SystemTransactionType.CreditNote => "System Default [Customer AR]",
-                SystemTransactionType.ReturnToVendor => "NOT SET [Item Cost / Expense Account]",
+                SystemTransactionType.DebitNote => "System Default [GR/IR Clearing / Expense Acc]",
+                SystemTransactionType.CustomerPayment => "System Default [Customer AR Control]",
+                SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
+                SystemTransactionType.ReturnToVendor => "System Default [Vendor AP Control]",
                 SystemTransactionType.ArAdjustment => "NOT SET [Custom Suspense Offset]",
                 SystemTransactionType.ApAdjustment => "System Default [Vendor AP Control]",
-                SystemTransactionType.InventoryAdjustment => "NOT SET [Inventory balance account]",
+                SystemTransactionType.InventoryAdjustment => "NOT SET [Inventory Balance Account]",
+                SystemTransactionType.GoodsReceipt => "NOT SET [GR/IR Clearing Liability Account]",
                 _ => "System Default"
             };
         }

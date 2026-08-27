@@ -38,6 +38,8 @@ namespace PrimafitERP.Data
         public DbSet<SalesOrder> SalesOrders { get; set; }
         public DbSet<SalesOrderLine> SalesOrderLines { get; set; }
         public DbSet<CustomerPayment> CustomerPayments { get; set; }
+        public DbSet<DebitNote> DebitNotes => Set<DebitNote>();
+        public DbSet<DebitNoteLine> DebitNoteLines => Set<DebitNoteLine>();
         public DbSet<PaymentApplication> PaymentApplications { get; set; }
         public DbSet<VendorBill> VendorBills { get; set; }
         public DbSet<VendorBillLine> VendorBillLines { get; set; }
@@ -65,8 +67,6 @@ namespace PrimafitERP.Data
         public DbSet<Segment3> Segment3s { get; set; }
         public DbSet<Segment4> Segment4s { get; set; }
         public DbSet<Segment5> Segment5s { get; set; }
-        public DbSet<PurchaseReturn> PurchaseReturns { get; set; }
-        public DbSet<PurchaseReturnLine> PurchaseReturnLines { get; set; }
         public DbSet<CreditNote> CreditNotes { get; set; }
         public DbSet<CreditNoteLine> CreditNoteLines { get; set; }
         public DbSet<Permission> Permissions { get; set; }
@@ -85,6 +85,8 @@ namespace PrimafitERP.Data
         public DbSet<AssetUsageLog> AssetUsageLogs { get; set; }
         public DbSet<SalesShipment> SalesShipments { get; set; }
         public DbSet<SalesShipmentLine> SalesShipmentLines { get; set; }
+        public DbSet<VendorReturn> VendorReturns => Set<VendorReturn>();
+        public DbSet<VendorReturnLine> VendorReturnLines => Set<VendorReturnLine>();
         // HR & Payroll
         public DbSet<Branch> Branches { get; set; }
         public DbSet<Department> Departments { get; set; }
@@ -155,17 +157,7 @@ namespace PrimafitERP.Data
                    .HasForeignKey(l => l.HeaderId)
                    .OnDelete(DeleteBehavior.Cascade);
 
-            builder.Entity<PurchaseReturnLine>()
-                .HasOne(l => l.VendorBillLine)
-                .WithMany()
-                .HasForeignKey(l => l.VendorBillLineId)
-                .OnDelete(DeleteBehavior.NoAction);
-
-            builder.Entity<PurchaseReturnLine>()
-                .HasOne(l => l.PurchaseReturn)
-                .WithMany(r => r.Lines)
-                .HasForeignKey(l => l.PurchaseReturnId)
-                .OnDelete(DeleteBehavior.Cascade);
+            
 
             builder.Entity<GLMainAccount>()
                 .HasOne(m => m.AccountType)
@@ -235,6 +227,82 @@ namespace PrimafitERP.Data
 
             builder.Entity<CompanyRolePermission>()
                 .HasKey(crp => new { crp.ApplicationRoleId, crp.PermissionId });
+            builder.Entity<DebitNote>(entity =>
+            {
+                entity.HasOne(d => d.Vendor)
+                      .WithMany()
+                      .HasForeignKey(d => d.VendorId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.PurchaseOrder)
+                      .WithMany()
+                      .HasForeignKey(d => d.PurchaseOrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.Currency)
+                      .WithMany()
+                      .HasForeignKey(d => d.CurrencyId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(d => d.Warehouse)
+                      .WithMany()
+                      .HasForeignKey(d => d.WarehouseId)
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // Also safeguard DebitNoteLine foreign keys
+            builder.Entity<DebitNoteLine>(entity =>
+            {
+                entity.HasOne(l => l.Item)
+                      .WithMany()
+                      .HasForeignKey(l => l.ItemId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(l => l.Header)
+                      .WithMany(h => h.Lines)
+                      .HasForeignKey(l => l.HeaderId)
+                      .OnDelete(DeleteBehavior.Cascade); // Deleting the header deletes lines
+            });
+            builder.Entity<VendorReturn>(entity =>
+            {
+                entity.HasOne(v => v.Vendor)
+                      .WithMany()
+                      .HasForeignKey(v => v.VendorId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(v => v.PurchaseOrder)
+                      .WithMany()
+                      .HasForeignKey(v => v.PurchaseOrderId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(v => v.Warehouse)
+                      .WithMany()
+                      .HasForeignKey(v => v.WarehouseId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(v => v.BankAccount)
+                      .WithMany()
+                      .HasForeignKey(v => v.BankAccountId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(v => v.Currency)
+                      .WithMany()
+                      .HasForeignKey(v => v.CurrencyId)
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            builder.Entity<VendorReturnLine>(entity =>
+            {
+                entity.HasOne(l => l.Header)
+                      .WithMany(h => h.Lines)
+                      .HasForeignKey(l => l.HeaderId)
+                      .OnDelete(DeleteBehavior.Cascade); // Deleting header drops its child lines
+
+                entity.HasOne(l => l.Item)
+                      .WithMany()
+                      .HasForeignKey(l => l.ItemId)
+                      .OnDelete(DeleteBehavior.Restrict);
+            });
 
             builder.Entity<Segment0>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Segment1>().HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();

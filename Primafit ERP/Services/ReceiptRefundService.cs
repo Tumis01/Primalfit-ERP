@@ -243,17 +243,14 @@ namespace Primafit_ERP.Services
 
                 if (refund == null) return "Refund parameters not found.";
                 if (refund.Status == ReceiptRefundStatus.Posted) return "Document is already posted and locked.";
-                if (refund.SalesOrder == null) return "Parent sales invoice reference mapping is missing.";
+                if (refund.SalesOrder == null) return "Parent sales order reference mapping is missing.";
 
                 var so = refund.SalesOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = refund.ExchangeRate > 0 ? refund.ExchangeRate : 1;
 
-                Guid arAccount = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
-                if (arAccount == Guid.Empty) return "Posting Aborted: Customer Accounts Receivable account mapping missing.";
-
                 // -----------------------------------------------------------------
-                // LEG A: QUANTITY STOCK RETURN (INITIAL LOGIC: REVENUE VS AR)
+                // LEG A: PHYSICAL STOCK RETURN (REVERSES SHIPMENT: INVENTORY VS COGS)
                 // -----------------------------------------------------------------
                 if (refund.RefundType == ReceiptRefundType.QuantityOnly || refund.RefundType == ReceiptRefundType.Both)
                 {
@@ -262,7 +259,9 @@ namespace Primafit_ERP.Services
 
                     var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                         .Include(l => l.Header)
-                        .Where(l => l.Header!.SalesOrderId == so.Id && l.Header.Status == ReceiptRefundStatus.Posted)
+                        .Where(l => l.Header!.SalesOrderId == so.Id
+                                 && l.Header.Id != refund.Id
+                                 && l.Header.Status == ReceiptRefundStatus.Posted)
                         .GroupBy(l => l.SalesOrderLineId)
                         .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -280,7 +279,7 @@ namespace Primafit_ERP.Services
                         if (line.Quantity > maxAllowedReturnQty + 0.001m)
                             return $"Posting Aborted: Item '{line.Item.Name}' quantity returned ({line.Quantity:N2}) exceeds remaining physical shipment allowance ({maxAllowedReturnQty:N2}).";
 
-                        // FIXED: Costing method dependent calculation engine
+                        // Resolve unit cost based on Item costing method
                         decimal resolvedUnitCost = line.Item.CostingType switch
                         {
                             CostingMethod.WACC => line.Item.WeightedAverageCost,
@@ -292,7 +291,7 @@ namespace Primafit_ERP.Services
                             _ => line.Item.WeightedAverageCost
                         };
 
-                        // Log Product Inflow back into Stock Ledger using the resolved unit cost
+                        // 1. Log Product Inflow back into Stock Ledger
                         ctx.StockLedgers.Add(new StockLedger
                         {
                             Id = Guid.NewGuid(),
@@ -306,45 +305,78 @@ namespace Primafit_ERP.Services
                             Date = DateTime.UtcNow
                         });
 
-                        // 1. Core Inventory Revaluation Leg (Asset vs COGS at dynamically resolved cost values)
+                        // 2. Pure Shipment Reversal: DR Inventory Asset, CR COGS
                         decimal lineCogsValueBase = Math.Round(line.Quantity * resolvedUnitCost, 2);
                         if (lineCogsValueBase > 0)
                         {
-                            glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.SKU}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.SKU}" });
+                            if (line.Item.InventoryAssetAccountId == Guid.Empty || line.Item.CostOfGoodsSoldAccountId == Guid.Empty)
+                                return $"Posting Aborted: Item '{line.Item.Name}' is missing Inventory Asset or COGS GL account mapping.";
+
+                            glLines.Add(new GLJournalLine
+                            {
+                                SegCoaId = line.Item.InventoryAssetAccountId,
+                                Debit = lineCogsValueBase,
+                                Credit = 0,
+                                Reference = $"Return Stock: {line.Item.SKU}"
+                            });
+
+                            glLines.Add(new GLJournalLine
+                            {
+                                SegCoaId = line.Item.CostOfGoodsSoldAccountId,
+                                Debit = 0,
+                                Credit = lineCogsValueBase,
+                                Reference = $"Return COGS: {line.Item.SKU}"
+                            });
                         }
 
-                        // 2. FIXED: Initial Logic Restored. Reverses Revenue by crediting the Customer's AR account directly (excl. tax/discounts)
-                        decimal lineGrossForeign = line.Quantity * line.UnitPrice;
-                        decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
-
-                        glLines.Add(new GLJournalLine { SegCoaId = line.Item.SalesIncomeAccountId, Debit = lineGrossBase, Credit = 0, Reference = $"Sales Return Revenue: {line.Item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = 0, Credit = lineGrossBase, Reference = $"AR Return Credit: {so.OrderNumber}" });
-
+                        // Update tracked shipment quantity on the sales order line
                         soLine.QtyShipped -= line.Quantity;
                     }
                 }
 
                 // -----------------------------------------------------------------
-                // LEG B: INDEPENDENT CASH DISBURSEMENT (CUSTOMER AR VS BANK ONLY)
+                // LEG B: PAYMENT CASH REFUND (REVERSES PAYMENT: AR VS BANK)
                 // -----------------------------------------------------------------
                 if (refund.RefundType == ReceiptRefundType.PaymentOnly || refund.RefundType == ReceiptRefundType.Both)
                 {
+                    if (!refund.BankAccountId.HasValue || refund.BankAccountId.Value == Guid.Empty)
+                        return "Posting Aborted: Bank account is required for cash refund disbursement.";
+
+                    Guid arAccount = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
+                    if (arAccount == Guid.Empty)
+                        return "Posting Aborted: Customer Accounts Receivable account mapping missing.";
+
                     decimal cashRefundBase = Math.Round(refund.TotalAmount * rate, 2);
 
-                    // Cash balances strictly between accounts receivable asset and the source bank ledger
-                    glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = cashRefundBase, Credit = 0, Reference = $"Cash Refund Claim: {so.OrderNumber}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = refund.BankAccountId.Value, Debit = 0, Credit = cashRefundBase, Reference = $"Cash Out To: {refund.Customer?.Name}" });
+                    if (cashRefundBase > 0)
+                    {
+                        // DR Accounts Receivable (restores open balance), CR Bank (cash outflow)
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = arAccount,
+                            Debit = cashRefundBase,
+                            Credit = 0,
+                            Reference = $"Cash Refund Claim: {so.OrderNumber}"
+                        });
+
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = refund.BankAccountId.Value,
+                            Debit = 0,
+                            Credit = cashRefundBase,
+                            Reference = $"Cash Out To: {refund.Customer?.Name}"
+                        });
+                    }
                 }
 
                 if (!glLines.Any()) return "No valid transaction elements or quantities were processed.";
 
-                // Validation checksum gate
+                // Self-Balancing Checksum Validation
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 if (totalDebits != totalCredits)
                 {
-                    return $"Posting Aborted: Ledger architecture misalignment. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
+                    return $"Posting Aborted: Ledger imbalance. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
                 }
 
                 var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString());

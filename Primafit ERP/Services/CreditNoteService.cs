@@ -347,7 +347,7 @@
                     decimal lineGrossTotalBase = Math.Round(lineGrossTotalForeign * rate, 2);
 
                     // A. Debit Revenue Reversal Account
-                    glLines.Add(new GLJournalLine { SegCoaId = revenueAccount, Debit = lineGrossTotalBase, Credit = 0, Reference = $"Rev Adjust: {line.Item.Name}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = revenueAccount, Debit = lineGrossTotalBase, Credit = 0, Reference = $"Credit Note : {line.Item.Name}" });
 
                     // B. Credit Discount Reversal Account
                     decimal lineDiscountForeign = 0;

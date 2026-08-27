@@ -22,7 +22,11 @@ namespace Primafit_ERP.Components.Models
         ArAdjustment = 11,       
         ApAdjustment = 12,        
         InventoryAdjustment = 13,
-        CustomGlAdjustment = 14   
+        CustomGlAdjustment = 14,
+        GoodsReceipt = 15,
+        DebitNote = 16,
+        CustomerPayment = 17,
+        VendorPayment = 18
     }
 
     // =========================================================

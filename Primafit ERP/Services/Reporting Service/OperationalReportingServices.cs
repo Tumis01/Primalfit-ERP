@@ -633,13 +633,7 @@ namespace Primafit_ERP.Services
                     && b.BillDate <= endDate.ToDateTime(TimeOnly.MaxValue))
                 .ToListAsync();
 
-            var returns = await ctx.PurchaseReturns
-                .AsNoTracking()
-                .Where(r => r.CompanyId == companyId
-                    && vendorIds.Contains(r.VendorId)
-                    && r.Status == ReturnStatus.Posted
-                    && r.ReturnDate <= endDate.ToDateTime(TimeOnly.MaxValue))
-                .ToListAsync();
+            
 
             var apAccountIds = vendors
                 .Where(v => v.PayablesAccountId.HasValue)
@@ -722,22 +716,7 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                foreach (var purchaseReturn in returns.Where(r => r.VendorId == vendor.Id))
-                {
-                    decimal rate = purchaseReturn.ExchangeRate > 0 ? purchaseReturn.ExchangeRate : 1;
-
-                    activity.Add(new VendorStatementLine
-                    {
-                        VendorId = vendor.Id,
-                        VendorName = vendor.Name,
-                        VendorAddress = vendor.Address ?? "",
-                        Date = DateOnly.FromDateTime(purchaseReturn.ReturnDate),
-                        DocumentNumber = purchaseReturn.ReturnNumber,
-                        Type = "Purchase Return",
-                        Description = "Return to vendor",
-                        Debit = Math.Round(purchaseReturn.TotalAmount * rate, 2)
-                    });
-                }
+                
 
                 foreach (var adj in glAdjustments.Where(a => IsVendorAdjustmentFor(a.Narration, vendor.Name)))
                 {

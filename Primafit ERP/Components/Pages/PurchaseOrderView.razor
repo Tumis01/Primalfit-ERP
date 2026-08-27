@@ -812,8 +812,8 @@
         set { _searchTerm = value; ResetPaginationMatrices(); }
     }
 
-    private DateTime _filterFromDate = DateTime.Today.AddDays(-30);
-    private DateTime filterFromDate
+    private DateTime _filterFromDate = DateTime.Today.AddDays(-365);
+    private DateTime filterFromDate 
     {
         get => _filterFromDate;
         set { _filterFromDate = value; ResetPaginationMatrices(); }

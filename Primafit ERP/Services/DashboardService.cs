@@ -1,6 +1,10 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace Primafit_ERP.Services
 {
@@ -34,8 +38,8 @@ namespace Primafit_ERP.Services
             // ═══════════════════════════════════════════════════════════════════
             var accountTypes = await ctx.Set<SegAccountType>().AsNoTracking().ToListAsync();
             var accounts = await ctx.SegChartOfAccounts.AsNoTracking()
-                                   .Where(a => a.CompanyId == companyId && a.IsActive)
-                                   .ToListAsync();
+                                       .Where(a => a.CompanyId == companyId && a.IsActive)
+                                       .ToListAsync();
 
             var assetTypeIds = accountTypes.Where(t => t.IsBalanceSheet && t.IsDebit).Select(t => t.Id).ToHashSet();
             var liabTypeIds = accountTypes.Where(t => t.IsBalanceSheet && !t.IsDebit).Select(t => t.Id).ToHashSet();
@@ -64,7 +68,7 @@ namespace Primafit_ERP.Services
                 .CountAsync(b => b.CompanyId == companyId && b.MatchStatus == BillMatchStatus.Variance);
 
             // ═══════════════════════════════════════════════════════════════════
-            // 3. STOCK & VALUATION (THE FIX: Matches Valuation Report)
+            // 3. STOCK & VALUATION
             // ═══════════════════════════════════════════════════════════════════
             var stockLevels = await ctx.StockLedgers
                 .Where(s => s.CompanyId == companyId)
@@ -79,7 +83,6 @@ namespace Primafit_ERP.Services
             snapshot.LowStockItemsCount = physicalItems
                 .Count(i => i.ReorderLevel > 0 && stockLevels.GetValueOrDefault(i.Id, 0) <= i.ReorderLevel);
 
-            // Calculate true subledger inventory valuation (Qty * WACC)
             decimal calculatedInventoryValue = 0;
             foreach (var item in physicalItems)
             {
@@ -92,7 +95,7 @@ namespace Primafit_ERP.Services
             snapshot.InventoryValue = calculatedInventoryValue;
 
             // ═══════════════════════════════════════════════════════════════════
-            // 4. GL
+            // 4. GL BALANCE AGGREGATIONS
             // ═══════════════════════════════════════════════════════════════════
             var allTimeBalances = await ctx.GLTransactions
                 .Where(t => t.CompanyId == companyId)
@@ -123,7 +126,8 @@ namespace Primafit_ERP.Services
             bool IsExp(Guid id) => accountTypeMap.TryGetValue(id, out var t) && expTypeIds.Contains(t);
             bool IsCogs(Guid id) => cogsAccountIds.Contains(id);
 
-            decimal RevOf(List<GlRecord> gl) => Math.Abs(gl.Where(t => IsRev(t.CoaId)).Sum(t => t.Cr - t.Dr));
+            // CORRECTION: Removed Math.Abs from revenue calculations to allow true negative offsets from Credit Notes
+            decimal RevOf(List<GlRecord> gl) => gl.Where(t => IsRev(t.CoaId)).Sum(t => t.Cr - t.Dr);
             decimal ExpOf(List<GlRecord> gl) => gl.Where(t => IsExp(t.CoaId)).Sum(t => t.Dr - t.Cr);
             decimal CogsOf(List<GlRecord> gl) => gl.Where(t => IsCogs(t.CoaId)).Sum(t => t.Dr - t.Cr);
 
@@ -138,10 +142,10 @@ namespace Primafit_ERP.Services
             snapshot.RevenueMTD = revMtd;
             snapshot.RevenueYTD = RevOf(ytdGl);
             snapshot.NetProfitMTD = revMtd - expMtd;
+
+            // Safety configurations for edge ratios when net figures fall to/below 0
             snapshot.GrossProfitMargin = revMtd != 0 ? ((revMtd - cogsMtd) / revMtd) * 100 : 0;
             snapshot.NetProfitMargin = revMtd != 0 ? (snapshot.NetProfitMTD / revMtd) * 100 : 0;
-
-            // Uses our newly calculated subledger inventory value
             snapshot.InventoryTurnover = calculatedInventoryValue != 0 ? cogsMtd / calculatedInventoryValue : 0;
 
             snapshot.PreviousMonthRevenue = RevOf(prevMonthGl);
@@ -338,5 +342,126 @@ namespace Primafit_ERP.Services
             snapshot.LastRefresh = DateTime.Now;
             return snapshot;
         }
+        public class DrillDownLineItem
+        {
+            public DateOnly Date { get; set; }
+            public string AccountName { get; set; } = string.Empty;
+            public string Reference { get; set; } = string.Empty;
+            public decimal Debit { get; set; }
+            public decimal Credit { get; set; }
+            public decimal NetBalanceEffect { get; set; }
+        }
+        public async Task<List<DrillDownLineItem>> GetLedgerDrillDownAsync(Guid companyId, string metricType)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var now = DateTime.UtcNow;
+            var startOfMonth = new DateOnly(now.Year, now.Month, 1);
+
+            // Fetch master mapping parameters
+            var accountTypes = await ctx.Set<SegAccountType>().AsNoTracking().ToListAsync();
+            var accounts = await ctx.SegChartOfAccounts.AsNoTracking()
+                                     .Where(a => a.CompanyId == companyId && a.IsActive)
+                                     .ToListAsync();
+
+            var assetTypeIds = accountTypes.Where(t => t.IsBalanceSheet && t.IsDebit).Select(t => t.Id).ToHashSet();
+            var revTypeIds = accountTypes.Where(t => !t.IsBalanceSheet && !t.IsDebit).Select(t => t.Id).ToHashSet();
+            var expTypeIds = accountTypes.Where(t => !t.IsBalanceSheet && t.IsDebit).Select(t => t.Id).ToHashSet();
+
+            var accountTypeMap = accounts.ToDictionary(a => a.Id, a => a.SegAccountTypeId);
+            var accountDescMap = accounts.ToDictionary(a => a.Id, a => a.Description);
+
+            // ───────────────────────────────────────────────────────────────────
+            // SPECIAL CASE: CASH & BANK (Return Accounts & Balances, not transactions)
+            // ───────────────────────────────────────────────────────────────────
+            if (metricType.ToUpper() == "CASH")
+            {
+                // 1. Identify all active Cash/Bank accounts
+                var bankAccounts = accounts
+                    .Where(a => assetTypeIds.Contains(a.SegAccountTypeId) &&
+                                (a.Description.Contains("Bank", StringComparison.OrdinalIgnoreCase) ||
+                                 a.Description.Contains("Cash", StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+
+                var bankAccountIds = bankAccounts.Select(a => a.Id).ToHashSet();
+
+                // 2. Aggregate all-time ledger balances for these specific accounts (Debit - Credit)
+                var balances = await ctx.GLTransactions
+                    .Where(t => t.CompanyId == companyId && bankAccountIds.Contains(t.SegCoaId))
+                    .GroupBy(t => t.SegCoaId)
+                    .Select(g => new { CoaId = g.Key, Balance = g.Sum(t => t.Debit - t.Credit) })
+                    .ToDictionaryAsync(x => x.CoaId, x => x.Balance);
+
+                // 3. Project directly into our presentation collection
+                return bankAccounts
+                    .Select(a => new DrillDownLineItem
+                    {
+                        Date = DateOnly.FromDateTime(DateTime.Today), // Current state snapshot
+                        AccountName = a.Description,
+                        Reference = " Cash and Cash Equivalents Accounts",
+                        Debit = 0,  // Hidden on account balance views
+                        Credit = 0, // Hidden on account balance views
+                        NetBalanceEffect = balances.GetValueOrDefault(a.Id, 0m)
+                    })
+                    .Where(a => Math.Abs(a.NetBalanceEffect) > 0.001m) // Only show accounts with an active balance
+                    .OrderByDescending(a => a.NetBalanceEffect)
+                    .ToList();
+            }
+
+            // ───────────────────────────────────────────────────────────────────
+            // TRANSACTIONAL CASES (Revenue & Net Profit Ledger Audit)
+            // ───────────────────────────────────────────────────────────────────
+            IQueryable<GLTransaction> query = ctx.GLTransactions
+                .AsNoTracking()
+                .Where(t => t.CompanyId == companyId);
+
+            if (metricType.ToUpper() == "REVENUE")
+            {
+                var revCoaIds = accounts.Where(a => revTypeIds.Contains(a.SegAccountTypeId)).Select(a => a.Id).ToHashSet();
+                query = query.Where(t => revCoaIds.Contains(t.SegCoaId) && t.PostingDate >= startOfMonth);
+            }
+            else if (metricType.ToUpper() == "PROFIT")
+            {
+                var pnlCoaIds = accounts
+                    .Where(a => revTypeIds.Contains(a.SegAccountTypeId) || expTypeIds.Contains(a.SegAccountTypeId))
+                    .Select(a => a.Id)
+                    .ToHashSet();
+                query = query.Where(t => pnlCoaIds.Contains(t.SegCoaId) && t.PostingDate >= startOfMonth);
+            }
+            else
+            {
+                return new List<DrillDownLineItem>();
+            }
+
+            var rawTransactions = await query
+                .OrderByDescending(t => t.PostingDate)
+                .ThenByDescending(t => t.Id)
+                .Take(150)
+                .ToListAsync();
+
+            return rawTransactions.Select(t =>
+            {
+                bool isDebitAccount = accountTypeMap.TryGetValue(t.SegCoaId, out var typeId) &&
+                                      accountTypes.FirstOrDefault(at => at.Id == typeId)?.IsDebit == true;
+
+                decimal netEffect = isDebitAccount ? (t.Debit - t.Credit) : (t.Credit - t.Debit);
+
+                bool isExpense = accountTypeMap.TryGetValue(t.SegCoaId, out var tid) && expTypeIds.Contains(tid);
+                if (metricType.ToUpper() == "PROFIT" && isExpense)
+                {
+                    netEffect = -(t.Debit - t.Credit);
+                }
+
+                return new DrillDownLineItem
+                {
+                    Date = t.PostingDate,
+                    AccountName = accountDescMap.GetValueOrDefault(t.SegCoaId, "Unassigned COA Entry"),
+                    Reference = t.Narration ?? "N/A",
+                    Debit = t.Debit,
+                    Credit = t.Credit,
+                    NetBalanceEffect = netEffect
+                };
+            }).ToList();
+        }
     }
+    
 }
