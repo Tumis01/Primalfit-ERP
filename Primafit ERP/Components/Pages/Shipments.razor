@@ -19,7 +19,7 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16 font-sans text-slate-800">
     <div class="flex flex-col xl:flex-row xl:items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouse Dispatch</h1>
@@ -27,13 +27,13 @@
         </div>
 
         <div class="flex flex-col sm:flex-row items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
-            <div class="relative w-full sm:w-80 shrink-0" @onfocusout="HideDropdownDelay">
+            <div class="relative w-full sm:w-80 shrink-0">
                 <input type="text"
                        @bind="orderSearchTerm"
                        @bind:event="oninput"
                        @onfocus="() => showOrderDropdown = true"
                        @onkeyup="HandleInput"
-                       placeholder="Select invoice to dispatch..."
+                       placeholder="Select or search invoice to dispatch..."
                        class="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
 
                 @if (showOrderDropdown)
@@ -67,8 +67,12 @@
             </div>
             <PermissionGate Key="SHIPMENT_CREATE">
                 <Authorized>
-                    <button @onclick="PullOrderToQueue" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2 active:scale-95">
-                        Load Shipment
+                    <button @onclick="PullOrderToQueue" disabled="@isBusy" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin">↻</span>
+                        }
+                        <span>Load Shipment</span>
                     </button>
                 </Authorized>
             </PermissionGate>
@@ -148,7 +152,7 @@
                                             bool isOver = line.QtyShipped > line.QtyOrdered;
                                             <tr class="@(isOver ? "bg-rose-50/40" : "")">
                                                 <td class="py-4 font-bold text-slate-800">@line.Item?.Name</td>
-                                                <td class="py-4 text-center text-slate-500 font-mono">@line.QtyOrdered</td>
+                                                <td class="py-4 text-center text-slate-500 font-mono">@line.QtyOrdered.ToString("G29")</td>
                                                 <td class="py-4">
                                                     <input type="number" step="0.01" max="@line.QtyOrdered" min="0"
                                                            value="@line.QtyShipped"
@@ -236,9 +240,7 @@
     }
 </div>
 
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL -->
 @if (showRouteModal && selectedShipmentForConfig != null)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -356,6 +358,7 @@
 @code {
     private int activeTab = 0;
     private bool isLoading = true;
+    private bool isBusy = false;
     private Guid companyId;
     private string currentUser = "System User";
 
@@ -422,13 +425,6 @@
         StateHasChanged();
     }
 
-    private async Task HideDropdownDelay()
-    {
-        await Task.Delay(150);
-        showOrderDropdown = false;
-        StateHasChanged();
-    }
-
     private void HandleInput()
     {
         selectedUnshippedOrderId = Guid.Empty;
@@ -444,11 +440,27 @@
 
     private async Task PullOrderToQueue()
     {
+        // Strict Match Fallback: If user typed an exact order number without clicking the dropdown item
+        if (selectedUnshippedOrderId == Guid.Empty && !string.IsNullOrWhiteSpace(orderSearchTerm))
+        {
+            var match = unshippedOrders.FirstOrDefault(o =>
+                o.OrderNumber.Equals(orderSearchTerm.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                $"{o.OrderNumber} - {o.Customer?.Name}".Equals(orderSearchTerm.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (match != null)
+            {
+                selectedUnshippedOrderId = match.Id;
+            }
+        }
+
         if (selectedUnshippedOrderId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Please search and select an eligible invoice from the dropdown list first.");
             return;
         }
+
+        isBusy = true;
+        StateHasChanged();
 
         var err = await ShipmentService.CreateShipmentFromOrderAsync(selectedUnshippedOrderId);
         if (!string.IsNullOrEmpty(err))
@@ -459,8 +471,12 @@
         {
             selectedUnshippedOrderId = Guid.Empty;
             orderSearchTerm = "";
+            showOrderDropdown = false;
             await LoadData();
         }
+
+        isBusy = false;
+        StateHasChanged();
     }
 
     private void ToggleExpand(Guid id)
@@ -522,8 +538,23 @@
         }
     }
 
-    private void ApplyRouteModalChanges()
+    private async Task ApplyRouteModalChanges()
     {
+        if (selectedShipmentForConfig != null)
+        {
+            var err = await ShipmentService.UpdateShipmentRouteAsync(
+                selectedShipmentForConfig.Id,
+                selectedShipmentForConfig.CustomTransactionTypeId,
+                selectedShipmentForConfig.OverrideCogsGlAccountId,
+                selectedShipmentForConfig.OverrideInventoryAssetGlAccountId);
+
+            if (!string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", err);
+                return;
+            }
+        }
+
         showRouteModal = false;
         StateHasChanged();
     }

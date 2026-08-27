@@ -42,10 +42,10 @@
                 <table class="w-full text-left text-sm whitespace-nowrap min-w-[950px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
-                            <th class="p-4 w-[24%] pl-6">Route / Operation</th>
-                            <th class="p-4 w-[28%]">Workflow Page Link</th>
-                            <th class="p-4 w-[20%]">Debit Account (Override)</th>
-                            <th class="p-4 w-[20%]">Credit Account (Override)</th>
+                            <th class="p-4 w-[24%] pl-6">Transaction Type</th>
+                            <th class="p-4 w-[28%]">Page Link</th>
+                            <th class="p-4 w-[20%]">Debit Account </th>
+                            <th class="p-4 w-[20%]">Credit Account </th>
                             <th class="p-4 text-center w-[8%] pr-6">Action</th>
                         </tr>
                     </thead>
@@ -507,13 +507,13 @@
     {
         return type switch
         {
-            SystemTransactionType.SalesInvoice => "Standard Sales Invoicing",
+            SystemTransactionType.SalesInvoice => "Sales Invoice",
             SystemTransactionType.DirectSalesInvoice => "Direct Sales Invoicing",
-            SystemTransactionType.ArAdjustment => "AR Adjustment & Balances",
-            SystemTransactionType.CustomerPayment => "Customer Payment Receipt",
-            SystemTransactionType.CreditNote => "Credit Note Return",
-            SystemTransactionType.ReceiptRefund => "Customer Receipt Refund",
-            SystemTransactionType.ShipmentDispatch => "Warehouse Shipment Dispatch",
+            SystemTransactionType.ArAdjustment => "AR Adjustment",
+            SystemTransactionType.CustomerPayment => "Customer Payment ",
+            SystemTransactionType.CreditNote => "Credit Note ",
+            SystemTransactionType.ReceiptRefund => "Receipt Refund",
+            SystemTransactionType.ShipmentDispatch => "Shipment",
             SystemTransactionType.DiscountAllowed => "Sales Discount Allowed",
             _ => type.ToString()
         };
@@ -530,11 +530,11 @@
 
         return map.TransactionType switch
         {
-            SystemTransactionType.SalesInvoice => "Inventory-tracked customer billing routes.",
-            SystemTransactionType.DirectSalesInvoice => "Non-inventory free-text customer billing.",
+            SystemTransactionType.SalesInvoice => "Inventory-tracked Invoice.",
+            SystemTransactionType.DirectSalesInvoice => "Non-inventory Invoice.",
             SystemTransactionType.ArAdjustment => "Opening balance migration & subledger adjustments.",
             SystemTransactionType.CustomerPayment => "Bank receipt settlements against customer AR invoices.",
-            SystemTransactionType.CreditNote => "Customer sales returns and AR credits.",
+            SystemTransactionType.CreditNote => "Sales Invoice Balancing",
             SystemTransactionType.ReceiptRefund => "Refunding cash/bank receipts and returning stock.",
             SystemTransactionType.ShipmentDispatch => "Physical inventory release and Cost of Goods Sold posting.",
             SystemTransactionType.DiscountAllowed => "Early settlement and promotional order discounts.",
