@@ -145,6 +145,7 @@ namespace Primafit_ERP.Services
                 .Include(d => d.Vendor)
                 .Include(d => d.PurchaseOrder).ThenInclude(o => o.Lines)
                 .Include(d => d.Currency)
+                .Include(d => d.CustomTransactionType)
                 .FirstOrDefaultAsync(d => d.Id == id && d.CompanyId == companyId);
 
             if (dn != null && dn.PurchaseOrder != null)
@@ -194,19 +195,28 @@ namespace Primafit_ERP.Services
 
                 var po = dn.PurchaseOrder;
 
-                // --- 1. RESOLVE ACCOUNTS PAYABLE (DEBIT LEG) ---
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (dn.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == dn.CompanyId && m.CustomTransactionTypeId == dn.CustomTransactionTypeId.Value);
+                }
+
+                // 2. Resolve Accounts Payable (Debit Leg)
                 var vendor = await ctx.Vendors.FindAsync(dn.VendorId);
                 Guid defaultApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
 
-                Guid apAccount = await _mappingService.GetMappedAccountAsync(
-                    dn.CompanyId,
-                    SystemTransactionType.DebitNote,
-                    isDebit: true,
-                    defaultAccountId: defaultApAccount);
+                Guid apAccount = dn.OverrideAccountsPayableGlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        dn.CompanyId,
+                        SystemTransactionType.DebitNote,
+                        isDebit: true,
+                        defaultAccountId: defaultApAccount);
 
                 if (apAccount == Guid.Empty)
                 {
-                    // Fallback to ReturnToVendor mapping if DebitNote wasn't specifically configured
                     apAccount = await _mappingService.GetMappedAccountAsync(
                         dn.CompanyId,
                         SystemTransactionType.ReturnToVendor,
@@ -217,17 +227,20 @@ namespace Primafit_ERP.Services
                 if (apAccount == Guid.Empty)
                     return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
-                // --- 2. RESOLVE GR/IR CLEARING / EXPENSE (CREDIT LEG) ---
+                // 3. Resolve GR/IR Clearing / Expense / Inventory (Credit Leg)
                 var grns = await ctx.GoodsReceipts
                     .AsNoTracking()
                     .Where(g => g.PurchaseOrderId == po.Id && g.CompanyId == dn.CompanyId)
                     .ToListAsync();
 
-                Guid clearingAccount = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
+                Guid defaultClearing = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
+
+                Guid clearingAccount = dn.OverrideGrIrClearingGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? (defaultClearing != Guid.Empty ? defaultClearing : Guid.Empty);
 
                 if (clearingAccount == Guid.Empty)
                 {
-                    // Check DebitNote router credit override first
                     clearingAccount = await _mappingService.GetMappedAccountAsync(
                         dn.CompanyId,
                         SystemTransactionType.DebitNote,
@@ -237,7 +250,6 @@ namespace Primafit_ERP.Services
 
                 if (clearingAccount == Guid.Empty)
                 {
-                    // Fallback to GoodsReceipt router credit override
                     clearingAccount = await _mappingService.GetMappedAccountAsync(
                         dn.CompanyId,
                         SystemTransactionType.GoodsReceipt,
@@ -245,12 +257,11 @@ namespace Primafit_ERP.Services
                         defaultAccountId: Guid.Empty);
                 }
 
-                // --- 3. RESOLVE DISCOUNT RECEIVED ROLLBACK (DEBIT LEG) ---
+                // 4. Resolve Discount Received Rollback (Debit Leg)
                 bool hasDiscounts = po.DiscountPercentage > 0 || po.DiscountAmount > 0;
                 Guid discountAccount = Guid.Empty;
                 if (hasDiscounts)
                 {
-                    // Prioritize specific invoice header account
                     discountAccount = po.DiscountGlAccountId ?? Guid.Empty;
 
                     if (discountAccount == Guid.Empty)
@@ -258,7 +269,7 @@ namespace Primafit_ERP.Services
                         discountAccount = await _mappingService.GetMappedAccountAsync(
                             dn.CompanyId,
                             SystemTransactionType.DiscountReceived,
-                            isDebit: false, // Targets OverrideCreditGlAccountId
+                            isDebit: false,
                             defaultAccountId: Guid.Empty);
                     }
 
@@ -266,7 +277,7 @@ namespace Primafit_ERP.Services
                         return "Posting Aborted: Missing Discount Received GL Account mapping for rollback.";
                 }
 
-                // --- 4. RESOLVE TAX ROLLBACK (CREDIT LEG) ---
+                // 5. Resolve Tax Rollback (Credit Leg)
                 decimal taxPer = 0;
                 Guid taxGlAccountId = Guid.Empty;
                 if (po.TaxId.HasValue)
@@ -281,7 +292,7 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                // --- 5. GENERATE BALANCED JOURNAL ENTRIES ---
+                // 6. Generate Balanced Journal Entries
                 var glLines = new List<GLJournalLine>();
                 decimal totalApReductionBase = 0;
                 decimal totalApReductionForeign = 0;
@@ -290,8 +301,7 @@ namespace Primafit_ERP.Services
 
                 foreach (var line in dn.Lines)
                 {
-                    if (line.Quantity <= 0) continue;
-                    if (line.Item == null) continue;
+                    if (line.Quantity <= 0 || line.Item == null) continue;
 
                     decimal lineGrossForeign = line.Quantity * line.UnitCost;
                     decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
@@ -368,7 +378,7 @@ namespace Primafit_ERP.Services
                 };
                 glLines.Add(apLine);
 
-                // --- 6. BALANCING CHECK & POSTING ---
+                // Balancing Check & Posting
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 decimal mismatch = totalDebits - totalCredits;
@@ -432,6 +442,9 @@ namespace Primafit_ERP.Services
 
             existing.Date = note.Date;
             existing.Reason = note.Reason;
+            existing.CustomTransactionTypeId = note.CustomTransactionTypeId;
+            existing.OverrideAccountsPayableGlAccountId = note.OverrideAccountsPayableGlAccountId;
+            existing.OverrideGrIrClearingGlAccountId = note.OverrideGrIrClearingGlAccountId;
 
             ctx.DebitNoteLines.RemoveRange(existing.Lines);
 

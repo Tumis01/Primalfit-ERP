@@ -9,8 +9,8 @@ namespace Primafit_ERP.Components.Models
     // =========================================================
     public enum SystemTransactionType
     {
-        CustomerOpeningBalance = 1,
-        VendorOpeningBalance = 2,
+        ArAdjustment = 1,          
+        ApAdjustment = 2,          
         DirectPurchaseInvoice = 3,
         DirectSalesInvoice = 4,
         DiscountAllowed = 5,
@@ -19,14 +19,14 @@ namespace Primafit_ERP.Components.Models
         PurchaseInvoice = 8,
         CreditNote = 9,
         ReturnToVendor = 10,
-        ArAdjustment = 11,       
-        ApAdjustment = 12,        
         InventoryAdjustment = 13,
         CustomGlAdjustment = 14,
         GoodsReceipt = 15,
         DebitNote = 16,
         CustomerPayment = 17,
-        VendorPayment = 18
+        VendorPayment = 18,
+        ReceiptRefund = 19,
+        ShipmentDispatch = 20
     }
 
     // =========================================================
@@ -102,5 +102,16 @@ namespace Primafit_ERP.Components.Models
         public bool IsDebitInventory { get; set; } = true; // true = Debit Item Account, false = Credit Item Account
         public decimal QuantityChange { get; set; } // Positive for increase, Negative for decrease
         public decimal TotalValueChange { get; set; }
+    }
+    public class TransactionTypeOptionDto
+    {
+        public string ValueKey { get; set; } = string.Empty; // e.g., "SYS_1" or "CUST_guid"
+        public string DisplayName { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public bool IsCustom { get; set; }
+        public SystemTransactionType SystemType { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        public Guid? DefaultDebitAccountId { get; set; }
+        public Guid? DefaultCreditAccountId { get; set; }
     }
 }

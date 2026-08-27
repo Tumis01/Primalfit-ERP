@@ -13,6 +13,7 @@
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
 @inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -23,7 +24,7 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 font-sans text-slate-800">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
@@ -35,9 +36,9 @@
         {
             <PermissionGate Key="PO_CREATE">
                 <Authorized>
-                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2">
+                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-2 active:scale-95">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                        Create Invoice
+                        <span>Create Invoice</span>
                     </button>
                 </Authorized>
             </PermissionGate>
@@ -53,13 +54,34 @@
         @if (showForm)
         {
             <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible mb-8">
+                <!-- Form Header Bar -->
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-t-2xl">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500">Bill Workspace</span>
+                        @if (!string.IsNullOrEmpty(bill.ExternalInvoiceNumber))
+                        {
+                            <span class="px-2.5 py-1 bg-slate-200 text-slate-700 font-mono text-xs rounded-lg font-bold">@bill.ExternalInvoiceNumber</span>
+                        }
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <!-- Configure Route Button -->
+                        <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            <span>Configure Route</span>
+                            @if (bill.CustomTransactionTypeId.HasValue)
+                            {
+                                <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                            }
+                        </button>
+                    </div>
+                </div>
+
                 <EditForm Model="bill">
                     <DataAnnotationsValidator />
 
                     <div class="p-6 md:p-8 space-y-8">
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
-
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
                             <div>
                                 <label class="label">Vendor <span class="text-rose-500">*</span></label>
                                 <select value="@bill.VendorId" @onchange="OnVendorChanged" class="input-class font-bold text-slate-800 bg-white" disabled="@IsLocked">
@@ -72,24 +94,8 @@
                             </div>
 
                             <div>
-                                <label class="label">Bill / Invoice Date</label>
+                                <label class="label">Bill Date</label>
                                 <input type="date" value="@bill.BillDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
-                            </div>
-
-                            <div class="hidden">
-                                <label class="label">Vendor Invoice #</label>
-                                <InputText @bind-Value="bill.ExternalInvoiceNumber" class="input-class bg-white font-mono" placeholder="Leave blank to auto-generate" disabled="@IsLocked" />
-                            </div>
-
-                            <div class="hidden">
-                                <label class="label text-rose-700">Accounts Payable GL (Liability) <span class="text-rose-500">*</span></label>
-                                <select @bind="bill.AccountsPayableGlId" class="input-class bg-white border-rose-200 font-bold text-rose-800 focus:border-rose-500" disabled="@IsLocked">
-                                    <option value="@Guid.Empty">-- Select AP Account --</option>
-                                    @foreach (var acc in apAccounts)
-                                    {
-                                        <option value="@acc.Id">@acc.AccountCode - @acc.Description</option>
-                                    }
-                                </select>
                             </div>
 
                             <div>
@@ -116,92 +122,82 @@
                                     }
                                 </select>
                             </div>
+                        </div>
 
-                            @if (bill.TaxId != null)
+                        <!-- Lines Grid -->
+                        <div class="border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                            <table class="w-full text-sm text-left">
+                                <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
+                                    <tr>
+                                        <th class="p-3 pl-4 w-[50%]">Description / Memo <span class="text-rose-500">*</span></th>
+                                        <th class="p-3 w-[15%] text-center">Qty</th>
+                                        <th class="p-3 w-[15%] text-right">Unit Cost (@currencySymbol)</th>
+                                        <th class="p-3 w-[15%] text-right pr-4">Total</th>
+                                        <th class="p-3 w-[5%]"></th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach (var line in bill.Lines)
+                                    {
+                                        <tr class="hover:bg-slate-50 transition-colors">
+                                            <td class="p-2 pl-4 align-top pt-3">
+                                                <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Office Electricity Bill" disabled="@IsLocked" />
+                                            </td>
+                                            <td class="p-2 align-top pt-3">
+                                                <input type="number" step="0.01" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                            </td>
+                                            <td class="p-2 align-top pt-3">
+                                                <input type="number" step="0.01" @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                            </td>
+                                            <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
+                                                @((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))
+                                            </td>
+                                            <td class="p-2 text-center align-top pt-5">
+                                                @if (!IsLocked)
+                                                {
+                                                    <button type="button" @onclick="() => bill.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600 transition-colors">
+                                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (!IsLocked)
                             {
-                                <div class="hidden">
-                                    <SearchableGlAccount Label="Tax GL Account (Asset/Input)"
-                                                         Placeholder="Search Tax GL..."
-                                                         Accounts="@taxAccounts"
-                                                         Value="@(bill.TaxGLAccountId ?? Guid.Empty)"
-                                                         ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => bill.TaxGLAccountId = val == Guid.Empty ? (Guid?)null : val))"
-                                                         IsInvalid="@(bill.TaxGLAccountId == null || bill.TaxGLAccountId == Guid.Empty)" />
+                                <div class="p-2 bg-slate-50 border-t border-slate-200">
+                                    <button type="button" @onclick="AddLine" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 flex items-center gap-1 px-2 py-1 uppercase tracking-wide">
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg> Add Expense Line
+                                    </button>
                                 </div>
                             }
                         </div>
-                    </div>
 
-                    <div class="border border-slate-200 rounded-xl shadow-sm overflow-visible z-10 relative">
-                        <table class="w-full text-sm text-left overflow-visible">
-                            <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
-                                <tr>
-                                    <th class="p-3 pl-4 w-[50%]">Description / Memo <span class="text-rose-500">*</span></th>
-                                    <th class="p-3 w-[15%] text-center">Qty</th>
-                                    <th class="p-3 w-[15%] text-right">Unit Cost</th>
-                                    <th class="p-3 w-[15%] text-right pr-4">Total</th>
-                                    <th class="p-3 w-[5%]"></th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 overflow-visible min-h-[150px]">
-                                @foreach (var line in bill.Lines)
-                                {
-                                    <tr class="hover:bg-slate-50 transition-colors overflow-visible">
-                                        <td class="p-2 pl-4 align-top pt-3">
-                                            <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Office Electricity Bill" disabled="@IsLocked" />
-                                        </td>
-                                        <td class="p-2 align-top pt-3">
-                                            <input type="number" step="0.01" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
-                                        </td>
-                                        <td class="p-2 align-top pt-3">
-                                            <input type="number" step="0.01" @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
-                                        </td>
-                                        <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
-                                            @((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))
-                                        </td>
-                                        <td class="p-2 text-center align-top pt-5">
-                                            @if (!IsLocked)
-                                            {
-                                                <button type="button" @onclick="() => bill.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600">
-                                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-
-                        @if (!IsLocked)
-                        {
-                            <div class="p-2 bg-slate-50 border-t border-slate-200 rounded-b-xl">
-                                <button type="button" @onclick="AddLine" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 flex items-center gap-1 px-2 py-1 uppercase tracking-wide">
-                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg> Add Expense Line
-                                </button>
-                            </div>
-                        }
-                    </div>
-
-                    <div class="flex justify-end pt-4">
-                        <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
-                            <div class="flex justify-between">
-                                <span>Subtotal:</span>
-                                <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
-                            </div>
-                            <div class="flex justify-between items-center text-rose-600 border-b border-slate-200 pb-2">
-                                <span>Tax (@TaxPercentage%):</span>
-                                <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
-                            </div>
-                            <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                <span class="font-bold">Total (@currencySymbol):</span>
-                                <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
-                            </div>
-                            <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
-                                <span>Local Amount:</span>
-                                <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                        <!-- Summary Calculation -->
+                        <div class="flex justify-end pt-4">
+                            <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
+                                <div class="flex justify-between">
+                                    <span>Subtotal:</span>
+                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between items-center pt-2">
+                                    <span>Tax (@TaxPercentage%):</span>
+                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
+                                    <span class="font-bold">Total (@currencySymbol):</span>
+                                    <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
+                                    <span>Local Base Value:</span>
+                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                </div>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Footer Controls -->
                     <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 rounded-b-2xl">
                         @if (IsLocked)
                         {
@@ -225,15 +221,7 @@
                         </button>
 
                         <button type="button" @onclick="ResetForm" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-white transition-colors">
-                            @if (IsLocked)
-                            {
-                                <span>New Bill</span>
-                            }
-                            else
-                            {
-
-                                <span>Clear</span>
-                            }
+                            @(IsLocked ? "New Bill" : "Clear")
                         </button>
 
                         @if (!IsLocked)
@@ -245,7 +233,7 @@
                                         {
                                             <span class="animate-spin">↻</span>
                                         }
-                                        Post AP Bill
+                                        <span>Post AP Bill</span>
                                     </button>
                                 </Authorized>
                             </PermissionGate>
@@ -255,6 +243,7 @@
             </div>
         }
 
+        <!-- Historical List Grid -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mt-8">
             <div class="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <h2 class="text-lg font-bold text-slate-800">Past Direct Invoices</h2>
@@ -330,55 +319,197 @@
             </div>
         </div>
     }
+</div>
 
-    @if (showEmailPopup)
-    {
-        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
 
-                <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Payment Remittance</h3>
-                    <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="text-slate-400 hover:text-rose-600 transition-colors">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Direct AP Bill GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for direct operational expenses.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (bill.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => bill.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Direct Bill Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(bill.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsLocked">
+                            <option value="">-- Standard Direct Bill Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
                 </div>
 
-                <div class="p-6 space-y-4">
-                    <div>
-                        <label class="label">To Vendor:</label>
-                        <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled />
-                    </div>
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
 
-                    <div>
-                        <label class="label">Subject:</label>
-                        <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
-                    </div>
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
 
-                    <div>
-                        <label class="label">Message:</label>
-                        <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
-                    </div>
-                </div>
+                        <!-- 1. Expense Account (Debit Side) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Expense Account</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Expense)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (bill.OverrideExpenseGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => bill.OverrideExpenseGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Select Direct Expense GL Account"
+                                                         Accounts="@expenseAccounts"
+                                                         Value="@(bill.OverrideExpenseGlAccountId ?? defaultExpenseAccountId)"
+                                                         ValueChanged="@((Guid val) => bill.OverrideExpenseGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
 
-                <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                    <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
-                        Skip
-                    </button>
-                    <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
-                        @if (isSendingEmail)
-                        {
-                            <span class="animate-spin">↻</span> <span>Sending...</span>
-                        }
-                        else
-                        {
-                            <span>Send Remittance</span>
-                        }
-                    </button>
+                        <!-- 2. Accounts Payable Liability (Credit Side) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Liability)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (bill.OverrideAccountsPayableGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => bill.OverrideAccountsPayableGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="System Default Vendor AP"
+                                                         Accounts="@apAccounts"
+                                                         Value="@(bill.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)"
+                                                         ValueChanged="@((Guid val) => bill.OverrideAccountsPayableGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Tax Account (Debit Side for Purchases) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Input Tax / VAT (Asset)</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Asset)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (bill.TaxGLAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => bill.TaxGLAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Tax Setup Default Account"
+                                                         Accounts="@taxAccounts"
+                                                         Value="@(bill.TaxGLAccountId ?? Guid.Empty)"
+                                                         ValueChanged="@((Guid val) => bill.TaxGLAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
         </div>
-    }
-</div>
+    </div>
+}
+
+<!-- Email Modal -->
+@if (showEmailPopup)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
+            <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Payment Remittance</h3>
+                <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="label">To Vendor:</label>
+                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled />
+                </div>
+                <div>
+                    <label class="label">Subject:</label>
+                    <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
+                </div>
+                <div>
+                    <label class="label">Message:</label>
+                    <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
+                    Skip
+                </button>
+                <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
+                    @if (isSendingEmail)
+                    {
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
+                    }
+                    else
+                    {
+
+                        <span>Send Remittance</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 <style>
     .label {
@@ -413,6 +544,10 @@
             cursor: not-allowed;
             border-color: #e2e8f0;
         }
+
+    tr, td {
+        overflow: visible !important;
+    }
 </style>
 
 @code {
@@ -429,10 +564,16 @@
     private List<Currency> currencies = new();
     private List<Tax> taxes = new();
 
-    // GL Accounts
     private List<SegChartOfAccount> apAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegChartOfAccount> taxAccounts = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultApAccountId = Guid.Empty;
+    private Guid defaultExpenseAccountId = Guid.Empty;
+
     private bool showEmailPopup = false;
     private bool isSendingEmail = false;
     private Guid emailTargetBillId = Guid.Empty;
@@ -443,15 +584,10 @@
     private string currencySymbol = "";
     private bool IsLocked => bill.IsPosted;
 
-    // Tracker for the single header GL Account
-    private Guid headerExpenseGlId = Guid.Empty;
-
-    // Math logic
     private decimal SubTotalForeign => bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == bill.TaxId)?.Per ?? 0;
     private decimal TaxAmountForeign => SubTotalForeign * (TaxPercentage / 100);
     private decimal GrandTotalForeign => SubTotalForeign + TaxAmountForeign;
-
     private decimal SubTotalBase => bill.ExchangeRate == 0 ? 0 : SubTotalForeign * bill.ExchangeRate;
     private decimal TaxAmountBase => bill.ExchangeRate == 0 ? 0 : TaxAmountForeign * bill.ExchangeRate;
     private decimal GrandTotalBase => SubTotalBase + TaxAmountBase;
@@ -488,10 +624,10 @@
         var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
 
         apAccounts = allAccounts.Where(a =>
-                {
-                    var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                    return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
-                }).OrderBy(x => x.AccountCode).ToList();
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == true && type.IsDebit == false && a.IsActive;
+        }).OrderBy(x => x.AccountCode).ToList();
 
         expenseAccounts = allAccounts.Where(a =>
         {
@@ -505,8 +641,10 @@
             return type != null && type.IsBalanceSheet == true && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
+        defaultExpenseAccountId = await MappingService.GetMappedAccountAsync(
+            selectedCompanyId, SystemTransactionType.DirectPurchaseInvoice, isDebit: true, defaultAccountId: expenseAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
 
+        pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
         ResetForm();
     }
 
@@ -516,10 +654,7 @@
         showForm = true;
     }
 
-    private void CloseForm()
-    {
-        showForm = false;
-    }
+    private void CloseForm() => showForm = false;
 
     private void ResetForm()
     {
@@ -530,17 +665,58 @@
             ExchangeRate = 1
         };
         currencySymbol = "";
-        headerExpenseGlId = Guid.Empty;
         AddLine();
     }
 
     private void AddLine() => bill.Lines.Add(new VendorBillLine { QuantityBilled = 1 });
 
+    private async Task OpenRouteModal()
+    {
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == selectedCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
+        defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            bill.CustomTransactionTypeId = customId;
+
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == selectedCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    bill.OverrideExpenseGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    bill.OverrideAccountsPayableGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            bill.CustomTransactionTypeId = null;
+        }
+    }
+
     private async Task OnVendorChanged(ChangeEventArgs e)
     {
         bill.AccountsPayableGlId = Guid.Empty;
 
-        if (Guid.TryParse(e.Value?.ToString(), out var venId))
+        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
         {
             bill.VendorId = venId;
             var vendor = vendors.FirstOrDefault(c => c.Id == venId);
@@ -550,6 +726,7 @@
                 if (vendor.PayablesAccountId.HasValue)
                 {
                     bill.AccountsPayableGlId = vendor.PayablesAccountId.Value;
+                    defaultApAccountId = vendor.PayablesAccountId.Value;
                 }
 
                 if (vendor.CurrencyId != Guid.Empty)
@@ -569,14 +746,11 @@
 
     private void OnTaxChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var taxId))
+        if (Guid.TryParse(e.Value?.ToString(), out var taxId) && taxId != Guid.Empty)
         {
             bill.TaxId = taxId;
             var selectedTax = taxes.FirstOrDefault(t => t.Id == taxId);
-            if (selectedTax != null)
-            {
-                bill.TaxGLAccountId = selectedTax.GLAccountId;
-            }
+            if (selectedTax != null) bill.TaxGLAccountId = selectedTax.GLAccountId;
         }
         else
         {
@@ -588,8 +762,6 @@
     private async Task PostBill()
     {
         if (bill.VendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Vendor."); return; }
-        if (bill.AccountsPayableGlId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "STOP: Missing AP account definition configuration."); return; }
-        if (bill.TaxId.HasValue && (bill.TaxGLAccountId == null || bill.TaxGLAccountId == Guid.Empty)) { await JS.InvokeVoidAsync("alert", "A Tax GL Account is required if a Tax is selected."); return; }
         if (!bill.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
         if (bill.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "All lines must have a Description / Memo."); return; }
 
@@ -604,7 +776,6 @@
         {
             pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
 
-            // 1. Validate against corporate configuration settings profile mappings
             await using var ctx = await DbFactory.CreateDbContextAsync();
             var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
             bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
@@ -612,28 +783,27 @@
             if (!showPopupToggle)
             {
                 await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!");
-                showForm = false; // Collapse current layout back to lists display view grid
+                showForm = false;
                 ResetForm();
                 isBusy = false;
                 StateHasChanged();
                 return;
             }
 
-            // 2. Process Remittance dispatch if switch toggle flag remains enabled
             var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
             if (vendor != null && !string.IsNullOrWhiteSpace(vendor.Email))
             {
                 emailTargetBillId = bill.Id;
                 emailVendorName = vendor.Name;
                 emailVendorAddress = vendor.Email;
-                emailSubject = $"Remittance Processing Advice - Ref {bill.ExternalInvoiceNumber}";
-                customEmailMessage = $"Dear {vendor.Name},\n\nWe have recorded your invoice reference ({bill.ExternalInvoiceNumber}) successfully into our accounts payable system ledger.\n\nA copy of the purchase order processing records has been generated and appended for transaction tracking audits.\n\nBest Regards,\nAccounts Payable Team";
+                emailSubject = $"Remittance Advice - Ref {bill.ExternalInvoiceNumber}";
+                customEmailMessage = $"Dear {vendor.Name},\n\nWe have recorded your invoice ({bill.ExternalInvoiceNumber}) successfully into accounts payable.\n\nBest Regards,\nAccounts Payable Team";
 
                 showEmailPopup = true;
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!\n(No remittance email sent: Vendor missing address records).");
+                await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!\n(No remittance email sent: Vendor missing email address).");
                 showForm = false;
             }
             ResetForm();
@@ -656,11 +826,9 @@
             var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
             string currCode = currencies.FirstOrDefault(c => c.Id == bill.CurrencyId)?.CurrencyCode ?? "BASE";
 
-            // Generate the Document Binary stream buffer directly
             var pdfBytes = ExportService.GenerateVendorBillPdf(bill, company, vendor?.Name ?? "Vendor", currCode);
             var fileName = $"Direct_Bill_{bill.ExternalInvoiceNumber}.pdf";
 
-            // FIXED: Using lowercase injected instance 'EmailService'
             await EmailService.SendEmailAsync(
                 emailVendorAddress,
                 emailSubject,
@@ -671,7 +839,7 @@
 
             await JS.InvokeVoidAsync("alert", "Remittance advice emailed successfully!");
             showEmailPopup = false;
-            showForm = false; // Gracefully reset view layout back to listings view grid
+            showForm = false;
             emailTargetBillId = Guid.Empty;
         }
         catch (Exception ex)
@@ -717,10 +885,6 @@
     private void LoadBillForView(VendorBill selectedBill)
     {
         bill = selectedBill;
-
-        // Extract the GL account used on the lines and set it to the header for the UI View
-        headerExpenseGlId = bill.Lines.FirstOrDefault()?.ExpenseGlAccountId ?? Guid.Empty;
-
         var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
         if (vendor != null)
         {

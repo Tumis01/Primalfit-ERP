@@ -37,7 +37,14 @@ namespace Primafit_ERP.Components.Models
         public Guid? DestinationWarehouseId { get; set; }
 
         public decimal ExchangeRate { get; set; } = 1.0m;
-        public decimal TotalAmount { get; set; } // Representing the net cash value refunded out (if any)
+        public decimal TotalAmount { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideReceivablesGlAccountId { get; set; }
+        public Guid? OverrideInventoryAssetGlAccountId { get; set; }
+        public Guid? OverrideCogsGlAccountId { get; set; }
 
         public Guid CreatedByUserId { get; set; }
         public Guid? PostedByUserId { get; set; }

@@ -227,6 +227,17 @@ namespace PrimafitERP.Data
 
             builder.Entity<CompanyRolePermission>()
                 .HasKey(crp => new { crp.ApplicationRoleId, crp.PermissionId });
+            builder.Entity<VendorBill>()
+                .HasOne(b => b.Vendor)
+                .WithMany()
+                .HasForeignKey(b => b.VendorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<VendorBill>()
+                .HasOne(b => b.PurchaseOrder)
+                .WithMany()
+                .HasForeignKey(b => b.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Restrict);
             builder.Entity<DebitNote>(entity =>
             {
                 entity.HasOne(d => d.Vendor)

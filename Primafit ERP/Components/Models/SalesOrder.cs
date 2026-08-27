@@ -14,35 +14,30 @@ namespace Primafit_ERP.Components.Models
         public Guid CompanyId { get; set; }
 
         [Required]
-        public string OrderNumber { get; set; } = string.Empty;
+        public Guid CustomerId { get; set; }
+        [ForeignKey(nameof(CustomerId))]
+        public virtual Customer? Customer { get; set; }
 
-        // --- Tracks the original Quote Number ---
+        public Guid WarehouseId { get; set; }
+        public string OrderNumber { get; set; } = string.Empty;
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        [Required]
+        public Guid CurrencyId { get; set; }
+        [ForeignKey(nameof(CurrencyId))]
+        public virtual Currency? Currency { get; set; }
+
+        [Column(TypeName = "decimal(18,6)")]
+        public decimal ExchangeRate { get; set; } = 1;
+
+        public OrderStatus Status { get; set; } = OrderStatus.Draft;
+        public bool IsDirectInvoice { get; set; } = false;
+
         public string? ConvertedFromQuoteNumber { get; set; }
 
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
 
-        [Required]
-        public Guid CustomerId { get; set; }
-        [ForeignKey(nameof(CustomerId))]
-        public Customer? Customer { get; set; }
-
-        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
-
-        public OrderStatus Status { get; set; } = OrderStatus.Draft;
-
-        [Required]
-        public Guid CurrencyId { get; set; }
-        [ForeignKey(nameof(CurrencyId))]
-        public Currency? Currency { get; set; }
-
-        [Column(TypeName = "decimal(18,6)")]
-        public decimal ExchangeRate { get; set; } = 1;
-
-        public Guid? ShipmentBatchId { get; set; }
-        public Guid? InvoiceBatchId { get; set; }
-        [Required]
-        public Guid WarehouseId { get; set; }
         [Column(TypeName = "decimal(18,2)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
@@ -50,16 +45,28 @@ namespace Primafit_ERP.Components.Models
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
-        public bool IsDirectInvoice { get; set; } = false;
-        public Guid? DirectIncomeGlAccountId { get; set; } 
-        public List<SalesOrderLine> Lines { get; set; } = new();
 
-        [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && GrandTotalForeign > 0 && AmountPaid >= (GrandTotalForeign - 0.01m);
-        [NotMapped] public decimal GrandTotalForeign { get; set; }
+        // --- CUSTOM TRANSACTION TEMPLATE & GL OVERRIDES ---
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? ReceivablesGlAccountId { get; set; }
+        public Guid? DirectIncomeGlAccountId { get; set; }
+
+        public Guid? InvoiceBatchId { get; set; }
+        public Guid? ShipmentBatchId { get; set; }
+
+        public virtual List<SalesOrderLine> Lines { get; set; } = new();
+
+        // --- PARTIAL PAYMENT & REMAINING CEILING PROPERTIES ---
         [NotMapped] public decimal AmountPaid { get; set; }
-        [NotMapped] public decimal BalanceDue => GrandTotalForeign - AmountPaid;
-        [NotMapped]
-        public decimal CreditNoteTotal { get; set; }
+        [NotMapped] public decimal CreditNoteTotal { get; set; }
+        [NotMapped] public decimal GrandTotalForeign { get; set; }
+
+        [NotMapped] public decimal NetInvoiceTotalForeign => Math.Max(0, GrandTotalForeign - CreditNoteTotal);
+        [NotMapped] public decimal BalanceDueForeign => Math.Max(0, NetInvoiceTotalForeign - AmountPaid);
+        [NotMapped] public bool IsFullyPaid => BalanceDueForeign <= 0.01m && Status == OrderStatus.Invoiced;
     }
 
     public class SalesOrderLine
@@ -70,26 +77,28 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid HeaderId { get; set; }
         [ForeignKey(nameof(HeaderId))]
-        public SalesOrder? Header { get; set; }
+        public virtual SalesOrder? Header { get; set; }
+
         public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
-        public Item? Item { get; set; }
+        public virtual Item? Item { get; set; }
+
+        public string? Description { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Quantity { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal UnitPrice { get; set; }         
-        [NotMapped]
-        public decimal LineTotal => Quantity * UnitPrice;
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal QtyShipped { get; set; } = 0;
+        public decimal UnitPrice { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal QtyInvoiced { get; set; } = 0;
-        public string? Description { get; set; }
-        [NotMapped]
-        public decimal QtyCredited { get; set; }
+        public decimal QtyShipped { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal QtyInvoiced { get; set; }
+
+        [NotMapped] public decimal QtyCredited { get; set; }
+        [NotMapped] public decimal LineTotal => Quantity * UnitPrice;
     }
     public class SalesInvoice
     {
@@ -134,6 +143,13 @@ namespace Primafit_ERP.Components.Models
 
         public string ShipmentNumber { get; set; } = string.Empty;
         public string? ConfirmedBy { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideCogsGlAccountId { get; set; }
+        public Guid? OverrideInventoryAssetGlAccountId { get; set; }
+
         public List<SalesShipmentLine> Lines { get; set; } = new();
     }
 

@@ -51,7 +51,6 @@ namespace Primafit_ERP.Services
 
             var orderIds = orders.Select(o => o.Id).ToList();
 
-            // Total base payments applied to posted bills linked to these purchase orders
             var paymentsMap = await (from p in ctx.Set<VendorPayment>()
                                      join b in ctx.VendorBills on p.VendorBillId equals b.Id
                                      where b.PurchaseOrderId.HasValue
@@ -62,7 +61,6 @@ namespace Primafit_ERP.Services
                                      select new { OrderId = g.Key, TotalPaidBase = g.Sum(x => x.Amount) })
                                     .ToDictionaryAsync(x => x.OrderId, x => x.TotalPaidBase);
 
-            // Historical cash refunds posted under VendorReturn
             var historicalCashRefundsMap = await ctx.VendorReturns
                 .Where(r => r.PurchaseOrderId.HasValue
                          && orderIds.Contains(r.PurchaseOrderId.Value)
@@ -71,14 +69,12 @@ namespace Primafit_ERP.Services
                 .GroupBy(r => r.PurchaseOrderId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
 
-            // Actual physical received quantities from GoodsReceipt
             var poLineIds = orders.SelectMany(o => o.Lines).Select(l => l.Id).ToList();
             var totalReceivedMap = await ctx.GoodsReceiptLines
                 .Where(grl => poLineIds.Contains(grl.PurchaseOrderLineId))
                 .GroupBy(grl => grl.PurchaseOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.QuantityReceived));
 
-            // Previously returned stock quantities
             var historicalQtyReturnsMap = await ctx.VendorReturnLines
                 .Include(l => l.Header)
                 .Where(l => l.Header!.PurchaseOrderId.HasValue
@@ -202,6 +198,7 @@ namespace Primafit_ERP.Services
                 .Include(r => r.Currency)
                 .Include(r => r.Warehouse)
                 .Include(r => r.BankAccount)
+                .Include(r => r.CustomTransactionType)
                 .Include(r => r.PurchaseOrder).ThenInclude(po => po.Lines)
                 .FirstOrDefaultAsync(r => r.Id == id && r.CompanyId == companyId);
 
@@ -261,6 +258,14 @@ namespace Primafit_ERP.Services
                 var glLines = new List<GLJournalLine>();
                 decimal rate = vReturn.ExchangeRate > 0 ? vReturn.ExchangeRate : 1;
 
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (vReturn.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == vReturn.CompanyId && m.CustomTransactionTypeId == vReturn.CustomTransactionTypeId.Value);
+                }
+
                 // -----------------------------------------------------------------
                 // LEG A: PHYSICAL STOCK RETURN (REVERSES GOODS RECEIPT AT PO COST)
                 // -----------------------------------------------------------------
@@ -269,13 +274,16 @@ namespace Primafit_ERP.Services
                     if (!vReturn.WarehouseId.HasValue || vReturn.WarehouseId == Guid.Empty)
                         return "Posting Aborted: Source warehouse location is required to log physical inventory returns.";
 
-                    // Look up GR/IR Clearing Account used during Goods Receipt
                     var grns = await ctx.GoodsReceipts
                         .AsNoTracking()
                         .Where(g => g.PurchaseOrderId == po.Id && g.CompanyId == vReturn.CompanyId)
                         .ToListAsync();
 
-                    Guid grIrAccountId = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
+                    Guid defaultGrIr = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
+
+                    Guid grIrAccountId = vReturn.OverrideGrIrClearingGlAccountId
+                        ?? customMapping?.OverrideDebitGlAccountId
+                        ?? (defaultGrIr != Guid.Empty ? defaultGrIr : Guid.Empty);
 
                     if (grIrAccountId == Guid.Empty)
                     {
@@ -305,8 +313,7 @@ namespace Primafit_ERP.Services
 
                     foreach (var line in vReturn.Lines)
                     {
-                        if (line.Quantity <= 0) continue;
-                        if (line.Item == null) continue;
+                        if (line.Quantity <= 0 || line.Item == null) continue;
 
                         var poLine = po.Lines.FirstOrDefault(pl => pl.Id == line.PurchaseOrderLineId);
                         if (poLine == null) return $"Line mapping error for product reference {line.Item.Name}.";
@@ -318,7 +325,6 @@ namespace Primafit_ERP.Services
                         if (line.Quantity > maxAllowedReturn + 0.001m)
                             return $"Posting Aborted: Item '{line.Item.Name}' quantity returned ({line.Quantity:N2}) exceeds remaining received allowance ({maxAllowedReturn:N2}).";
 
-                        // Verify physical warehouse on-hand stock
                         decimal currentWhStock = await ctx.StockLedgers
                             .Where(s => s.ItemId == line.ItemId && s.WarehouseId == vReturn.WarehouseId.Value)
                             .SumAsync(s => s.QuantityChanged);
@@ -345,7 +351,10 @@ namespace Primafit_ERP.Services
 
                         if (lineStockValueBase > 0)
                         {
-                            Guid assetAccount = line.Item.InventoryAssetAccountId;
+                            Guid assetAccount = vReturn.OverrideInventoryAssetGlAccountId
+                                ?? customMapping?.OverrideCreditGlAccountId
+                                ?? line.Item.InventoryAssetAccountId;
+
                             if (assetAccount == Guid.Empty)
                                 return $"Posting Aborted: Item '{line.Item.Name}' is missing Inventory Asset GL Account mapping.";
 
@@ -366,7 +375,6 @@ namespace Primafit_ERP.Services
                             });
                         }
 
-                        // Decrement received counter on PO line
                         poLine.QuantityReceived = Math.Max(0, poLine.QuantityReceived - line.Quantity);
                     }
                 }
@@ -382,12 +390,13 @@ namespace Primafit_ERP.Services
                     var vendor = await ctx.Vendors.FindAsync(vReturn.VendorId);
                     Guid defaultApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
 
-                    // isDebit: true targets the AP control account override from GL mapping
-                    Guid apAccount = await _mappingService.GetMappedAccountAsync(
-                        vReturn.CompanyId,
-                        SystemTransactionType.ReturnToVendor,
-                        isDebit: true,
-                        defaultAccountId: defaultApAccount);
+                    Guid apAccount = vReturn.OverrideAccountsPayableGlAccountId
+                        ?? customMapping?.OverrideCreditGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            vReturn.CompanyId,
+                            SystemTransactionType.ReturnToVendor,
+                            isDebit: true,
+                            defaultAccountId: defaultApAccount);
 
                     if (apAccount == Guid.Empty)
                         return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
@@ -396,7 +405,7 @@ namespace Primafit_ERP.Services
 
                     if (cashRefundBase > 0)
                     {
-                        // DR: Bank / Cash Account (Refunding liquid asset)
+                        // DR: Bank / Cash Account (Cash Inflow)
                         glLines.Add(new GLJournalLine
                         {
                             SegCoaId = vReturn.BankAccountId.Value,
@@ -405,7 +414,7 @@ namespace Primafit_ERP.Services
                             Reference = $"Vendor Cash Refund: {vReturn.ReturnNumber}"
                         });
 
-                        // CR: Accounts Payable (Restores outstanding liability balance)
+                        // CR: Accounts Payable (Restores AP debt balance)
                         glLines.Add(new GLJournalLine
                         {
                             SegCoaId = apAccount,
@@ -418,7 +427,6 @@ namespace Primafit_ERP.Services
 
                 if (!glLines.Any()) return "No valid transaction elements or quantities were processed.";
 
-                // Validation checksum gate
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 if (totalDebits != totalCredits)
@@ -471,6 +479,10 @@ namespace Primafit_ERP.Services
             existing.BankAccountId = vReturn.BankAccountId;
             existing.WarehouseId = vReturn.WarehouseId;
             existing.TotalAmount = vReturn.TotalAmount;
+            existing.CustomTransactionTypeId = vReturn.CustomTransactionTypeId;
+            existing.OverrideGrIrClearingGlAccountId = vReturn.OverrideGrIrClearingGlAccountId;
+            existing.OverrideInventoryAssetGlAccountId = vReturn.OverrideInventoryAssetGlAccountId;
+            existing.OverrideAccountsPayableGlAccountId = vReturn.OverrideAccountsPayableGlAccountId;
 
             ctx.VendorReturnLines.RemoveRange(existing.Lines);
 

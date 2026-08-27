@@ -57,7 +57,12 @@ namespace Primafit_ERP.Components.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public Guid? PostedByUserId { get; set; }
         public DateTime? PostedAt { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public CustomTransactionType? CustomTransactionType { get; set; }
 
+        public Guid? OverrideRevenueGlAccountId { get; set; }
+        public Guid? OverrideReceivablesGlAccountId { get; set; }
         public List<CreditNoteLine> Lines { get; set; } = new();
     }
 

@@ -25,12 +25,12 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-16">
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-16 font-sans text-slate-800">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">Vendors Payment</h1>
-            <p class="text-sm text-slate-500">Track bill statuses and record outgoing vendor payments.</p>
+            <h1 class="text-2xl font-bold text-slate-900">Vendor Payments & Disbursements</h1>
+            <p class="text-sm text-slate-500">Track outstanding bills, configure payout routes, and record vendor disbursements.</p>
         </div>
         <div class="flex items-center gap-4">
             <div class="flex bg-slate-100 p-1 rounded-xl">
@@ -76,21 +76,21 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
-                            @foreach (var bill in PagedBillStatuses)
+                            @foreach (var b in PagedBillStatuses)
                             {
                                 <tr class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-4 font-mono font-bold text-indigo-700">@bill.RefNumber</td>
-                                    <td class="p-4 font-mono text-slate-600 text-xs">@bill.Date.ToString("dd MMM, yyyy")</td>
-                                    <td class="p-4 font-medium">@bill.VendorName</td>
-                                    <td class="p-4 text-right font-mono font-bold text-slate-800">@bill.CurrencyCode @bill.GrandTotal.ToString("N2")</td>
-                                    <td class="p-4 text-right font-mono font-bold text-emerald-600">@bill.CurrencyCode @bill.AmountPaid.ToString("N2")</td>
-                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@bill.CurrencyCode @bill.BalanceDue.ToString("N2")</td>
+                                    <td class="p-4 font-mono font-bold text-indigo-700">@b.RefNumber</td>
+                                    <td class="p-4 font-mono text-slate-600 text-xs">@b.Date.ToString("dd MMM, yyyy")</td>
+                                    <td class="p-4 font-medium">@b.VendorName</td>
+                                    <td class="p-4 text-right font-mono font-bold text-slate-800">@b.CurrencyCode @b.GrandTotal.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-emerald-600">@b.CurrencyCode @b.AmountPaid.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@b.CurrencyCode @b.BalanceDue.ToString("N2")</td>
                                     <td class="p-4 text-center">
-                                        @if (bill.Status == "Paid in Full")
+                                        @if (b.Status == "Paid in Full")
                                         {
                                             <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Paid in Full</span>
                                         }
-                                        else if (bill.Status == "Partially Paid")
+                                        else if (b.Status == "Partially Paid")
                                         {
                                             <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">Partially Paid</span>
                                         }
@@ -101,9 +101,9 @@
                                     </td>
                                     <td class="p-4 text-center">
                                         <div class="flex items-center justify-center gap-2">
-                                            @if (bill.Status != "Paid in Full")
+                                            @if (b.Status != "Paid in Full")
                                             {
-                                                <button @onclick="() => SelectAndLoadBill(bill)" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Load Bill into Payment Form">
+                                                <button @onclick="() => SelectAndLoadBill(b)" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Load Bill into Payment Form">
                                                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
                                                     </svg>
@@ -114,10 +114,10 @@
                                                 <div class="w-7 h-7"></div>
                                             }
 
-                                            <button @onclick="() => DownloadReceipt(bill.BillId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Receipt PDF">
+                                            <button @onclick="() => DownloadReceipt(b.BillId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Remittance PDF">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                             </button>
-                                            <button @onclick="() => PrepareEmailReceipt(bill.BillId)" class="p-1.5 text-slate-400 hover:text-emerald-600 transition-colors" title="Email Receipt">
+                                            <button @onclick="() => PrepareEmailReceipt(b.BillId)" class="p-1.5 text-slate-400 hover:text-emerald-600 transition-colors" title="Email Remittance">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                                             </button>
                                         </div>
@@ -139,15 +139,13 @@
                             Showing @(((currentPage - 1) * pageSize) + 1) to @(Math.Min(currentPage * pageSize, FilteredBillStatuses.Count())) of @FilteredBillStatuses.Count() records
                         </div>
                         <div class="flex items-center gap-2">
-                            <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                            <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 transition-colors shadow-sm">
                                 Previous
                             </button>
-
-                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm font-mono">
                                 Page @currentPage of @TotalPages
                             </span>
-
-                            <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                            <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 transition-colors shadow-sm">
                                 Next
                             </button>
                         </div>
@@ -157,27 +155,43 @@
         }
         else if (activeTab == 1)
         {
-            <div class="flex justify-end mb-4">
-                <PermissionGate Key="AP_PAYMENT_CREATE">
-                    <Authorized>
-                        <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
-                            @if (isBusy)
-                            {
-                                <span class="animate-spin">↻</span> <span>Processing...</span>
-                            }
-                            else
-                            {
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                <span>Post Payment</span>
-                            }
-                        </button>
-                    </Authorized>
-                </PermissionGate>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">Vendor Disbursement Voucher</h2>
+                    <p class="text-xs text-slate-500">Record cash/bank outflows against posted vendor liability bills.</p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <!-- Configure Route Button -->
+                    <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>Configure Route</span>
+                        @if (payment.CustomTransactionTypeId.HasValue)
+                        {
+                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                        }
+                    </button>
+
+                    <PermissionGate Key="AP_PAYMENT_CREATE">
+                        <Authorized>
+                            <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 text-sm">
+                                @if (isBusy)
+                                {
+                                    <span class="animate-spin">↻</span> <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Post Payment</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-2">
                 <div class="lg:col-span-4 space-y-6">
-
                     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                         <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider">Transaction Details</h3>
 
@@ -187,7 +201,7 @@
                         </div>
 
                         <div>
-                            <label class="label">Vendor</label>
+                            <label class="label">Vendor <span class="text-rose-500">*</span></label>
                             <select value="@selectedVendorId" @onchange="OnVendorChanged" class="input-class font-bold text-slate-900 border-indigo-200 bg-indigo-50/30">
                                 <option value="@Guid.Empty">-- Select Vendor --</option>
                                 @foreach (var v in vendors)
@@ -198,12 +212,12 @@
                         </div>
 
                         <div>
-                            <label class="label text-indigo-600">Vendor Bill / Invoice Ref</label>
+                            <label class="label text-indigo-600">Vendor Bill Reference <span class="text-rose-500">*</span></label>
                             <select value="@selectedBillId" @onchange="OnBillChanged" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@(selectedVendorId == Guid.Empty)">
                                 <option value="@Guid.Empty">-- Select Bill --</option>
-                                @foreach (var bill in openBills)
+                                @foreach (var b in openBills)
                                 {
-                                    <option value="@bill.BillId">@bill.RefNumber (Due: @bill.BalanceDueForeign.ToString("N2"))</option>
+                                    <option value="@b.BillId">@b.RefNumber (Due: @b.BalanceDueForeign.ToString("N2"))</option>
                                 }
                             </select>
                         </div>
@@ -226,12 +240,12 @@
                         </div>
 
                         <div>
-                            <label class="label">Reference (Cheque / Transfer)</label>
+                            <label class="label">Reference (Cheque / Transfer #)</label>
                             <input type="text" @bind="payment.Reference" class="input-class" placeholder="e.g. TRF-90210" />
                         </div>
 
                         <div class="pt-2">
-                            <label class="label text-emerald-700">Amount Paid (@currencySymbol)</label>
+                            <label class="label text-emerald-700">Amount Paid (@currencySymbol) <span class="text-rose-500">*</span></label>
                             <div class="relative">
                                 <input type="number" step="0.01" @bind="amountPaidForeign" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
                             </div>
@@ -248,34 +262,29 @@
                         </div>
                     </div>
 
-                    <!-- GL MAPPING OVERRIDES -->
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                        <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
-                            GL Mapping Configuration
-                            <span class="text-[10px] text-slate-400 font-normal normal-case">Overrides Mapping Router</span>
-                        </h3>
-
-                        <div class="space-y-4">
-                            <div>
-                                <SearchableGlAccount Label="Pay From (Bank / Asset - Credit)"
-                                                     Placeholder="Search Bank Asset..."
-                                                     Accounts="@bankAccounts"
-                                                     @bind-Value="payment.BankGlAccountId"
-                                                     IsInvalid="@(payment.BankGlAccountId == Guid.Empty)" />
-                                <p class="text-[10px] text-slate-400 mt-1">Disbursement Bank account (credited on payment).</p>
+                    <!-- Live Active Routing Summary Card -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                Edit Mappings
+                            </button>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Accounts Payable (Dr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[170px]" title="@GetAccountDisplayName(selectedApAccountId)">
+                                    @(selectedApAccountId == Guid.Empty ? "Not Configured" : GetAccountDisplayName(selectedApAccountId))
+                                </span>
                             </div>
-
-                            <div>
-                                <SearchableGlAccount Label="Accounts Payable (A/P Liability - Debit)"
-                                                     Placeholder="Search Accounts Payable..."
-                                                     Accounts="@allAccounts"
-                                                     @bind-Value="selectedApAccountId"
-                                                     IsInvalid="@(selectedApAccountId == Guid.Empty)" />
-                                <p class="text-[10px] text-slate-400 mt-1">Vendor A/P control account (debited on payment).</p>
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Disbursing Bank (Cr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[170px]" title="@GetAccountDisplayName(payment.BankGlAccountId)">
+                                    @(payment.BankGlAccountId == Guid.Empty ? "Not Configured" : GetAccountDisplayName(payment.BankGlAccountId))
+                                </span>
                             </div>
                         </div>
                     </div>
-
                 </div>
 
                 <div class="lg:col-span-8">
@@ -283,7 +292,7 @@
 
                         @if (SelectedBill != null)
                         {
-                            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                            <div class="p-6 border-b border-slate-100 bg-slate-50/50 rounded-t-2xl">
                                 <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
                                     Bill Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedBill.RefNumber</span>
                                 </h3>
@@ -307,7 +316,7 @@
                         else
                         {
                             <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Expense Allocation</h3>
+                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Expense Allocation Items</h3>
                             </div>
                         }
 
@@ -379,18 +388,129 @@
                         }
                     </div>
                 </div>
-
             </div>
         }
     }
-    else
-    {
-        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
-            Loading context...
-        </div>
-    }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Vendor Payment GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for vendor payouts and liability settlements.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (payment.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => payment.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Payment Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(payment.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1">
+                            <option value="">-- Standard Vendor Payment Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Accounts Payable Liability (Debit Leg) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Settlement)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (selectedApAccountId != Guid.Empty && selectedApAccountId != defaultApAccountId)
+                                {
+                                    <button type="button"
+                                            @onclick="() => selectedApAccountId = defaultApAccountId"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Reset to Default AP">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Search Accounts Payable..."
+                                                         Accounts="@allAccounts"
+                                                         Value="@selectedApAccountId"
+                                                         ValueChanged="@((Guid val) => { selectedApAccountId = val; payment.OverrideDebitApGlAccountId = val; })" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Disbursing Bank Account (Credit Leg) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Disbursing Bank Account</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Outflow)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (payment.BankGlAccountId != Guid.Empty && payment.BankGlAccountId != defaultBankAccountId)
+                                {
+                                    <button type="button"
+                                            @onclick="() => payment.BankGlAccountId = defaultBankAccountId"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Reset to Default Bank">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Search Bank Asset..."
+                                                         Accounts="@bankAccounts"
+                                                         Value="@payment.BankGlAccountId"
+                                                         ValueChanged="@((Guid val) => { payment.BankGlAccountId = val; payment.OverrideCreditBankGlAccountId = val; })" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Payment
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Email Popup -->
 @if (showEmailPopup)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -407,12 +527,10 @@
                     <label class="label">To Vendor:</label>
                     <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled />
                 </div>
-
                 <div>
                     <label class="label">Subject:</label>
                     <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
                 </div>
-
                 <div>
                     <label class="label">Message:</label>
                     <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
@@ -426,8 +544,7 @@
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
                     @if (isSendingEmail)
                     {
-                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Sending...</span>
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
                     }
                     else
                     {
@@ -472,6 +589,10 @@
             cursor: not-allowed;
             border-color: #e2e8f0;
         }
+
+    tr, td {
+        overflow: visible !important;
+    }
 </style>
 
 @code {
@@ -490,6 +611,12 @@
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultBankAccountId = Guid.Empty;
+    private Guid defaultApAccountId = Guid.Empty;
 
     private Guid currentCompanyId;
     private string companyName = "";
@@ -575,7 +702,7 @@
     {
         if (!PermissionCache.Has("AP_PAYMENT_PAGE"))
         {
-            Nav.NavigateTo("/access-denied?page=PURCHASING_PAGE");
+            Nav.NavigateTo("/access-denied");
             return;
         }
 
@@ -606,6 +733,9 @@
                        type.IsBalanceSheet == true &&
                        type.IsDebit == true;
             }).OrderBy(x => x.AccountCode).ToList();
+
+            defaultBankAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.VendorPayment, isDebit: false, defaultAccountId: Guid.Empty);
 
             await LoadBillStatuses();
             await CreateNewAsync();
@@ -646,15 +776,15 @@
             .ToListAsync();
 
         billStatuses.Clear();
-        foreach (var bill in bills)
+        foreach (var b in bills)
         {
-            var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
-            var currency = currencies.FirstOrDefault(c => c.Id == bill.CurrencyId);
+            var vendor = vendors.FirstOrDefault(v => v.Id == b.VendorId);
+            var currency = currencies.FirstOrDefault(c => c.Id == b.CurrencyId);
 
-            decimal paidBase = bill.Payments?.Sum(p => p.Amount) ?? 0;
-            decimal balanceBase = bill.TotalAmount - paidBase;
+            decimal paidBase = b.Payments?.Sum(p => p.Amount) ?? 0;
+            decimal balanceBase = b.TotalAmount - paidBase;
 
-            decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1;
+            decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1;
             decimal paidForeign = Math.Round(paidBase / rate, 2);
             decimal balanceForeign = Math.Round(balanceBase / rate, 2);
 
@@ -664,11 +794,11 @@
 
             billStatuses.Add(new BillStatusRow
             {
-                BillId = bill.Id,
-                RefNumber = string.IsNullOrEmpty(bill.ExternalInvoiceNumber) ? "NO-REF" : bill.ExternalInvoiceNumber,
+                BillId = b.Id,
+                RefNumber = string.IsNullOrEmpty(b.ExternalInvoiceNumber) ? "NO-REF" : b.ExternalInvoiceNumber,
                 VendorName = vendor?.Name ?? "Unknown",
-                Date = bill.BillDate,
-                GrandTotal = bill.TotalAmountForeign,
+                Date = b.BillDate,
+                GrandTotal = b.TotalAmountForeign,
                 AmountPaid = paidForeign,
                 BalanceDue = balanceForeign,
                 Status = status,
@@ -676,29 +806,18 @@
             });
         }
     }
+
     private async Task CreateNewAsync()
     {
         payment = new VendorPayment
         {
             Date = DateTime.Today,
-            BankGlAccountId = Guid.Empty // Explicitly empty
+            BankGlAccountId = defaultBankAccountId
         };
         openBills.Clear();
         selectedBillId = Guid.Empty;
         selectedVendorId = Guid.Empty;
         selectedApAccountId = Guid.Empty;
-
-        // Only preset if explicitly mapped in GL Mapping router
-        Guid defaultBank = await MappingService.GetMappedAccountAsync(
-            currentCompanyId,
-            SystemTransactionType.VendorPayment,
-            isDebit: false,
-            defaultAccountId: Guid.Empty);
-
-        if (defaultBank != Guid.Empty)
-        {
-            payment.BankGlAccountId = defaultBank;
-        }
 
         if (currencies.Any())
         {
@@ -716,14 +835,13 @@
         isBusy = true; StateHasChanged();
 
         selectedVendorId = targetVendor.Id;
+        defaultApAccountId = targetVendor.PayablesAccountId ?? Guid.Empty;
 
-        // Resolve AP Control account override from GL router first, fallback to Vendor master
-        Guid defaultApId = targetVendor.PayablesAccountId ?? Guid.Empty;
         selectedApAccountId = await MappingService.GetMappedAccountAsync(
             currentCompanyId,
             SystemTransactionType.VendorPayment,
-            isDebit: true, // Debit leg = AP Liability Reduction
-            defaultAccountId: defaultApId);
+            isDebit: true,
+            defaultAccountId: defaultApAccountId);
 
         await LoadVendorBills(targetVendor.Id);
 
@@ -752,14 +870,13 @@
             selectedVendorId = venId;
 
             var vendor = vendors.FirstOrDefault(c => c.Id == venId);
-            Guid defaultApId = vendor?.PayablesAccountId ?? Guid.Empty;
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
 
-            // Resolve AP Control account override from GL router first, fallback to Vendor master
             selectedApAccountId = await MappingService.GetMappedAccountAsync(
                 currentCompanyId,
                 SystemTransactionType.VendorPayment,
-                isDebit: true, // Debit leg = AP Liability Reduction
-                defaultAccountId: defaultApId);
+                isDebit: true,
+                defaultAccountId: defaultApAccountId);
 
             await LoadVendorBills(venId);
             selectedBillId = Guid.Empty;
@@ -793,21 +910,21 @@
 
         openBills.Clear();
 
-        foreach (var bill in bills.OrderBy(b => b.BillDate))
+        foreach (var b in bills.OrderBy(b => b.BillDate))
         {
-            decimal paidBase = bill.Payments?.Sum(p => p.Amount) ?? 0;
-            decimal balBase = bill.TotalAmount - paidBase;
+            decimal paidBase = b.Payments?.Sum(p => p.Amount) ?? 0;
+            decimal balBase = b.TotalAmount - paidBase;
 
             if (balBase > 0.01m)
             {
-                decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1;
-                decimal pSubTotal = bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+                decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1;
+                decimal pSubTotal = b.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
 
                 decimal pDiscount = 0;
                 decimal pTaxPer = 0;
                 string pTaxDesc = "Tax / VAT";
 
-                if (bill.PurchaseOrderId.HasValue && relatedPOs.TryGetValue(bill.PurchaseOrderId.Value, out var po))
+                if (b.PurchaseOrderId.HasValue && relatedPOs.TryGetValue(b.PurchaseOrderId.Value, out var po))
                 {
                     pDiscount = po.DiscountPercentage > 0
                                 ? pSubTotal * (po.DiscountPercentage / 100)
@@ -829,18 +946,18 @@
 
                 openBills.Add(new BillRow
                 {
-                    BillId = bill.Id,
-                    RefNumber = string.IsNullOrEmpty(bill.ExternalInvoiceNumber) ? "NO-REF" : bill.ExternalInvoiceNumber,
-                    Date = bill.BillDate,
-                    TotalForeign = bill.TotalAmountForeign,
-                    TotalBase = bill.TotalAmount,
+                    BillId = b.Id,
+                    RefNumber = string.IsNullOrEmpty(b.ExternalInvoiceNumber) ? "NO-REF" : b.ExternalInvoiceNumber,
+                    Date = b.BillDate,
+                    TotalForeign = b.TotalAmountForeign,
+                    TotalBase = b.TotalAmount,
                     AmountPaidBase = paidBase,
                     BalanceDueBase = balBase,
                     BalanceDueForeign = balBase / rate,
                     ExchangeRate = rate,
-                    CurrencyId = bill.CurrencyId,
-                    AccountsPayableGlId = bill.AccountsPayableGlId,
-                    Lines = bill.Lines.ToList(),
+                    CurrencyId = b.CurrencyId,
+                    AccountsPayableGlId = b.AccountsPayableGlId,
+                    Lines = b.Lines.ToList(),
                     SubTotalForeign = pSubTotal,
                     DiscountAmountForeign = pDiscount,
                     TaxAmountForeign = pTaxAmount,
@@ -855,15 +972,15 @@
         if (Guid.TryParse(e.Value?.ToString(), out var invId) && invId != Guid.Empty)
         {
             selectedBillId = invId;
-            var bill = SelectedBill;
+            var b = SelectedBill;
 
-            if (bill != null)
+            if (b != null)
             {
-                amountPaidForeign = Math.Round(bill.BalanceDueForeign, 2);
-                payment.Reference = bill.RefNumber;
-                selectedCurrencyId = bill.CurrencyId;
+                amountPaidForeign = Math.Round(b.BalanceDueForeign, 2);
+                payment.Reference = b.RefNumber;
+                selectedCurrencyId = b.CurrencyId;
 
-                var c = currencies.FirstOrDefault(x => x.Id == bill.CurrencyId);
+                var c = currencies.FirstOrDefault(x => x.Id == b.CurrencyId);
                 currencySymbol = c?.CurrencyCode ?? "";
             }
         }
@@ -876,23 +993,75 @@
         }
     }
 
+    private async Task OpenRouteModal()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            payment.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                {
+                    selectedApAccountId = map.OverrideDebitGlAccountId.Value;
+                    payment.OverrideDebitApGlAccountId = map.OverrideDebitGlAccountId.Value;
+                }
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                {
+                    payment.BankGlAccountId = map.OverrideCreditGlAccountId.Value;
+                    payment.OverrideCreditBankGlAccountId = map.OverrideCreditGlAccountId.Value;
+                }
+            }
+        }
+        else
+        {
+            payment.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
+    }
+
     private async Task<(byte[] Bytes, string FileName, string Subject, string VendorEmail)> GetReceiptDataAsync(Guid targetBillId)
     {
         var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
         using var ctx = await DbFactory.CreateDbContextAsync();
 
-        var bill = await ctx.VendorBills.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == targetBillId);
-        if (bill == null || company == null) return (null, "", "", "");
+        var b = await ctx.VendorBills.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == targetBillId);
+        if (b == null || company == null) return (null, "", "", "");
 
-        var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
+        var vendor = vendors.FirstOrDefault(v => v.Id == b.VendorId);
         string vEmail = vendor?.Email ?? "";
 
-        if (bill.PurchaseOrderId.HasValue)
+        if (b.PurchaseOrderId.HasValue)
         {
             var printOrder = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .Include(p => p.Currency)
-                .FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
+                .FirstOrDefaultAsync(p => p.Id == b.PurchaseOrderId.Value);
 
             if (printOrder != null)
             {
@@ -904,8 +1073,8 @@
                 printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));
 
                 var pdfBytes = ReportExportService.GeneratePurchaseOrderPdf(printOrder, company, vendor?.Name ?? "Vendor", vEmail, itemNamesMap);
-                string fileName = $"Payment_Remittance_{bill.ExternalInvoiceNumber ?? bill.Id.ToString()[..8]}.pdf";
-                string subject = $"Payment Remittance for Bill {bill.ExternalInvoiceNumber}";
+                string fileName = $"Payment_Remittance_{b.ExternalInvoiceNumber ?? b.Id.ToString()[..8]}.pdf";
+                string subject = $"Payment Remittance for Bill {b.ExternalInvoiceNumber}";
                 return (pdfBytes, fileName, subject, vEmail);
             }
         }
@@ -957,6 +1126,8 @@
 
     private async Task DispatchEmail()
     {
+        if (emailTargetBillId == Guid.Empty) return;
+
         isSendingEmail = true;
         try
         {
@@ -995,13 +1166,13 @@
             emailVendorAddress = vendor.Email;
             emailSubject = $"Payment Remittance Advice - {billNum}";
 
-            customEmailMessage = $"Dear {vendor.Name},\n\nWe have processed a payment of {currSymbol}{amountPaid:N2} against your invoice/bill {billNum}.\n\nRemaining Balance: {currSymbol}{remainingBalance:N2}.\n\nPlease find the official remittance advice attached.\n\nBest Regards,\nAccounts Payable Team\n{companyName}";
+            customEmailMessage = $"Dear {vendor.Name},\n\nWe have processed a payment of {currSymbol}{amountPaid:N2} against your bill/invoice {billNum}.\n\nRemaining Balance: {currSymbol}{remainingBalance:N2}.\n\nPlease find the official remittance advice attached.\n\nBest Regards,\nAccounts Payable Team\n{companyName}";
 
             showEmailPopup = true;
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!\n(No email sent: Vendor missing email address).");
+            await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!\n(No email sent: Vendor missing email address).");
             activeTab = 0;
         }
     }
@@ -1024,17 +1195,8 @@
         {
             payment.VendorBillId = selectedBillId;
             payment.Amount = Math.Round(amountPaidForeign * SelectedBill!.ExchangeRate, 2);
-
-            // Update user-selected AP account directly onto the bill prior to posting
-            using (var ctx = await DbFactory.CreateDbContextAsync())
-            {
-                var billToUpdate = await ctx.VendorBills.FindAsync(selectedBillId);
-                if (billToUpdate != null && billToUpdate.AccountsPayableGlId != selectedApAccountId)
-                {
-                    billToUpdate.AccountsPayableGlId = selectedApAccountId;
-                    await ctx.SaveChangesAsync();
-                }
-            }
+            payment.OverrideDebitApGlAccountId = selectedApAccountId;
+            payment.OverrideCreditBankGlAccountId = payment.BankGlAccountId;
 
             var err = await PurchService.PostVendorPaymentAsync(payment, currentCompanyId, currentUserId);
 
@@ -1054,6 +1216,19 @@
                 amountPaidForeign = 0;
                 payment.Reference = "";
                 currencySymbol = "";
+
+                using var ctx = await DbFactory.CreateDbContextAsync();
+                var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
+                bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
+
+                if (!showPopupToggle)
+                {
+                    await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!");
+                    showEmailPopup = false;
+                    activeTab = 0;
+                    StateHasChanged();
+                    return;
+                }
 
                 await PromptEmailPopup(vendor, targetBId, billNum, amt, remBal, cur);
             }

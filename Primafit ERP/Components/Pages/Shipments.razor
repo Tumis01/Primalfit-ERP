@@ -1,39 +1,40 @@
 ﻿@page "/wh/shipments"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 
 @inject ShipmentService ShipmentService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
+@inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16">
     <div class="flex flex-col xl:flex-row xl:items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouse Dispatch</h1>
-            <p class="text-sm text-slate-500 mt-1">Process physical shipments and view dispatch history.</p>
+            <p class="text-sm text-slate-500 mt-1">Process physical shipments, configure inventory GL routes, and view dispatch history.</p>
         </div>
 
         <div class="flex flex-col sm:flex-row items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
-
             <div class="relative w-full sm:w-80 shrink-0" @onfocusout="HideDropdownDelay">
-                @* <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg> *@
                 <input type="text"
                        @bind="orderSearchTerm"
                        @bind:event="oninput"
                        @onfocus="() => showOrderDropdown = true"
                        @onkeyup="HandleInput"
                        placeholder="Select invoice to dispatch..."
-                       class="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
+                       class="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
 
                 @if (showOrderDropdown)
                 {
@@ -65,12 +66,11 @@
                 }
             </div>
             <PermissionGate Key="SHIPMENT_CREATE">
-            <Authorized>
-            <button @onclick="PullOrderToQueue" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2">
-                
-                Load Shipment
-            </button>
-            </Authorized>
+                <Authorized>
+                    <button @onclick="PullOrderToQueue" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2 active:scale-95">
+                        Load Shipment
+                    </button>
+                </Authorized>
             </PermissionGate>
         </div>
     </div>
@@ -86,7 +86,7 @@
 
     @if (isLoading)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading data...</div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading dispatch data...</div>
     }
     else if (activeTab == 0)
     {
@@ -104,10 +104,16 @@
                 {
                     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition-all hover:shadow-md">
                         <div class="flex justify-between items-center bg-slate-50 p-4 border-b border-slate-200 cursor-pointer" @onclick="() => ToggleExpand(shp.Id)">
-                            <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-4 flex-wrap">
                                 <span class="font-mono font-bold text-indigo-700">@shp.ShipmentNumber</span>
                                 <span class="text-sm font-bold text-slate-700">Ref: @shp.SalesOrder?.OrderNumber</span>
                                 <span class="text-sm text-slate-500 hidden sm:inline">| Customer: @shp.SalesOrder?.Customer?.Name</span>
+                                @if (shp.CustomTransactionTypeId.HasValue)
+                                {
+                                    <span class="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full">
+                                        Custom Route Active
+                                    </span>
+                                }
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="px-2.5 py-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full uppercase tracking-wider">
@@ -119,7 +125,15 @@
 
                         @if (expandedShipmentId == shp.Id)
                         {
-                            <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto">
+                            <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto space-y-6">
+                                <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+                                    <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Dispatch Parameters</span>
+                                    <button type="button" @onclick="() => OpenRouteModal(shp)" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                        <span>Configure GL Route</span>
+                                    </button>
+                                </div>
+
                                 <table class="w-full text-sm text-left min-w-[500px]">
                                     <thead class="text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
                                         <tr>
@@ -131,15 +145,19 @@
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in shp.Lines)
                                         {
-                                            <tr>
+                                            bool isOver = line.QtyShipped > line.QtyOrdered;
+                                            <tr class="@(isOver ? "bg-rose-50/40" : "")">
                                                 <td class="py-4 font-bold text-slate-800">@line.Item?.Name</td>
                                                 <td class="py-4 text-center text-slate-500 font-mono">@line.QtyOrdered</td>
                                                 <td class="py-4">
-                                                    <input type="number" step="0.01" max="@line.QtyOrdered" min="0" @bind="line.QtyShipped"
-                                                           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-center font-bold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none" />
-                                                    @if (line.QtyShipped > line.QtyOrdered)
+                                                    <input type="number" step="0.01" max="@line.QtyOrdered" min="0"
+                                                           value="@line.QtyShipped"
+                                                           @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))"
+                                                           class="w-full border rounded-lg px-3 py-2 text-center font-bold focus:ring-1 outline-none transition-all
+                                                    @(isOver ? "border-rose-400 text-rose-700 bg-rose-50 focus:border-rose-500" : "border-slate-300 text-slate-900 bg-white focus:border-indigo-500 focus:ring-indigo-500")" />
+                                                    @if (isOver)
                                                     {
-                                                        <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Cannot exceed required</div>
+                                                        <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Exceeds order balance</div>
                                                     }
                                                 </td>
                                             </tr>
@@ -152,12 +170,14 @@
                                         Cancel
                                     </button>
                                     <PermissionGate Key="SHIPMENT_DISPATCH">
-                                    <Authorized>
-                                    <button type="button" @onclick="() => ConfirmDispatch(shp)" class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2">
-                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                        Confirm Dispatch
-                                    </button>
-                                    </Authorized>
+                                        <Authorized>
+                                            <button type="button" @onclick="() => ConfirmDispatch(shp)"
+                                                    disabled="@(shp.Lines.Any(l => l.QtyShipped > l.QtyOrdered) || !shp.Lines.Any(l => l.QtyShipped > 0))"
+                                                    class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
+                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                                <span>Confirm Dispatch</span>
+                                            </button>
+                                        </Authorized>
                                     </PermissionGate>
                                 </div>
                             </div>
@@ -216,6 +236,123 @@
     }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal && selectedShipmentForConfig != null)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Shipment Dispatch GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for physical stock releases.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (selectedShipmentForConfig.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => selectedShipmentForConfig.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Shipment Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(selectedShipmentForConfig.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="w-full border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-900 bg-white focus:border-indigo-500 focus:outline-none transition-all flex-1">
+                            <option value="">-- Standard Warehouse Dispatch Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Cost of Goods Sold (COGS - Debit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Cost of Goods Sold (COGS)</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (selectedShipmentForConfig.OverrideCogsGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => selectedShipmentForConfig.OverrideCogsGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Line Item COGS Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(selectedShipmentForConfig.OverrideCogsGlAccountId ?? defaultCogsAccountId)"
+                                                         ValueChanged="@((Guid val) => selectedShipmentForConfig.OverrideCogsGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Inventory Asset (Stock Out - Credit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (selectedShipmentForConfig.OverrideInventoryAssetGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => selectedShipmentForConfig.OverrideInventoryAssetGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Line Item Inventory Asset"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(selectedShipmentForConfig.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
+                                                         ValueChanged="@((Guid val) => selectedShipmentForConfig.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="ApplyRouteModalChanges" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Dispatch
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private int activeTab = 0;
     private bool isLoading = true;
@@ -228,13 +365,20 @@
 
     private List<SalesOrder> unshippedOrders = new();
     private List<Warehouse> warehouses = new();
+    private List<SegChartOfAccount> allAccounts = new();
 
     private List<SalesShipment> shipments = new();
     private List<SalesShipment> history = new();
     private Guid expandedShipmentId = Guid.Empty;
     private string currentUserId = "";
 
-    // ELIGIBLE INVOICES ONLY: Filter restricts the autocomplete to documents that have actually been invoiced and are not Drafts.
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private SalesShipment? selectedShipmentForConfig;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultCogsAccountId = Guid.Empty;
+    private Guid defaultInventoryAssetAccountId = Guid.Empty;
+
     private IEnumerable<SalesOrder> FilteredUnshippedOrders =>
         unshippedOrders.Where(o => o.OrderNumber.StartsWith("INV") && o.Status != OrderStatus.Draft &&
                                 (string.IsNullOrWhiteSpace(orderSearchTerm)
@@ -243,18 +387,25 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!PermissionCache.Has("WH_SHIPMENTS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; } // Note: Assumes NavManager is injected
+        if (!PermissionCache.Has("WH_SHIPMENTS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = await UserManager.GetUserAsync(authState.User);
 
         if (user != null)
         {
             currentUserId = user.Id;
-
             currentUser = user.UserName ?? "System User";
             if (user.CompanyDetailsId != null)
             {
                 companyId = user.CompanyDetailsId.Value;
+                allAccounts = await SegCoaService.GetCoaAsync(companyId);
+
+                defaultCogsAccountId = await MappingService.GetMappedAccountAsync(
+                    companyId, SystemTransactionType.ShipmentDispatch, isDebit: true, defaultAccountId: Guid.Empty);
+
+                defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
+                    companyId, SystemTransactionType.ShipmentDispatch, isDebit: false, defaultAccountId: Guid.Empty);
+
                 await LoadData();
             }
         }
@@ -317,11 +468,77 @@
         expandedShipmentId = expandedShipmentId == id ? Guid.Empty : id;
     }
 
+    private void ValidateQuantity(SalesShipmentLine line, string? val)
+    {
+        if (decimal.TryParse(val, out decimal res))
+        {
+            if (res < 0) line.QtyShipped = 0;
+            else line.QtyShipped = res;
+        }
+        else line.QtyShipped = 0;
+        StateHasChanged();
+    }
+
+    private async Task OpenRouteModal(SalesShipment shp)
+    {
+        selectedShipmentForConfig = shp;
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == companyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        if (selectedShipmentForConfig == null) return;
+
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            selectedShipmentForConfig.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == companyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    selectedShipmentForConfig.OverrideCogsGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    selectedShipmentForConfig.OverrideInventoryAssetGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            selectedShipmentForConfig.CustomTransactionTypeId = null;
+        }
+    }
+
+    private void ApplyRouteModalChanges()
+    {
+        showRouteModal = false;
+        StateHasChanged();
+    }
+
     private async Task ConfirmDispatch(SalesShipment shp)
     {
         if (shp.Lines.Any(l => l.QtyShipped > l.QtyOrdered))
         {
             await JS.InvokeVoidAsync("alert", "Validation Error: You cannot ship more than the required order quantity.");
+            return;
+        }
+
+        if (!shp.Lines.Any(l => l.QtyShipped > 0))
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Error: You must dispatch at least one physical item quantity.");
             return;
         }
 
@@ -333,7 +550,6 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", msg);
         if (!confirm) return;
 
-        // Passed currentUserId at the end (keeping currentUser for the 'confirmedBy' string)
         var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser, currentUserId);
 
         if (!string.IsNullOrEmpty(err))

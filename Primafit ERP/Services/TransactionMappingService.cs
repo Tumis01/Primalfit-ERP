@@ -19,10 +19,6 @@ namespace Primafit_ERP.Services
             _glOps = glOps;
         }
 
-        // =========================================================
-        // 1. CONFIGURATION CRUD & AUTO-SEEDING
-        // =========================================================
-
         public async Task<List<TransactionGlMapping>> GetMappingsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -32,7 +28,6 @@ namespace Primafit_ERP.Services
                 .Where(m => m.CompanyId == companyId)
                 .ToListAsync();
 
-            // Auto-seed ONLY standard system enums (exclude CustomGlAdjustment so deletions stay deleted)
             var systemTypes = Enum.GetValues<SystemTransactionType>()
                                   .Where(t => t != SystemTransactionType.CustomGlAdjustment);
 
@@ -122,123 +117,63 @@ namespace Primafit_ERP.Services
             return true;
         }
 
-        // =========================================================
-        // 2. OPENING BALANCES & SUB-LEDGER POSTING ENGINES
-        // =========================================================
-
-        public async Task<string> PostOpeningBalancesAsync(Guid companyId, DateOnly postingDate, bool isCustomer, List<OpeningBalanceLineDto> lines, string userId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-
-            try
-            {
-                var validLines = lines.Where(l => l.EntityId != Guid.Empty && l.BalanceAmount != 0).ToList();
-                if (!validLines.Any()) return "No valid balances to post.";
-
-                var mappingType = isCustomer ? SystemTransactionType.CustomerOpeningBalance : SystemTransactionType.VendorOpeningBalance;
-                var config = await ctx.TransactionGlMappings.FirstOrDefaultAsync(m => m.CompanyId == companyId && m.TransactionType == mappingType);
-
-                var glLines = new List<GLJournalLine>();
-
-                if (isCustomer)
-                {
-                    Guid suspenseAccountId = config?.OverrideCreditGlAccountId ?? Guid.Empty;
-                    if (suspenseAccountId == Guid.Empty) return "STOP: You must configure a Credit Account (Suspense/Equity) for Customer Opening Balances in the Setup Module.";
-
-                    foreach (var line in validLines)
-                    {
-                        var customer = await ctx.Customers.FindAsync(line.EntityId);
-                        if (customer == null || customer.ReceivablesAccountId == null) return $"Customer '{line.EntityName}' is missing an AR Account.";
-
-                        Guid arAccount = config?.OverrideDebitGlAccountId ?? customer.ReceivablesAccountId.Value;
-                        decimal absoluteAmount = Math.Abs(line.BalanceAmount);
-
-                        if (line.BalanceAmount > 0)
-                        {
-                            glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = absoluteAmount, Credit = 0, Reference = $"OB Dr: {customer.Name}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = suspenseAccountId, Debit = 0, Credit = absoluteAmount, Reference = $"OB Offset Cr: {customer.Name}" });
-                        }
-                        else
-                        {
-                            glLines.Add(new GLJournalLine { SegCoaId = suspenseAccountId, Debit = absoluteAmount, Credit = 0, Reference = $"OB Offset Dr: {customer.Name}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = 0, Credit = absoluteAmount, Reference = $"OB Cr: {customer.Name}" });
-                        }
-                    }
-                }
-                else
-                {
-                    Guid suspenseAccountId = config?.OverrideDebitGlAccountId ?? Guid.Empty;
-                    if (suspenseAccountId == Guid.Empty) return "STOP: You must configure a Debit Account (Suspense/Equity) for Vendor Opening Balances in the Setup Module.";
-
-                    foreach (var line in validLines)
-                    {
-                        var vendor = await ctx.Vendors.FindAsync(line.EntityId);
-                        if (vendor == null || vendor.PayablesAccountId == null) return $"Vendor '{line.EntityName}' is missing an AP Account.";
-
-                        Guid apAccount = config?.OverrideCreditGlAccountId ?? vendor.PayablesAccountId.Value;
-                        decimal absoluteAmount = Math.Abs(line.BalanceAmount);
-
-                        if (line.BalanceAmount > 0)
-                        {
-                            glLines.Add(new GLJournalLine { SegCoaId = suspenseAccountId, Debit = absoluteAmount, Credit = 0, Reference = $"OB Offset Dr: {vendor.Name}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = 0, Credit = absoluteAmount, Reference = $"OB Cr: {vendor.Name}" });
-                        }
-                        else
-                        {
-                            glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = absoluteAmount, Credit = 0, Reference = $"OB Dr: {vendor.Name}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = suspenseAccountId, Debit = 0, Credit = absoluteAmount, Reference = $"OB Offset Cr: {vendor.Name}" });
-                        }
-                    }
-                }
-
-                string batchName = $"OB-{(isCustomer ? "CUST" : "VEND")}-{DateTime.UtcNow:yyMMddHHmm}";
-
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchName, "Opening Balances Migration Batch", glLines, userId);
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-
-                if (batchId.HasValue)
-                {
-                    var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
-                    if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
-                }
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync();
-                return $"Migration Error: {ex.Message}";
-            }
-        }
-
-        public async Task<string> PostArAdjustmentsAsync(Guid companyId, DateOnly postingDate, List<OpeningBalanceLineDto> adjustmentLines, string userId)
+        public async Task<string> PostArAdjustmentsAsync(
+    Guid companyId,
+    DateOnly postingDate,
+    List<OpeningBalanceLineDto> adjustmentLines,
+    string userId,
+    Guid? customTransactionTypeId = null,
+    Guid? directArControlAccountId = null,
+    Guid? directBalancingAccountId = null)
         {
             var targetLines = adjustmentLines.Where(x => x.EntityId != Guid.Empty && x.BalanceAmount != 0).ToList();
             if (!targetLines.Any()) return "STOP: No valid adjustment lines with non-zero amounts were provided.";
 
             try
             {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var glLines = new List<GLJournalLine>();
 
-                Guid arControlAccountOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ArAdjustment, isDebit: true, defaultAccountId: Guid.Empty);
-                Guid arBalancingAccountOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ArAdjustment, isDebit: false, defaultAccountId: Guid.Empty);
-
-                if (arBalancingAccountOverride == Guid.Empty)
+                // 1. Resolve custom template mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (customTransactionTypeId.HasValue && customTransactionTypeId.Value != Guid.Empty)
                 {
-                    return "CONFIGURATION ERROR: No Balancing/Suspense Account has been mapped for 'ArAdjustment' (Credit Side) in GL Mapping Settings.";
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == companyId && m.CustomTransactionTypeId == customTransactionTypeId.Value);
+                }
+
+                // 2. Resolve Balancing Account (Credit/Debit Suspense)
+                Guid arBalancingAccount = directBalancingAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? Guid.Empty;
+
+                if (arBalancingAccount == Guid.Empty)
+                {
+                    arBalancingAccount = await GetMappedAccountAsync(companyId, SystemTransactionType.ArAdjustment, isDebit: false, defaultAccountId: Guid.Empty);
+                }
+
+                if (arBalancingAccount == Guid.Empty)
+                {
+                    return "CONFIGURATION ERROR: No Balancing/Suspense Account has been mapped for 'ArAdjustment' (Credit Side) in GL Mapping Settings or Modal Override.";
+                }
+
+                // 3. Resolve AR Control Override
+                Guid globalArControlOverride = directArControlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? Guid.Empty;
+
+                if (globalArControlOverride == Guid.Empty)
+                {
+                    globalArControlOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ArAdjustment, isDebit: true, defaultAccountId: Guid.Empty);
                 }
 
                 foreach (var line in targetLines)
                 {
                     decimal absoluteAmount = Math.Abs(line.BalanceAmount);
-                    Guid customerArAccount = arControlAccountOverride;
+                    Guid customerArAccount = globalArControlOverride;
 
                     if (customerArAccount == Guid.Empty)
                     {
-                        using var ctx = await _dbFactory.CreateDbContextAsync();
                         var customer = await ctx.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == line.EntityId);
                         customerArAccount = customer?.ReceivablesAccountId ?? Guid.Empty;
 
@@ -251,11 +186,11 @@ namespace Primafit_ERP.Services
                     if (line.BalanceAmount > 0)
                     {
                         glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AR Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccountOverride, Debit = 0, Credit = absoluteAmount, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccountOverride, Debit = absoluteAmount, Credit = 0, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
                         glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AR Adj Cr - {line.EntityName}" });
                     }
                 }
@@ -279,50 +214,82 @@ namespace Primafit_ERP.Services
                 return $"FATAL SYSTEM ERROR: {ex.Message}";
             }
         }
-
-        public async Task<string> PostApAdjustmentsAsync(Guid companyId, DateOnly postingDate, List<OpeningBalanceLineDto> adjustmentLines, string userId)
+        public async Task<string> PostApAdjustmentsAsync(
+    Guid companyId,
+    DateOnly postingDate,
+    List<OpeningBalanceLineDto> adjustmentLines,
+    string userId,
+    Guid? customTransactionTypeId = null,
+    Guid? directApControlAccountId = null,
+    Guid? directBalancingAccountId = null)
         {
             var targetLines = adjustmentLines.Where(x => x.EntityId != Guid.Empty && x.BalanceAmount != 0).ToList();
             if (!targetLines.Any()) return "STOP: No valid adjustment lines with non-zero amounts were provided.";
 
             try
             {
+                using var ctx = await _dbFactory.CreateDbContextAsync();
                 var glLines = new List<GLJournalLine>();
 
-                Guid apControlAccountOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ApAdjustment, isDebit: true, defaultAccountId: Guid.Empty);
-                Guid apBalancingAccountOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ApAdjustment, isDebit: false, defaultAccountId: Guid.Empty);
-
-                if (apBalancingAccountOverride == Guid.Empty)
+                // 1. Resolve custom template mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (customTransactionTypeId.HasValue && customTransactionTypeId.Value != Guid.Empty)
                 {
-                    return "CONFIGURATION ERROR: No Balancing/Suspense Account has been mapped for 'ApAdjustment' (Debit Side) in GL Mapping Settings.";
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == companyId && m.CustomTransactionTypeId == customTransactionTypeId.Value);
+                }
+
+                // 2. Resolve Balancing/Suspense Offset Account (Debit Side for AP Opening Balance)
+                Guid apBalancingAccount = directBalancingAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? Guid.Empty;
+
+                if (apBalancingAccount == Guid.Empty)
+                {
+                    apBalancingAccount = await GetMappedAccountAsync(companyId, SystemTransactionType.ApAdjustment, isDebit: true, defaultAccountId: Guid.Empty);
+                }
+
+                if (apBalancingAccount == Guid.Empty)
+                {
+                    return "CONFIGURATION ERROR: No Balancing/Suspense Account has been mapped for 'ApAdjustment' in GL Mapping Settings or Modal Override.";
+                }
+
+                // 3. Resolve AP Control Account Override (Credit Side for AP Liability)
+                Guid globalApControlOverride = directApControlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? Guid.Empty;
+
+                if (globalApControlOverride == Guid.Empty)
+                {
+                    globalApControlOverride = await GetMappedAccountAsync(companyId, SystemTransactionType.ApAdjustment, isDebit: false, defaultAccountId: Guid.Empty);
                 }
 
                 foreach (var line in targetLines)
                 {
                     decimal absoluteAmount = Math.Abs(line.BalanceAmount);
-                    Guid vendorApAccount = apControlAccountOverride;
+                    Guid vendorApAccount = globalApControlOverride;
 
                     if (vendorApAccount == Guid.Empty)
                     {
-                        using var ctx = await _dbFactory.CreateDbContextAsync();
                         var vendor = await ctx.Vendors.AsNoTracking().FirstOrDefaultAsync(v => v.Id == line.EntityId);
                         vendorApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
 
                         if (vendorApAccount == Guid.Empty)
                         {
-                            return $"MASTER DATA ERROR: Vendor '{line.EntityName}' has no configured Payables Account, and no global 'ApAdjustment' Credit override is mapped.";
+                            return $"MASTER DATA ERROR: Vendor '{line.EntityName}' has no configured Accounts Payable Account, and no global 'ApAdjustment' override is mapped.";
                         }
                     }
 
+                    // Normal AP balance is a Credit (positive liability), prepayment/reduction is Debit (negative)
                     if (line.BalanceAmount > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccountOverride, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
                         glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AP Adj Cr - {line.EntityName}" });
                     }
                     else
                     {
                         glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccountOverride, Debit = 0, Credit = absoluteAmount, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
                     }
                 }
 
@@ -431,7 +398,7 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMDDHHmm}";
+                string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMddHHmm}";
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
                 if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
 
@@ -451,7 +418,71 @@ namespace Primafit_ERP.Services
                 return $"INVENTORY SYSTEM ADJ ERROR: {ex.Message}";
             }
         }
+        public async Task<List<TransactionTypeOptionDto>> GetAvailableTransactionTypesAsync(Guid companyId, bool arOnly = false)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            // 1. Fetch current company GL mappings with eager-loaded custom definitions
+            var mappings = await ctx.TransactionGlMappings
+                .Include(m => m.CustomTransactionType)
+                .Where(m => m.CompanyId == companyId && m.IsActive)
+                .ToListAsync();
+
+            var options = new List<TransactionTypeOptionDto>();
+
+            // Standard AR System Scope
+            var arSystemTypes = new HashSet<SystemTransactionType>
+    {
+        SystemTransactionType.SalesInvoice,
+        SystemTransactionType.DirectSalesInvoice,
+        SystemTransactionType.ArAdjustment,
+        SystemTransactionType.CustomerPayment,
+        SystemTransactionType.CreditNote,
+        SystemTransactionType.ReceiptRefund,
+        SystemTransactionType.ShipmentDispatch,
+        SystemTransactionType.DiscountAllowed
+    };
+
+            // 2. Add System Transaction Types
+            foreach (var map in mappings.Where(m => m.TransactionType != SystemTransactionType.CustomGlAdjustment))
+            {
+                if (arOnly && !arSystemTypes.Contains(map.TransactionType))
+                    continue;
+
+                options.Add(new TransactionTypeOptionDto
+                {
+                    ValueKey = $"SYS_{(int)map.TransactionType}",
+                    DisplayName = System.Text.RegularExpressions.Regex.Replace(map.TransactionType.ToString(), "([a-z])([A-Z])", "$1 $2"),
+                    Description = $"Core System Route for {map.TransactionType}",
+                    IsCustom = false,
+                    SystemType = map.TransactionType,
+                    CustomTransactionTypeId = null,
+                    DefaultDebitAccountId = map.OverrideDebitGlAccountId,
+                    DefaultCreditAccountId = map.OverrideCreditGlAccountId
+                });
+            }
+
+            // 3. Add Custom Transaction Types Created via Form
+            foreach (var map in mappings.Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment && m.CustomTransactionType != null))
+            {
+                options.Add(new TransactionTypeOptionDto
+                {
+                    ValueKey = $"CUST_{map.CustomTransactionTypeId}",
+                    DisplayName = $"{map.CustomTransactionType!.Name} (Custom)",
+                    Description = map.CustomTransactionType.Description,
+                    IsCustom = true,
+                    SystemType = SystemTransactionType.CustomGlAdjustment,
+                    CustomTransactionTypeId = map.CustomTransactionTypeId,
+                    DefaultDebitAccountId = map.OverrideDebitGlAccountId,
+                    DefaultCreditAccountId = map.OverrideCreditGlAccountId
+                });
+            }
+
+            return options
+                .OrderBy(o => o.IsCustom ? 1 : 0)
+                .ThenBy(o => o.DisplayName)
+                .ToList();
+        }
         public async Task<List<CustomTransactionType>> GetCustomTransactionTypesAsync(Guid companyId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();

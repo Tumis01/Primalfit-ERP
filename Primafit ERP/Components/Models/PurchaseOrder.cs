@@ -42,6 +42,12 @@ namespace Primafit_ERP.Components.Models
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? AccountsPayableGlAccountId { get; set; }
+        public Guid? GoodsReceiptClearingGlAccountId { get; set; }
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public bool HasReceipt { get; set; } = false;
@@ -77,7 +83,13 @@ namespace Primafit_ERP.Components.Models
         public Guid PurchaseOrderId { get; set; }
         public string GrnNumber { get; set; } = string.Empty;
         public DateTime DateReceived { get; set; } = DateTime.Today;
-        public Guid InventoryGlAccountId { get; set; } 
+        public Guid InventoryGlAccountId { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideInventoryAssetGlAccountId { get; set; }
+        public Guid? OverrideGrIrClearingGlAccountId { get; set; }
         public List<GoodsReceiptLine> Lines { get; set; } = new();
     }
 
@@ -95,28 +107,51 @@ namespace Primafit_ERP.Components.Models
     // =================================================================
     public class VendorBill
     {
+        [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid VendorId { get; set; }
+
         [Required]
         public Guid CompanyId { get; set; }
+
+        [Required]
+        public Guid VendorId { get; set; }
+        [ForeignKey(nameof(VendorId))]
+        public virtual Vendor? Vendor { get; set; }
+
         public Guid? PurchaseOrderId { get; set; }
+        [ForeignKey(nameof(PurchaseOrderId))]
+        public virtual PurchaseOrder? PurchaseOrder { get; set; }
+
         public Guid AccountsPayableGlId { get; set; }
         public bool IsDirectBill { get; set; } = false;
-        public string ExternalInvoiceNumber { get; set; } = "";
-        public DateTime BillDate { get; set; }
+        public string ExternalInvoiceNumber { get; set; } = string.Empty;
+        public DateTime BillDate { get; set; } = DateTime.Today;
         public Guid CurrencyId { get; set; }
+        [ForeignKey(nameof(CurrencyId))]
+        public virtual Currency? Currency { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
         public decimal ExchangeRate { get; set; } = 1;
+
         [Column(TypeName = "decimal(18,6)")]
         public decimal TotalAmountForeign { get; set; }
+
+        [Column(TypeName = "decimal(18,6)")]
         public decimal TotalAmount { get; set; }
 
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
-        public string MatchVarianceReason { get; set; } = "";
+        public string MatchVarianceReason { get; set; } = string.Empty;
         public string? Description { get; set; }
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
+
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideExpenseGlAccountId { get; set; }
+        public Guid? OverrideAccountsPayableGlAccountId { get; set; }
+
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
@@ -124,7 +159,7 @@ namespace Primafit_ERP.Components.Models
 
         [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount) ?? 0;
         [NotMapped] public decimal BalanceDue => TotalAmount - AmountPaid;
-        [NotMapped] public bool IsFullyPaid => IsPosted && TotalAmount > 0 && BalanceDue <= 0;
+        [NotMapped] public bool IsFullyPaid => IsPosted && TotalAmount > 0 && BalanceDue <= 0.01m;
         [NotMapped]
         public string CalculatedPaymentStatus
         {
@@ -140,28 +175,59 @@ namespace Primafit_ERP.Components.Models
 
     public class VendorBillLine
     {
+        [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
         public Guid VendorBillId { get; set; }
+        [ForeignKey(nameof(VendorBillId))]
+        public virtual VendorBill? VendorBill { get; set; }
+
         public Guid? ItemId { get; set; }
+        [ForeignKey(nameof(ItemId))]
+        public virtual Item? Item { get; set; }
+
         public Guid ExpenseGlAccountId { get; set; }
         public string? Description { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
         public decimal QuantityBilled { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
         public decimal UnitCostBilled { get; set; }
+
+        [NotMapped]
         public decimal LineTotal => QuantityBilled * UnitCostBilled;
     }
 
+    // =================================================================
+    // 2. AP DISBURSEMENTS (Vendor Payments)
+    // =================================================================
     public class VendorPayment
     {
-        [Key] public Guid Id { get; set; } = Guid.NewGuid();
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
         public Guid VendorBillId { get; set; }
         [ForeignKey(nameof(VendorBillId))]
-        public VendorBill? VendorBill { get; set; }
+        public virtual VendorBill? VendorBill { get; set; }
+
         public DateTime Date { get; set; } = DateTime.Today;
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal Amount { get; set; }
+
         public Guid BankGlAccountId { get; set; }
         public string Reference { get; set; } = string.Empty;
+
+        // --- CUSTOM TRANSACTION TEMPLATE & GL OVERRIDES ---
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideDebitApGlAccountId { get; set; }
+        public Guid? OverrideCreditBankGlAccountId { get; set; }
     }
 
     public class ItemCostHistory

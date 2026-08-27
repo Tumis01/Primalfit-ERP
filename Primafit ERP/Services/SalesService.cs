@@ -45,7 +45,6 @@ namespace Primafit_ERP.Services
                 .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
 
-            // FIXED: Fetch line-level credited item quantities in batch across all matching active invoices
             var lineCreditsMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
                 .Where(cnl => invoiceIds.Contains(cnl.Header!.SalesOrderId) && cnl.Header.Status == CreditNoteStatus.Posted)
@@ -56,7 +55,6 @@ namespace Primafit_ERP.Services
 
             foreach (var o in orders)
             {
-                // Hydrate each row line with its corresponding credited count
                 foreach (var line in o.Lines)
                 {
                     line.QtyCredited = lineCreditsMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
@@ -66,7 +64,7 @@ namespace Primafit_ERP.Services
                 decimal discountValue = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
                 decimal discountedSubTotal = subTotal - discountValue;
 
-                decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
+                decimal taxPer = o.TaxId.HasValue && taxes.TryGetValue(o.TaxId.Value, out var p) ? p : 0;
                 decimal taxValue = discountedSubTotal * (taxPer / 100);
 
                 decimal rawGrandTotal = discountedSubTotal + taxValue;
@@ -78,26 +76,20 @@ namespace Primafit_ERP.Services
             }
 
             return orders;
-        }   
+        }
         public async Task<SalesOrder?> GetOrderByIdAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var order = await ctx.SalesOrders
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Include(o => o.Customer)
+                .Include(o => o.Currency)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order != null)
             {
-                // 1. Calculate totals based strictly on absolute original un-mutated quantities
                 decimal subTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
-
-                decimal discountValue = order.DiscountAmount;
-                if (order.DiscountPercentage > 0)
-                {
-                    discountValue = subTotal * (order.DiscountPercentage / 100);
-                }
-
+                decimal discountValue = order.DiscountPercentage > 0 ? subTotal * (order.DiscountPercentage / 100) : order.DiscountAmount;
                 decimal discountedSubTotal = subTotal - discountValue;
 
                 decimal taxPer = 0;
@@ -106,12 +98,10 @@ namespace Primafit_ERP.Services
                     var tax = await ctx.Taxes.FindAsync(order.TaxId.Value);
                     if (tax != null) taxPer = tax.Per;
                 }
-                decimal taxValue = discountedSubTotal * (taxPer / 100);
 
-                // FIXED: Leave GrandTotalForeign as the original invoice total value
+                decimal taxValue = discountedSubTotal * (taxPer / 100);
                 order.GrandTotalForeign = discountedSubTotal + taxValue;
 
-                // FIXED: Expose the cumulative adjustment total as a standalone property for layout visibility
                 order.CreditNoteTotal = await ctx.CreditNotes
                     .Where(cn => cn.SalesOrderId == orderId && cn.Status == CreditNoteStatus.Posted)
                     .SumAsync(cn => cn.TotalAmount);
@@ -123,6 +113,7 @@ namespace Primafit_ERP.Services
 
             return order;
         }
+    
 
 
         // =========================================================
@@ -448,6 +439,7 @@ namespace Primafit_ERP.Services
                 var order = await ctx.SalesOrders
                     .Include(o => o.Customer)
                     .Include(o => o.Lines).ThenInclude(l => l.Item)
+                    .Include(o => o.CustomTransactionType)
                     .FirstOrDefaultAsync(o => o.Id == orderId);
 
                 if (order == null) return "Order not found.";
@@ -460,6 +452,14 @@ namespace Primafit_ERP.Services
                 decimal foreignSubTotalToInvoice = 0;
                 decimal totalRevenueBase = 0;
                 bool itemsInvoicedInThisRun = false;
+
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (order.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == order.CompanyId && m.CustomTransactionTypeId == order.CustomTransactionTypeId.Value);
+                }
 
                 foreach (var line in order.Lines)
                 {
@@ -474,14 +474,19 @@ namespace Primafit_ERP.Services
 
                     foreignSubTotalToInvoice += lineTotalForeign;
 
-                    if (line.Item.SalesIncomeAccountId == Guid.Empty)
-                        return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
+                    // Resolve Revenue Account: Custom Template Credit -> Default Item Income -> Standard Route
+                    Guid revenueAccount = customMapping?.OverrideCreditGlAccountId ?? Guid.Empty;
+                    if (revenueAccount == Guid.Empty)
+                    {
+                        revenueAccount = await _mappingService.GetMappedAccountAsync(
+                            order.CompanyId,
+                            SystemTransactionType.SalesInvoice,
+                            isDebit: false,
+                            defaultAccountId: line.Item.SalesIncomeAccountId);
+                    }
 
-                    Guid revenueAccount = await _mappingService.GetMappedAccountAsync(
-                        order.CompanyId,
-                        SystemTransactionType.SalesInvoice,
-                        isDebit: false,
-                        defaultAccountId: line.Item.SalesIncomeAccountId);
+                    if (revenueAccount == Guid.Empty)
+                        return $"Item '{line.Item.Name}' is missing a Sales Income GL Account mapping.";
 
                     glLines.Add(new GLJournalLine { SegCoaId = revenueAccount, Debit = 0, Credit = lineTotalBase, Reference = $"Rev {line.Item.Name}" });
                     totalRevenueBase += lineTotalBase;
@@ -491,6 +496,7 @@ namespace Primafit_ERP.Services
 
                 if (!itemsInvoicedInThisRun) return "No unbilled quantities found to invoice.";
 
+                // 2. Discount Line
                 decimal discountForeign = 0;
                 if (order.DiscountPercentage > 0)
                 {
@@ -507,14 +513,18 @@ namespace Primafit_ERP.Services
 
                 if (discountBase > 0)
                 {
-                    Guid discountAccount = await _mappingService.GetMappedAccountAsync(
-                        order.CompanyId,
-                        SystemTransactionType.DiscountAllowed,
-                        isDebit: true,
-                        defaultAccountId: order.DiscountGlAccountId ?? Guid.Empty);
+                    Guid discountAccount = order.DiscountGlAccountId ?? Guid.Empty;
+                    if (discountAccount == Guid.Empty)
+                    {
+                        discountAccount = await _mappingService.GetMappedAccountAsync(
+                            order.CompanyId,
+                            SystemTransactionType.DiscountAllowed,
+                            isDebit: true,
+                            defaultAccountId: Guid.Empty);
+                    }
 
                     if (discountAccount == Guid.Empty)
-                        return "A discount was applied, but no Discount Allowed account is configured in GL Settings.";
+                        return "A discount was applied, but no Discount Allowed account is configured.";
 
                     glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = discountBase, Credit = 0, Reference = $"Discount {order.OrderNumber}" });
                 }
@@ -522,6 +532,7 @@ namespace Primafit_ERP.Services
                 decimal discountedRevenueBase = totalRevenueBase - discountBase;
                 decimal totalTaxBase = 0;
 
+                // 3. Tax Line
                 if (order.TaxId.HasValue)
                 {
                     var taxDef = await ctx.Taxes.FindAsync(order.TaxId);
@@ -531,20 +542,26 @@ namespace Primafit_ERP.Services
                         totalTaxBase = Math.Round(taxAmountBase, 2);
 
                         Guid targetGlId = order.TaxGLAccountId ?? taxDef.GLAccountId ?? Guid.Empty;
-                        if (targetGlId == Guid.Empty) return $"Tax selected but no GL Account is mapped.";
+                        if (targetGlId == Guid.Empty) return "Tax selected but no GL Account is mapped.";
 
                         glLines.Add(new GLJournalLine { SegCoaId = targetGlId, Debit = 0, Credit = totalTaxBase, Reference = $"{taxDef.TaxCode} on {order.OrderNumber}" });
                     }
                 }
 
+                // 4. Accounts Receivable (Debit)
                 decimal grandTotalBase = discountedRevenueBase + totalTaxBase;
-                if (order.Customer?.ReceivablesAccountId == null) return "Customer AR Account is missing.";
 
-                Guid arAccount = await _mappingService.GetMappedAccountAsync(
-                    order.CompanyId,
-                    SystemTransactionType.SalesInvoice,
-                    isDebit: true,
-                    defaultAccountId: order.Customer.ReceivablesAccountId.Value);
+                Guid arAccount = order.ReceivablesGlAccountId ?? customMapping?.OverrideDebitGlAccountId ?? Guid.Empty;
+                if (arAccount == Guid.Empty)
+                {
+                    if (order.Customer?.ReceivablesAccountId == null) return "Customer AR Account is missing.";
+
+                    arAccount = await _mappingService.GetMappedAccountAsync(
+                        order.CompanyId,
+                        SystemTransactionType.SalesInvoice,
+                        isDebit: true,
+                        defaultAccountId: order.Customer.ReceivablesAccountId.Value);
+                }
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
 
@@ -563,7 +580,6 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                // --- GENERATE INVOICE STRINGS WITH AUTOMATED RETRY BLOCKS ---
                 if (!order.OrderNumber.StartsWith("INV"))
                 {
                     bool isDuplicate = true;
@@ -627,13 +643,47 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            return await ctx.SalesOrders
+            var invoices = await ctx.SalesOrders
                 .AsNoTracking()
                 .Include(o => o.Customer)
+                .Include(o => o.Currency)
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId && o.IsDirectInvoice == true)
                 .OrderByDescending(o => o.Date)
                 .ToListAsync();
+
+            if (!invoices.Any()) return invoices;
+
+            var invoiceIds = invoices.Select(i => i.Id).ToList();
+
+            var paymentsMap = await ctx.PaymentApplications
+                .Where(pa => invoiceIds.Contains(pa.InvoiceId))
+                .GroupBy(pa => pa.InvoiceId)
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
+
+            var creditNotesMap = await ctx.CreditNotes
+                .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted)
+                .GroupBy(cn => cn.SalesOrderId)
+                .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
+                .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+
+            var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
+
+            foreach (var inv in invoices)
+            {
+                decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                decimal discount = inv.DiscountPercentage > 0 ? subTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
+                decimal net = subTotal - discount;
+                decimal taxPer = inv.TaxId.HasValue && taxes.TryGetValue(inv.TaxId.Value, out var per) ? per : 0;
+                decimal tax = net * (taxPer / 100);
+
+                inv.GrandTotalForeign = net + tax;
+                inv.CreditNoteTotal = creditNotesMap.GetValueOrDefault(inv.Id, 0);
+                inv.AmountPaid = paymentsMap.GetValueOrDefault(inv.Id, 0);
+            }
+
+            return invoices;
         }
 
         // 6. POST DIRECT INVOICE
@@ -646,10 +696,16 @@ namespace Primafit_ERP.Services
             {
                 if (invoice.CompanyId == Guid.Empty) return "Company ID is missing.";
                 if (invoice.CustomerId == Guid.Empty) return "Customer is required.";
-                if (!invoice.Lines.Any()) return "Invoice must have at least one line.";
+                if (!invoice.Lines.Any()) return "Invoice must have at least one line item.";
+
+                if (invoice.Lines.Any(l => l.Quantity <= 0))
+                    return "Validation Error: All line items must have a quantity greater than 0.";
+
+                if (invoice.Lines.Any(l => l.UnitPrice < 0))
+                    return "Validation Error: Line unit price cannot be negative.";
 
                 var customer = await ctx.Customers.FindAsync(invoice.CustomerId);
-                if (customer?.ReceivablesAccountId == null) return "Customer is missing an AR (Receivables) GL Account.";
+                if (customer == null) return "Selected customer could not be resolved from master records.";
 
                 invoice.WarehouseId = await ctx.Warehouses
                     .Where(w => w.CompanyId == invoice.CompanyId)
@@ -659,9 +715,15 @@ namespace Primafit_ERP.Services
                 decimal rate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
                 decimal subTotalForeign = invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
 
+                if (invoice.DiscountPercentage < 0 || invoice.DiscountPercentage > 100)
+                    return "Validation Error: Discount percentage must be between 0 and 100.";
+
                 decimal discountForeign = invoice.DiscountPercentage > 0
                     ? subTotalForeign * (invoice.DiscountPercentage / 100)
                     : invoice.DiscountAmount;
+
+                if (discountForeign > subTotalForeign)
+                    return "Validation Error: Discount amount cannot exceed subtotal gross value.";
 
                 decimal netForeign = subTotalForeign - discountForeign;
 
@@ -682,45 +744,81 @@ namespace Primafit_ERP.Services
 
                 var glLines = new List<GLJournalLine>();
 
-                Guid directRevAccount = await _mappingService.GetMappedAccountAsync(
-                    invoice.CompanyId,
-                    SystemTransactionType.DirectSalesInvoice,
-                    isDebit: false,
-                    defaultAccountId: Guid.Empty);
+                // 1. Resolve custom template mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (invoice.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == invoice.CompanyId && m.CustomTransactionTypeId == invoice.CustomTransactionTypeId.Value);
+                }
 
-                if (directRevAccount == Guid.Empty) return "Direct Invoice requires a Credit Account. Please configure it in GL Mapping Settings.";
+                // 2. Revenue Account (Credit)
+                Guid directRevAccount = invoice.DirectIncomeGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        invoice.CompanyId,
+                        SystemTransactionType.DirectSalesInvoice,
+                        isDebit: false,
+                        defaultAccountId: Guid.Empty);
+
+                if (directRevAccount == Guid.Empty)
+                    return "Direct Invoice requires a Credit/Revenue Account. Please configure it in GL Settings or in the Route Modal.";
 
                 glLines.Add(new GLJournalLine { SegCoaId = directRevAccount, Debit = 0, Credit = subTotalBase, Reference = "Direct AR Revenue" });
 
+                // 3. Discount Allowed Account (Debit)
                 if (discountBase > 0)
                 {
-                    Guid discountAccount = await _mappingService.GetMappedAccountAsync(
-                        invoice.CompanyId,
-                        SystemTransactionType.DiscountAllowed,
-                        isDebit: true,
-                        defaultAccountId: invoice.DiscountGlAccountId ?? Guid.Empty);
+                    Guid discountAccount = invoice.DiscountGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            invoice.CompanyId,
+                            SystemTransactionType.DiscountAllowed,
+                            isDebit: true,
+                            defaultAccountId: Guid.Empty);
 
                     if (discountAccount == Guid.Empty)
-                        return "A discount was applied, but no Discount Allowed account is configured in GL Settings.";
+                        return "A discount was applied, but no Discount Allowed account is configured.";
 
                     glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = discountBase, Credit = 0, Reference = "Discount Allowed" });
                 }
 
+                // 4. Tax Account (Credit)
                 if (taxBase > 0)
                 {
-                    if (invoice.TaxGLAccountId == null || invoice.TaxGLAccountId == Guid.Empty) return "Tax GL Account is required.";
-                    glLines.Add(new GLJournalLine { SegCoaId = invoice.TaxGLAccountId.Value, Debit = 0, Credit = taxBase, Reference = "Tax Payable" });
+                    Guid targetGlId = invoice.TaxGLAccountId ?? Guid.Empty;
+                    if (targetGlId == Guid.Empty && invoice.TaxId.HasValue)
+                    {
+                        var taxObj = await ctx.Taxes.FindAsync(invoice.TaxId.Value);
+                        targetGlId = taxObj?.GLAccountId ?? Guid.Empty;
+                    }
+
+                    if (targetGlId == Guid.Empty) return "Tax is calculated but no Tax GL Account is mapped.";
+                    glLines.Add(new GLJournalLine { SegCoaId = targetGlId, Debit = 0, Credit = taxBase, Reference = "Tax Payable" });
                 }
 
-                Guid arAccount = await _mappingService.GetMappedAccountAsync(
-                    invoice.CompanyId,
-                    SystemTransactionType.DirectSalesInvoice,
-                    isDebit: true,
-                    defaultAccountId: customer.ReceivablesAccountId.Value);
+                // 5. Receivables Control Account (Debit)
+                Guid arAccount = invoice.ReceivablesGlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        invoice.CompanyId,
+                        SystemTransactionType.DirectSalesInvoice,
+                        isDebit: true,
+                        defaultAccountId: customer.ReceivablesAccountId ?? Guid.Empty);
+
+                if (arAccount == Guid.Empty)
+                    return "Customer is missing an AR (Receivables) Account mapping.";
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = "Accounts Receivable" });
 
-                // --- FIXED: DIRECT INVOICE STRING COLLISION CONTROLS ---
+                // 6. Balance verification
+                decimal totalDebits = glLines.Sum(l => l.Debit);
+                decimal totalCredits = glLines.Sum(l => l.Credit);
+                if (totalDebits != totalCredits)
+                {
+                    return $"Posting Aborted: GL imbalance detected. Debits: {totalDebits:N2} != Credits: {totalCredits:N2}";
+                }
+
+                // 7. Collision-proof Invoice Number Generation
                 bool isStringDuplicate = true;
                 string generatedDirectInvoiceNumber = string.Empty;
 
@@ -765,7 +863,7 @@ namespace Primafit_ERP.Services
             }
             catch (Exception ex)
             {
-                transaction.RollbackAsync().GetAwaiter().GetResult();
+                await transaction.RollbackAsync();
                 return $"Direct Invoice Error: {ex.InnerException?.Message ?? ex.Message}";
             }
         }

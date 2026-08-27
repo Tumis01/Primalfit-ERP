@@ -67,22 +67,44 @@ namespace Primafit_ERP.Services
                 if (pay == null) return "Payment not found.";
                 if (pay.Status != PaymentStatus.Draft) return "Only draft payments can be posted.";
 
-                // Use accounts selected on the form, with mapping service as fallback
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (pay.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == pay.CompanyId && m.CustomTransactionTypeId == pay.CustomTransactionTypeId.Value);
+                }
+
+                // 2. Resolve Bank Deposit Account (Debit)
                 Guid bankAccount = pay.DepositToGlAccountId != Guid.Empty
                     ? pay.DepositToGlAccountId
-                    : await _mappingService.GetMappedAccountAsync(
+                    : customMapping?.OverrideDebitGlAccountId ?? Guid.Empty;
+
+                if (bankAccount == Guid.Empty)
+                {
+                    bankAccount = await _mappingService.GetMappedAccountAsync(
                         pay.CompanyId,
                         SystemTransactionType.CustomerPayment,
                         isDebit: true,
                         defaultAccountId: Guid.Empty);
+                }
 
+                // 3. Resolve AR Account (Credit)
                 Guid arAccount = pay.CreditGlAccountId != Guid.Empty
                     ? pay.CreditGlAccountId
-                    : await _mappingService.GetMappedAccountAsync(
+                    : customMapping?.OverrideCreditGlAccountId ?? Guid.Empty;
+
+                if (arAccount == Guid.Empty)
+                {
+                    var customer = await ctx.Customers.FindAsync(pay.CustomerId);
+                    Guid defaultAr = customer?.ReceivablesAccountId ?? Guid.Empty;
+
+                    arAccount = await _mappingService.GetMappedAccountAsync(
                         pay.CompanyId,
                         SystemTransactionType.CustomerPayment,
                         isDebit: false,
-                        defaultAccountId: Guid.Empty);
+                        defaultAccountId: defaultAr);
+                }
 
                 bool bankExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bankAccount && a.CompanyId == pay.CompanyId && a.IsActive);
                 if (!bankExists) return "Deposit Bank Account is invalid or inactive.";
@@ -93,7 +115,7 @@ namespace Primafit_ERP.Services
                 var glLines = new List<GLJournalLine>();
                 decimal rate = pay.ExchangeRate > 0 ? pay.ExchangeRate : 1m;
 
-                // 1. DEBIT BANK (Liquid Asset Increases)
+                // 4. DEBIT BANK (Liquid Asset Increases)
                 decimal totalBankBase = Math.Round(pay.AmountReceived * rate, 2);
 
                 glLines.Add(new GLJournalLine
@@ -104,7 +126,7 @@ namespace Primafit_ERP.Services
                     Reference = $"Rcpt {pay.Reference}"
                 });
 
-                // 2. Process Applications, Discounts, and Balance Checks
+                // 5. Process Applications, Discounts, and Balance Checks
                 decimal totalDiscountsBase = 0;
                 decimal totalArSettledBase = 0;
 
@@ -147,11 +169,16 @@ namespace Primafit_ERP.Services
                     // Cash discount taken on receipt
                     if (app.CashDiscountTaken > 0)
                     {
-                        Guid discountAllowedGl = await _mappingService.GetMappedAccountAsync(
-                            pay.CompanyId,
-                            SystemTransactionType.DiscountAllowed,
-                            isDebit: true,
-                            defaultAccountId: invoice.DiscountGlAccountId ?? Guid.Empty);
+                        Guid discountAllowedGl = pay.DiscountGlAccountId ?? Guid.Empty;
+
+                        if (discountAllowedGl == Guid.Empty)
+                        {
+                            discountAllowedGl = await _mappingService.GetMappedAccountAsync(
+                                pay.CompanyId,
+                                SystemTransactionType.DiscountAllowed,
+                                isDebit: true,
+                                defaultAccountId: invoice.DiscountGlAccountId ?? Guid.Empty);
+                        }
 
                         if (discountAllowedGl == Guid.Empty)
                             return "Posting Aborted: Cash discount is taken, but no Discount Allowed GL Account could be resolved.";
@@ -175,7 +202,7 @@ namespace Primafit_ERP.Services
                     invoice.Status = finalRemaining <= 0.01m ? OrderStatus.Invoiced : OrderStatus.PartiallyInvoiced;
                 }
 
-                // 3. CREDIT ACCOUNTS RECEIVABLE (Asset Decreases)
+                // 6. CREDIT ACCOUNTS RECEIVABLE (Asset Decreases)
                 decimal finalArCreditBase = totalBankBase + totalDiscountsBase;
 
                 glLines.Add(new GLJournalLine

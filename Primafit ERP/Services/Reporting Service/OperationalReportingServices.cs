@@ -263,7 +263,7 @@ namespace Primafit_ERP.Services
             var customerOpeningBalanceMap = await ctx.TransactionGlMappings
                 .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.CompanyId == companyId
-                    && m.TransactionType == SystemTransactionType.CustomerOpeningBalance);
+                    && m.TransactionType == SystemTransactionType.ArAdjustment);
 
             var arAdjustmentMap = await ctx.TransactionGlMappings
                 .AsNoTracking()
@@ -643,7 +643,7 @@ namespace Primafit_ERP.Services
             var vendorOpeningBalanceMap = await ctx.TransactionGlMappings
                 .AsNoTracking()
                 .FirstOrDefaultAsync(m => m.CompanyId == companyId
-                    && m.TransactionType == SystemTransactionType.VendorOpeningBalance);
+                    && m.TransactionType == SystemTransactionType.ApAdjustment);
 
             var apAdjustmentMap = await ctx.TransactionGlMappings
                 .AsNoTracking()

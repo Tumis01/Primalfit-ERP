@@ -1,15 +1,13 @@
-﻿@page "/setup/gl-mapping"
+﻿@page "/setup/ar-transaction-types"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.EntityFrameworkCore
-@using System.IO
 
 @inject TransactionMappingService MappingService
 @inject SegCoaService SegCoaService
-@inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -19,8 +17,11 @@
 <div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Transaction GL Mapping Router</h1>
-            <p class="text-sm text-slate-500 mt-1">Configure global ledger control accounts and define transactional default account routes.</p>
+            <div class="flex items-center gap-2">
+                <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">AR & Fulfillment</span>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">AR & Fulfillment Ledger Routes</h1>
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Configure global ledger overrides, define custom transactional routing templates, and manage AR default accounts.</p>
         </div>
         <button @onclick="OpenCreateModal" class="px-5 py-2.5 bg-slate-900 text-white font-bold text-sm rounded-xl hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95 shadow-sm">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
@@ -30,49 +31,69 @@
 
     @if (isLoading)
     {
-        <div class="p-12 text-center text-slate-400 animate-pulse bg-white border border-slate-200 rounded-2xl">Loading configurations...</div>
+        <div class="p-12 text-center text-slate-400 animate-pulse bg-white border border-slate-200 rounded-2xl">
+            Loading AR Transaction Routes...
+        </div>
     }
     else
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="p-4 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-700 font-bold flex items-center gap-2">
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Changes save instantly upon clicking "Apply Changes" inside the configuration modal.
-            </div>
-
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm whitespace-nowrap min-w-[950px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
-                            <th class="p-4 w-[25%] pl-6">Transaction Type Route</th>
-                            <th class="p-4 w-[30%]">Description Workflow Scope</th>
-                            <th class="p-4 w-[18%]">Debit Account (Override)</th>
-                            <th class="p-4 w-[18%]">Credit Account (Override)</th>
-                            <th class="p-4 text-center w-[9%] pr-6">Actions</th>
+                            <th class="p-4 w-[24%] pl-6">Route / Operation</th>
+                            <th class="p-4 w-[28%]">Workflow Page Link</th>
+                            <th class="p-4 w-[20%]">Debit Account (Override)</th>
+                            <th class="p-4 w-[20%]">Credit Account (Override)</th>
+                            <th class="p-4 text-center w-[8%] pr-6">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        @foreach (var map in mappings)
+                        @foreach (var map in arMappings)
                         {
                             bool isCustom = map.TransactionType == SystemTransactionType.CustomGlAdjustment;
 
-                            <tr class="hover:bg-slate-50 transition-colors group @(isCustom ? "bg-amber-50/5" : "")">
+                            <tr class="hover:bg-slate-50 transition-colors group @(isCustom ? "bg-amber-50/10" : "")">
                                 <td class="p-4 pl-6 font-bold text-slate-800">
+                                    <div class="flex items-center gap-2">
+                                        @if (isCustom)
+                                        {
+                                            <span class="inline-flex h-2 w-2 rounded-full bg-amber-500 shrink-0"></span>
+                                            <span class="truncate max-w-[240px]" title="@(map.CustomTransactionType?.Name ?? "Custom Template")">
+                                                @(map.CustomTransactionType?.Name ?? "Custom Template")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span>@GetArRouteTitle(map.TransactionType)</span>
+                                        }
+                                    </div>
+                                    <span class="block text-[11px] text-slate-400 font-normal truncate max-w-xs" title="@GetArRouteDescription(map)">
+                                        @GetArRouteDescription(map)
+                                    </span>
+                                </td>
+
+                                <td class="p-4">
                                     @if (isCustom)
                                     {
-                                        <div class="flex items-center gap-2">
-                                            <span class="inline-flex h-2 w-2 rounded-full bg-amber-500 shrink-0"></span>
-                                            <span class="truncate max-w-[240px]" title="@map.CustomTransactionType?.Name">@map.CustomTransactionType?.Name</span>
-                                        </div>
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold">
+                                            Custom Template Route
+                                        </span>
                                     }
                                     else
                                     {
-                                        @FormatEnumName(map.TransactionType.ToString())
+                                        var link = GetArNavLink(map.TransactionType);
+                                        @if (!string.IsNullOrEmpty(link.Href))
+                                        {
+                                            <a href="@link.Href" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 text-xs font-semibold transition-colors border border-slate-200">
+                                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                </svg>
+                                                <span>@link.Label</span>
+                                            </a>
+                                        }
                                     }
-                                </td>
-
-                                <td class="p-4 text-xs text-slate-500 max-w-xs truncate" title="@GetRowDescription(map)">
-                                    @GetRowDescription(map)
                                 </td>
 
                                 <td class="p-4">
@@ -89,6 +110,7 @@
                                         </div>
                                     }
                                 </td>
+
                                 <td class="p-4">
                                     @if (map.OverrideCreditGlAccountId.HasValue)
                                     {
@@ -103,6 +125,7 @@
                                         </div>
                                     }
                                 </td>
+
                                 <td class="p-4 text-center pr-6">
                                     <div class="flex items-center justify-center gap-1.5">
                                         <button @onclick="() => OpenEditModal(map)" class="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-white border border-slate-200 rounded-lg shadow-sm hover:bg-indigo-50 transition-colors opacity-100 md:opacity-0 group-hover:opacity-100">
@@ -138,7 +161,7 @@
                     }
                     else
                     {
-                        <span>Configure Route: <span class="text-indigo-700">@(editingMap?.TransactionType == SystemTransactionType.CustomGlAdjustment ? editingMap.CustomTransactionType?.Name : FormatEnumName(editingMap?.TransactionType.ToString() ?? ""))</span></span>
+                        <span>Configure Route: <span class="text-indigo-700">@(editingMap?.TransactionType == SystemTransactionType.CustomGlAdjustment ? editingMap.CustomTransactionType?.Name : GetArRouteTitle(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice))</span></span>
                     }
                 </h3>
                 <button type="button" @onclick="CloseModal" class="text-slate-400 hover:text-rose-600 transition-colors">
@@ -146,21 +169,20 @@
                 </button>
             </div>
 
-            <div class="p-6 overflow-visible flex-1 content-box">
-
+            <div class="p-6 overflow-visible flex-1 space-y-4">
                 @if (isCreatingCustom || (editingMap != null && editingMap.TransactionType == SystemTransactionType.CustomGlAdjustment))
                 {
-                    <div class="space-y-4 animate-in fade-in duration-300 mb-6">
+                    <div class="space-y-4 animate-in fade-in duration-300">
                         <div>
                             <label class="label">Custom Template Name <span class="text-rose-500">*</span></label>
-                            <input type="text" @bind="newCustomName" class="input-class" placeholder="e.g. Shareholder Equity Loan" />
+                            <input type="text" @bind="newCustomName" class="input-class" placeholder="e.g. Special AR Promotion Write-Off" />
                         </div>
                         <div>
                             <label class="label">Functional Workflow Description</label>
-                            <input type="text" @bind="newCustomDesc" class="input-class" placeholder="Describe when to utilize this template..." />
+                            <input type="text" @bind="newCustomDesc" class="input-class" placeholder="Describe the business scenario for this template..." />
                         </div>
                     </div>
-                    <hr class="border-slate-200/60 my-4" />
+                    <hr class="border-slate-200/60 my-2" />
                 }
 
                 <div class="space-y-2 relative z-50">
@@ -168,7 +190,7 @@
                         <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Debit Account Override Mapping</label>
                         @if (tempDebit.HasValue)
                         {
-                            <button type="button" @onclick="() => tempDebit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
+                            <button type="button" @onclick="() => tempDebit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
                                 Clear Override
                             </button>
                         }
@@ -180,14 +202,14 @@
                                          ValueChanged="@((Guid val) => tempDebit = val == Guid.Empty ? null : val)" />
                 </div>
 
-                <div class="h-6"></div>
+                <div class="h-2"></div>
 
                 <div class="space-y-2 relative z-30">
                     <div class="flex justify-between items-center">
                         <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
                         @if (tempCredit.HasValue)
                         {
-                            <button type="button" @onclick="() => tempCredit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
+                            <button type="button" @onclick="() => tempCredit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
                                 Clear Override
                             </button>
                         }
@@ -200,7 +222,7 @@
                 </div>
             </div>
 
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[60]">
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl">
                 <button @onclick="CloseModal" class="px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors" disabled="@isSaving">
                     Cancel
                 </button>
@@ -256,7 +278,7 @@
     private bool showModal = false;
     private bool isCreatingCustom = false;
 
-    private List<TransactionGlMapping> mappings = new();
+    private List<TransactionGlMapping> arMappings = new();
     private List<SegChartOfAccount> coaList = new();
 
     private string newCustomName = string.Empty;
@@ -265,6 +287,18 @@
     private TransactionGlMapping? editingMap;
     private Guid? tempDebit;
     private Guid? tempCredit;
+
+    private static readonly HashSet<SystemTransactionType> ArTransactionScope = new()
+    {
+        SystemTransactionType.SalesInvoice,
+        SystemTransactionType.DirectSalesInvoice,
+        SystemTransactionType.ArAdjustment,
+        SystemTransactionType.CustomerPayment,
+        SystemTransactionType.CreditNote,
+        SystemTransactionType.ReceiptRefund,
+        SystemTransactionType.ShipmentDispatch,
+        SystemTransactionType.DiscountAllowed
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -283,21 +317,34 @@
     private async Task RefreshDataset()
     {
         coaList = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
-
         await MappingService.GetMappingsAsync(currentCompanyId);
 
         using var ctx = await DbFactory.CreateDbContextAsync();
-        var rawMappings = await ctx.TransactionGlMappings
+        var allMappings = await ctx.TransactionGlMappings
+            .AsNoTracking()
             .Include(m => m.CustomTransactionType)
             .Where(m => m.CompanyId == currentCompanyId)
             .ToListAsync();
 
-        mappings = rawMappings
-            .Where(m => (int)m.TransactionType != 0)
+        // Include system AR types AND any custom adjustments
+        arMappings = allMappings
+            .Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment
+                     || ArTransactionScope.Contains(m.TransactionType))
             .OrderBy(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment ? 1 : 0)
             .ThenBy(m => m.TransactionType)
             .ThenBy(m => m.CustomTransactionType?.Name)
             .ToList();
+    }
+
+    private void OpenCreateModal()
+    {
+        isCreatingCustom = true;
+        editingMap = null;
+        newCustomName = string.Empty;
+        newCustomDesc = string.Empty;
+        tempDebit = null;
+        tempCredit = null;
+        showModal = true;
     }
 
     private void OpenEditModal(TransactionGlMapping map)
@@ -320,17 +367,6 @@
         showModal = true;
     }
 
-    private void OpenCreateModal()
-    {
-        isCreatingCustom = true;
-        editingMap = null;
-        newCustomName = string.Empty;
-        newCustomDesc = string.Empty;
-        tempDebit = null;
-        tempCredit = null;
-        showModal = true;
-    }
-
     private void CloseModal() => showModal = false;
 
     private async Task ApplyAndSaveModal()
@@ -344,7 +380,7 @@
             {
                 if (string.IsNullOrWhiteSpace(newCustomName))
                 {
-                    await JS.InvokeVoidAsync("alert", "Validation Error: A Template Name identifier is required.");
+                    await JS.InvokeVoidAsync("alert", "Validation Error: A Template Name is required.");
                     isSaving = false;
                     return;
                 }
@@ -408,7 +444,7 @@
             await ctx.SaveChangesAsync();
             await RefreshDataset();
             showModal = false;
-            await JS.InvokeVoidAsync("alert", "Changes committed and saved securely to database!");
+            await JS.InvokeVoidAsync("alert", "Changes saved successfully!");
         }
         catch (Exception ex)
         {
@@ -422,7 +458,7 @@
 
     private async Task DeleteCustomType(TransactionGlMapping map)
     {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to permanently delete the template category '{map.CustomTransactionType?.Name}'?\n\nThis will clear its ledger router mappings completely.");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Are you sure you want to permanently delete template '{map.CustomTransactionType?.Name}'?");
         if (!confirm) return;
 
         try
@@ -431,20 +467,18 @@
             if (deleted)
             {
                 await RefreshDataset();
-                await JS.InvokeVoidAsync("alert", "Custom transaction configuration template removed successfully.");
+                await JS.InvokeVoidAsync("alert", "Custom transaction template deleted successfully.");
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", "Could not locate the template to remove.");
+                await JS.InvokeVoidAsync("alert", "Could not locate template to delete.");
             }
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Operational Refusal: {ex.Message}");
+            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
         }
     }
-
-    private string FormatEnumName(string name) => System.Text.RegularExpressions.Regex.Replace(name, "([a-z])([A-Z])", "$1 $2");
 
     private string GetAccountDisplayName(Guid? accountId)
     {
@@ -453,7 +487,39 @@
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
 
-    private string GetRowDescription(TransactionGlMapping map)
+    private (string Label, string Href) GetArNavLink(SystemTransactionType type)
+    {
+        return type switch
+        {
+            SystemTransactionType.SalesInvoice => ("Sales Orders / Invoices", "sc/sales-orders"),
+            SystemTransactionType.DirectSalesInvoice => ("Direct Invoice", "/ar/direct-invoices"),
+            SystemTransactionType.ArAdjustment => ("AR Adjustment / Balances", "/finance/ar-adjustments"),
+            SystemTransactionType.CustomerPayment => ("Customer Receipt Entry", "ar/payment-entry"),
+            SystemTransactionType.CreditNote => ("Credit Notes Entry", "sales/credit-notes"),
+            SystemTransactionType.ReceiptRefund => ("Receipt Refunds", "sales/receipt-refunds/entry/"),
+            SystemTransactionType.ShipmentDispatch => ("Warehouse Dispatch", "wh/shipments"),
+            SystemTransactionType.DiscountAllowed => ("Sales Discounts", "sc/sales-orders"),
+            _ => (string.Empty, string.Empty)
+        };
+    }
+
+    private string GetArRouteTitle(SystemTransactionType type)
+    {
+        return type switch
+        {
+            SystemTransactionType.SalesInvoice => "Standard Sales Invoicing",
+            SystemTransactionType.DirectSalesInvoice => "Direct Sales Invoicing",
+            SystemTransactionType.ArAdjustment => "AR Adjustment & Balances",
+            SystemTransactionType.CustomerPayment => "Customer Payment Receipt",
+            SystemTransactionType.CreditNote => "Credit Note Return",
+            SystemTransactionType.ReceiptRefund => "Customer Receipt Refund",
+            SystemTransactionType.ShipmentDispatch => "Warehouse Shipment Dispatch",
+            SystemTransactionType.DiscountAllowed => "Sales Discount Allowed",
+            _ => type.ToString()
+        };
+    }
+
+    private string GetArRouteDescription(TransactionGlMapping map)
     {
         if (map.TransactionType == SystemTransactionType.CustomGlAdjustment)
         {
@@ -464,24 +530,15 @@
 
         return map.TransactionType switch
         {
-            SystemTransactionType.ArAdjustment => "Accounts receivable opening balance migration & subledger manual adjustments.",
-            SystemTransactionType.ApAdjustment => "Accounts payable opening balance migration & subledger manual adjustments.",
-            SystemTransactionType.DirectPurchaseInvoice => "Non-inventory direct accounts payable supplier bills.",
-            SystemTransactionType.DirectSalesInvoice => "Non-inventory free-text customer invoicing revenues.",
-            SystemTransactionType.DiscountAllowed => "Financial ledger routing for sales discounts granted.",
-            SystemTransactionType.DiscountReceived => "Financial ledger routing for purchasing discounts captured / rolled back.",
-            SystemTransactionType.SalesInvoice => "Standard inventory-tracked client invoicing ledger paths.",
-            SystemTransactionType.PurchaseInvoice => "Standard inventory-tracked vendor procurement receipts.",
-            SystemTransactionType.CreditNote => "Customer returns and accounts receivable sales credits.",
-            SystemTransactionType.ReturnToVendor => "Vendor cash payment refunds (Deposit Bank vs AP liability restoration).",
-            SystemTransactionType.DebitNote => "Purchase invoice line item corrections (AP vs GR/IR clearing/expense).",
-            SystemTransactionType.CustomerPayment => "Customer receipts and cash collections (Deposit Bank Asset vs Customer AR).",
-            SystemTransactionType.VendorPayment => "Vendor bill outgoing payments (AP Liability Reduction vs Disbursement Bank).",
-            SystemTransactionType.ReceiptRefund => "Refunding cash/bank customer receipts & stock return reversals.",
-            SystemTransactionType.ShipmentDispatch => "Warehouse shipment fulfillment (Inventory Stock Out vs COGS recognition).",
-            SystemTransactionType.InventoryAdjustment => "Physical stock counts and WACC revaluation updates.",
-            SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts & stock returns.",
-            _ => "Core System Default Route Configuration."
+            SystemTransactionType.SalesInvoice => "Inventory-tracked customer billing routes.",
+            SystemTransactionType.DirectSalesInvoice => "Non-inventory free-text customer billing.",
+            SystemTransactionType.ArAdjustment => "Opening balance migration & subledger adjustments.",
+            SystemTransactionType.CustomerPayment => "Bank receipt settlements against customer AR invoices.",
+            SystemTransactionType.CreditNote => "Customer sales returns and AR credits.",
+            SystemTransactionType.ReceiptRefund => "Refunding cash/bank receipts and returning stock.",
+            SystemTransactionType.ShipmentDispatch => "Physical inventory release and Cost of Goods Sold posting.",
+            SystemTransactionType.DiscountAllowed => "Early settlement and promotional order discounts.",
+            _ => "Core accounts receivable ledger route."
         };
     }
 
@@ -491,23 +548,14 @@
         {
             return type switch
             {
-                SystemTransactionType.ArAdjustment => "System Default [Customer AR Control]",
-                SystemTransactionType.ApAdjustment => "NOT SET [Suspense / Equity Offset]",
-                SystemTransactionType.DirectPurchaseInvoice => "NOT SET [Expense Account]",
-                SystemTransactionType.DirectSalesInvoice => "System Default [Customer AR]",
-                SystemTransactionType.DiscountAllowed => "System Default [Order Discount Acc]",
-                SystemTransactionType.DiscountReceived => "NOT SET [Discount Rollback Debit Acc]",
                 SystemTransactionType.SalesInvoice => "System Default [Customer AR]",
-                SystemTransactionType.PurchaseInvoice => "System Default [Line Expense / Asset]",
+                SystemTransactionType.DirectSalesInvoice => "System Default [Customer AR]",
+                SystemTransactionType.ArAdjustment => "System Default [Customer AR Control]",
+                SystemTransactionType.CustomerPayment => "NOT SET [Bank / Cash Account]",
                 SystemTransactionType.CreditNote => "NOT SET [Item Revenue Account]",
-                SystemTransactionType.DebitNote => "System Default [Vendor AP Control]",
-                SystemTransactionType.CustomerPayment => "NOT SET [Deposit Bank / Cash Asset]",
-                SystemTransactionType.VendorPayment => "System Default [Vendor AP Control]",
-                SystemTransactionType.ReturnToVendor => "NOT SET [Deposit Bank / Cash Asset]",
                 SystemTransactionType.ReceiptRefund => "System Default [Customer AR / Item Asset]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item COGS Account]",
-                SystemTransactionType.InventoryAdjustment => "System Default [Inventory Stock Asset]",
-                SystemTransactionType.GoodsReceipt => "System Default [Inventory Asset Account]",
+                SystemTransactionType.DiscountAllowed => "System Default [Order Discount Acc]",
                 _ => "System Default"
             };
         }
@@ -515,23 +563,14 @@
         {
             return type switch
             {
-                SystemTransactionType.ArAdjustment => "NOT SET [Custom Suspense / Equity Offset]",
-                SystemTransactionType.ApAdjustment => "System Default [Vendor AP Control]",
-                SystemTransactionType.DirectPurchaseInvoice => "System Default [Vendor AP]",
-                SystemTransactionType.DirectSalesInvoice => "NOT SET [Revenue Account]",
-                SystemTransactionType.DiscountAllowed => "System Default [Customer AR]",
-                SystemTransactionType.DiscountReceived => "System Default [Line Discount Received Acc]",
                 SystemTransactionType.SalesInvoice => "System Default [Item Revenue Account]",
-                SystemTransactionType.PurchaseInvoice => "System Default [Vendor AP]",
-                SystemTransactionType.CreditNote => "System Default [Customer AR]",
-                SystemTransactionType.DebitNote => "System Default [GR/IR Clearing / Expense Acc]",
+                SystemTransactionType.DirectSalesInvoice => "NOT SET [Revenue Account]",
+                SystemTransactionType.ArAdjustment => "NOT SET [Suspense / Equity Offset]",
                 SystemTransactionType.CustomerPayment => "System Default [Customer AR Control]",
-                SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
-                SystemTransactionType.ReturnToVendor => "System Default [Vendor AP Control]",
+                SystemTransactionType.CreditNote => "System Default [Customer AR Control]",
                 SystemTransactionType.ReceiptRefund => "NOT SET [Disbursement Bank / Item COGS]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item Inventory Asset Account]",
-                SystemTransactionType.InventoryAdjustment => "NOT SET [Inventory Balance Account]",
-                SystemTransactionType.GoodsReceipt => "NOT SET [GR/IR Clearing Liability Account]",
+                SystemTransactionType.DiscountAllowed => "System Default [Customer AR Control]",
                 _ => "System Default"
             };
         }

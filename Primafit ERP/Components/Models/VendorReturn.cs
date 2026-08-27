@@ -30,19 +30,19 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid VendorId { get; set; }
         [ForeignKey(nameof(VendorId))]
-        public Vendor? Vendor { get; set; }
+        public virtual Vendor? Vendor { get; set; }
 
         public Guid? PurchaseOrderId { get; set; }
         [ForeignKey(nameof(PurchaseOrderId))]
-        public PurchaseOrder? PurchaseOrder { get; set; }
+        public virtual PurchaseOrder? PurchaseOrder { get; set; }
 
         public Guid? WarehouseId { get; set; }
         [ForeignKey(nameof(WarehouseId))]
-        public Warehouse? Warehouse { get; set; }
+        public virtual Warehouse? Warehouse { get; set; }
 
         public Guid? BankAccountId { get; set; }
         [ForeignKey(nameof(BankAccountId))]
-        public SegChartOfAccount? BankAccount { get; set; }
+        public virtual SegChartOfAccount? BankAccount { get; set; }
 
         [Required]
         [StringLength(50)]
@@ -59,7 +59,7 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CurrencyId { get; set; }
         [ForeignKey(nameof(CurrencyId))]
-        public Currency? Currency { get; set; }
+        public virtual Currency? Currency { get; set; }
 
         [Column(TypeName = "decimal(18,6)")]
         public decimal ExchangeRate { get; set; } = 1;
@@ -68,6 +68,15 @@ namespace Primafit_ERP.Components.Models
         public decimal TotalAmount { get; set; }
 
         public Guid? GlBatchId { get; set; }
+
+        // --- CUSTOM TRANSACTION TEMPLATE & GL ROUTING OVERRIDES ---
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public virtual CustomTransactionType? CustomTransactionType { get; set; }
+
+        public Guid? OverrideGrIrClearingGlAccountId { get; set; }
+        public Guid? OverrideInventoryAssetGlAccountId { get; set; }
+        public Guid? OverrideAccountsPayableGlAccountId { get; set; }
 
         public Guid CreatedByUserId { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -84,13 +93,13 @@ namespace Primafit_ERP.Components.Models
 
         public Guid HeaderId { get; set; }
         [ForeignKey(nameof(HeaderId))]
-        public VendorReturn? Header { get; set; }
+        public virtual VendorReturn? Header { get; set; }
 
         public Guid PurchaseOrderLineId { get; set; }
 
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
-        public Item? Item { get; set; }
+        public virtual Item? Item { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
@@ -98,17 +107,10 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal UnitCost { get; set; }
 
-        // Workspace runtime tracking variables (Excluded from database tables)
-        [NotMapped]
-        public decimal OriginalReceivedQty { get; set; }
-
-        [NotMapped]
-        public decimal PreviouslyReturnedQty { get; set; }
-
-        [NotMapped]
-        public decimal MaxReturnableQty { get; set; }
-
-        [NotMapped]
-        public decimal LineTotal => Quantity * UnitCost;
+        // Workspace runtime tracking variables
+        [NotMapped] public decimal OriginalReceivedQty { get; set; }
+        [NotMapped] public decimal PreviouslyReturnedQty { get; set; }
+        [NotMapped] public decimal MaxReturnableQty { get; set; }
+        [NotMapped] public decimal LineTotal => Quantity * UnitCost;
     }
 }

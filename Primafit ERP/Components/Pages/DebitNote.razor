@@ -14,6 +14,7 @@
 @inject DebitNoteService DebitService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject CompanyApiService CompanyService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
@@ -22,7 +23,7 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800">
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800 pb-16">
 
     <!-- HEADER / ACTION BAR -->
     <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
@@ -56,12 +57,25 @@
                 }
             </p>
         </div>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap items-center gap-3">
             @if (!IsListMode)
             {
                 <button type="button" @onclick="NavigateToListView"
                         class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95">
-                    Cancel & Back to List
+                    Back to List
+                </button>
+            }
+
+            @if (!IsListMode && !IsNewInitialization && currentDebitNote != null)
+            {
+                <!-- Configure Route Button -->
+                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Configure Route</span>
+                    @if (currentDebitNote.CustomTransactionTypeId.HasValue)
+                    {
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    }
                 </button>
             }
 
@@ -298,6 +312,30 @@
                             </div>
                         }
                     </div>
+
+                    <!-- Live Active Route Card -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                Edit Mappings
+                            </button>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Accounts Payable (Dr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)">
+                                    @(GetAccountDisplayName(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId))
+                                </span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">GR/IR Clearing / Stock (Cr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
+                                    @(GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- MAIN WORKSPACE DETAILS -->
@@ -353,7 +391,7 @@
                             </table>
                         </div>
 
-                        <!-- FOOTER TOTALS WITH MULTI-CURRENCY RENDERING -->
+                        <!-- FOOTER TOTALS -->
                         <div class="border-t border-slate-200 bg-slate-50 p-6 flex justify-between items-center mt-auto rounded-b-2xl">
                             <div>
                                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Adjustment Value:</span>
@@ -392,6 +430,123 @@
     }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal && currentDebitNote != null)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Debit Note GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for purchase returns and AP reductions.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentDebitNote.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentDebitNote.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Debit Note Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentDebitNote.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
+                            <option value="">-- Standard Debit Note Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Accounts Payable Liability (Debit Leg - Reduction) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Liability Reduction)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentDebitNote.OverrideAccountsPayableGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentDebitNote.OverrideAccountsPayableGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="System Default Vendor AP"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)"
+                                                         ValueChanged="@((Guid val) => currentDebitNote.OverrideAccountsPayableGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. GR/IR Clearing / Inventory Stock Asset (Credit Leg - Reversal) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">GR/IR Clearing / Stock Asset</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Reversal)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentDebitNote.OverrideGrIrClearingGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentDebitNote.OverrideGrIrClearingGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default GR/IR Clearing / Asset Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)"
+                                                         ValueChanged="@((Guid val) => currentDebitNote.OverrideGrIrClearingGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .label {
         display: block;
@@ -425,6 +580,10 @@
             color: #94a3b8;
             cursor: not-allowed;
         }
+
+    tr, td {
+        overflow: visible !important;
+    }
 </style>
 
 @code {
@@ -446,6 +605,13 @@
     private List<DebitNoteModel> allDebitNotes = new();
     private List<PurchaseOrder> eligibleInvoices = new();
     private List<Vendor> vendors = new();
+    private List<SegChartOfAccount> allAccounts = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultApAccountId = Guid.Empty;
+    private Guid defaultGrIrAccountId = Guid.Empty;
 
     private int pageSize = 15;
     private int currentPage = 1;
@@ -483,6 +649,10 @@
             }
 
             vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            defaultGrIrAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: false, defaultAccountId: Guid.Empty);
 
             await LoadListGrid();
 
@@ -533,6 +703,9 @@
             isCreateMode = false;
             selectedVendorId = currentDebitNote.VendorId;
             selectedInvoiceId = currentDebitNote.PurchaseOrderId ?? Guid.Empty;
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote.VendorId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
         }
         else
         {
@@ -548,11 +721,15 @@
         if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
         {
             selectedVendorId = venId;
+            var vendor = vendors.FirstOrDefault(v => v.Id == venId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
             await LoadEligibleInvoices();
         }
         else
         {
             selectedVendorId = Guid.Empty;
+            defaultApAccountId = Guid.Empty;
             eligibleInvoices.Clear();
         }
     }
@@ -584,6 +761,9 @@
             {
                 currentDebitNote = await DebitService.GetByIdAsync(currentDebitNote.Id, currentCompanyId);
                 isCreateMode = false;
+
+                var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote?.VendorId);
+                defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
             }
         }
         catch (Exception ex)
@@ -594,6 +774,59 @@
         {
             isBusy = false;
         }
+    }
+
+    private async Task OpenRouteModal()
+    {
+        if (currentDebitNote == null) return;
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote.VendorId);
+        defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        if (currentDebitNote == null) return;
+
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentDebitNote.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    currentDebitNote.OverrideAccountsPayableGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    currentDebitNote.OverrideGrIrClearingGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            currentDebitNote.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "System Default";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
     }
 
     private void ValidateLineQty(DebitNoteLineModel line, string? val)

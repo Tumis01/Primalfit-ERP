@@ -12,16 +12,17 @@ namespace Primafit_ERP.Services
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
+        private readonly TransactionMappingService _mappingService;
 
-        public ReceiptRefundService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps)
+        public ReceiptRefundService(
+            IDbContextFactory<AppDbContext> dbFactory,
+            GLOperationsService glOps,
+            TransactionMappingService mappingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
+            _mappingService = mappingService;
         }
-
-        // =========================================================================
-        // 1. DATA LOOKUP FILTERS & COMPLEX CEILING CALCULATIONS
-        // =========================================================================
 
         public async Task<List<SalesOrder>> GetInvoicesEligibleForRefundAsync(Guid companyId, Guid customerId)
         {
@@ -72,10 +73,6 @@ namespace Primafit_ERP.Services
 
             return eligibleList.OrderByDescending(o => o.Date).ToList();
         }
-
-        // =========================================================================
-        // 2. WORKSPACE INITIALIZATION & LINE HYDRATION ENGINE
-        // =========================================================================
 
         public async Task<ReceiptRefund> CreateReceiptRefundDraftAsync(Guid orderId, ReceiptRefundType type, Guid userId)
         {
@@ -149,6 +146,7 @@ namespace Primafit_ERP.Services
                 .Include(r => r.Customer)
                 .Include(r => r.Currency)
                 .Include(r => r.SalesOrder).ThenInclude(so => so.Lines)
+                .Include(r => r.CustomTransactionType)
                 .FirstOrDefaultAsync(r => r.Id == id && r.CompanyId == companyId);
 
             if (refund != null && refund.SalesOrder != null)
@@ -193,6 +191,10 @@ namespace Primafit_ERP.Services
             existing.BankAccountId = refund.BankAccountId;
             existing.DestinationWarehouseId = refund.DestinationWarehouseId;
             existing.TotalAmount = refund.TotalAmount;
+            existing.CustomTransactionTypeId = refund.CustomTransactionTypeId;
+            existing.OverrideReceivablesGlAccountId = refund.OverrideReceivablesGlAccountId;
+            existing.OverrideInventoryAssetGlAccountId = refund.OverrideInventoryAssetGlAccountId;
+            existing.OverrideCogsGlAccountId = refund.OverrideCogsGlAccountId;
 
             ctx.ReceiptRefundLines.RemoveRange(existing.Lines);
             foreach (var line in refund.Lines)
@@ -225,10 +227,6 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // =========================================================================
-        // 4. BALANCED DOUBLE-ENTRY LEDGER TRANSACTION ENGINE
-        // =========================================================================
-
         public async Task<string> PostReceiptRefundAsync(Guid refundId, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -248,6 +246,14 @@ namespace Primafit_ERP.Services
                 var so = refund.SalesOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = refund.ExchangeRate > 0 ? refund.ExchangeRate : 1;
+
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (refund.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == refund.CompanyId && m.CustomTransactionTypeId == refund.CustomTransactionTypeId.Value);
+                }
 
                 // -----------------------------------------------------------------
                 // LEG A: PHYSICAL STOCK RETURN (REVERSES SHIPMENT: INVENTORY VS COGS)
@@ -279,19 +285,15 @@ namespace Primafit_ERP.Services
                         if (line.Quantity > maxAllowedReturnQty + 0.001m)
                             return $"Posting Aborted: Item '{line.Item.Name}' quantity returned ({line.Quantity:N2}) exceeds remaining physical shipment allowance ({maxAllowedReturnQty:N2}).";
 
-                        // Resolve unit cost based on Item costing method
                         decimal resolvedUnitCost = line.Item.CostingType switch
                         {
                             CostingMethod.WACC => line.Item.WeightedAverageCost,
                             CostingMethod.StandardCosting => line.Item.StandardCost,
                             CostingMethod.UserSpecified => line.Item.UserSpecifiedCost,
                             CostingMethod.MostRecentCost => line.Item.MostRecentCost,
-                            CostingMethod.FIFO => line.Item.WeightedAverageCost,
-                            CostingMethod.LIFO => line.Item.WeightedAverageCost,
                             _ => line.Item.WeightedAverageCost
                         };
 
-                        // 1. Log Product Inflow back into Stock Ledger
                         ctx.StockLedgers.Add(new StockLedger
                         {
                             Id = Guid.NewGuid(),
@@ -305,16 +307,31 @@ namespace Primafit_ERP.Services
                             Date = DateTime.UtcNow
                         });
 
-                        // 2. Pure Shipment Reversal: DR Inventory Asset, CR COGS
                         decimal lineCogsValueBase = Math.Round(line.Quantity * resolvedUnitCost, 2);
                         if (lineCogsValueBase > 0)
                         {
-                            if (line.Item.InventoryAssetAccountId == Guid.Empty || line.Item.CostOfGoodsSoldAccountId == Guid.Empty)
-                                return $"Posting Aborted: Item '{line.Item.Name}' is missing Inventory Asset or COGS GL account mapping.";
+                            Guid inventoryAssetAccount = refund.OverrideInventoryAssetGlAccountId
+                                ?? customMapping?.OverrideDebitGlAccountId
+                                ?? await _mappingService.GetMappedAccountAsync(
+                                    refund.CompanyId,
+                                    SystemTransactionType.ReceiptRefund,
+                                    isDebit: true,
+                                    defaultAccountId: line.Item.InventoryAssetAccountId);
+
+                            Guid cogsAccount = refund.OverrideCogsGlAccountId
+                                ?? customMapping?.OverrideCreditGlAccountId
+                                ?? await _mappingService.GetMappedAccountAsync(
+                                    refund.CompanyId,
+                                    SystemTransactionType.ReceiptRefund,
+                                    isDebit: false,
+                                    defaultAccountId: line.Item.CostOfGoodsSoldAccountId);
+
+                            if (inventoryAssetAccount == Guid.Empty || cogsAccount == Guid.Empty)
+                                return $"Posting Aborted: Item '{line.Item.Name}' is missing Inventory Asset or COGS GL account mappings.";
 
                             glLines.Add(new GLJournalLine
                             {
-                                SegCoaId = line.Item.InventoryAssetAccountId,
+                                SegCoaId = inventoryAssetAccount,
                                 Debit = lineCogsValueBase,
                                 Credit = 0,
                                 Reference = $"Return Stock: {line.Item.SKU}"
@@ -322,14 +339,13 @@ namespace Primafit_ERP.Services
 
                             glLines.Add(new GLJournalLine
                             {
-                                SegCoaId = line.Item.CostOfGoodsSoldAccountId,
+                                SegCoaId = cogsAccount,
                                 Debit = 0,
                                 Credit = lineCogsValueBase,
                                 Reference = $"Return COGS: {line.Item.SKU}"
                             });
                         }
 
-                        // Update tracked shipment quantity on the sales order line
                         soLine.QtyShipped -= line.Quantity;
                     }
                 }
@@ -342,18 +358,32 @@ namespace Primafit_ERP.Services
                     if (!refund.BankAccountId.HasValue || refund.BankAccountId.Value == Guid.Empty)
                         return "Posting Aborted: Bank account is required for cash refund disbursement.";
 
-                    Guid arAccount = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
-                    if (arAccount == Guid.Empty)
-                        return "Posting Aborted: Customer Accounts Receivable account mapping missing.";
+                    Guid defaultAr = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
+                    Guid debitArAccount = refund.OverrideReceivablesGlAccountId
+                        ?? customMapping?.OverrideDebitGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            refund.CompanyId,
+                            SystemTransactionType.ReceiptRefund,
+                            isDebit: true,
+                            defaultAccountId: defaultAr);
+
+                    Guid creditDisbursingAccount = customMapping?.OverrideCreditGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            refund.CompanyId,
+                            SystemTransactionType.ReceiptRefund,
+                            isDebit: false,
+                            defaultAccountId: refund.BankAccountId.Value);
+
+                    if (debitArAccount == Guid.Empty)
+                        return "Posting Aborted: Customer Accounts Receivable account mapping is missing.";
 
                     decimal cashRefundBase = Math.Round(refund.TotalAmount * rate, 2);
 
                     if (cashRefundBase > 0)
                     {
-                        // DR Accounts Receivable (restores open balance), CR Bank (cash outflow)
                         glLines.Add(new GLJournalLine
                         {
-                            SegCoaId = arAccount,
+                            SegCoaId = debitArAccount,
                             Debit = cashRefundBase,
                             Credit = 0,
                             Reference = $"Cash Refund Claim: {so.OrderNumber}"
@@ -361,7 +391,7 @@ namespace Primafit_ERP.Services
 
                         glLines.Add(new GLJournalLine
                         {
-                            SegCoaId = refund.BankAccountId.Value,
+                            SegCoaId = creditDisbursingAccount,
                             Debit = 0,
                             Credit = cashRefundBase,
                             Reference = $"Cash Out To: {refund.Customer?.Name}"
@@ -371,7 +401,6 @@ namespace Primafit_ERP.Services
 
                 if (!glLines.Any()) return "No valid transaction elements or quantities were processed.";
 
-                // Self-Balancing Checksum Validation
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 if (totalDebits != totalCredits)
