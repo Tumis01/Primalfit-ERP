@@ -235,7 +235,7 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================================
-        // 3. POSTING ENGINE (BALANCED DOUBLE-ENTRY LEDGER TRANSACTIONS)
+        // 3. POSTING ENGINE: DEDICATED SEPARATE TRANSACTION TYPES
         // =========================================================================
 
         public async Task<string> PostVendorReturnAsync(Guid returnId, Guid userId)
@@ -258,7 +258,6 @@ namespace Primafit_ERP.Services
                 var glLines = new List<GLJournalLine>();
                 decimal rate = vReturn.ExchangeRate > 0 ? vReturn.ExchangeRate : 1;
 
-                // 1. Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
                 if (vReturn.CustomTransactionTypeId.HasValue)
                 {
@@ -266,36 +265,30 @@ namespace Primafit_ERP.Services
                         .FirstOrDefaultAsync(m => m.CompanyId == vReturn.CompanyId && m.CustomTransactionTypeId == vReturn.CustomTransactionTypeId.Value);
                 }
 
+                var vendor = await ctx.Vendors.FindAsync(vReturn.VendorId);
+                Guid defaultApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
+
                 // -----------------------------------------------------------------
-                // LEG A: PHYSICAL STOCK RETURN (REVERSES GOODS RECEIPT AT PO COST)
+                // LEG A: PHYSICAL STOCK RETURN (SystemTransactionType.VendorReturnStock)
+                // DEBIT: AP Trade Liability | CREDIT: Inventory Asset
                 // -----------------------------------------------------------------
                 if (vReturn.ReturnType == VendorReturnType.QuantityOnly || vReturn.ReturnType == VendorReturnType.Both)
                 {
                     if (!vReturn.WarehouseId.HasValue || vReturn.WarehouseId == Guid.Empty)
-                        return "Posting Aborted: Source warehouse location is required to log physical inventory returns.";
+                        return "Posting Aborted: Source warehouse location is required for physical inventory returns.";
 
-                    var grns = await ctx.GoodsReceipts
-                        .AsNoTracking()
-                        .Where(g => g.PurchaseOrderId == po.Id && g.CompanyId == vReturn.CompanyId)
-                        .ToListAsync();
-
-                    Guid defaultGrIr = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
-
-                    Guid grIrAccountId = vReturn.OverrideGrIrClearingGlAccountId
+                    // Resolve Accounts Payable Account (Debit side - reduces debt balance)
+                    Guid debitApAccount = vReturn.OverrideAccountsPayableGlAccountId
                         ?? customMapping?.OverrideDebitGlAccountId
-                        ?? (defaultGrIr != Guid.Empty ? defaultGrIr : Guid.Empty);
-
-                    if (grIrAccountId == Guid.Empty)
-                    {
-                        grIrAccountId = await _mappingService.GetMappedAccountAsync(
+                        ?? po.AccountsPayableGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
                             vReturn.CompanyId,
-                            SystemTransactionType.GoodsReceipt,
-                            isDebit: false,
-                            defaultAccountId: Guid.Empty);
-                    }
+                            SystemTransactionType.VendorReturnStock,
+                            isDebit: true,
+                            defaultAccountId: defaultApAccount);
 
-                    if (grIrAccountId == Guid.Empty)
-                        return "Posting Aborted: Missing GR/IR Clearing GL Account mapping.";
+                    if (debitApAccount == Guid.Empty)
+                        return "Posting Aborted: Missing Accounts Payable (AP) GL Account mapping for Stock Return.";
 
                     var poLineIds = po.Lines.Select(l => l.Id).ToList();
                     var totalReceivedMap = await ctx.GoodsReceiptLines
@@ -323,16 +316,16 @@ namespace Primafit_ERP.Services
                         decimal maxAllowedReturn = totalRec - alreadyRet;
 
                         if (line.Quantity > maxAllowedReturn + 0.001m)
-                            return $"Posting Aborted: Item '{line.Item.Name}' quantity returned ({line.Quantity:N2}) exceeds remaining received allowance ({maxAllowedReturn:N2}).";
+                            return $"Posting Aborted: Item '{line.Item.Name}' return quantity ({line.Quantity:N2}) exceeds remaining received allowance ({maxAllowedReturn:N2}).";
 
                         decimal currentWhStock = await ctx.StockLedgers
                             .Where(s => s.ItemId == line.ItemId && s.WarehouseId == vReturn.WarehouseId.Value)
                             .SumAsync(s => s.QuantityChanged);
 
                         if (currentWhStock < line.Quantity)
-                            return $"Posting Aborted: Insufficient stock for '{line.Item.Name}'. Available in warehouse: {currentWhStock:N2}, Trying to return: {line.Quantity:N2}.";
+                            return $"Posting Aborted: Insufficient warehouse stock for '{line.Item.Name}'. In Stock: {currentWhStock:N2}, Attempting Return: {line.Quantity:N2}.";
 
-                        // 1. Deduct Stock from Warehouse Ledger at PO Unit Cost
+                        // 1. Stock Ledger Outflow
                         ctx.StockLedgers.Add(new StockLedger
                         {
                             Id = Guid.NewGuid(),
@@ -346,32 +339,38 @@ namespace Primafit_ERP.Services
                             Date = DateTime.UtcNow
                         });
 
-                        // 2. Exact Goods Receipt Reversal: DR GR/IR Clearing | CR Inventory Asset
+                        // 2. Direct Double Entry: DR Accounts Payable (Liability) | CR Inventory Asset
                         decimal lineStockValueBase = Math.Round(line.Quantity * poLine.UnitCost * rate, 2);
 
                         if (lineStockValueBase > 0)
                         {
-                            Guid assetAccount = vReturn.OverrideInventoryAssetGlAccountId
-                                ?? customMapping?.OverrideCreditGlAccountId
-                                ?? line.Item.InventoryAssetAccountId;
+                            Guid defaultInventoryAsset = line.Item.InventoryAssetAccountId;
 
-                            if (assetAccount == Guid.Empty)
-                                return $"Posting Aborted: Item '{line.Item.Name}' is missing Inventory Asset GL Account mapping.";
+                            Guid creditAssetAccount = vReturn.OverrideInventoryAssetGlAccountId
+                                ?? customMapping?.OverrideCreditGlAccountId
+                                ?? await _mappingService.GetMappedAccountAsync(
+                                    vReturn.CompanyId,
+                                    SystemTransactionType.VendorReturnStock,
+                                    isDebit: false,
+                                    defaultAccountId: defaultInventoryAsset);
+
+                            if (creditAssetAccount == Guid.Empty)
+                                return $"Posting Aborted: Item '{line.Item.Name}' is missing an Inventory Asset GL Account mapping.";
 
                             glLines.Add(new GLJournalLine
                             {
-                                SegCoaId = grIrAccountId,
+                                SegCoaId = debitApAccount,
                                 Debit = lineStockValueBase,
                                 Credit = 0,
-                                Reference = $"GR/IR Return Reversal: {line.Item.SKU}"
+                                Reference = $"AP Liability Reduction: {line.Item.SKU}"
                             });
 
                             glLines.Add(new GLJournalLine
                             {
-                                SegCoaId = assetAccount,
+                                SegCoaId = creditAssetAccount,
                                 Debit = 0,
                                 Credit = lineStockValueBase,
-                                Reference = $"Stock Outflow: {line.Item.SKU}"
+                                Reference = $"Stock Outflow (Return): {line.Item.SKU}"
                             });
                         }
 
@@ -380,32 +379,30 @@ namespace Primafit_ERP.Services
                 }
 
                 // -----------------------------------------------------------------
-                // LEG B: CASH PAYMENT REFUND (REVERSES VENDOR PAYMENT)
+                // LEG B: CASH PAYMENT REFUND (SystemTransactionType.VendorReturnRefund)
+                // DEBIT: Bank / Cash Asset | CREDIT: Accounts Payable
                 // -----------------------------------------------------------------
                 if (vReturn.ReturnType == VendorReturnType.PaymentOnly || vReturn.ReturnType == VendorReturnType.Both)
                 {
                     if (!vReturn.BankAccountId.HasValue || vReturn.BankAccountId.Value == Guid.Empty)
                         return "Posting Aborted: Bank / Cash deposit account is required for cash refund recovery.";
 
-                    var vendor = await ctx.Vendors.FindAsync(vReturn.VendorId);
-                    Guid defaultApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
-
-                    Guid apAccount = vReturn.OverrideAccountsPayableGlAccountId
+                    Guid creditApAccount = vReturn.OverrideAccountsPayableGlAccountId
                         ?? customMapping?.OverrideCreditGlAccountId
                         ?? await _mappingService.GetMappedAccountAsync(
                             vReturn.CompanyId,
-                            SystemTransactionType.ReturnToVendor,
-                            isDebit: true,
+                            SystemTransactionType.VendorReturnRefund,
+                            isDebit: false,
                             defaultAccountId: defaultApAccount);
 
-                    if (apAccount == Guid.Empty)
+                    if (creditApAccount == Guid.Empty)
                         return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
                     decimal cashRefundBase = Math.Round(vReturn.TotalAmount * rate, 2);
 
                     if (cashRefundBase > 0)
                     {
-                        // DR: Bank / Cash Account (Cash Inflow)
+                        // DR: Bank / Cash Asset (Inflow)
                         glLines.Add(new GLJournalLine
                         {
                             SegCoaId = vReturn.BankAccountId.Value,
@@ -417,7 +414,7 @@ namespace Primafit_ERP.Services
                         // CR: Accounts Payable (Restores AP debt balance)
                         glLines.Add(new GLJournalLine
                         {
-                            SegCoaId = apAccount,
+                            SegCoaId = creditApAccount,
                             Debit = 0,
                             Credit = cashRefundBase,
                             Reference = $"AP Balance Restored: {po.OrderNumber}"

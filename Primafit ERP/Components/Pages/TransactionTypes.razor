@@ -452,7 +452,6 @@
         var acc = coaList.FirstOrDefault(a => a.Id == accountId.Value);
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
-
     private string GetRowDescription(TransactionGlMapping map)
     {
         if (map.TransactionType == SystemTransactionType.CustomGlAdjustment)
@@ -473,14 +472,16 @@
             SystemTransactionType.SalesInvoice => "Standard inventory-tracked client invoicing ledger paths.",
             SystemTransactionType.PurchaseInvoice => "Standard inventory-tracked vendor procurement receipts.",
             SystemTransactionType.CreditNote => "Customer returns and accounts receivable sales credits.",
-            SystemTransactionType.ReturnToVendor => "Vendor cash payment refunds (Deposit Bank vs AP liability restoration).",
-            SystemTransactionType.DebitNote => "Purchase invoice line item corrections (AP vs GR/IR clearing/expense).",
+            SystemTransactionType.VendorReturnStock => "Vendor physical stock returns (AP Liability Reduction vs Inventory Asset Credit).",
+            SystemTransactionType.VendorReturnRefund => "Vendor cash payment refunds (Deposit Bank Asset vs AP Liability Restoration).",
+            SystemTransactionType.DebitNote => "Purchase invoice price reductions & non-stock corrections.",
             SystemTransactionType.CustomerPayment => "Customer receipts and cash collections (Deposit Bank Asset vs Customer AR).",
             SystemTransactionType.VendorPayment => "Vendor bill outgoing payments (AP Liability Reduction vs Disbursement Bank).",
-            SystemTransactionType.ReceiptRefund => "Refunding cash/bank customer receipts & stock return reversals.",
+            SystemTransactionType.ReceiptRefundStock => "Customer physical stock intake reversal (Inventory Asset Dr vs COGS Cr).",
+            SystemTransactionType.ReceiptRefundCash => "Customer cash refund disbursement (Customer AR Dr vs Bank Cr).",
             SystemTransactionType.ShipmentDispatch => "Warehouse shipment fulfillment (Inventory Stock Out vs COGS recognition).",
             SystemTransactionType.InventoryAdjustment => "Physical stock counts and WACC revaluation updates.",
-            SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts & stock returns.",
+            SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts & stock intake.",
             _ => "Core System Default Route Configuration."
         };
     }
@@ -500,11 +501,13 @@
                 SystemTransactionType.SalesInvoice => "System Default [Customer AR]",
                 SystemTransactionType.PurchaseInvoice => "System Default [Line Expense / Asset]",
                 SystemTransactionType.CreditNote => "NOT SET [Item Revenue Account]",
+                SystemTransactionType.VendorReturnStock => "System Default [Vendor AP Control]",
+                SystemTransactionType.VendorReturnRefund => "NOT SET [Deposit Bank / Cash Asset]",
                 SystemTransactionType.DebitNote => "System Default [Vendor AP Control]",
                 SystemTransactionType.CustomerPayment => "NOT SET [Deposit Bank / Cash Asset]",
                 SystemTransactionType.VendorPayment => "System Default [Vendor AP Control]",
-                SystemTransactionType.ReturnToVendor => "NOT SET [Deposit Bank / Cash Asset]",
-                SystemTransactionType.ReceiptRefund => "System Default [Customer AR / Item Asset]",
+                SystemTransactionType.ReceiptRefundStock => "System Default [Item Inventory Asset Account]",
+                SystemTransactionType.ReceiptRefundCash => "System Default [Customer AR Control]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item COGS Account]",
                 SystemTransactionType.InventoryAdjustment => "System Default [Inventory Stock Asset]",
                 SystemTransactionType.GoodsReceipt => "System Default [Inventory Asset Account]",
@@ -524,11 +527,13 @@
                 SystemTransactionType.SalesInvoice => "System Default [Item Revenue Account]",
                 SystemTransactionType.PurchaseInvoice => "System Default [Vendor AP]",
                 SystemTransactionType.CreditNote => "System Default [Customer AR]",
-                SystemTransactionType.DebitNote => "System Default [GR/IR Clearing / Expense Acc]",
+                SystemTransactionType.VendorReturnStock => "System Default [Item Inventory Asset Account]",
+                SystemTransactionType.VendorReturnRefund => "System Default [Vendor AP Control]",
+                SystemTransactionType.DebitNote => "System Default [Line Expense / Clearing Account]",
                 SystemTransactionType.CustomerPayment => "System Default [Customer AR Control]",
                 SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
-                SystemTransactionType.ReturnToVendor => "System Default [Vendor AP Control]",
-                SystemTransactionType.ReceiptRefund => "NOT SET [Disbursement Bank / Item COGS]",
+                SystemTransactionType.ReceiptRefundStock => "System Default [Item COGS Account]",
+                SystemTransactionType.ReceiptRefundCash => "NOT SET [Disbursing Bank / Cash Account]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item Inventory Asset Account]",
                 SystemTransactionType.InventoryAdjustment => "NOT SET [Inventory Balance Account]",
                 SystemTransactionType.GoodsReceipt => "NOT SET [GR/IR Clearing Liability Account]",

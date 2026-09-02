@@ -495,9 +495,7 @@
     }
 </div>
 
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL -->
 @if (showRouteModal)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -544,83 +542,89 @@
 
                     <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
 
-                        <!-- 1. Customer AR Account (Debit Side for Cash Reversal) -->
-                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
-                            <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">Accounts Receivable</span>
-                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Cash Reversal)</span>
-                            </div>
-                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (currentRefund.OverrideReceivablesGlAccountId.HasValue)
-                                {
-                                    <button type="button"
-                                            @onclick="() => currentRefund.OverrideReceivablesGlAccountId = null"
-                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                            title="Clear Override">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                }
-                                <div class="flex-1 overflow-visible relative">
-                                    <SearchableGlAccount Label=""
-                                                         Placeholder="System Default Customer AR"
-                                                         Accounts="@allAccounts"
-                                                         Value="@(currentRefund.OverrideReceivablesGlAccountId ?? defaultArAccountId)"
-                                                         ValueChanged="@((Guid val) => currentRefund.OverrideReceivablesGlAccountId = val == Guid.Empty ? null : val)" />
+                        @if (currentRefund.RefundType == ReceiptRefundType.QuantityOnly || currentRefund.RefundType == ReceiptRefundType.Both)
+                        {
+                            <!-- Stock Return: DR Inventory Stock Asset -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
+                                    <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Stock Intake)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideInventoryAssetGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideInventoryAssetGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Default Inventory Asset Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- 2. Inventory Stock Asset Account (Debit Side for Goods Return) -->
-                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
-                            <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
-                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Goods Return)</span>
-                            </div>
-                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (currentRefund.OverrideInventoryAssetGlAccountId.HasValue)
-                                {
-                                    <button type="button"
-                                            @onclick="() => currentRefund.OverrideInventoryAssetGlAccountId = null"
-                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                            title="Clear Override">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                }
-                                <div class="flex-1 overflow-visible relative">
-                                    <SearchableGlAccount Label=""
-                                                         Placeholder="Default Line Item Asset Accounts"
-                                                         Accounts="@allAccounts"
-                                                         Value="@(currentRefund.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
-                                                         ValueChanged="@((Guid val) => currentRefund.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                            <!-- Stock Return: CR Cost of Goods Sold (COGS) -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Cost of Goods Sold (COGS)</span>
+                                    <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Expense Reversal)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideCogsGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideCogsGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Default COGS Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideCogsGlAccountId ?? defaultCogsAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideCogsGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        }
 
-                        <!-- 3. Cost of Goods Sold Account (Credit Side for Goods Return) -->
-                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
-                            <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">Cost of Goods Sold (COGS)</span>
-                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Goods Return)</span>
-                            </div>
-                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (currentRefund.OverrideCogsGlAccountId.HasValue)
-                                {
-                                    <button type="button"
-                                            @onclick="() => currentRefund.OverrideCogsGlAccountId = null"
-                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                            title="Clear Override">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                }
-                                <div class="flex-1 overflow-visible relative">
-                                    <SearchableGlAccount Label=""
-                                                         Placeholder="Default Line Item COGS Accounts"
-                                                         Accounts="@allAccounts"
-                                                         Value="@(currentRefund.OverrideCogsGlAccountId ?? defaultCogsAccountId)"
-                                                         ValueChanged="@((Guid val) => currentRefund.OverrideCogsGlAccountId = val == Guid.Empty ? null : val)" />
+                        @if (currentRefund.RefundType == ReceiptRefundType.PaymentOnly || currentRefund.RefundType == ReceiptRefundType.Both)
+                        {
+                            <!-- Cash Refund: DR Customer Accounts Receivable -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Accounts Receivable</span>
+                                    <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Cash Reversal)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideReceivablesGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideReceivablesGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="System Default Customer AR"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideReceivablesGlAccountId ?? defaultArAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideReceivablesGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        }
 
                     </div>
                 </div>
@@ -799,10 +803,13 @@
         }).OrderBy(x => x.AccountCode).ToList();
 
         defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
-            companyId, SystemTransactionType.ReceiptRefund, isDebit: true, defaultAccountId: Guid.Empty);
+            companyId, SystemTransactionType.ReceiptRefundStock, isDebit: true, defaultAccountId: Guid.Empty);
 
         defaultCogsAccountId = await MappingService.GetMappedAccountAsync(
-            companyId, SystemTransactionType.ReceiptRefund, isDebit: false, defaultAccountId: Guid.Empty);
+            companyId, SystemTransactionType.ReceiptRefundStock, isDebit: false, defaultAccountId: Guid.Empty);
+
+        defaultArAccountId = await MappingService.GetMappedAccountAsync(
+            companyId, SystemTransactionType.ReceiptRefundCash, isDebit: true, defaultAccountId: Guid.Empty);
 
         allHistoricalRefunds = await ctx.ReceiptRefunds
             .Include(r => r.Customer)

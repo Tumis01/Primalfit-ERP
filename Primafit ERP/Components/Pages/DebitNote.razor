@@ -329,7 +329,7 @@
                                 </span>
                             </div>
                             <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
-                                <span class="text-slate-500 font-medium">GR/IR Clearing / Stock (Cr):</span>
+                                <span class="text-slate-500 font-medium">Expense / Clearing (Cr):</span>
                                 <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
                                     @(GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
                                 </span>
@@ -430,9 +430,7 @@
     }
 </div>
 
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL -->
 @if (showRouteModal && currentDebitNote != null)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -505,10 +503,10 @@
                             </div>
                         </div>
 
-                        <!-- 2. GR/IR Clearing / Inventory Stock Asset (Credit Leg - Reversal) -->
+                        <!-- 2. Expense / Clearing Account (Credit Leg - Reversal) -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
                             <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">GR/IR Clearing / Stock Asset</span>
+                                <span class="font-bold text-slate-700 block">Expense / Clearing Account</span>
                                 <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Reversal)</span>
                             </div>
                             <div class="w-2/3 flex items-center gap-2 overflow-visible">
@@ -523,7 +521,7 @@
                                 }
                                 <div class="flex-1 overflow-visible relative">
                                     <SearchableGlAccount Label=""
-                                                         Placeholder="Default GR/IR Clearing / Asset Account"
+                                                         Placeholder="Default Line Expense / Clearing Account"
                                                          Accounts="@allAccounts"
                                                          Value="@(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)"
                                                          ValueChanged="@((Guid val) => currentDebitNote.OverrideGrIrClearingGlAccountId = val == Guid.Empty ? null : val)" />
@@ -651,8 +649,11 @@
             vendors = await MasterService.GetVendorsAsync(currentCompanyId);
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
+            defaultApAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.DebitNote, isDebit: true, defaultAccountId: Guid.Empty);
+
             defaultGrIrAccountId = await MappingService.GetMappedAccountAsync(
-                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: false, defaultAccountId: Guid.Empty);
+                currentCompanyId, SystemTransactionType.DebitNote, isDebit: false, defaultAccountId: Guid.Empty);
 
             await LoadListGrid();
 

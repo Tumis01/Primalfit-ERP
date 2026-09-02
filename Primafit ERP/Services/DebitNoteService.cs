@@ -25,7 +25,7 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================================
-        // 1. DATA LOOKUP FILTERS
+        // 1. DATA LOOKUP FILTERS (Targets Direct Invoice IDs)
         // =========================================================================
 
         public async Task<List<PurchaseOrder>> GetInvoicesEligibleForAdjustmentAsync(Guid companyId, Guid vendorId)
@@ -33,6 +33,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { PurchaseOrderStatus.Invoiced, PurchaseOrderStatus.DraftInvoice };
 
+            // Invoices in the PO engine are records with OrderNumber starting with "INV"
             var invoices = await ctx.PurchaseOrders
                 .Include(o => o.Lines)
                 .Include(o => o.Currency)
@@ -46,10 +47,11 @@ namespace Primafit_ERP.Services
 
             var invoiceIds = invoices.Select(o => o.Id).ToList();
 
+            // Sum only POSTED debit notes for the invoice
             var historicalDebitsMap = await ctx.DebitNoteLines
                 .Include(dnl => dnl.Header)
                 .Where(dnl => invoiceIds.Contains(dnl.Header!.PurchaseOrderId ?? Guid.Empty)
-                           && dnl.Header.Status != DebitNoteStatus.Void)
+                           && dnl.Header.Status == DebitNoteStatus.Posted)
                 .GroupBy(dnl => dnl.PurchaseOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -60,7 +62,7 @@ namespace Primafit_ERP.Services
                 foreach (var line in inv.Lines)
                 {
                     decimal alreadyDebited = historicalDebitsMap.TryGetValue(line.Id, out var qty) ? qty : 0;
-                    if (line.QuantityOrdered - alreadyDebited > 0)
+                    if (line.QuantityOrdered - alreadyDebited > 0.001m)
                     {
                         hasAdjustable = true;
                         break;
@@ -76,30 +78,31 @@ namespace Primafit_ERP.Services
         // 2. INVOICE LINE CORRECTION WORKSPACE INITIALIZATION & RETRIEVAL
         // =========================================================================
 
-        public async Task<DebitNote> CreateStockAdjustmentDraftAsync(Guid orderId, Guid userId)
+        public async Task<DebitNote> CreateStockAdjustmentDraftAsync(Guid invoiceOrderId, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            var po = await ctx.PurchaseOrders
+            var inv = await ctx.PurchaseOrders
                 .Include(s => s.Lines)
                 .Include(s => s.Currency)
-                .FirstOrDefaultAsync(s => s.Id == orderId);
+                .FirstOrDefaultAsync(s => s.Id == invoiceOrderId);
 
-            if (po == null) throw new Exception("Target purchase invoice reference missing.");
+            if (inv == null) throw new Exception("Target purchase invoice reference missing from database context.");
 
+            // Checked strictly against the invoice record's lines
             var previousDebits = await ctx.DebitNoteLines
                 .Include(dnl => dnl.Header)
-                .Where(dnl => dnl.Header!.PurchaseOrderId == orderId && dnl.Header.Status != DebitNoteStatus.Void)
+                .Where(dnl => dnl.Header!.PurchaseOrderId == invoiceOrderId && dnl.Header.Status == DebitNoteStatus.Posted)
                 .GroupBy(dnl => dnl.PurchaseOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var dn = new DebitNote
             {
                 Id = Guid.NewGuid(),
-                CompanyId = po.CompanyId,
-                PurchaseOrderId = po.Id,
-                VendorId = po.VendorId,
-                CurrencyId = po.CurrencyId,
-                ExchangeRate = po.ExchangeRate,
+                CompanyId = inv.CompanyId,
+                PurchaseOrderId = inv.Id, // Stores the Invoice ID directly
+                VendorId = inv.VendorId,
+                CurrencyId = inv.CurrencyId,
+                ExchangeRate = inv.ExchangeRate,
                 Date = DateOnly.FromDateTime(DateTime.Today),
                 Status = DebitNoteStatus.Draft,
                 Reason = "Purchase Invoice Line Item Adjustment",
@@ -109,12 +112,12 @@ namespace Primafit_ERP.Services
                 DebitNoteNumber = $"DNS-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
             };
 
-            foreach (var line in po.Lines)
+            foreach (var line in inv.Lines)
             {
                 decimal alreadyDebited = previousDebits.TryGetValue(line.Id, out var q) ? q : 0;
-                decimal maxAdjustable = line.QuantityOrdered - alreadyDebited;
+                decimal maxAdjustable = Math.Max(0, line.QuantityOrdered - alreadyDebited);
 
-                if (maxAdjustable > 0)
+                if (maxAdjustable > 0.001m)
                 {
                     dn.Lines.Add(new DebitNoteLine
                     {
@@ -154,7 +157,7 @@ namespace Primafit_ERP.Services
                     .Include(dnl => dnl.Header)
                     .Where(dnl => dnl.Header!.PurchaseOrderId == dn.PurchaseOrderId
                                && dnl.Header.Id != dn.Id
-                               && dnl.Header.Status != DebitNoteStatus.Void)
+                               && dnl.Header.Status == DebitNoteStatus.Posted)
                     .GroupBy(dnl => dnl.PurchaseOrderLineId)
                     .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -174,7 +177,7 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================================
-        // 3. BALANCED DOUBLE-ENTRY POSTING ENGINE (DYNAMIC GL ROUTING)
+        // 3. POSTING ENGINE (Saves state exclusively to DebitNote)
         // =========================================================================
 
         public async Task<string> PostStockDebitNoteAsync(Guid dnId, Guid userId)
@@ -190,12 +193,11 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(d => d.Id == dnId);
 
                 if (dn == null) return "Debit note parameters not found.";
-                if (dn.Status == DebitNoteStatus.Posted) return "Document already locked.";
+                if (dn.Status == DebitNoteStatus.Posted) return "Document is already posted and locked.";
                 if (dn.PurchaseOrder == null) return "Parent purchase invoice reference missing.";
 
-                var po = dn.PurchaseOrder;
+                var inv = dn.PurchaseOrder;
 
-                // 1. Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
                 if (dn.CustomTransactionTypeId.HasValue)
                 {
@@ -203,7 +205,7 @@ namespace Primafit_ERP.Services
                         .FirstOrDefaultAsync(m => m.CompanyId == dn.CompanyId && m.CustomTransactionTypeId == dn.CustomTransactionTypeId.Value);
                 }
 
-                // 2. Resolve Accounts Payable (Debit Leg)
+                // AP Account (Debit Leg: Liability Reduction)
                 var vendor = await ctx.Vendors.FindAsync(dn.VendorId);
                 Guid defaultApAccount = vendor?.PayablesAccountId ?? Guid.Empty;
 
@@ -216,21 +218,12 @@ namespace Primafit_ERP.Services
                         defaultAccountId: defaultApAccount);
 
                 if (apAccount == Guid.Empty)
-                {
-                    apAccount = await _mappingService.GetMappedAccountAsync(
-                        dn.CompanyId,
-                        SystemTransactionType.ReturnToVendor,
-                        isDebit: true,
-                        defaultAccountId: defaultApAccount);
-                }
-
-                if (apAccount == Guid.Empty)
                     return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
-                // 3. Resolve GR/IR Clearing / Expense / Inventory (Credit Leg)
+                // Clearing / Inventory Account (Credit Leg)
                 var grns = await ctx.GoodsReceipts
                     .AsNoTracking()
-                    .Where(g => g.PurchaseOrderId == po.Id && g.CompanyId == dn.CompanyId)
+                    .Where(g => g.PurchaseOrderId == inv.Id && g.CompanyId == dn.CompanyId)
                     .ToListAsync();
 
                 Guid defaultClearing = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
@@ -257,19 +250,18 @@ namespace Primafit_ERP.Services
                         defaultAccountId: Guid.Empty);
                 }
 
-                // 4. Resolve Discount Received Rollback (Debit Leg)
-                bool hasDiscounts = po.DiscountPercentage > 0 || po.DiscountAmount > 0;
+                // Discount Rollback
+                bool hasDiscounts = inv.DiscountPercentage > 0 || inv.DiscountAmount > 0;
                 Guid discountAccount = Guid.Empty;
                 if (hasDiscounts)
                 {
-                    discountAccount = po.DiscountGlAccountId ?? Guid.Empty;
-
+                    discountAccount = inv.DiscountGlAccountId ?? Guid.Empty;
                     if (discountAccount == Guid.Empty)
                     {
                         discountAccount = await _mappingService.GetMappedAccountAsync(
                             dn.CompanyId,
                             SystemTransactionType.DiscountReceived,
-                            isDebit: false,
+                            isDebit: true,
                             defaultAccountId: Guid.Empty);
                     }
 
@@ -277,26 +269,25 @@ namespace Primafit_ERP.Services
                         return "Posting Aborted: Missing Discount Received GL Account mapping for rollback.";
                 }
 
-                // 5. Resolve Tax Rollback (Credit Leg)
+                // Tax Rollback
                 decimal taxPer = 0;
                 Guid taxGlAccountId = Guid.Empty;
-                if (po.TaxId.HasValue)
+                if (inv.TaxId.HasValue)
                 {
-                    var taxDef = await ctx.Taxes.FindAsync(po.TaxId.Value);
+                    var taxDef = await ctx.Taxes.FindAsync(inv.TaxId.Value);
                     if (taxDef != null && taxDef.Per > 0)
                     {
                         taxPer = taxDef.Per;
-                        taxGlAccountId = po.TaxGLAccountId ?? taxDef.GLAccountId ?? Guid.Empty;
+                        taxGlAccountId = inv.TaxGLAccountId ?? taxDef.GLAccountId ?? Guid.Empty;
                         if (taxGlAccountId == Guid.Empty)
                             return $"Posting Aborted: Tax calculation rules apply ({taxDef.TaxCode}), but Tax GL Account mapping is missing.";
                     }
                 }
 
-                // 6. Generate Balanced Journal Entries
                 var glLines = new List<GLJournalLine>();
                 decimal totalApReductionBase = 0;
                 decimal totalApReductionForeign = 0;
-                decimal originalSubTotalForeign = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                decimal originalSubTotalForeign = inv.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
                 decimal rate = dn.ExchangeRate > 0 ? dn.ExchangeRate : 1;
 
                 foreach (var line in dn.Lines)
@@ -306,28 +297,28 @@ namespace Primafit_ERP.Services
                     decimal lineGrossForeign = line.Quantity * line.UnitCost;
                     decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
 
-                    // A. Credit GR/IR Clearing Account / Item Asset Account
                     Guid targetReversalAccount = clearingAccount != Guid.Empty
                         ? clearingAccount
                         : (line.Item.InventoryAssetAccountId != Guid.Empty ? line.Item.InventoryAssetAccountId : defaultApAccount);
 
+                    // Credit: Clearing/Expense/Inventory
                     glLines.Add(new GLJournalLine
                     {
                         SegCoaId = targetReversalAccount,
                         Debit = 0,
                         Credit = lineGrossBase,
-                        Reference = $"Clear GR/IR Adj: {line.Item.Name}"
+                        Reference = $"Debit Note Adj: {line.Item.Name}"
                     });
 
-                    // B. Debit Discount Received (Reversing captured discount)
+                    // Debit: Discount Rollback
                     decimal lineDiscountForeign = 0;
-                    if (po.DiscountPercentage > 0)
+                    if (inv.DiscountPercentage > 0)
                     {
-                        lineDiscountForeign = lineGrossForeign * (po.DiscountPercentage / 100);
+                        lineDiscountForeign = lineGrossForeign * (inv.DiscountPercentage / 100);
                     }
-                    else if (po.DiscountAmount > 0 && originalSubTotalForeign > 0)
+                    else if (inv.DiscountAmount > 0 && originalSubTotalForeign > 0)
                     {
-                        lineDiscountForeign = (lineGrossForeign / originalSubTotalForeign) * po.DiscountAmount;
+                        lineDiscountForeign = (lineGrossForeign / originalSubTotalForeign) * inv.DiscountAmount;
                     }
 
                     decimal lineDiscountBase = Math.Round(lineDiscountForeign * rate, 2);
@@ -342,7 +333,7 @@ namespace Primafit_ERP.Services
                         });
                     }
 
-                    // C. Credit Input Tax / VAT (Reversing tax claim)
+                    // Credit: Tax Claim Rollback
                     decimal lineNetForeign = lineGrossForeign - lineDiscountForeign;
                     decimal lineNetBase = lineGrossBase - lineDiscountBase;
 
@@ -368,17 +359,17 @@ namespace Primafit_ERP.Services
 
                 if (!glLines.Any()) return "No valid item line corrections submitted.";
 
-                // D. Debit Accounts Payable (Reduces liability to supplier)
+                // Debit: Accounts Payable (Reduces invoice liability)
                 var apLine = new GLJournalLine
                 {
                     SegCoaId = apAccount,
                     Debit = totalApReductionBase,
                     Credit = 0,
-                    Reference = $"AP Adjust: {po.OrderNumber}"
+                    Reference = $"AP Reduction: {inv.OrderNumber}"
                 };
                 glLines.Add(apLine);
 
-                // Balancing Check & Posting
+                // Auto-balancing threshold check
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 decimal mismatch = totalDebits - totalCredits;
@@ -401,13 +392,9 @@ namespace Primafit_ERP.Services
                     userId.ToString());
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+                if (batchId.HasValue) await _glOps.PostBatchAsync(dn.CompanyId, batchId.Value, userId.ToString());
 
-                if (batchId.HasValue)
-                {
-                    var postErr = await _glOps.PostBatchAsync(dn.CompanyId, batchId.Value, userId.ToString());
-                    if (!string.IsNullOrEmpty(postErr)) throw new Exception(postErr);
-                }
-
+                // Save status strictly on Debit Note
                 dn.TotalAmount = Math.Round(totalApReductionForeign, 2);
                 dn.Status = DebitNoteStatus.Posted;
                 dn.PostedAt = DateTime.UtcNow;
@@ -426,7 +413,7 @@ namespace Primafit_ERP.Services
         }
 
         // =========================================================================
-        // 4. DRAFT WORKSPACE MANAGEMENT
+        // 4. DRAFT MANAGEMENT
         // =========================================================================
 
         public async Task<string> SaveDraftAsync(DebitNote note)

@@ -98,6 +98,8 @@ namespace Primafit_ERP.Components.Models
         public decimal QtyInvoiced { get; set; }
 
         [NotMapped] public decimal QtyCredited { get; set; }
+        [NotMapped]
+        public decimal QtyReturned { get; set; }
         [NotMapped] public decimal LineTotal => Quantity * UnitPrice;
     }
     public class SalesInvoice

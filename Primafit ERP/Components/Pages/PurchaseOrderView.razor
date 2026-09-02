@@ -308,13 +308,36 @@
                                 bool isPosted = inv.IsInvoicePosted || inv.Status == PurchaseOrderStatus.Invoiced;
                                 bool isLockedFromEdit = hasAnyReceipt || isPosted;
 
+                                decimal debitNoteAmt = debitNotesMap.TryGetValue(inv.Id, out var dn) ? dn : 0;
+                                
+                                // Precise multi-currency ledger values
+                                decimal invoiceTotalBase = inv.GrandTotalForeign * (inv.ExchangeRate > 0 ? inv.ExchangeRate : 1);
+                                decimal netInvoiceBase = Math.Max(0, invoiceTotalBase - debitNoteAmt);
+                                
+                                decimal grossPaidBase = 0;
+                                if (linkedBillsMap.TryGetValue(inv.Id, out var billObj))
+                                {
+                                    grossPaidBase = billObj.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount) ?? 0;
+                                }
+
+                                decimal remainingBalanceBase = Math.Max(0, netInvoiceBase - grossPaidBase);
+                                bool isFullySettled = isPosted && (remainingBalanceBase <= 0.01m);
+
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4 font-mono font-bold text-emerald-800">@inv.OrderNumber</td>
                                     <td class="px-6 py-4 font-mono text-xs text-slate-400">@(inv.ConvertedFromPONumber ?? "Direct Expense")</td>
                                     <td class="px-6 py-4 text-slate-500 font-medium">@inv.OrderDate.ToString("MMM dd, yyyy")</td>
                                     <td class="px-6 py-4 font-bold text-slate-800">@vendorName</td>
-                                    <td class="px-6 py-4 text-right font-mono font-bold text-emerald-700">
-                                        @((inv.GrandTotalForeign * (inv.ExchangeRate > 0 ? inv.ExchangeRate : 1)).ToString("N2"))
+                                    <td class="px-6 py-4 text-right">
+                                        <div class="font-mono font-bold text-emerald-700">
+                                            @invoiceTotalBase.ToString("N2")
+                                        </div>
+                                        @if (debitNoteAmt > 0)
+                                        {
+                                            <div class="text-[10px] font-mono font-bold text-rose-600">
+                                                Debit Note: (@debitNoteAmt.ToString("N2"))
+                                            </div>
+                                        }
                                     </td>
                                     <td class="px-6 py-4 text-center">
                                         @if (inv.IsFullyReceived)
@@ -355,23 +378,22 @@
                                             <!-- View vs Edit button -->
                                             <button @onclick="() => EditOrder(inv)"
                                                     class="px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors
-                                                @(isLockedFromEdit
-                                                    ? "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
-                                                    : "text-slate-600 bg-white border-slate-200 hover:bg-slate-50")">
+                                                    @(isLockedFromEdit
+                                                        ? "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
+                                                        : "text-slate-600 bg-white border-slate-200 hover:bg-slate-50")">
                                                 @(isLockedFromEdit ? "View" : "Edit")
                                             </button>
 
-                                            <!-- 1. RECEIVE GOODS BUTTON (Persists even if invoice is posted until fully received) -->
+                                            <!-- Receive Goods Button -->
                                             @if (!inv.IsFullyReceived)
                                             {
                                                 <button @onclick='() => Nav.NavigateTo($"/procurement/goods-receipt/{inv.Id}")'
                                                         class="px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors shadow-sm flex items-center gap-1">
-                                                    
                                                     <span>@(inv.HasReceipt ? "Receive Remainder" : "Receive Goods")</span>
                                                 </button>
                                             }
 
-                                            <!-- 2. INVOICE POSTING OR PAYMENT FLOW -->
+                                            <!-- Invoice Posting or Payment Flow -->
                                             @if (!isPosted)
                                             {
                                                 <button @onclick="() => ExecuteInvoicePostFromList(inv)"
@@ -382,37 +404,27 @@
                                             }
                                             else
                                             {
-                                                @if (linkedBillsMap.TryGetValue(inv.Id, out var linkedBill))
+                                                @if (isFullySettled)
                                                 {
-                                                    @if (linkedBill.IsFullyPaid)
-                                                    {
-                                                        <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg shadow-sm">
-                                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                            Paid
-                                                        </span>
-                                                    }
-                                                    else if (linkedBill.AmountPaid > 0)
-                                                    {
-                                                        <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={inv.Id}")'
-                                                                class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors shadow-sm flex items-center gap-1">
-                                                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                                                            Receive Balance
-                                                        </button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={inv.Id}")'
-                                                                class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
-                                                            Receive Payment
-                                                        </button>
-                                                    }
+                                                    <span class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg shadow-sm">
+                                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                        Paid
+                                                    </span>
+                                                }
+                                                else if (grossPaidBase > 0)
+                                                {
+                                                    <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={inv.Id}")'
+                                                            class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors shadow-sm flex items-center gap-1">
+                                                        <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                                        Receive Balance
+                                                    </button>
                                                 }
                                                 else
                                                 {
                                                     <button @onclick='() => Nav.NavigateTo($"/ap/bill-entry?poId={inv.Id}")'
-                                                            class="px-3 py-1.5 text-xs font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors">
+                                                            class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
                                                         Receive Payment
                                                     </button>
                                                 }
@@ -459,7 +471,6 @@
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <!-- Configure Route Button -->
                         <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                             <span>Configure Route</span>
@@ -666,30 +677,20 @@
                                 <Authorized>
                                     @if (currentOrder.Status == PurchaseOrderStatus.DraftInvoice)
                                     {
-                                        <!-- Save Draft Button for Invoices -->
                                         <button type="button" @onclick="SaveInvoiceDraft" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
-                                            @if (isBusy)
-                                            {
-                                                <span class="animate-spin">↻</span>
-                                            }
+                                            @if (isBusy) { <span class="animate-spin">↻</span> }
                                             <span>Save Invoice Draft</span>
                                         </button>
 
                                         <button type="button" @onclick="SaveAndPostFormInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
-                                            @if (isBusy)
-                                            {
-                                                <span class="animate-spin">↻</span>
-                                            }
+                                            @if (isBusy) { <span class="animate-spin">↻</span> }
                                             <span>Post Invoice to GL</span>
                                         </button>
                                     }
                                     else
                                     {
                                         <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
-                                            @if (isBusy)
-                                            {
-                                                <span class="animate-spin">↻</span>
-                                            }
+                                            @if (isBusy) { <span class="animate-spin">↻</span> }
                                             <span>@(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")</span>
                                         </button>
                                     }
@@ -707,9 +708,7 @@
     }
 </div>
 
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
+<!-- Modal Dialogs -->
 @if (showRouteModal)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -726,7 +725,6 @@
             </div>
 
             <div class="p-6 overflow-visible space-y-5 flex-1">
-                <!-- Custom Template Profile Selector -->
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
                     <div class="flex items-center gap-2">
@@ -750,13 +748,11 @@
                     </div>
                 </div>
 
-                <!-- Live Ledger Breakdown Table -->
                 <div class="space-y-3 overflow-visible">
                     <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
 
                     <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
-
-                        <!-- 1. GR/IR Clearing Account (Debit Side) -->
+                        <!-- 1. GR/IR Clearing Account -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">GR/IR Clearing / Expense</span>
@@ -782,7 +778,7 @@
                             </div>
                         </div>
 
-                        <!-- 2. Accounts Payable Trade Liability (Credit Side) -->
+                        <!-- 2. Accounts Payable Trade Liability -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">Accounts Payable Liability</span>
@@ -808,7 +804,7 @@
                             </div>
                         </div>
 
-                        <!-- 3. Tax Account (Debit Side for Purchases) -->
+                        <!-- 3. Tax Account -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">Input Tax / VAT (Asset)</span>
@@ -834,7 +830,7 @@
                             </div>
                         </div>
 
-                        <!-- 4. Discount Received Account (Credit Side) -->
+                        <!-- 4. Discount Received Account -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[20] rounded-b-xl overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">Discount Received (Income)</span>
@@ -931,17 +927,17 @@
         transition: border-color 0.2s;
     }
 
-        .input-class:focus {
-            border-color: #4f46e5;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
-        }
+    .input-class:focus {
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
 
-        .input-class:disabled, .input-class:read-only {
-            background-color: #f8fafc;
-            color: #94a3b8;
-            cursor: not-allowed;
-            border-color: #e2e8f0;
-        }
+    .input-class:disabled, .input-class:read-only {
+        background-color: #f8fafc;
+        color: #94a3b8;
+        cursor: not-allowed;
+        border-color: #e2e8f0;
+    }
 
     tr, td {
         overflow: visible !important;
@@ -954,7 +950,6 @@
     private bool isLoading = true;
     private int activeTab = 2;
 
-    // Strict Lock Check: Invoices are locked once goods have been received OR the invoice has been posted
     private bool IsLocked =>
         currentOrder.HasReceipt ||
         currentOrder.IsFullyReceived ||
@@ -1033,6 +1028,7 @@
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
     private Dictionary<Guid, VendorBill> linkedBillsMap = new();
+    private Dictionary<Guid, decimal> debitNotesMap = new();
 
     private IEnumerable<PurchaseOrder> FilteredRequests => orders
         .Where(o => o.OrderNumber.StartsWith("REQ", StringComparison.OrdinalIgnoreCase))
@@ -1146,14 +1142,29 @@
             currentCompanyId, SystemTransactionType.DiscountReceived, isDebit: false, defaultAccountId: Guid.Empty);
 
         using var billingCtx = await DbFactory.CreateDbContextAsync();
+
+        // 1. Fetch Posted Bills (Cash Outflows)
         var postedBills = await billingCtx.VendorBills
             .Include(b => b.Payments)
-            .Where(b => b.CompanyId == currentCompanyId && b.PurchaseOrderId != null)
+            .Where(b => b.CompanyId == currentCompanyId && b.PurchaseOrderId != null && b.IsPosted)
             .ToListAsync();
 
         linkedBillsMap = postedBills
             .GroupBy(b => b.PurchaseOrderId!.Value)
             .ToDictionary(g => g.Key, g => g.First());
+
+        // 2. Fetch all Posted Debit Notes directly from DebitNotes table by Invoice ID
+        var postedDebitNotes = await billingCtx.DebitNotes
+            .AsNoTracking()
+            .Where(d => d.CompanyId == currentCompanyId && d.PurchaseOrderId != null && d.Status == DebitNoteStatus.Posted)
+            .ToListAsync();
+
+        debitNotesMap = postedDebitNotes
+            .GroupBy(d => d.PurchaseOrderId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(d => Math.Round(d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1.0m), 2))
+            );
     }
 
     private void SetActiveTab(int index) { activeTab = index; ResetPaginationMatrices(); }

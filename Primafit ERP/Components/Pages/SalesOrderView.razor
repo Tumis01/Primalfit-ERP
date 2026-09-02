@@ -275,19 +275,26 @@
                                                     <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
 
                                                     var physicalLines = o.Lines?.Where(l => l.Item != null && !l.Item.IsService).ToList() ?? new List<SalesOrderLine>();
-                                                    bool needsShipping = physicalLines.Any(l => l.QtyShipped < (l.Quantity - l.QtyCredited));
+                                                    bool needsShipping = physicalLines.Any(l => (l.QtyShipped - l.QtyReturned) < (l.Quantity - l.QtyCredited - l.QtyReturned));
+                                                    bool hasShippedAny = physicalLines.Any(l => l.QtyShipped > 0);
 
                                                     @if (needsShipping)
                                                     {
                                                         <PermissionGate Key="SHIPMENT_CREATE">
                                                             <Authorized>
-                                                                <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
+                                                                <button @onclick="() => SendToWarehouse(o)"
+                                                                        class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm"
+                                                                        title="Send to Warehouse for Dispatch">
+                                                                    To Warehouse
+                                                                </button>
                                                             </Authorized>
                                                         </PermissionGate>
                                                     }
-                                                    else if (physicalLines.Any())
+                                                    else if (physicalLines.Any() && hasShippedAny)
                                                     {
-                                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded border border-slate-200">Dispatched</span>
+                                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded border border-slate-200">
+                                                            Dispatched
+                                                        </span>
                                                     }
 
                                                     @if (o.IsFullyPaid)

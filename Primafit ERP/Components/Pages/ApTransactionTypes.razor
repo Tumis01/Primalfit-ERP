@@ -19,7 +19,7 @@
         <div>
             <div class="flex items-center gap-2">
                 <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">AP & Procurement</span>
-                <h1 class="text-2xl font-bold tracking-tight text-slate-900">AP & Procurement Ledger Routes</h1>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">AP Transaction Types</h1>
             </div>
             <p class="text-sm text-slate-500 mt-1">Configure global ledger overrides, define custom AP transactional routing templates, and manage AP default accounts.</p>
         </div>
@@ -42,10 +42,10 @@
                 <table class="w-full text-left text-sm whitespace-nowrap min-w-[950px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
-                            <th class="p-4 w-[24%] pl-6">Route / Operation</th>
-                            <th class="p-4 w-[28%]">Workflow Page Link</th>
-                            <th class="p-4 w-[20%]">Debit Account (Override)</th>
-                            <th class="p-4 w-[20%]">Credit Account (Override)</th>
+                            <th class="p-4 w-[24%] pl-6">Transaction Type</th>
+                            <th class="p-4 w-[28%]">Page Link</th>
+                            <th class="p-4 w-[20%]">Debit Account </th>
+                            <th class="p-4 w-[20%]">Credit Account</th>
                             <th class="p-4 text-center w-[8%] pr-6">Action</th>
                         </tr>
                     </thead>
@@ -287,15 +287,15 @@
     private TransactionGlMapping? editingMap;
     private Guid? tempDebit;
     private Guid? tempCredit;
-
     private static readonly HashSet<SystemTransactionType> ApTransactionScope = new()
     {
         SystemTransactionType.PurchaseInvoice,
         SystemTransactionType.DirectPurchaseInvoice,
         SystemTransactionType.ApAdjustment,
         SystemTransactionType.VendorPayment,
+        SystemTransactionType.VendorReturnStock,
+        SystemTransactionType.VendorReturnRefund,
         SystemTransactionType.DebitNote,
-        SystemTransactionType.ReturnToVendor,
         SystemTransactionType.GoodsReceipt,
         SystemTransactionType.DiscountReceived
     };
@@ -486,6 +486,8 @@
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
 
+    
+
     private (string Label, string Href) GetApNavLink(SystemTransactionType type)
     {
         return type switch
@@ -494,7 +496,8 @@
             SystemTransactionType.DirectPurchaseInvoice => ("Direct Invoice", "/ap/direct-bills"),
             SystemTransactionType.ApAdjustment => ("AP Adjustment / Balances", "/finance/ap-adjustments"),
             SystemTransactionType.VendorPayment => ("Vendor Bills", "ap/bill-entry"),
-            SystemTransactionType.ReturnToVendor => ("Vendor Returns", "/purchases/vendor-returns"),
+            SystemTransactionType.VendorReturnStock => ("Stock Returns", "/purchases/vendor-returns"),
+            SystemTransactionType.VendorReturnRefund => ("Cash Refunds", "/purchases/vendor-returns"),
             SystemTransactionType.DebitNote => ("Debit Note Entry", "/ap/debit-note"),
             SystemTransactionType.GoodsReceipt => ("Goods Receipt (GR/IR)", "procurement/purchase-orders"),
             SystemTransactionType.DiscountReceived => ("Purchase Discounts", "ap/bill-entry"),
@@ -506,14 +509,15 @@
     {
         return type switch
         {
-            SystemTransactionType.PurchaseInvoice => "Standard Purchase Invoicing",
-            SystemTransactionType.DirectPurchaseInvoice => "Direct Purchase Invoicing (Bills)",
-            SystemTransactionType.ApAdjustment => "AP Adjustment & Balances",
-            SystemTransactionType.VendorPayment => "Vendor Bill Disbursement",
-            SystemTransactionType.ReturnToVendor => "Return To Vendor (Refund)",
-            SystemTransactionType.DebitNote => "Debit Note Correction",
+            SystemTransactionType.PurchaseInvoice => "Purchase Invoicing",
+            SystemTransactionType.DirectPurchaseInvoice => "Direct Purchase Invoicing (No Inventory)",
+            SystemTransactionType.ApAdjustment => "AP Adjustment",
+            SystemTransactionType.VendorPayment => "Vendor Payment",
+            SystemTransactionType.VendorReturnStock => "Vendor Return (Stock Only)",
+            SystemTransactionType.VendorReturnRefund => "Vendor Return (Cash Refund Only)",
+            SystemTransactionType.DebitNote => "Debit Note",
             SystemTransactionType.GoodsReceipt => "Goods Receipt / Stock Inflow (GR/IR)",
-            SystemTransactionType.DiscountReceived => "Purchase Discount Received",
+            SystemTransactionType.DiscountReceived => "Discount Received",
             _ => type.ToString()
         };
     }
@@ -529,12 +533,13 @@
 
         return map.TransactionType switch
         {
-            SystemTransactionType.PurchaseInvoice => "Standard inventory-tracked vendor procurement receipts.",
-            SystemTransactionType.DirectPurchaseInvoice => "Non-inventory direct accounts payable supplier bills.",
+            SystemTransactionType.PurchaseInvoice => "Standard inventory-tracked vendor procurement.",
+            SystemTransactionType.DirectPurchaseInvoice => "Non-inventory direct accounts payable procurement.",
             SystemTransactionType.ApAdjustment => "Opening balance migration & AP subledger manual adjustments.",
             SystemTransactionType.VendorPayment => "Vendor bill outgoing payments & bank disbursements.",
-            SystemTransactionType.ReturnToVendor => "Vendor cash refunds (Deposit Bank vs AP liability restoration).",
-            SystemTransactionType.DebitNote => "Purchase invoice line corrections (AP vs GR/IR clearing/expense).",
+            SystemTransactionType.VendorReturnStock => "Vendor physical stock returns (AP Liability Reduction vs Inventory Asset Credit).",
+            SystemTransactionType.VendorReturnRefund => "Vendor cash payment refunds (Deposit Bank Asset vs AP Liability Restoration).",
+            SystemTransactionType.DebitNote => "Purchase invoice price reductions & non-stock corrections.",
             SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts.",
             SystemTransactionType.DiscountReceived => "Financial ledger routing for purchasing discounts captured / rolled back.",
             _ => "Core accounts payable ledger route."
@@ -551,7 +556,8 @@
                 SystemTransactionType.DirectPurchaseInvoice => "NOT SET [Expense Account]",
                 SystemTransactionType.ApAdjustment => "NOT SET [Suspense / Equity Offset]",
                 SystemTransactionType.VendorPayment => "System Default [Vendor AP Control]",
-                SystemTransactionType.ReturnToVendor => "NOT SET [Deposit Bank / Cash Asset]",
+                SystemTransactionType.VendorReturnStock => "System Default [Vendor AP Control]",
+                SystemTransactionType.VendorReturnRefund => "NOT SET [Deposit Bank / Cash Asset]",
                 SystemTransactionType.DebitNote => "System Default [Vendor AP Control]",
                 SystemTransactionType.GoodsReceipt => "System Default [Inventory Asset Account]",
                 SystemTransactionType.DiscountReceived => "NOT SET [Discount Rollback Debit Acc]",
@@ -566,8 +572,9 @@
                 SystemTransactionType.DirectPurchaseInvoice => "System Default [Vendor AP Control]",
                 SystemTransactionType.ApAdjustment => "System Default [Vendor AP Control]",
                 SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
-                SystemTransactionType.ReturnToVendor => "System Default [Vendor AP Control]",
-                SystemTransactionType.DebitNote => "System Default [GR/IR Clearing / Expense Acc]",
+                SystemTransactionType.VendorReturnStock => "System Default [Item Inventory Asset Account]",
+                SystemTransactionType.VendorReturnRefund => "System Default [Vendor AP Control]",
+                SystemTransactionType.DebitNote => "System Default [Line Expense / Clearing Account]",
                 SystemTransactionType.GoodsReceipt => "NOT SET [GR/IR Clearing Liability Account]",
                 SystemTransactionType.DiscountReceived => "System Default [Line Discount Received Acc]",
                 _ => "System Default"

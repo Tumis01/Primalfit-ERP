@@ -18,15 +18,17 @@ namespace Primafit_ERP.Components.Models
         SalesInvoice = 7,
         PurchaseInvoice = 8,
         CreditNote = 9,
-        ReturnToVendor = 10,
+        VendorReturnRefund = 10,
         InventoryAdjustment = 13,
         CustomGlAdjustment = 14,
         GoodsReceipt = 15,
         DebitNote = 16,
         CustomerPayment = 17,
         VendorPayment = 18,
-        ReceiptRefund = 19,
-        ShipmentDispatch = 20
+        ReceiptRefundCash = 19,
+        ShipmentDispatch = 20,
+        VendorReturnStock = 21,
+        ReceiptRefundStock = 22
     }
 
     // =========================================================

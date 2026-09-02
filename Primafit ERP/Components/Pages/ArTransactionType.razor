@@ -18,8 +18,8 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <div class="flex items-center gap-2">
-                <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">AR & Fulfillment</span>
-                <h1 class="text-2xl font-bold tracking-tight text-slate-900">AR & Fulfillment Ledger Routes</h1>
+                <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">AR & Sales</span>
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">AR Transaction Types</h1>
             </div>
             <p class="text-sm text-slate-500 mt-1">Configure global ledger overrides, define custom transactional routing templates, and manage AR default accounts.</p>
         </div>
@@ -44,8 +44,8 @@
                         <tr>
                             <th class="p-4 w-[24%] pl-6">Transaction Type</th>
                             <th class="p-4 w-[28%]">Page Link</th>
-                            <th class="p-4 w-[20%]">Debit Account </th>
-                            <th class="p-4 w-[20%]">Credit Account </th>
+                            <th class="p-4 w-[20%]">Debit Account</th>
+                            <th class="p-4 w-[20%]">Credit Account</th>
                             <th class="p-4 text-center w-[8%] pr-6">Action</th>
                         </tr>
                     </thead>
@@ -295,7 +295,8 @@
         SystemTransactionType.ArAdjustment,
         SystemTransactionType.CustomerPayment,
         SystemTransactionType.CreditNote,
-        SystemTransactionType.ReceiptRefund,
+        SystemTransactionType.ReceiptRefundStock,
+        SystemTransactionType.ReceiptRefundCash,
         SystemTransactionType.ShipmentDispatch,
         SystemTransactionType.DiscountAllowed
     };
@@ -326,7 +327,6 @@
             .Where(m => m.CompanyId == currentCompanyId)
             .ToListAsync();
 
-        // Include system AR types AND any custom adjustments
         arMappings = allMappings
             .Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment
                      || ArTransactionScope.Contains(m.TransactionType))
@@ -496,7 +496,8 @@
             SystemTransactionType.ArAdjustment => ("AR Adjustment / Balances", "/finance/ar-adjustments"),
             SystemTransactionType.CustomerPayment => ("Customer Receipt Entry", "ar/payment-entry"),
             SystemTransactionType.CreditNote => ("Credit Notes Entry", "sales/credit-notes"),
-            SystemTransactionType.ReceiptRefund => ("Receipt Refunds", "sales/receipt-refunds/entry/"),
+            SystemTransactionType.ReceiptRefundStock => ("Stock Returns", "sales/receipt-refunds/entry/"),
+            SystemTransactionType.ReceiptRefundCash => ("Cash Refunds", "sales/receipt-refunds/entry/"),
             SystemTransactionType.ShipmentDispatch => ("Warehouse Dispatch", "wh/shipments"),
             SystemTransactionType.DiscountAllowed => ("Sales Discounts", "sc/sales-orders"),
             _ => (string.Empty, string.Empty)
@@ -510,9 +511,10 @@
             SystemTransactionType.SalesInvoice => "Sales Invoice",
             SystemTransactionType.DirectSalesInvoice => "Direct Sales Invoicing",
             SystemTransactionType.ArAdjustment => "AR Adjustment",
-            SystemTransactionType.CustomerPayment => "Customer Payment ",
-            SystemTransactionType.CreditNote => "Credit Note ",
-            SystemTransactionType.ReceiptRefund => "Receipt Refund",
+            SystemTransactionType.CustomerPayment => "Customer Payment",
+            SystemTransactionType.CreditNote => "Credit Note",
+            SystemTransactionType.ReceiptRefundStock => "Receipt Refund (Stock Only)",
+            SystemTransactionType.ReceiptRefundCash => "Receipt Refund (Cash Refund Only)",
             SystemTransactionType.ShipmentDispatch => "Shipment",
             SystemTransactionType.DiscountAllowed => "Sales Discount Allowed",
             _ => type.ToString()
@@ -534,8 +536,9 @@
             SystemTransactionType.DirectSalesInvoice => "Non-inventory Invoice.",
             SystemTransactionType.ArAdjustment => "Opening balance migration & subledger adjustments.",
             SystemTransactionType.CustomerPayment => "Bank receipt settlements against customer AR invoices.",
-            SystemTransactionType.CreditNote => "Sales Invoice Balancing",
-            SystemTransactionType.ReceiptRefund => "Refunding cash/bank receipts and returning stock.",
+            SystemTransactionType.CreditNote => "Sales Invoice Balancing.",
+            SystemTransactionType.ReceiptRefundStock => "Customer physical stock intake reversal (Inventory Asset Dr vs COGS Cr).",
+            SystemTransactionType.ReceiptRefundCash => "Customer cash refund disbursement (Customer AR Dr vs Bank Cr).",
             SystemTransactionType.ShipmentDispatch => "Physical inventory release and Cost of Goods Sold posting.",
             SystemTransactionType.DiscountAllowed => "Early settlement and promotional order discounts.",
             _ => "Core accounts receivable ledger route."
@@ -553,7 +556,8 @@
                 SystemTransactionType.ArAdjustment => "System Default [Customer AR Control]",
                 SystemTransactionType.CustomerPayment => "NOT SET [Bank / Cash Account]",
                 SystemTransactionType.CreditNote => "NOT SET [Item Revenue Account]",
-                SystemTransactionType.ReceiptRefund => "System Default [Customer AR / Item Asset]",
+                SystemTransactionType.ReceiptRefundStock => "System Default [Item Inventory Asset Account]",
+                SystemTransactionType.ReceiptRefundCash => "System Default [Customer AR Control]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item COGS Account]",
                 SystemTransactionType.DiscountAllowed => "System Default [Order Discount Acc]",
                 _ => "System Default"
@@ -568,7 +572,8 @@
                 SystemTransactionType.ArAdjustment => "NOT SET [Suspense / Equity Offset]",
                 SystemTransactionType.CustomerPayment => "System Default [Customer AR Control]",
                 SystemTransactionType.CreditNote => "System Default [Customer AR Control]",
-                SystemTransactionType.ReceiptRefund => "NOT SET [Disbursement Bank / Item COGS]",
+                SystemTransactionType.ReceiptRefundStock => "System Default [Item COGS Account]",
+                SystemTransactionType.ReceiptRefundCash => "NOT SET [Disbursing Bank / Cash Account]",
                 SystemTransactionType.ShipmentDispatch => "System Default [Item Inventory Asset Account]",
                 SystemTransactionType.DiscountAllowed => "System Default [Customer AR Control]",
                 _ => "System Default"

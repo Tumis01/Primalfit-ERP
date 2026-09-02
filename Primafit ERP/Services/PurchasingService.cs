@@ -550,7 +550,7 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = resolvedApAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
 
@@ -938,7 +938,6 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-
         public async Task<string> PostVendorPaymentAsync(VendorPayment payment, Guid companyId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -953,11 +952,37 @@ namespace Primafit_ERP.Services
                 if (!bill.IsPosted) return "Cannot pay an unposted draft bill.";
                 if (payment.Amount <= 0) return "Payment amount must be greater than zero.";
 
-                decimal currentPaid = bill.Payments.Sum(p => p.Amount);
-                if (currentPaid + payment.Amount > bill.TotalAmount + 0.01m)
-                    return $"Payment of {payment.Amount:N2} exceeds remaining balance of {(bill.TotalAmount - currentPaid):N2}.";
+                decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
 
-                // 1. Resolve custom mapping if assigned
+                // 1. Genuine Cash Payments already paid
+                decimal grossPaidBase = bill.Payments.Where(p => p.Amount > 0).Sum(p => p.Amount);
+
+                // 2. Query Debit Notes directly from DebitNotes table using the Invoice ID (PurchaseOrderId)
+                decimal debitNotesBase = 0;
+                if (bill.PurchaseOrderId.HasValue)
+                {
+                    var postedDebitNotes = await ctx.DebitNotes
+                        .Where(d => d.PurchaseOrderId == bill.PurchaseOrderId.Value
+                                 && d.CompanyId == companyId
+                                 && d.Status == DebitNoteStatus.Posted)
+                        .ToListAsync();
+
+                    debitNotesBase = postedDebitNotes.Sum(d => Math.Round(d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1.0m), 2));
+                }
+
+                // 3. Net Invoice Liability = Bill Total - Debit Notes
+                decimal netBillTotalBase = Math.Max(0, bill.TotalAmount - debitNotesBase);
+
+                // 4. Remaining Balance Due = Net Invoice Liability - Cash Paid
+                decimal remainingBalanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
+
+                if (payment.Amount > remainingBalanceBase + 0.01m)
+                {
+                    decimal remainingForeign = Math.Round(remainingBalanceBase / rate, 2);
+                    decimal paymentForeign = Math.Round(payment.Amount / rate, 2);
+                    return $"Payment of {paymentForeign:N2} exceeds remaining payable balance of {remainingForeign:N2} (Invoice reduced by Debit Notes).";
+                }
+
                 TransactionGlMapping? customMapping = null;
                 if (payment.CustomTransactionTypeId.HasValue)
                 {
@@ -965,7 +990,7 @@ namespace Primafit_ERP.Services
                         .FirstOrDefaultAsync(m => m.CompanyId == companyId && m.CustomTransactionTypeId == payment.CustomTransactionTypeId.Value);
                 }
 
-                // 2. DEBIT LEG: Accounts Payable (Liability decreases)
+                // Debit: AP
                 Guid debitApAccountId = payment.OverrideDebitApGlAccountId
                     ?? customMapping?.OverrideDebitGlAccountId
                     ?? await _mappingService.GetMappedAccountAsync(
@@ -974,7 +999,7 @@ namespace Primafit_ERP.Services
                         isDebit: true,
                         defaultAccountId: bill.AccountsPayableGlId);
 
-                // 3. CREDIT LEG: Bank / Cash Asset (Asset decreases)
+                // Credit: Bank / Cash
                 Guid creditBankAccountId = payment.OverrideCreditBankGlAccountId
                     ?? customMapping?.OverrideCreditGlAccountId
                     ?? (payment.BankGlAccountId != Guid.Empty ? payment.BankGlAccountId : Guid.Empty);
@@ -988,23 +1013,13 @@ namespace Primafit_ERP.Services
                         defaultAccountId: Guid.Empty);
                 }
 
-                if (debitApAccountId == Guid.Empty)
-                    return "Configuration Error: Missing Accounts Payable Account for payment debit.";
-
-                if (creditBankAccountId == Guid.Empty)
-                    return "Configuration Error: Missing Bank / Cash GL Account for payment credit.";
-
-                bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == debitApAccountId && a.CompanyId == companyId && a.IsActive);
-                if (!apExists) return "Accounts Payable Account is invalid or inactive.";
-
-                bool bankExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == creditBankAccountId && a.CompanyId == companyId && a.IsActive);
-                if (!bankExists) return "Bank Account is invalid or inactive.";
+                if (debitApAccountId == Guid.Empty) return "Configuration Error: Missing Accounts Payable Account for payment debit.";
+                if (creditBankAccountId == Guid.Empty) return "Configuration Error: Missing Bank / Cash GL Account for payment credit.";
 
                 payment.BankGlAccountId = creditBankAccountId;
                 if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
                 ctx.Set<VendorPayment>().Add(payment);
 
-                // 4. Balanced GL Lines: DR AP | CR Bank
                 var glLines = new List<GLJournalLine>
         {
             new GLJournalLine
@@ -1034,7 +1049,7 @@ namespace Primafit_ERP.Services
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
 
-                if (bill.PurchaseOrderId.HasValue && (currentPaid + payment.Amount) >= bill.TotalAmount - 0.01m)
+                if (bill.PurchaseOrderId.HasValue && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
                 {
                     var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
                     if (po != null)

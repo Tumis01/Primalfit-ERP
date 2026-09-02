@@ -30,7 +30,7 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Vendor Payments & Disbursements</h1>
-            <p class="text-sm text-slate-500">Track outstanding bills, configure payout routes, and record vendor disbursements.</p>
+            <p class="text-sm text-slate-500">Track outstanding bills, apply debit note deductions, and record disbursements.</p>
         </div>
         <div class="flex items-center gap-4">
             <div class="flex bg-slate-100 p-1 rounded-xl">
@@ -62,13 +62,15 @@
 
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-2">
                 <div class="overflow-x-auto w-full">
-                    <table class="w-full text-left text-sm text-slate-900 min-w-[900px]">
+                    <table class="w-full text-left text-sm text-slate-900 min-w-[1000px]">
                         <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                             <tr>
                                 <th class="p-4">Ref / Bill #</th>
                                 <th class="p-4">Date</th>
                                 <th class="p-4">Vendor</th>
-                                <th class="p-4 text-right">Bill Total</th>
+                                <th class="p-4 text-right">Gross Total</th>
+                                <th class="p-4 text-right">Debit Notes</th>
+                                <th class="p-4 text-right">Net Bill</th>
                                 <th class="p-4 text-right">Amount Paid</th>
                                 <th class="p-4 text-right">Balance Due</th>
                                 <th class="p-4 text-center">Status</th>
@@ -82,9 +84,15 @@
                                     <td class="p-4 font-mono font-bold text-indigo-700">@b.RefNumber</td>
                                     <td class="p-4 font-mono text-slate-600 text-xs">@b.Date.ToString("dd MMM, yyyy")</td>
                                     <td class="p-4 font-medium">@b.VendorName</td>
-                                    <td class="p-4 text-right font-mono font-bold text-slate-800">@b.CurrencyCode @b.GrandTotal.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono text-slate-500">@b.CurrencyCode @b.GrossTotal.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-rose-600">
+                                        @(b.DebitNoteTotal > 0 ? $"- ({b.CurrencyCode} {b.DebitNoteTotal:N2})" : "-")
+                                    </td>
+                                    <td class="p-4 text-right font-mono font-bold text-slate-900">@b.CurrencyCode @b.NetTotal.ToString("N2")</td>
                                     <td class="p-4 text-right font-mono font-bold text-emerald-600">@b.CurrencyCode @b.AmountPaid.ToString("N2")</td>
-                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@b.CurrencyCode @b.BalanceDue.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold @(b.BalanceDue > 0 ? "text-rose-700 font-black" : "text-slate-400")">
+                                        @b.CurrencyCode @b.BalanceDue.ToString("N2")
+                                    </td>
                                     <td class="p-4 text-center">
                                         @if (b.Status == "Paid in Full")
                                         {
@@ -126,7 +134,7 @@
                             }
                             @if (!PagedBillStatuses.Any())
                             {
-                                <tr><td colspan="8" class="p-12 text-center text-slate-400">No bills found matching the selected filter.</td></tr>
+                                <tr><td colspan="10" class="p-12 text-center text-slate-400">No bills found matching the selected filter.</td></tr>
                             }
                         </tbody>
                     </table>
@@ -162,7 +170,6 @@
                 </div>
 
                 <div class="flex items-center gap-2">
-                    <!-- Configure Route Button -->
                     <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                         <span>Configure Route</span>
@@ -250,12 +257,12 @@
                                 <input type="number" step="0.01" @bind="amountPaidForeign" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
                             </div>
 
-                            @if (HasBillSelected)
+                            @if (SelectedBill != null)
                             {
                                 <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
                                     <span class="font-bold text-slate-400 uppercase">Ledger Value (Base)</span>
                                     <div class="font-mono font-bold text-emerald-600">
-                                        @((amountPaidForeign * SelectedBill!.ExchangeRate).ToString("N2"))
+                                        @((amountPaidForeign * (SelectedBill?.ExchangeRate ?? 1)).ToString("N2"))
                                     </div>
                                 </div>
                             }
@@ -297,18 +304,28 @@
                                     Bill Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedBill.RefNumber</span>
                                 </h3>
 
-                                <div class="grid grid-cols-3 gap-4 animate-in slide-in-from-bottom-2">
-                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Bill (@currencySymbol)</div>
-                                        <div class="text-xl font-mono font-black text-slate-900">@SelectedBill.TotalForeign.ToString("N2")</div>
+                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 animate-in slide-in-from-bottom-2">
+                                    <div class="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
+                                        <div class="text-[9px] text-slate-400 uppercase font-bold mb-1">Gross Bill</div>
+                                        <div class="text-sm font-mono font-bold text-slate-700">@currencySymbol@SelectedBill.GrossTotalForeign.ToString("N2")</div>
                                     </div>
-                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
-                                        <div class="text-xl font-mono font-black text-emerald-700">@((SelectedBill.TotalForeign - SelectedBill.BalanceDueForeign).ToString("N2"))</div>
+                                    <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl text-center shadow-sm">
+                                        <div class="text-[9px] text-rose-600 uppercase font-bold mb-1">Debit Notes</div>
+                                        <div class="text-sm font-mono font-bold text-rose-700">
+                                            @(SelectedBill.DebitNoteForeign > 0 ? $"- {currencySymbol}{SelectedBill.DebitNoteForeign:N2}" : $"{currencySymbol}0.00")
+                                        </div>
                                     </div>
-                                    <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Balance Due</div>
-                                        <div class="text-xl font-mono font-black text-rose-700">@SelectedBill.BalanceDueForeign.ToString("N2")</div>
+                                    <div class="bg-indigo-50/60 border border-indigo-100 p-3 rounded-xl text-center shadow-sm">
+                                        <div class="text-[9px] text-indigo-700 uppercase font-bold mb-1">Net Bill Total</div>
+                                        <div class="text-sm font-mono font-black text-indigo-900">@currencySymbol@SelectedBill.NetTotalForeign.ToString("N2")</div>
+                                    </div>
+                                    <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-center shadow-sm">
+                                        <div class="text-[9px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
+                                        <div class="text-sm font-mono font-bold text-emerald-700">@currencySymbol@SelectedBill.AmountPaidForeign.ToString("N2")</div>
+                                    </div>
+                                    <div class="bg-slate-900 border border-slate-900 p-3 rounded-xl text-center shadow-sm col-span-2 sm:col-span-1">
+                                        <div class="text-[9px] text-slate-300 uppercase font-bold mb-1">Balance Due</div>
+                                        <div class="text-sm font-mono font-black text-emerald-400">@currencySymbol@SelectedBill.BalanceDueForeign.ToString("N2")</div>
                                     </div>
                                 </div>
                             </div>
@@ -364,8 +381,23 @@
                                             </tr>
                                         }
                                         <tr class="text-slate-900 bg-slate-100/50 border-t border-slate-200">
-                                            <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Grand Total:</td>
-                                            <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-rose-700">@currencySymbol@SelectedBill.TotalForeign.ToString("N2")</td>
+                                            <td colspan="3" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Gross Invoice Total:</td>
+                                            <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-900">@currencySymbol@SelectedBill.GrossTotalForeign.ToString("N2")</td>
+                                        </tr>
+                                        @if (SelectedBill.DebitNoteForeign > 0)
+                                        {
+                                            <tr class="text-rose-600 bg-rose-50/40">
+                                                <td colspan="3" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Less Debit Notes (Returns / Adjustments):</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-bold text-rose-600">- @currencySymbol@SelectedBill.DebitNoteForeign.ToString("N2")</td>
+                                            </tr>
+                                            <tr class="text-indigo-900 bg-indigo-50/50 border-t border-indigo-100">
+                                                <td colspan="3" class="px-4 py-2 font-black uppercase text-xs tracking-wider">Net Payable Invoice Amount:</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-black text-indigo-900">@currencySymbol@SelectedBill.NetTotalForeign.ToString("N2")</td>
+                                            </tr>
+                                        }
+                                        <tr class="text-slate-900 bg-slate-100 border-t-2 border-slate-300">
+                                            <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Remaining Balance to Pay:</td>
+                                            <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-emerald-700">@currencySymbol@SelectedBill.BalanceDueForeign.ToString("N2")</td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -393,9 +425,7 @@
     }
 </div>
 
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
+<!-- Modal & Dialog markup remains unchanged -->
 @if (showRouteModal)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -412,7 +442,6 @@
             </div>
 
             <div class="p-6 overflow-visible space-y-5 flex-1">
-                <!-- Custom Template Profile Selector -->
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
                     <div class="flex items-center gap-2">
@@ -436,13 +465,10 @@
                     </div>
                 </div>
 
-                <!-- Live Ledger Breakdown Table -->
                 <div class="space-y-3 overflow-visible">
                     <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
 
                     <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
-
-                        <!-- 1. Accounts Payable Liability (Debit Leg) -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">Accounts Payable</span>
@@ -468,7 +494,6 @@
                             </div>
                         </div>
 
-                        <!-- 2. Disbursing Bank Account (Credit Leg) -->
                         <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
                             <div class="w-1/3">
                                 <span class="font-bold text-slate-700 block">Disbursing Bank Account</span>
@@ -493,7 +518,6 @@
                                 </div>
                             </div>
                         </div>
-
                     </div>
                 </div>
             </div>
@@ -510,7 +534,6 @@
     </div>
 }
 
-<!-- Email Popup -->
 @if (showEmailPopup)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -521,26 +544,13 @@
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
-
             <div class="p-6 space-y-4">
-                <div>
-                    <label class="label">To Vendor:</label>
-                    <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled />
-                </div>
-                <div>
-                    <label class="label">Subject:</label>
-                    <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
-                </div>
-                <div>
-                    <label class="label">Message:</label>
-                    <textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea>
-                </div>
+                <div><label class="label">To Vendor:</label><input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailVendorName} <{emailVendorAddress}>")" disabled /></div>
+                <div><label class="label">Subject:</label><input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled /></div>
+                <div><label class="label">Message:</label><textarea @bind="customEmailMessage" class="input-class h-40 resize-none text-sm text-slate-700"></textarea></div>
             </div>
-
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
-                    Skip
-                </button>
+                <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">Skip</button>
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
                     @if (isSendingEmail)
                     {
@@ -630,8 +640,8 @@
     private Guid selectedCurrencyId = Guid.Empty;
     private Guid selectedApAccountId = Guid.Empty;
 
-    private bool HasBillSelected => selectedBillId != Guid.Empty;
     private BillRow? SelectedBill => openBills.FirstOrDefault(i => i.BillId == selectedBillId);
+    private bool HasBillSelected => SelectedBill != null;
 
     // Email State
     private bool showEmailPopup = false;
@@ -666,11 +676,17 @@
         public Guid BillId { get; set; }
         public string RefNumber { get; set; } = "";
         public DateTime Date { get; set; }
-        public decimal TotalForeign { get; set; }
+        public decimal GrossTotalForeign { get; set; }
+        public decimal DebitNoteForeign { get; set; }
+        public decimal NetTotalForeign => Math.Max(0, GrossTotalForeign - DebitNoteForeign);
+        public decimal AmountPaidForeign { get; set; }
+        public decimal BalanceDueForeign => Math.Max(0, NetTotalForeign - AmountPaidForeign);
+
         public decimal TotalBase { get; set; }
+        public decimal NetTotalBase { get; set; }
         public decimal AmountPaidBase { get; set; }
         public decimal BalanceDueBase { get; set; }
-        public decimal BalanceDueForeign { get; set; }
+
         public decimal ExchangeRate { get; set; }
         public Guid CurrencyId { get; set; }
         public Guid AccountsPayableGlId { get; set; }
@@ -687,9 +703,11 @@
         public string RefNumber { get; set; } = "";
         public string VendorName { get; set; } = "";
         public DateTime Date { get; set; }
-        public decimal GrandTotal { get; set; }
+        public decimal GrossTotal { get; set; }
+        public decimal DebitNoteTotal { get; set; }
+        public decimal NetTotal => Math.Max(0, GrossTotal - DebitNoteTotal);
         public decimal AmountPaid { get; set; }
-        public decimal BalanceDue { get; set; }
+        public decimal BalanceDue => Math.Max(0, NetTotal - AmountPaid);
         public string Status { get; set; } = "";
         public string CurrencyCode { get; set; } = "";
     }
@@ -780,17 +798,22 @@
         {
             var vendor = vendors.FirstOrDefault(v => v.Id == b.VendorId);
             var currency = currencies.FirstOrDefault(c => c.Id == b.CurrencyId);
-
-            decimal paidBase = b.Payments?.Sum(p => p.Amount) ?? 0;
-            decimal balanceBase = b.TotalAmount - paidBase;
-
             decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1;
-            decimal paidForeign = Math.Round(paidBase / rate, 2);
+
+            decimal grossPaidBase = b.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount) ?? 0;
+            decimal debitNoteBase = Math.Abs(b.Payments?.Where(p => p.Amount < 0).Sum(p => p.Amount) ?? 0);
+
+            decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
+            decimal balanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
+
+            decimal grossForeign = b.TotalAmountForeign;
+            decimal debitNoteForeign = Math.Round(debitNoteBase / rate, 2);
+            decimal amountPaidForeign = Math.Round(grossPaidBase / rate, 2);
             decimal balanceForeign = Math.Round(balanceBase / rate, 2);
 
             string status = "Unpaid";
             if (balanceBase <= 0.01m) status = "Paid in Full";
-            else if (paidBase > 0) status = "Partially Paid";
+            else if (grossPaidBase > 0) status = "Partially Paid";
 
             billStatuses.Add(new BillStatusRow
             {
@@ -798,9 +821,9 @@
                 RefNumber = string.IsNullOrEmpty(b.ExternalInvoiceNumber) ? "NO-REF" : b.ExternalInvoiceNumber,
                 VendorName = vendor?.Name ?? "Unknown",
                 Date = b.BillDate,
-                GrandTotal = b.TotalAmountForeign,
-                AmountPaid = paidForeign,
-                BalanceDue = balanceForeign,
+                GrossTotal = grossForeign,
+                DebitNoteTotal = debitNoteForeign,
+                AmountPaid = amountPaidForeign,
                 Status = status,
                 CurrencyCode = currency?.CurrencyCode ?? ""
             });
@@ -912,12 +935,16 @@
 
         foreach (var b in bills.OrderBy(b => b.BillDate))
         {
-            decimal paidBase = b.Payments?.Sum(p => p.Amount) ?? 0;
-            decimal balBase = b.TotalAmount - paidBase;
+            decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1;
+
+            decimal grossPaidBase = b.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount) ?? 0;
+            decimal debitNoteBase = Math.Abs(b.Payments?.Where(p => p.Amount < 0).Sum(p => p.Amount) ?? 0);
+
+            decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
+            decimal balBase = Math.Max(0, netBillTotalBase - grossPaidBase);
 
             if (balBase > 0.01m)
             {
-                decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1;
                 decimal pSubTotal = b.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
 
                 decimal pDiscount = 0;
@@ -949,11 +976,13 @@
                     BillId = b.Id,
                     RefNumber = string.IsNullOrEmpty(b.ExternalInvoiceNumber) ? "NO-REF" : b.ExternalInvoiceNumber,
                     Date = b.BillDate,
-                    TotalForeign = b.TotalAmountForeign,
+                    GrossTotalForeign = b.TotalAmountForeign,
+                    DebitNoteForeign = Math.Round(debitNoteBase / rate, 2),
+                    AmountPaidForeign = Math.Round(grossPaidBase / rate, 2),
                     TotalBase = b.TotalAmount,
-                    AmountPaidBase = paidBase,
+                    NetTotalBase = netBillTotalBase,
+                    AmountPaidBase = grossPaidBase,
                     BalanceDueBase = balBase,
-                    BalanceDueForeign = balBase / rate,
                     ExchangeRate = rate,
                     CurrencyId = b.CurrencyId,
                     AccountsPayableGlId = b.AccountsPayableGlId,
@@ -1179,12 +1208,31 @@
 
     private async Task PostPayment()
     {
-        if (!HasBillSelected) { await JS.InvokeVoidAsync("alert", "Please select a Vendor Bill."); return; }
-        if (amountPaidForeign <= 0) { await JS.InvokeVoidAsync("alert", "Amount paid must be greater than zero."); return; }
-        if (payment.BankGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Pay From (Bank / Asset) account."); return; }
-        if (selectedApAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select an Accounts Payable liability account."); return; }
+        if (SelectedBill == null || selectedBillId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select an active Vendor Bill.");
+            return;
+        }
 
-        if (SelectedBill != null && amountPaidForeign > SelectedBill.BalanceDueForeign + 0.01m)
+        if (amountPaidForeign <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Amount paid must be greater than zero.");
+            return;
+        }
+
+        if (payment.BankGlAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select a Pay From (Bank / Asset) account.");
+            return;
+        }
+
+        if (selectedApAccountId == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Please select an Accounts Payable liability account.");
+            return;
+        }
+
+        if (amountPaidForeign > SelectedBill.BalanceDueForeign + 0.01m)
         {
             await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({amountPaidForeign:N2}) cannot exceed the remaining balance due ({SelectedBill.BalanceDueForeign:N2}).");
             return;
@@ -1193,8 +1241,10 @@
         isBusy = true;
         try
         {
+            decimal rate = SelectedBill.ExchangeRate > 0 ? SelectedBill.ExchangeRate : 1.0m;
+
             payment.VendorBillId = selectedBillId;
-            payment.Amount = Math.Round(amountPaidForeign * SelectedBill!.ExchangeRate, 2);
+            payment.Amount = Math.Round(amountPaidForeign * rate, 2);
             payment.OverrideDebitApGlAccountId = selectedApAccountId;
             payment.OverrideCreditBankGlAccountId = payment.BankGlAccountId;
 
@@ -1206,7 +1256,7 @@
                 Guid targetBId = selectedBillId;
                 string billNum = SelectedBill.RefNumber;
                 decimal amt = amountPaidForeign;
-                decimal remBal = SelectedBill.BalanceDueForeign - amountPaidForeign;
+                decimal remBal = Math.Max(0, SelectedBill.BalanceDueForeign - amountPaidForeign);
                 string cur = currencySymbol;
 
                 await LoadVendorBills(selectedVendorId);

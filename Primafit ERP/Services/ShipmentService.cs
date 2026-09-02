@@ -70,12 +70,23 @@ namespace Primafit_ERP.Services
                 .GroupBy(cnl => cnl.SalesOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
+            var refundedQuantitiesMap = await ctx.ReceiptRefundLines
+                .Include(rrl => rrl.Header)
+                .Where(rrl => orderIds.Contains(rrl.Header!.SalesOrderId) && rrl.Header.Status == ReceiptRefundStatus.Posted)
+                .GroupBy(rrl => rrl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
             return orders.Where(o => o.Lines.Any(l =>
             {
                 if (l.Item == null || l.Item.IsService) return false;
                 decimal alreadyCredited = creditedQuantitiesMap.TryGetValue(l.Id, out var cred) ? cred : 0;
-                decimal remainingToShip = l.Quantity - l.QtyShipped - alreadyCredited;
-                return remainingToShip > 0.001m;
+                decimal alreadyRefunded = refundedQuantitiesMap.TryGetValue(l.Id, out var refQty) ? refQty : 0;
+
+                // Effective Target = Ordered Qty - Credit Notes - Returns
+                decimal effectiveTarget = Math.Max(0, l.Quantity - alreadyCredited - alreadyRefunded);
+                decimal netDispatched = Math.Max(0, l.QtyShipped - alreadyRefunded);
+
+                return (effectiveTarget - netDispatched) > 0.001m;
             })).ToList();
         }
 
@@ -87,9 +98,7 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Validation Error: Order reference not found.";
-
-            if (order.WarehouseId == Guid.Empty)
-                return $"Validation Error: Invoice '{order.OrderNumber}' does not have a fulfillment warehouse assigned.";
+            if (order.WarehouseId == Guid.Empty) return $"Validation Error: Invoice '{order.OrderNumber}' does not have a fulfillment warehouse assigned.";
 
             var creditedQuantitiesMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
@@ -97,9 +106,14 @@ namespace Primafit_ERP.Services
                 .GroupBy(cnl => cnl.SalesOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
+            var refundedQuantitiesMap = await ctx.ReceiptRefundLines
+                .Include(rrl => rrl.Header)
+                .Where(rrl => rrl.Header!.SalesOrderId == orderId && rrl.Header.Status == ReceiptRefundStatus.Posted)
+                .GroupBy(rrl => rrl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
             bool hasPending = await ctx.SalesShipments.AnyAsync(s => s.SalesOrderId == orderId && s.Status == ShipmentStatus.Pending);
-            if (hasPending)
-                return $"Queue Alert: A pending dispatch document already exists in the queue for {order.OrderNumber}.";
+            if (hasPending) return $"Queue Alert: A pending dispatch document already exists in the queue for {order.OrderNumber}.";
 
             var shipmentLines = new List<SalesShipmentLine>();
             foreach (var line in order.Lines)
@@ -107,7 +121,11 @@ namespace Primafit_ERP.Services
                 if (line.Item != null && line.Item.IsService) continue;
 
                 decimal alreadyCredited = creditedQuantitiesMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
-                decimal remainingToShip = line.Quantity - line.QtyShipped - alreadyCredited;
+                decimal alreadyRefunded = refundedQuantitiesMap.TryGetValue(line.Id, out var refQty) ? refQty : 0;
+
+                decimal effectiveTarget = Math.Max(0, line.Quantity - alreadyCredited - alreadyRefunded);
+                decimal netDispatched = Math.Max(0, line.QtyShipped - alreadyRefunded);
+                decimal remainingToShip = effectiveTarget - netDispatched;
 
                 if (remainingToShip > 0.001m)
                 {
@@ -123,7 +141,7 @@ namespace Primafit_ERP.Services
             }
 
             if (!shipmentLines.Any())
-                return $"Validation Error: All physical items for invoice '{order.OrderNumber}' have already been dispatched or credited out.";
+                return $"Validation Error: All physical items for invoice '{order.OrderNumber}' have already been dispatched or adjusted out.";
 
             var shipment = new SalesShipment
             {

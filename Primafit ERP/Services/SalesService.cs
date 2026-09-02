@@ -56,6 +56,11 @@ namespace Primafit_ERP.Services
                 .Where(cnl => invoiceIds.Contains(cnl.Header!.SalesOrderId) && cnl.Header.Status == CreditNoteStatus.Posted)
                 .GroupBy(cnl => cnl.SalesOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+            var lineRefundsMap = await ctx.ReceiptRefundLines
+                .Include(rrl => rrl.Header)
+                .Where(rrl => invoiceIds.Contains(rrl.Header!.SalesOrderId) && rrl.Header.Status == ReceiptRefundStatus.Posted)
+                .GroupBy(rrl => rrl.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
 
@@ -64,6 +69,8 @@ namespace Primafit_ERP.Services
                 foreach (var line in o.Lines)
                 {
                     line.QtyCredited = lineCreditsMap.TryGetValue(line.Id, out var creditedQty) ? creditedQty : 0;
+                    decimal returnedQty = lineRefundsMap.TryGetValue(line.Id, out var refQty) ? refQty : 0;
+                    line.QtyReturned = returnedQty;
                 }
 
                 decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
@@ -83,7 +90,6 @@ namespace Primafit_ERP.Services
 
             return orders;
         }
-
         public async Task<SalesOrder?> GetOrderByIdAsync(Guid orderId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -96,6 +102,27 @@ namespace Primafit_ERP.Services
 
             if (order != null)
             {
+                // 1. Fetch line-level Credit Note reductions
+                var lineCreditsMap = await ctx.CreditNoteLines
+                    .Include(cnl => cnl.Header)
+                    .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status == CreditNoteStatus.Posted)
+                    .GroupBy(cnl => cnl.SalesOrderLineId)
+                    .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
+                // 2. Fetch line-level Receipt Refund returns
+                var lineRefundsMap = await ctx.ReceiptRefundLines
+                    .Include(rrl => rrl.Header)
+                    .Where(rrl => rrl.Header!.SalesOrderId == orderId && rrl.Header.Status == ReceiptRefundStatus.Posted)
+                    .GroupBy(rrl => rrl.SalesOrderLineId)
+                    .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
+                foreach (var line in order.Lines)
+                {
+                    line.QtyCredited = lineCreditsMap.TryGetValue(line.Id, out var cQty) ? cQty : 0;
+                    line.QtyReturned = lineRefundsMap.TryGetValue(line.Id, out var rQty) ? rQty : 0;
+                }
+
+                // 3. Totals and Tax Computations
                 decimal subTotal = order.Lines.Sum(l => l.Quantity * l.UnitPrice);
                 decimal discountValue = order.DiscountPercentage > 0 ? subTotal * (order.DiscountPercentage / 100) : order.DiscountAmount;
                 decimal discountedSubTotal = subTotal - discountValue;

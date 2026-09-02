@@ -118,13 +118,13 @@ namespace Primafit_ERP.Services
         }
 
         public async Task<string> PostArAdjustmentsAsync(
-    Guid companyId,
-    DateOnly postingDate,
-    List<OpeningBalanceLineDto> adjustmentLines,
-    string userId,
-    Guid? customTransactionTypeId = null,
-    Guid? directArControlAccountId = null,
-    Guid? directBalancingAccountId = null)
+            Guid companyId,
+            DateOnly postingDate,
+            List<OpeningBalanceLineDto> adjustmentLines,
+            string userId,
+            Guid? customTransactionTypeId = null,
+            Guid? directArControlAccountId = null,
+            Guid? directBalancingAccountId = null)
         {
             var targetLines = adjustmentLines.Where(x => x.EntityId != Guid.Empty && x.BalanceAmount != 0).ToList();
             if (!targetLines.Any()) return "STOP: No valid adjustment lines with non-zero amounts were provided.";
@@ -214,14 +214,15 @@ namespace Primafit_ERP.Services
                 return $"FATAL SYSTEM ERROR: {ex.Message}";
             }
         }
+
         public async Task<string> PostApAdjustmentsAsync(
-    Guid companyId,
-    DateOnly postingDate,
-    List<OpeningBalanceLineDto> adjustmentLines,
-    string userId,
-    Guid? customTransactionTypeId = null,
-    Guid? directApControlAccountId = null,
-    Guid? directBalancingAccountId = null)
+            Guid companyId,
+            DateOnly postingDate,
+            List<OpeningBalanceLineDto> adjustmentLines,
+            string userId,
+            Guid? customTransactionTypeId = null,
+            Guid? directApControlAccountId = null,
+            Guid? directBalancingAccountId = null)
         {
             var targetLines = adjustmentLines.Where(x => x.EntityId != Guid.Empty && x.BalanceAmount != 0).ToList();
             if (!targetLines.Any()) return "STOP: No valid adjustment lines with non-zero amounts were provided.";
@@ -280,7 +281,6 @@ namespace Primafit_ERP.Services
                         }
                     }
 
-                    // Normal AP balance is a Credit (positive liability), prepayment/reduction is Debit (negative)
                     if (line.BalanceAmount > 0)
                     {
                         glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
@@ -418,11 +418,11 @@ namespace Primafit_ERP.Services
                 return $"INVENTORY SYSTEM ADJ ERROR: {ex.Message}";
             }
         }
+
         public async Task<List<TransactionTypeOptionDto>> GetAvailableTransactionTypesAsync(Guid companyId, bool arOnly = false)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // 1. Fetch current company GL mappings with eager-loaded custom definitions
             var mappings = await ctx.TransactionGlMappings
                 .Include(m => m.CustomTransactionType)
                 .Where(m => m.CompanyId == companyId && m.IsActive)
@@ -430,20 +430,21 @@ namespace Primafit_ERP.Services
 
             var options = new List<TransactionTypeOptionDto>();
 
-            // Standard AR System Scope
+            // Distinct AR system transaction types
             var arSystemTypes = new HashSet<SystemTransactionType>
-    {
-        SystemTransactionType.SalesInvoice,
-        SystemTransactionType.DirectSalesInvoice,
-        SystemTransactionType.ArAdjustment,
-        SystemTransactionType.CustomerPayment,
-        SystemTransactionType.CreditNote,
-        SystemTransactionType.ReceiptRefund,
-        SystemTransactionType.ShipmentDispatch,
-        SystemTransactionType.DiscountAllowed
-    };
+            {
+                SystemTransactionType.SalesInvoice,
+                SystemTransactionType.DirectSalesInvoice,
+                SystemTransactionType.ArAdjustment,
+                SystemTransactionType.CustomerPayment,
+                SystemTransactionType.CreditNote,
+                SystemTransactionType.ReceiptRefundStock,
+                SystemTransactionType.ReceiptRefundCash,
+                SystemTransactionType.ShipmentDispatch,
+                SystemTransactionType.DiscountAllowed
+            };
 
-            // 2. Add System Transaction Types
+            // 1. Add System Transaction Types
             foreach (var map in mappings.Where(m => m.TransactionType != SystemTransactionType.CustomGlAdjustment))
             {
                 if (arOnly && !arSystemTypes.Contains(map.TransactionType))
@@ -462,7 +463,7 @@ namespace Primafit_ERP.Services
                 });
             }
 
-            // 3. Add Custom Transaction Types Created via Form
+            // 2. Add Custom Transaction Types Created via Form
             foreach (var map in mappings.Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment && m.CustomTransactionType != null))
             {
                 options.Add(new TransactionTypeOptionDto
@@ -483,6 +484,7 @@ namespace Primafit_ERP.Services
                 .ThenBy(o => o.DisplayName)
                 .ToList();
         }
+
         public async Task<List<CustomTransactionType>> GetCustomTransactionTypesAsync(Guid companyId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
