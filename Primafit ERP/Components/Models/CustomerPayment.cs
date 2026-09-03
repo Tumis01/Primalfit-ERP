@@ -32,6 +32,9 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18, 6)")]
         public decimal ExchangeRate { get; set; } = 1; // Rate on the day of payment
+        public Guid? CustomTransactionTypeId { get; set; }
+        [ForeignKey(nameof(CustomTransactionTypeId))]
+        public CustomTransactionType? CustomTransactionType { get; set; }
 
         // --- STATUS ---
         public PaymentStatus Status { get; set; } = PaymentStatus.Draft;

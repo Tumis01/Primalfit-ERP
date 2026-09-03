@@ -1,0 +1,1106 @@
+﻿@page "/purchases/vendor-returns"
+@page "/purchases/vendor-returns/entry/{Id:guid?}"
+
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject VendorReturnService ReturnService
+@inject MasterDataService MasterService
+@inject WarehouseService WhService
+@inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
+@inject CompanyApiService CompanyService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800 pb-16">
+
+    <!-- HEADER / ACTION BAR -->
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
+        <div class="space-y-1">
+            <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
+                @if (IsListMode)
+                {
+                    <span>Vendor Returns</span>
+                }
+                else if (IsNewInitialization)
+                {
+                    <span>Initialize Vendor Return</span>
+                }
+                else
+                {
+                    <span>Vendor Return: @currentReturn?.ReturnNumber</span>
+                }
+            </h1>
+            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
+                @if (IsListMode)
+                {
+                    <span class="text-slate-500">Track and execute goods returns and vendor cash refund recoveries</span>
+                }
+                else if (IsPosted)
+                {
+                    <span>● Posted Financial & Stock Document - Read Only</span>
+                }
+                else
+                {
+                    <span>● Draft Return Workspace</span>
+                }
+            </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+            @if (!IsListMode)
+            {
+                <button type="button" @onclick="NavigateToListView"
+                        class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95">
+                    Cancel & Back to List
+                </button>
+            }
+
+            @if (!IsListMode && !IsNewInitialization && currentReturn != null)
+            {
+                <!-- Configure Route Button -->
+                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Configure Route</span>
+                    @if (currentReturn.CustomTransactionTypeId.HasValue)
+                    {
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    }
+                </button>
+            }
+
+            @if (IsListMode)
+            {
+                <button type="button" @onclick="OpenNewFormInitializer" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
+                    <span>New Vendor Return</span>
+                </button>
+            }
+            else if (!IsPosted && !IsNewInitialization)
+            {
+                <button type="button" @onclick="DeleteDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm active:scale-95">
+                    Delete Draft
+                </button>
+
+                <button type="button" @onclick="SaveDraftWorkspace" disabled="@isBusy" class="px-5 py-2.5 bg-white border border-slate-200 text-indigo-600 text-sm font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
+                    Save Draft
+                </button>
+
+                <button type="button" @onclick="PostVendorReturn" disabled="@isBusy" class="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-700 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50">
+                    @if (isBusy)
+                    {
+                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                    }
+                    <span>Post Vendor Return</span>
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
+            Loading vendor return workspace...
+        </div>
+    }
+    else if (currentCompanyId != Guid.Empty)
+    {
+        @if (IsListMode)
+        {
+            <!-- LIST VIEW -->
+            <div class="space-y-4">
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div class="relative w-full sm:w-80">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <input type="text" @bind="listSearchTerm" @bind:event="oninput" placeholder="Search return #, vendor, PO..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-rose-500 transition-all" />
+                    </div>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm whitespace-nowrap">
+                            <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-4">Return #</th>
+                                    <th class="px-6 py-4">Date</th>
+                                    <th class="px-6 py-4">Vendor</th>
+                                    <th class="px-6 py-4">Purchase Order</th>
+                                    <th class="px-6 py-4">Type</th>
+                                    <th class="px-6 py-4 text-center">Status</th>
+                                    <th class="px-6 py-4 text-right pr-8">Refund / Return Value</th>
+                                    <th class="px-6 py-4 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
+                                @foreach (var vr in PaginatedReturns)
+                                {
+                                    bool hasFx = vr.ExchangeRate > 1 && vr.ExchangeRate != 1m;
+                                    decimal totalDisplayVal = vr.ReturnType == VendorReturnType.PaymentOnly
+                                        ? vr.TotalAmount
+                                        : vr.Lines.Sum(l => l.Quantity * l.UnitCost) + (vr.ReturnType == VendorReturnType.Both ? vr.TotalAmount : 0);
+                                    decimal baseAmount = Math.Round(totalDisplayVal * vr.ExchangeRate, 2);
+
+                                    <tr class="hover:bg-slate-50/60 transition-colors">
+                                        <td class="px-6 py-4 font-mono font-bold text-slate-900">@vr.ReturnNumber</td>
+                                        <td class="px-6 py-4 text-slate-500 font-medium">@vr.Date.ToString("yyyy-MM-dd")</td>
+                                        <td class="px-6 py-4 font-bold text-slate-900">@(vr.Vendor?.Name ?? "Unknown Vendor")</td>
+                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(vr.PurchaseOrder?.OrderNumber ?? "N/A")</td>
+                                        <td class="px-6 py-4">
+                                            <span class="text-[11px] font-bold px-2.5 py-1 rounded-md @(vr.ReturnType == VendorReturnType.QuantityOnly ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : vr.ReturnType == VendorReturnType.PaymentOnly ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-purple-50 text-purple-700 border border-purple-200")">
+                                                @(vr.ReturnType == VendorReturnType.QuantityOnly ? "Quantity Only" : vr.ReturnType == VendorReturnType.PaymentOnly ? "Payment Refund Only" : "Both (Stock & Cash)")
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            @if (vr.Status == VendorReturnStatus.Posted)
+                                            {
+                                                <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Posted</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">Draft</span>
+                                            }
+                                        </td>
+                                        <td class="px-6 py-4 text-right font-mono pr-8">
+                                            @if (hasFx)
+                                            {
+                                                <div>
+                                                    <span class="font-bold text-rose-600">@totalDisplayVal.ToString("N2")</span>
+                                                    <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(vr.Currency?.CurrencyCode ?? "")</span>
+                                                </div>
+                                                <div class="text-xs text-slate-500 font-semibold">
+                                                    <span>@baseAmount.ToString("N2")</span>
+                                                    <span class="text-[9px] text-slate-400 uppercase ml-0.5">@companyBaseCurrency</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="font-black text-rose-600">@totalDisplayVal.ToString("N2")</span>
+                                                <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(vr.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
+                                            }
+                                        </td>
+                                        <td class="px-6 py-4 text-center">
+                                            <button type="button" @onclick="() => RouteToTargetReturn(vr.Id)" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
+                                                @(vr.Status == VendorReturnStatus.Posted ? "View Details" : "Edit Draft")
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                                @if (!PaginatedReturns.Any())
+                                {
+                                    <tr><td colspan="8" class="p-16 text-center text-slate-400 font-medium">No vendor returns found.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
+                        <div>Showing @((currentPage - 1) * pageSize + 1) to @Math.Min(currentPage * pageSize, TotalFilteredCount) of @TotalFilteredCount items</div>
+                        <div class="flex items-center gap-2">
+                            <button type="button" @onclick="() => { if (currentPage > 1) currentPage--; }" disabled="@(currentPage == 1)" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40">Previous</button>
+                            <span class="px-3 font-semibold text-slate-700">Page @currentPage of @TotalPages</span>
+                            <button type="button" @onclick="() => { if (currentPage < TotalPages) currentPage++; }" disabled="@(currentPage == TotalPages || TotalPages == 0)" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (IsNewInitialization)
+        {
+            <!-- INITIALIZATION WIZARD -->
+            <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900 uppercase tracking-wider">Initialize Vendor Return</h3>
+                    <p class="text-xs text-slate-500 mt-1">Select vendor partner, target purchase order, and the desired return configuration.</p>
+                </div>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="label">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
+                        <select value="@selectedVendorId" @onchange="OnVendorSelected" class="input-class font-bold">
+                            <option value="@Guid.Empty">-- Select Vendor --</option>
+                            @foreach (var ven in vendors)
+                            {
+                                <option value="@ven.Id">@ven.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    @if (selectedVendorId != Guid.Empty)
+                    {
+                        <div class="animate-in fade-in duration-300">
+                            <label class="label">Step 2: Choose Target Purchase Order / Invoice <span class="text-rose-500">*</span></label>
+                            <select @bind="selectedOrderId" class="input-class font-mono font-bold">
+                                <option value="@Guid.Empty">-- Select Document --</option>
+                                @foreach (var po in eligibleOrders)
+                                {
+                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd")) - Cash Refundable: @po.GrandTotalForeign.ToString("N2")</option>
+                                }
+                            </select>
+                            @if (_loadingOrders)
+                            {
+                                <p class="text-xs text-rose-600 font-bold mt-2 animate-pulse">Scanning eligible transactions...</p>
+                            }
+                            else if (!eligibleOrders.Any())
+                            {
+                                <p class="text-xs text-amber-600 font-bold mt-2">No eligible purchase orders found for this vendor.</p>
+                            }
+                        </div>
+
+                        <div class="animate-in fade-in duration-300">
+                            <label class="label">Step 3: Return Execution Mode <span class="text-rose-500">*</span></label>
+                            <select @bind="selectedReturnType" class="input-class font-bold">
+                                <option value="@VendorReturnType.QuantityOnly">1. Quantity Only (Physical Stock Return)</option>
+                                <option value="@VendorReturnType.PaymentOnly">2. Payment Refund Only (Cash Reversal)</option>
+                                <option value="@VendorReturnType.Both">3. Both (Physical Stock & Cash Refund)</option>
+                            </select>
+                        </div>
+                    }
+
+                    <button type="button" @onclick="CreateReturnWorkspace" disabled="@(isBusy || selectedOrderId == Guid.Empty)" class="w-full px-6 py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        }
+                        <span>Open Return Workspace</span>
+                    </button>
+
+                    @if (!string.IsNullOrEmpty(_errMsg))
+                    {
+                        <div class="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold rounded-xl">@_errMsg</div>
+                    }
+                </div>
+            </div>
+        }
+        else if (currentReturn != null)
+        {
+            <!-- ACTIVE WORKSPACE -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
+
+                <!-- PARAMETERS SIDEBAR -->
+                <div class="lg:col-span-4 space-y-6">
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                        <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Document Parameters</h3>
+
+                        <div>
+                            <label class="label">Execution Date</label>
+                            <input type="date" value="@currentReturn.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentReturn.Date = d; })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
+                        </div>
+
+                        <div>
+                            <label class="label">Vendor</label>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
+                                @(currentReturn.Vendor?.Name ?? "Loaded Supplier Profile")
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="label">Purchase Order Reference</label>
+                            <div class="font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">
+                                @(currentReturn.PurchaseOrder?.OrderNumber ?? "N/A")
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="label">Return Execution Type</label>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs text-slate-800 uppercase">
+                                @(currentReturn.ReturnType == VendorReturnType.QuantityOnly ? "Physical Stock Only" : currentReturn.ReturnType == VendorReturnType.PaymentOnly ? "Cash Payment Refund Only" : "Both (Stock & Cash)")
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="label">Return Tracking Code</label>
+                            <input type="text" @bind="currentReturn.ReturnNumber" class="input-class font-mono font-bold" disabled />
+                        </div>
+
+                        <div>
+                            <label class="label">Reason / Narrative</label>
+                            <input type="text" @bind="currentReturn.Reason" class="input-class" placeholder="Reason for return..." disabled="@IsPosted" />
+                        </div>
+
+                        @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <div>
+                                <label class="label">Source Warehouse (Stock Deduction) <span class="text-rose-500">*</span></label>
+                                <select @bind="currentReturn.WarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/30 text-indigo-900" disabled="@IsPosted">
+                                    <option value="@Guid.Empty">-- Select Warehouse --</option>
+                                    @foreach (var w in warehouses)
+                                    {
+                                        <option value="@w.Id">@w.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <div>
+                                <label class="label">Deposit Bank Account (Cash Inflow) <span class="text-rose-500">*</span></label>
+                                <select @bind="currentReturn.BankAccountId" class="input-class font-bold border-emerald-200 bg-emerald-50/30 text-emerald-900" disabled="@IsPosted">
+                                    <option value="@Guid.Empty">-- Select Bank / Asset Account --</option>
+                                    @foreach (var b in bankAccounts)
+                                    {
+                                        <option value="@b.Id">@b.AccountCode - @b.Description</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+
+                        @if (currentReturn.ExchangeRate > 1 && currentReturn.ExchangeRate != 1m)
+                        {
+                            <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
+                                <span class="text-[10px] font-extrabold text-indigo-900 uppercase tracking-wider">Exchange Rate</span>
+                                <div class="text-sm font-mono font-bold text-indigo-700">
+                                    1 @(currentReturn.Currency?.CurrencyCode ?? "FX") = @currentReturn.ExchangeRate.ToString("N4") @companyBaseCurrency
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Live Active Routing Profile Card -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                Edit Mappings
+                            </button>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                            {
+                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                    <span class="text-slate-500 font-medium">GR/IR Clearing (Dr):</span>
+                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
+                                        @(GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                    <span class="text-slate-500 font-medium">Inventory Asset (Cr):</span>
+                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)">
+                                        @(GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId))
+                                    </span>
+                                </div>
+                            }
+                            @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                            {
+                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                    <span class="text-slate-500 font-medium">Accounts Payable (Cr):</span>
+                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)">
+                                        @(GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId))
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MAIN WORKSPACE DETAILS -->
+                <div class="lg:col-span-8 space-y-6">
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[550px]">
+
+                        @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <!-- STOCK RETURN GRID -->
+                            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                                    Physical Goods Return (Warehouse Stock Intake Reversal)
+                                </h3>
+                                <p class="text-xs text-slate-500 mt-1">Specify return quantities against recorded physical intake logs.</p>
+                            </div>
+
+                            <div class="overflow-x-auto flex-1 p-6">
+                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                    <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
+                                        <tr>
+                                            <th class="px-4 py-3">Item Details</th>
+                                            <th class="px-4 py-3 text-center">Received</th>
+                                            <th class="px-4 py-3 text-center">Prev. Returned</th>
+                                            <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
+                                            <th class="px-4 py-3 text-right">Unit Cost</th>
+                                            <th class="px-4 py-3 text-right w-36">Return Qty</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach (var line in currentReturn.Lines)
+                                        {
+                                            <tr class="bg-white hover:bg-slate-50 transition-colors">
+                                                <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.OriginalReceivedQty.ToString("N2")</td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.PreviouslyReturnedQty.ToString("N2")</td>
+                                                <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@line.MaxReturnableQty.ToString("N2")</td>
+                                                <td class="px-4 py-3 text-right font-mono text-slate-500">
+                                                    @line.UnitCost.ToString("N2")
+                                                </td>
+                                                <td class="px-4 py-3 text-right">
+                                                    <input type="number" step="0.01" min="0" max="@line.MaxReturnableQty"
+                                                           value="@(line.Quantity == 0 ? "" : line.Quantity)"
+                                                           @oninput="@(e => ValidateLineQty(line, e.Value?.ToString()))"
+                                                           disabled="@IsPosted"
+                                                           placeholder="0.00"
+                                                           class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+
+                        @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <!-- CASH REFUND INPUT SECTION -->
+                            <div class="p-6 space-y-6 @(currentReturn.ReturnType == VendorReturnType.Both ? "border-t border-slate-200 bg-slate-50/30" : "flex-1 flex flex-col items-center justify-center")">
+                                <div class="w-full max-w-md mx-auto space-y-4">
+                                    <div class="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-center">
+                                        <div class="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Cash Refund Inflow</div>
+                                        <div class="text-xs font-semibold text-emerald-900 mt-0.5">Record money deposited back into liquid banking assets.</div>
+                                    </div>
+
+                                    <div class="space-y-1.5">
+                                        <div class="flex justify-between text-xs font-bold text-slate-500">
+                                            <label class="label mb-0">Refund Cash Amount</label>
+                                            <span>Ceiling: <span class="font-mono text-slate-800">@cashSummary.MaxRefundable.ToString("N2")</span></span>
+                                        </div>
+                                        <div class="relative bg-white border-2 border-slate-200 rounded-xl focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all shadow-sm">
+                                            <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                                                <span class="text-xs font-black text-slate-300 font-mono uppercase">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span>
+                                            </div>
+                                            <input type="number" step="0.01" min="0" max="@cashSummary.MaxRefundable"
+                                                   @bind="currentReturn.TotalAmount"
+                                                   disabled="@IsPosted"
+                                                   class="w-full bg-transparent pl-16 pr-4 py-3 font-mono font-black text-emerald-600 text-right text-2xl outline-none placeholder:text-slate-200 disabled:opacity-50"
+                                                   placeholder="0.00" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- FOOTER TOTALS -->
+                        <div class="border-t border-slate-200 bg-slate-50 p-6 flex justify-between items-center mt-auto rounded-b-2xl">
+                            <div>
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Net Return Transaction Impact:</span>
+                            </div>
+                            <div class="text-right font-mono">
+                                @{
+                                    decimal totalStockForeign = currentReturn.Lines.Sum(l => l.Quantity * l.UnitCost);
+                                    decimal totalCashForeign = (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both) ? currentReturn.TotalAmount : 0;
+                                    decimal grandForeign = totalStockForeign + totalCashForeign;
+
+                                    bool hasFx = currentReturn.ExchangeRate > 1 && currentReturn.ExchangeRate != 1m;
+                                    decimal grandBase = Math.Round(grandForeign * currentReturn.ExchangeRate, 2);
+                                }
+
+                                @if (hasFx)
+                                {
+                                    <div class="text-3xl font-black text-rose-600">
+                                        @grandForeign.ToString("N2")
+                                        <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentReturn.Currency?.CurrencyCode ?? "FX")</span>
+                                    </div>
+                                    <div class="text-sm font-bold text-slate-600 mt-0.5">
+                                        ≈ @grandBase.ToString("N2")
+                                        <span class="text-xs font-sans font-semibold text-slate-400 uppercase ml-1">@companyBaseCurrency</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="text-3xl font-black text-rose-600">
+                                        @grandForeign.ToString("N2")
+                                        <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentReturn.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal && currentReturn != null)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Vendor Return GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for purchase returns and vendor cash recovery.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentReturn.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentReturn.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Vendor Return Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentReturn.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
+                            <option value="">-- Standard Vendor Return Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table  -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+                        @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <!-- Stock Return: DR AP Trade Liability -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                    <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Debt Reduction)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Vendor AP Default Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)"
+                                                             ValueChanged="@((Guid val) => currentReturn.OverrideAccountsPayableGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Stock Return: CR Inventory Asset -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
+                                    <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Stock Outflow)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Line Item Asset Default"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
+                                                             ValueChanged="@((Guid val) => currentReturn.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                        {
+                            <!-- Cash Refund: CR Accounts Payable -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                    <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Debt Restored)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Vendor AP Default Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)"
+                                                             ValueChanged="@((Guid val) => currentReturn.OverrideAccountsPayableGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        outline: none;
+        transition: all 0.2s;
+        color: #0f172a;
+        background-color: #fff;
+    }
+
+        .input-class:focus {
+            border-color: #e11d48;
+            box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+        }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+    tr, td {
+        overflow: visible !important;
+    }
+</style>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private Guid currentCompanyId = Guid.Empty;
+    private string currentUserId = "";
+    private string companyBaseCurrency = "BASE";
+    private bool isLoading = true;
+    private bool isBusy = false;
+    private bool isCreateMode = false;
+    private bool _loadingOrders = false;
+    private string _errMsg = string.Empty;
+
+    private Guid selectedVendorId = Guid.Empty;
+    private Guid selectedOrderId = Guid.Empty;
+    private VendorReturnType selectedReturnType = VendorReturnType.QuantityOnly;
+
+    private VendorReturn? currentReturn;
+    private List<VendorReturn> allReturns = new();
+    private List<PurchaseOrder> eligibleOrders = new();
+    private List<Vendor> vendors = new();
+    private List<Warehouse> warehouses = new();
+    private List<SegChartOfAccount> allAccounts = new();
+    private List<SegChartOfAccount> bankAccounts = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultGrIrAccountId = Guid.Empty;
+    private Guid defaultInventoryAssetAccountId = Guid.Empty;
+    private Guid defaultApAccountId = Guid.Empty;
+
+    private CashRefundSummaryDto cashSummary = new();
+
+    private int pageSize = 15;
+    private int currentPage = 1;
+    private string listSearchTerm = "";
+
+    // View State Selectors
+    private bool IsListMode => !Id.HasValue && !isCreateMode && currentReturn == null;
+    private bool IsNewInitialization => isCreateMode && currentReturn == null;
+    private bool IsPosted => currentReturn?.Status == VendorReturnStatus.Posted;
+
+    private IEnumerable<VendorReturn> FilteredReturns => allReturns
+        .Where(d => string.IsNullOrWhiteSpace(listSearchTerm)
+                 || d.ReturnNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
+                 || (d.Vendor?.Name != null && d.Vendor.Name.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase))
+                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
+
+    private int TotalFilteredCount => FilteredReturns.Count();
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalFilteredCount / (double)pageSize));
+    private IEnumerable<VendorReturn> PaginatedReturns => FilteredReturns.Skip((currentPage - 1) * pageSize).Take(pageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user?.CompanyDetailsId != null)
+        {
+            currentCompanyId = user.CompanyDetailsId.Value;
+            currentUserId = user.Id;
+
+            var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
+            if (company != null)
+            {
+                companyBaseCurrency = company.BaseCurrency ?? "BASE";
+            }
+
+            vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
+
+            var accountTypes = await SegCoaService.GetAccountTypesAsync();
+            allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
+
+            bankAccounts = allAccounts.Where(a =>
+            {
+                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type != null && type.IsBalanceSheet == true && type.IsDebit == true && a.IsActive;
+            }).OrderBy(x => x.AccountCode).ToList();
+
+            defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.VendorReturnStock, isDebit: false, defaultAccountId: Guid.Empty);
+
+            defaultApAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.VendorReturnStock, isDebit: true, defaultAccountId: Guid.Empty);
+
+            await LoadListGrid();
+
+            if (Id.HasValue)
+            {
+                await LoadExistingReturn(Id.Value);
+            }
+        }
+        isLoading = false;
+    }
+
+    private async Task LoadListGrid()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        allReturns = await ctx.VendorReturns
+            .AsNoTracking()
+            .Include(d => d.Vendor)
+            .Include(d => d.PurchaseOrder)
+            .Include(d => d.Currency)
+            .Include(d => d.Lines)
+            .Where(d => d.CompanyId == currentCompanyId)
+            .OrderByDescending(d => d.Date)
+            .ToListAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (isLoading) return;
+
+        if (Id.HasValue && (currentReturn == null || currentReturn.Id != Id.Value))
+        {
+            await LoadExistingReturn(Id.Value);
+        }
+        else if (!Id.HasValue && currentReturn != null && !isCreateMode)
+        {
+            currentReturn = null;
+            selectedVendorId = Guid.Empty;
+            selectedOrderId = Guid.Empty;
+        }
+    }
+
+    private async Task LoadExistingReturn(Guid returnId)
+    {
+        isBusy = true;
+        currentReturn = await ReturnService.GetByIdAsync(returnId, currentCompanyId);
+
+        if (currentReturn != null)
+        {
+            isCreateMode = false;
+            selectedVendorId = currentReturn.VendorId;
+            selectedOrderId = currentReturn.PurchaseOrderId ?? Guid.Empty;
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == currentReturn.VendorId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+            if (currentReturn.PurchaseOrderId.HasValue)
+            {
+                cashSummary = await ReturnService.GetCashRefundSummaryAsync(currentReturn.PurchaseOrderId.Value, currentReturn.Id);
+            }
+        }
+        else
+        {
+            NavigateToListView();
+        }
+
+        isBusy = false;
+        StateHasChanged();
+    }
+
+    private async Task OnVendorSelected(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
+        {
+            selectedVendorId = venId;
+            var vendor = vendors.FirstOrDefault(v => v.Id == venId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+            await LoadEligibleOrders();
+        }
+        else
+        {
+            selectedVendorId = Guid.Empty;
+            defaultApAccountId = Guid.Empty;
+            eligibleOrders.Clear();
+        }
+    }
+
+    private async Task LoadEligibleOrders()
+    {
+        _loadingOrders = true;
+        StateHasChanged();
+
+        eligibleOrders = await ReturnService.GetOrdersEligibleForReturnAsync(currentCompanyId, selectedVendorId);
+
+        _loadingOrders = false;
+        StateHasChanged();
+    }
+
+    private async Task CreateReturnWorkspace()
+    {
+        if (selectedOrderId == Guid.Empty) return;
+        isBusy = true;
+        _errMsg = string.Empty;
+
+        try
+        {
+            Guid parsedUserId = Guid.TryParse(currentUserId, out var uid) ? uid : Guid.Empty;
+
+            currentReturn = await ReturnService.CreateVendorReturnDraftAsync(selectedOrderId, selectedReturnType, parsedUserId);
+
+            if (currentReturn != null)
+            {
+                currentReturn = await ReturnService.GetByIdAsync(currentReturn.Id, currentCompanyId);
+                cashSummary = await ReturnService.GetCashRefundSummaryAsync(selectedOrderId, currentReturn.Id);
+                isCreateMode = false;
+
+                var vendor = vendors.FirstOrDefault(v => v.Id == currentReturn?.VendorId);
+                defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            _errMsg = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task OpenRouteModal()
+    {
+        if (currentReturn == null) return;
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var vendor = vendors.FirstOrDefault(v => v.Id == currentReturn.VendorId);
+        defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        if (currentReturn == null) return;
+
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentReturn.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    currentReturn.OverrideGrIrClearingGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                {
+                    currentReturn.OverrideInventoryAssetGlAccountId = map.OverrideCreditGlAccountId.Value;
+                    currentReturn.OverrideAccountsPayableGlAccountId = map.OverrideCreditGlAccountId.Value;
+                }
+            }
+        }
+        else
+        {
+            currentReturn.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "System Default";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
+    }
+
+    private void ValidateLineQty(VendorReturnLine line, string? val)
+    {
+        if (decimal.TryParse(val, out var parsed))
+        {
+            if (parsed < 0) line.Quantity = 0;
+            else if (parsed > line.MaxReturnableQty) line.Quantity = line.MaxReturnableQty;
+            else line.Quantity = parsed;
+        }
+        else
+        {
+            line.Quantity = 0;
+        }
+    }
+
+    private async Task SaveDraftWorkspace()
+    {
+        if (currentReturn == null) return;
+
+        if ((currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+            && currentReturn.TotalAmount > cashSummary.MaxRefundable && cashSummary.MaxRefundable > 0)
+        {
+            await JS.InvokeVoidAsync("alert", $"Cash recovery amount ({currentReturn.TotalAmount:N2}) cannot exceed the remaining allowable ceiling ({cashSummary.MaxRefundable:N2}).");
+            return;
+        }
+
+        isBusy = true;
+        string err = await ReturnService.SaveDraftAsync(currentReturn);
+        isBusy = false;
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Draft workspace saved successfully.");
+            await LoadListGrid();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task PostVendorReturn()
+    {
+        if (currentReturn == null) return;
+
+        if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+        {
+            if (!currentReturn.WarehouseId.HasValue || currentReturn.WarehouseId == Guid.Empty)
+            {
+                await JS.InvokeVoidAsync("alert", "Please select a Source Warehouse to return physical stock from.");
+                return;
+            }
+
+            decimal totalQty = currentReturn.Lines.Sum(l => l.Quantity);
+            if (totalQty <= 0)
+            {
+                await JS.InvokeVoidAsync("alert", "Please specify a return quantity on at least one item line.");
+                return;
+            }
+        }
+
+        if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+        {
+            if (!currentReturn.BankAccountId.HasValue || currentReturn.BankAccountId == Guid.Empty)
+            {
+                await JS.InvokeVoidAsync("alert", "Please designate a Bank / Cash receiving account.");
+                return;
+            }
+
+            if (currentReturn.TotalAmount <= 0)
+            {
+                await JS.InvokeVoidAsync("alert", "Refund cash recovery amount must be strictly greater than zero.");
+                return;
+            }
+
+            if (currentReturn.TotalAmount > cashSummary.MaxRefundable + 0.01m)
+            {
+                await JS.InvokeVoidAsync("alert", $"Refund cash amount ({currentReturn.TotalAmount:N2}) exceeds remaining refundable balance ({cashSummary.MaxRefundable:N2}).");
+                return;
+            }
+        }
+
+        if (!await JS.InvokeAsync<bool>("confirm", "Permanently post this Vendor Return to the General Ledger and Stock Ledgers?")) return;
+
+        isBusy = true;
+        await ReturnService.SaveDraftAsync(currentReturn);
+
+        Guid parsedUserId = Guid.TryParse(currentUserId, out var uid) ? uid : Guid.Empty;
+        string err = await ReturnService.PostVendorReturnAsync(currentReturn.Id, parsedUserId);
+        isBusy = false;
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Vendor Return successfully posted and locked in the General Ledger.");
+            await LoadListGrid();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task DeleteDraft()
+    {
+        if (currentReturn == null) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "Permanently discard this draft return?")) return;
+
+        string err = await ReturnService.DeleteDraftAsync(currentReturn.Id);
+        if (string.IsNullOrEmpty(err))
+        {
+            await LoadListGrid();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private void RouteToTargetReturn(Guid returnId)
+    {
+        Nav.NavigateTo($"/purchases/vendor-returns/entry/{returnId}");
+    }
+
+    private void NavigateToListView()
+    {
+        currentReturn = null;
+        isCreateMode = false;
+        selectedVendorId = Guid.Empty;
+        selectedOrderId = Guid.Empty;
+        _errMsg = string.Empty;
+
+        if (Id.HasValue)
+        {
+            Nav.NavigateTo("/purchases/vendor-returns");
+        }
+    }
+
+    private void OpenNewFormInitializer()
+    {
+        currentReturn = null;
+        isCreateMode = true;
+        selectedVendorId = Guid.Empty;
+        selectedOrderId = Guid.Empty;
+        eligibleOrders.Clear();
+        _errMsg = string.Empty;
+    }
+}

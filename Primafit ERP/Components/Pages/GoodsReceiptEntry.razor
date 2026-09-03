@@ -9,9 +9,10 @@
 
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
-@inject WarehouseService WarehouseService 
+@inject WarehouseService WarehouseService
 @inject InventoryValuationService ValuationService
 @inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserManager<ApplicationUser> UserManager
@@ -19,35 +20,46 @@
 @inject NavigationManager Nav
 @rendermode InteractiveServer
 
-<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 relative">
-    
-    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 relative pb-16 font-sans text-slate-800">
+
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Receive Goods (GRN)</h1>
-            <p class="text-sm text-slate-500">Acknowledge receipt and accrue to GR/IR Clearing.</p>
+            <p class="text-sm text-slate-500">Acknowledge physical receipt and accrue temporary inventory liability to GR/IR Clearing.</p>
         </div>
-        
-        @if (!showLandedCostModal)
-        {
-            <button @onclick="SaveReceipt" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
-                @if(isBusy) 
-                { 
-                    <span class="animate-spin">↻</span> <span>Processing...</span> 
-                } 
-                else 
-                { 
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                    <span>Confirm Receipt</span> 
-                }
-            </button>
-        }
+
+        <div class="flex items-center gap-3">
+            @if (!showLandedCostModal)
+            {
+                <!-- Configure Route Button -->
+                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Configure Route</span>
+                    @if (currentGrn.CustomTransactionTypeId.HasValue)
+                    {
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    }
+                </button>
+
+                <button @onclick="SaveReceipt" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 active:scale-95 text-sm">
+                    @if (isBusy)
+                    {
+                        <span class="animate-spin">↻</span> <span>Processing...</span>
+                    }
+                    else
+                    {
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                        <span>Confirm Receipt</span>
+                    }
+                </button>
+            }
+        </div>
     </div>
 
     <div class="@(showLandedCostModal ? "opacity-30 pointer-events-none" : "") transition-opacity duration-300">
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
-            
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
             <div>
-                <label class="label">Receiving Warehouse</label>
+                <label class="label">Receiving Warehouse <span class="text-rose-500">*</span></label>
                 <select @bind="selectedWarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/30 text-indigo-700">
                     <option value="@Guid.Empty">-- Select Warehouse --</option>
                     @foreach (var w in warehouses)
@@ -58,7 +70,7 @@
             </div>
 
             <div>
-                <label class="label">Vendor</label>
+                <label class="label">Vendor <span class="text-rose-500">*</span></label>
                 <select @bind="selectedVendorId" class="input-class" disabled="@poId.HasValue">
                     <option value="@Guid.Empty">-- Select Vendor --</option>
                     @foreach (var v in vendors)
@@ -69,7 +81,7 @@
             </div>
 
             <div>
-                <label class="label">Purchase Order</label>
+                <label class="label">Purchase Order <span class="text-rose-500">*</span></label>
                 <select @onchange="OnPoSelected" value="@(selectedPO?.Id.ToString() ?? "")" class="input-class font-mono" disabled="@(poId.HasValue || selectedVendorId == Guid.Empty)">
                     <option value="">-- Select PO to Receive --</option>
                     @foreach (var po in openPOs.Where(p => p.VendorId == selectedVendorId))
@@ -84,24 +96,21 @@
                 <input type="date" @bind="currentGrn.DateReceived" class="input-class" />
             </div>
 
-            <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl md:col-span-2">
-                @if (isGrIrAccountLocked)
-                {
-                    <label class="label text-slate-600">GR/IR Clearing Account (Cr) <span class="text-[9px] text-rose-600 font-bold tracking-wide shrink-0 ml-1 uppercase">(Locked by First Receipt)</span></label>
-                    <div class="text-xs text-slate-700 font-bold bg-slate-100 p-3 rounded-lg border border-slate-200 shadow-inner select-none font-mono">
-                        @(liabilityAccounts.FirstOrDefault(a => a.Id == currentGrn.InventoryGlAccountId)?.AccountCode ?? "N/A") - 
-                        @(liabilityAccounts.FirstOrDefault(a => a.Id == currentGrn.InventoryGlAccountId)?.Description ?? "Locked Accrual Account")
-                    </div>
-                }
-                else
-                {
-                    <SearchableGlAccount 
-                        Label="GR/IR Clearing Account (Cr)" 
-                        Placeholder="Select Temporary Liability Acc..." 
-                        Accounts="@liabilityAccounts" 
-                        @bind-Value="currentGrn.InventoryGlAccountId" 
-                        IsInvalid="@(currentGrn.InventoryGlAccountId == Guid.Empty)" />
-                }
+            <div class="bg-rose-50/40 border border-rose-200 p-3.5 rounded-xl md:col-span-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="space-y-0.5">
+                    <span class="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block">GR/IR Clearing Account Routing</span>
+                    <p class="text-xs text-slate-600 font-medium">Temporary accrual account to be matched during supplier invoice posting.</p>
+                </div>
+
+                <div class="text-right">
+                    @if (isGrIrAccountLocked)
+                    {
+                        <span class="text-[10px] text-rose-600 font-bold tracking-wide uppercase block">Locked by First Receipt</span>
+                    }
+                    <span class="font-mono font-bold text-xs text-indigo-700 bg-white px-3 py-1.5 rounded-lg border border-slate-200 inline-block shadow-sm">
+                        @GetAccountDisplayName(currentGrn.InventoryGlAccountId)
+                    </span>
+                </div>
             </div>
         </div>
 
@@ -110,9 +119,9 @@
             <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mt-6">
                 <div class="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
                     <h3 class="font-bold text-slate-700">Items to Receive</h3>
-                    <span class="text-xs text-slate-400">Cannot exceed remaining balance.</span>
+                    <span class="text-xs text-slate-400">Cannot exceed remaining ordered balance.</span>
                 </div>
-                
+
                 <table class="w-full text-sm text-left">
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
                         <tr>
@@ -138,10 +147,10 @@
                                 </td>
                                 <td class="p-4">
                                     <div class="flex flex-col items-end">
-                                        <input type="number" 
+                                        <input type="number"
                                                value="@line.QuantityReceived"
                                                @onchange="@(e => ValidateQuantity(line, e.Value?.ToString()))"
-                                               class="w-full text-right font-bold text-emerald-700 border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all" 
+                                               class="w-full text-right font-bold text-emerald-700 border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
                                                min="0" max="@line.MaxAllowed" />
                                     </div>
                                 </td>
@@ -157,7 +166,6 @@
     {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in zoom-in-95">
             <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-                
                 <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                     <div>
                         <h3 class="text-lg font-bold text-slate-900">Step 2: Landed Cost Allocation</h3>
@@ -260,15 +268,15 @@
                 </div>
 
                 <div class="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                    <button @onclick="FinalizeValuation" disabled="@isValuationBusy" 
+                    <button @onclick="FinalizeValuation" disabled="@isValuationBusy"
                             class="w-full px-6 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 disabled:opacity-50 flex justify-center items-center gap-2">
-                        @if(isValuationBusy) 
-                        { 
-                            <span class="animate-spin">↻</span> <span>Calculating WACC...</span> 
-                        } 
-                        else 
-                        { 
-                            <span>Finalize Valuation & Close</span> 
+                        @if (isValuationBusy)
+                        {
+                            <span class="animate-spin">↻</span> <span>Calculating WACC...</span>
+                        }
+                        else
+                        {
+                            <span>Finalize Valuation & Close</span>
                         }
                     </button>
                 </div>
@@ -277,10 +285,150 @@
     }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Goods Receipt GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for physical stock reception.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentGrn.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentGrn.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Goods Receipt Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentGrn.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1">
+                            <option value="">-- Standard Goods Receipt Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Inventory Stock Asset (Debit Side) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Inflow)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentGrn.OverrideInventoryAssetGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentGrn.OverrideInventoryAssetGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Line Item Asset Accounts"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentGrn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
+                                                         ValueChanged="@((Guid val) => currentGrn.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. GR/IR Clearing Account (Credit Side) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">GR/IR Clearing Account</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Accrual)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentGrn.OverrideGrIrClearingGlAccountId.HasValue && !isGrIrAccountLocked)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentGrn.OverrideGrIrClearingGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Select GR/IR Clearing Account"
+                                                         Accounts="@liabilityAccounts"
+                                                         Value="@(currentGrn.OverrideGrIrClearingGlAccountId ?? currentGrn.InventoryGlAccountId)"
+                                                         ValueChanged="@((Guid val) => { currentGrn.OverrideGrIrClearingGlAccountId = val == Guid.Empty ? null : val; currentGrn.InventoryGlAccountId = val; })" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
-    .label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.25rem; }
-    .input-class { width: 100%; border-radius: 0.5rem; border: 1px solid #cbd5e1; padding: 0.6rem; font-size: 0.875rem; }
-    .input-class:disabled { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+    .label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem;
+        font-size: 0.875rem;
+    }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+    tr, td {
+        overflow: visible !important;
+    }
 </style>
 
 @code {
@@ -292,8 +440,15 @@
     private List<Warehouse> warehouses = new();
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
-    
+
+    private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultInventoryAssetAccountId = Guid.Empty;
+    private Guid defaultGrIrAccountId = Guid.Empty;
 
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
@@ -317,10 +472,10 @@
             currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             currentGrn.CompanyId = currentCompanyId;
-            
+
             var t1 = MasterService.GetVendorsAsync(currentCompanyId);
             var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId);
-            var t3 = PurchService.GetOpenPOsAsync(currentCompanyId); 
+            var t3 = PurchService.GetOpenPOsAsync(currentCompanyId);
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
             var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
             var t6 = SegCoaService.GetAccountTypesAsync();
@@ -331,15 +486,21 @@
             warehouses = t2.Result;
             openPOs = t3.Result;
             items = t4.Result;
-            
-            var allAccounts = t5.Result;
+
+            allAccounts = t5.Result;
             var accountTypes = t6.Result;
 
-            liabilityAccounts = allAccounts.Where(a => 
+            liabilityAccounts = allAccounts.Where(a =>
             {
                 var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
                 return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
             }).OrderBy(x => x.AccountCode).ToList();
+
+            defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: true, defaultAccountId: Guid.Empty);
+
+            defaultGrIrAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: false, defaultAccountId: Guid.Empty);
 
             if (poId.HasValue && poId.Value != Guid.Empty)
             {
@@ -373,13 +534,12 @@
                 {
                     CompanyId = currentCompanyId,
                     PurchaseOrderId = selectedPO.Id,
-                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{new Random().Next(100, 999)}",
+                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}",
                     DateReceived = DateTime.Today
                 };
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
 
-                // --- 3-WAY MATCH CONTROL INTERCEPT: DETECT HISTORICAL SPLIT RECEIPTS ---
                 var historicalReceipts = await ctx.GoodsReceipts
                     .AsNoTracking()
                     .Where(g => g.PurchaseOrderId == selectedPO.Id && g.CompanyId == currentCompanyId)
@@ -387,13 +547,18 @@
 
                 if (historicalReceipts.Any())
                 {
-                    // Enforce structural continuity: lock downstream values onto the original account ID
                     currentGrn.InventoryGlAccountId = historicalReceipts.First().InventoryGlAccountId;
                     isGrIrAccountLocked = true;
                 }
                 else
                 {
-                    currentGrn.InventoryGlAccountId = Guid.Empty;
+                    Guid defaultGrIrAccount = await MappingService.GetMappedAccountAsync(
+                        currentCompanyId,
+                        SystemTransactionType.GoodsReceipt,
+                        isDebit: false,
+                        defaultAccountId: Guid.Empty);
+
+                    currentGrn.InventoryGlAccountId = defaultGrIrAccount;
                     isGrIrAccountLocked = false;
                 }
 
@@ -426,7 +591,7 @@
         if (decimal.TryParse(inputVal, out decimal val))
         {
             if (val < 0) line.QuantityReceived = 0;
-            else if (val > line.MaxAllowed) 
+            else if (val > line.MaxAllowed)
             {
                 line.QuantityReceived = line.MaxAllowed;
                 JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({line.MaxAllowed}).");
@@ -434,6 +599,55 @@
             else line.QuantityReceived = val;
         }
         else line.QuantityReceived = 0;
+    }
+
+    private async Task OpenRouteModal()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentGrn.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    currentGrn.OverrideInventoryAssetGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue && !isGrIrAccountLocked)
+                {
+                    currentGrn.OverrideGrIrClearingGlAccountId = map.OverrideCreditGlAccountId.Value;
+                    currentGrn.InventoryGlAccountId = map.OverrideCreditGlAccountId.Value;
+                }
+            }
+        }
+        else
+        {
+            currentGrn.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "System Default [GR/IR Clearing]";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
     }
 
     private async Task SaveReceipt()
@@ -445,7 +659,6 @@
         isBusy = true;
         try
         {
-            // Passed currentUserId here
             string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId, currentUserId);
 
             if (string.IsNullOrEmpty(result))
@@ -481,7 +694,7 @@
         addedCosts.Add(new GrnLandedCost
         {
             Id = Guid.NewGuid(),
-            GoodsReceiptId = currentGrn.Id, 
+            GoodsReceiptId = currentGrn.Id,
             CostType = newCostType.Value,
             Amount = newCostAmount,
             AllocationMethod = newAllocMethod

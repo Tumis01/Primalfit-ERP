@@ -12,16 +12,17 @@ namespace Primafit_ERP.Services
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
+        private readonly TransactionMappingService _mappingService;
 
-        public ReceiptRefundService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps)
+        public ReceiptRefundService(
+            IDbContextFactory<AppDbContext> dbFactory,
+            GLOperationsService glOps,
+            TransactionMappingService mappingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
+            _mappingService = mappingService;
         }
-
-        // =========================================================================
-        // 1. DATA LOOKUP FILTERS & COMPLEX CEILING CALCULATIONS
-        // =========================================================================
 
         public async Task<List<SalesOrder>> GetInvoicesEligibleForRefundAsync(Guid companyId, Guid customerId)
         {
@@ -37,6 +38,8 @@ namespace Primafit_ERP.Services
                          && o.OrderNumber.StartsWith("INV")
                          && validStatuses.Contains(o.Status))
                 .ToListAsync();
+
+            if (!invoices.Any()) return new List<SalesOrder>();
 
             var invoiceIds = invoices.Select(o => o.Id).ToList();
 
@@ -54,6 +57,12 @@ namespace Primafit_ERP.Services
                 .GroupBy(r => r.SalesOrderId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
 
+            var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
+                .Include(l => l.Header)
+                .Where(l => invoiceIds.Contains(l.Header!.SalesOrderId) && l.Header.Status == ReceiptRefundStatus.Posted)
+                .GroupBy(l => l.SalesOrderLineId)
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+
             var eligibleList = new List<SalesOrder>();
 
             foreach (var inv in invoices)
@@ -62,9 +71,14 @@ namespace Primafit_ERP.Services
                 decimal totalCashRefunded = historicalCashRefundsMap.TryGetValue(inv.Id, out var refAmt) ? refAmt : 0;
                 decimal remainingCashLimit = totalPaid - totalCashRefunded;
 
-                bool hasShippedItems = inv.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped > 0);
+                bool hasReturnableStock = inv.Lines.Any(l =>
+                {
+                    if (l.Item == null || l.Item.IsService) return false;
+                    decimal alreadyReturned = historicalQtyReturnsMap.TryGetValue(l.Id, out var ret) ? ret : 0;
+                    return (l.QtyShipped - alreadyReturned) > 0.001m;
+                });
 
-                if (remainingCashLimit > 0.01m || hasShippedItems)
+                if (remainingCashLimit > 0.01m || hasReturnableStock)
                 {
                     eligibleList.Add(inv);
                 }
@@ -72,10 +86,6 @@ namespace Primafit_ERP.Services
 
             return eligibleList.OrderByDescending(o => o.Date).ToList();
         }
-
-        // =========================================================================
-        // 2. WORKSPACE INITIALIZATION & LINE HYDRATION ENGINE
-        // =========================================================================
 
         public async Task<ReceiptRefund> CreateReceiptRefundDraftAsync(Guid orderId, ReceiptRefundType type, Guid userId)
         {
@@ -116,7 +126,7 @@ namespace Primafit_ERP.Services
                 if (soLine.Item != null && soLine.Item.IsService) continue;
 
                 decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(soLine.Id, out var q) ? q : 0;
-                decimal maxReturnableQty = soLine.QtyShipped - alreadyReturnedQty;
+                decimal maxReturnableQty = Math.Max(0, soLine.QtyShipped - alreadyReturnedQty);
 
                 if (type == ReceiptRefundType.PaymentOnly || maxReturnableQty > 0)
                 {
@@ -149,6 +159,7 @@ namespace Primafit_ERP.Services
                 .Include(r => r.Customer)
                 .Include(r => r.Currency)
                 .Include(r => r.SalesOrder).ThenInclude(so => so.Lines)
+                .Include(r => r.CustomTransactionType)
                 .FirstOrDefaultAsync(r => r.Id == id && r.CompanyId == companyId);
 
             if (refund != null && refund.SalesOrder != null)
@@ -169,7 +180,7 @@ namespace Primafit_ERP.Services
                     if (matchingInvoiceLine != null)
                     {
                         decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId, out var q) ? q : 0;
-                        line.MaxAdjustableQty = matchingInvoiceLine.QtyShipped - alreadyReturnedQty;
+                        line.MaxAdjustableQty = Math.Max(0, matchingInvoiceLine.QtyShipped - alreadyReturnedQty);
                         line.OriginalShippedQty = matchingInvoiceLine.QtyShipped;
                         line.PreviouslyReturnedQty = alreadyReturnedQty;
                     }
@@ -193,6 +204,10 @@ namespace Primafit_ERP.Services
             existing.BankAccountId = refund.BankAccountId;
             existing.DestinationWarehouseId = refund.DestinationWarehouseId;
             existing.TotalAmount = refund.TotalAmount;
+            existing.CustomTransactionTypeId = refund.CustomTransactionTypeId;
+            existing.OverrideReceivablesGlAccountId = refund.OverrideReceivablesGlAccountId;
+            existing.OverrideInventoryAssetGlAccountId = refund.OverrideInventoryAssetGlAccountId;
+            existing.OverrideCogsGlAccountId = refund.OverrideCogsGlAccountId;
 
             ctx.ReceiptRefundLines.RemoveRange(existing.Lines);
             foreach (var line in refund.Lines)
@@ -225,10 +240,6 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        // =========================================================================
-        // 4. BALANCED DOUBLE-ENTRY LEDGER TRANSACTION ENGINE
-        // =========================================================================
-
         public async Task<string> PostReceiptRefundAsync(Guid refundId, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -243,17 +254,22 @@ namespace Primafit_ERP.Services
 
                 if (refund == null) return "Refund parameters not found.";
                 if (refund.Status == ReceiptRefundStatus.Posted) return "Document is already posted and locked.";
-                if (refund.SalesOrder == null) return "Parent sales invoice reference mapping is missing.";
+                if (refund.SalesOrder == null) return "Parent sales order reference mapping is missing.";
 
                 var so = refund.SalesOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = refund.ExchangeRate > 0 ? refund.ExchangeRate : 1;
 
-                Guid arAccount = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
-                if (arAccount == Guid.Empty) return "Posting Aborted: Customer Accounts Receivable account mapping missing.";
+                TransactionGlMapping? customMapping = null;
+                if (refund.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == refund.CompanyId && m.CustomTransactionTypeId == refund.CustomTransactionTypeId.Value);
+                }
 
                 // -----------------------------------------------------------------
-                // LEG A: QUANTITY STOCK RETURN (INITIAL LOGIC: REVENUE VS AR)
+                // LEG A: PHYSICAL STOCK RETURN (SystemTransactionType.ReceiptRefundStock)
+                // DEBIT: Inventory Asset | CREDIT: Cost of Goods Sold (COGS)
                 // -----------------------------------------------------------------
                 if (refund.RefundType == ReceiptRefundType.QuantityOnly || refund.RefundType == ReceiptRefundType.Both)
                 {
@@ -262,7 +278,9 @@ namespace Primafit_ERP.Services
 
                     var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                         .Include(l => l.Header)
-                        .Where(l => l.Header!.SalesOrderId == so.Id && l.Header.Status == ReceiptRefundStatus.Posted)
+                        .Where(l => l.Header!.SalesOrderId == so.Id
+                                 && l.Header.Id != refund.Id
+                                 && l.Header.Status == ReceiptRefundStatus.Posted)
                         .GroupBy(l => l.SalesOrderLineId)
                         .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -280,19 +298,16 @@ namespace Primafit_ERP.Services
                         if (line.Quantity > maxAllowedReturnQty + 0.001m)
                             return $"Posting Aborted: Item '{line.Item.Name}' quantity returned ({line.Quantity:N2}) exceeds remaining physical shipment allowance ({maxAllowedReturnQty:N2}).";
 
-                        // FIXED: Costing method dependent calculation engine
                         decimal resolvedUnitCost = line.Item.CostingType switch
                         {
                             CostingMethod.WACC => line.Item.WeightedAverageCost,
                             CostingMethod.StandardCosting => line.Item.StandardCost,
                             CostingMethod.UserSpecified => line.Item.UserSpecifiedCost,
                             CostingMethod.MostRecentCost => line.Item.MostRecentCost,
-                            CostingMethod.FIFO => line.Item.WeightedAverageCost,
-                            CostingMethod.LIFO => line.Item.WeightedAverageCost,
                             _ => line.Item.WeightedAverageCost
                         };
 
-                        // Log Product Inflow back into Stock Ledger using the resolved unit cost
+                        // 1. Log inventory intake in StockLedger
                         ctx.StockLedgers.Add(new StockLedger
                         {
                             Id = Guid.NewGuid(),
@@ -306,45 +321,96 @@ namespace Primafit_ERP.Services
                             Date = DateTime.UtcNow
                         });
 
-                        // 1. Core Inventory Revaluation Leg (Asset vs COGS at dynamically resolved cost values)
+                        // 2. Double-entry routing: DR Inventory Asset | CR COGS
                         decimal lineCogsValueBase = Math.Round(line.Quantity * resolvedUnitCost, 2);
                         if (lineCogsValueBase > 0)
                         {
-                            glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.SKU}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.SKU}" });
+                            Guid inventoryAssetAccount = refund.OverrideInventoryAssetGlAccountId
+                                ?? customMapping?.OverrideDebitGlAccountId
+                                ?? await _mappingService.GetMappedAccountAsync(
+                                    refund.CompanyId,
+                                    SystemTransactionType.ReceiptRefundStock,
+                                    isDebit: true,
+                                    defaultAccountId: line.Item.InventoryAssetAccountId);
+
+                            Guid cogsAccount = refund.OverrideCogsGlAccountId
+                                ?? customMapping?.OverrideCreditGlAccountId
+                                ?? await _mappingService.GetMappedAccountAsync(
+                                    refund.CompanyId,
+                                    SystemTransactionType.ReceiptRefundStock,
+                                    isDebit: false,
+                                    defaultAccountId: line.Item.CostOfGoodsSoldAccountId);
+
+                            if (inventoryAssetAccount == Guid.Empty)
+                                return $"Posting Aborted: Item '{line.Item.Name}' is missing an Inventory Asset GL Account mapping.";
+
+                            if (cogsAccount == Guid.Empty)
+                                return $"Posting Aborted: Item '{line.Item.Name}' is missing a Cost of Goods Sold (COGS) GL Account mapping.";
+
+                            glLines.Add(new GLJournalLine { SegCoaId = inventoryAssetAccount, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.SKU}" });
+                            glLines.Add(new GLJournalLine { SegCoaId = cogsAccount, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.SKU}" });
                         }
-
-                        // 2. FIXED: Initial Logic Restored. Reverses Revenue by crediting the Customer's AR account directly (excl. tax/discounts)
-                        decimal lineGrossForeign = line.Quantity * line.UnitPrice;
-                        decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
-
-                        glLines.Add(new GLJournalLine { SegCoaId = line.Item.SalesIncomeAccountId, Debit = lineGrossBase, Credit = 0, Reference = $"Sales Return Revenue: {line.Item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = 0, Credit = lineGrossBase, Reference = $"AR Return Credit: {so.OrderNumber}" });
-
-                        soLine.QtyShipped -= line.Quantity;
                     }
                 }
 
                 // -----------------------------------------------------------------
-                // LEG B: INDEPENDENT CASH DISBURSEMENT (CUSTOMER AR VS BANK ONLY)
+                // LEG B: PAYMENT CASH REFUND (SystemTransactionType.ReceiptRefundCash)
+                // DEBIT: Customer AR | CREDIT: Disbursing Bank / Cash Account
                 // -----------------------------------------------------------------
                 if (refund.RefundType == ReceiptRefundType.PaymentOnly || refund.RefundType == ReceiptRefundType.Both)
                 {
+                    if (!refund.BankAccountId.HasValue || refund.BankAccountId.Value == Guid.Empty)
+                        return "Posting Aborted: Bank account is required for cash refund disbursement.";
+
+                    Guid defaultAr = refund.Customer?.ReceivablesAccountId ?? Guid.Empty;
+
+                    Guid debitArAccount = refund.OverrideReceivablesGlAccountId
+                        ?? customMapping?.OverrideDebitGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            refund.CompanyId,
+                            SystemTransactionType.ReceiptRefundCash,
+                            isDebit: true,
+                            defaultAccountId: defaultAr);
+
+                    Guid creditDisbursingAccount = customMapping?.OverrideCreditGlAccountId
+                        ?? await _mappingService.GetMappedAccountAsync(
+                            refund.CompanyId,
+                            SystemTransactionType.ReceiptRefundCash,
+                            isDebit: false,
+                            defaultAccountId: refund.BankAccountId.Value);
+
+                    if (debitArAccount == Guid.Empty)
+                        return "Posting Aborted: Customer Accounts Receivable account mapping is missing.";
+
                     decimal cashRefundBase = Math.Round(refund.TotalAmount * rate, 2);
 
-                    // Cash balances strictly between accounts receivable asset and the source bank ledger
-                    glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = cashRefundBase, Credit = 0, Reference = $"Cash Refund Claim: {so.OrderNumber}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = refund.BankAccountId.Value, Debit = 0, Credit = cashRefundBase, Reference = $"Cash Out To: {refund.Customer?.Name}" });
+                    if (cashRefundBase > 0)
+                    {
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = debitArAccount,
+                            Debit = cashRefundBase,
+                            Credit = 0,
+                            Reference = $"Cash Refund Claim: {so.OrderNumber}"
+                        });
+
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = creditDisbursingAccount,
+                            Debit = 0,
+                            Credit = cashRefundBase,
+                            Reference = $"Cash Out To: {refund.Customer?.Name}"
+                        });
+                    }
                 }
 
                 if (!glLines.Any()) return "No valid transaction elements or quantities were processed.";
 
-                // Validation checksum gate
                 decimal totalDebits = glLines.Sum(l => l.Debit);
                 decimal totalCredits = glLines.Sum(l => l.Credit);
                 if (totalDebits != totalCredits)
                 {
-                    return $"Posting Aborted: Ledger architecture misalignment. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
+                    return $"Posting Aborted: Ledger imbalance. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
                 }
 
                 var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString());

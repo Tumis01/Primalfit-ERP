@@ -9,6 +9,7 @@
 
 @inject ReceiptRefundService RefundService
 @inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -18,7 +19,7 @@
 
 @rendermode InteractiveServer
 
-<div class="mx-auto max-w-[1400px] space-y-6 animate-in fade-in duration-500 text-slate-800 pb-12">
+<div class="mx-auto max-w-[1400px] space-y-6 animate-in fade-in duration-500 text-slate-800 pb-16">
 
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
@@ -26,10 +27,6 @@
                 @(IsNew ? "Receipt Returns & Payout Refunds" : $"Voucher Window: {currentRefund.RefundNumber}")
             </h1>
             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                <span class="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider
-                    @(IsPosted ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200")">
-                    @(IsPosted ? "Posted — Ledger Locked" : "Draft Return Workspace")
-                </span>
                 @if (!IsNew && currentRefund.SalesOrder != null)
                 {
                     <span class="text-xs text-slate-400 font-mono font-bold">Linked Invoice: @currentRefund.SalesOrder.OrderNumber</span>
@@ -46,6 +43,16 @@
         <div class="flex items-center justify-end gap-3 flex-wrap">
             @if (!IsNew)
             {
+                <!-- Configure Route Button -->
+                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Configure Route</span>
+                    @if (currentRefund.CustomTransactionTypeId.HasValue)
+                    {
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    }
+                </button>
+
                 <button type="button" @onclick="ResetToDashboard" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm">
                     Cancel &amp; Exit
                 </button>
@@ -74,10 +81,10 @@
     {
         <div class="flex bg-slate-100 p-1 rounded-xl w-fit">
             <button @onclick="() => dashboardTab = 0" class="px-5 py-2 rounded-lg text-sm font-bold transition-all @(dashboardTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                Voucher Registry Log
+                Overview
             </button>
             <button @onclick="() => dashboardTab = 1" class="px-5 py-2 rounded-lg text-sm font-bold transition-all @(dashboardTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                + Issue Return Refund
+                Issue Return Refund
             </button>
         </div>
 
@@ -257,7 +264,6 @@
     else
     {
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-
             <div class="lg:col-span-4 space-y-5">
                 <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                     <h3 class="font-extrabold text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Voucher Layout Properties</h3>
@@ -344,7 +350,7 @@
                                         <th class="p-4 text-center">Unit Price</th>
                                         <th class="p-4 text-center bg-amber-50/40 text-amber-700">Total Shipped</th>
                                         <th class="p-4 text-center bg-rose-50/40 text-rose-700">Max Returnable</th>
-                                        <th class="p-4 text-center w-36">Return Qty</th>
+                                        <th class="p-4 text-center w-32">Return Qty</th>
                                         <th class="p-4 text-right pr-6">Return Value</th>
                                     </tr>
                                 </thead>
@@ -489,6 +495,192 @@
     }
 </div>
 
+<!-- ROUTE CONFIGURATION MODAL -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Receipt Refund GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for physical stock returns and cash payouts.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentRefund.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentRefund.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Receipt Refund Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentRefund.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
+                            <option value="">-- Standard Receipt Refund Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        @if (currentRefund.RefundType == ReceiptRefundType.QuantityOnly || currentRefund.RefundType == ReceiptRefundType.Both)
+                        {
+                            <!-- Stock Return: DR Inventory Stock Asset -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
+                                    <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Stock Intake)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideInventoryAssetGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideInventoryAssetGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Default Inventory Asset Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Stock Return: CR Cost of Goods Sold (COGS) -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Cost of Goods Sold (COGS)</span>
+                                    <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Expense Reversal)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideCogsGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideCogsGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="Default COGS Account"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideCogsGlAccountId ?? defaultCogsAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideCogsGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (currentRefund.RefundType == ReceiptRefundType.PaymentOnly || currentRefund.RefundType == ReceiptRefundType.Both)
+                        {
+                            <!-- Cash Refund: DR Customer Accounts Receivable -->
+                            <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
+                                <div class="w-1/3">
+                                    <span class="font-bold text-slate-700 block">Accounts Receivable</span>
+                                    <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Cash Reversal)</span>
+                                </div>
+                                <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                    @if (currentRefund.OverrideReceivablesGlAccountId.HasValue)
+                                    {
+                                        <button type="button"
+                                                @onclick="() => currentRefund.OverrideReceivablesGlAccountId = null"
+                                                class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                                title="Clear Override">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    }
+                                    <div class="flex-1 overflow-visible relative">
+                                        <SearchableGlAccount Label=""
+                                                             Placeholder="System Default Customer AR"
+                                                             Accounts="@allAccounts"
+                                                             Value="@(currentRefund.OverrideReceivablesGlAccountId ?? defaultArAccountId)"
+                                                             ValueChanged="@((Guid val) => currentRefund.OverrideReceivablesGlAccountId = val == Guid.Empty ? null : val)" />
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.5rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: #0f172a;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+        .input-class:focus {
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+            border-color: #e2e8f0;
+        }
+
+    tr, td {
+        overflow: visible !important;
+    }
+</style>
+
 @code {
     [Parameter] public Guid? Id { get; set; }
 
@@ -497,7 +689,15 @@
     private List<SalesOrder> eligibleInvoices = new();
     private List<Warehouse> warehouses = new();
     private List<SegChartOfAccount> bankAccounts = new();
+    private List<SegChartOfAccount> allAccounts = new();
     private List<Primafit_ERP.Components.Models.ReceiptRefund> allHistoricalRefunds = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultArAccountId = Guid.Empty;
+    private Guid defaultInventoryAssetAccountId = Guid.Empty;
+    private Guid defaultCogsAccountId = Guid.Empty;
 
     // Dashboard / pagination
     private int dashboardTab = 0;
@@ -523,7 +723,6 @@
     private bool IsNew => Id == null;
     private bool IsPosted => currentRefund.Status == ReceiptRefundStatus.Posted;
 
-    // Pointing directly to the explicitly declared DTO class below
     private CashRefundSummaryDto cashSummary = new();
 
     private IEnumerable<SalesOrder> FilteredInvoices => eligibleInvoices
@@ -564,6 +763,9 @@
                 currentRefund = record;
                 currencyCode = record.Currency?.CurrencyCode ?? "Base";
 
+                var customer = customers.FirstOrDefault(c => c.Id == currentRefund.CustomerId);
+                defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
+
                 if (record.RefundType == ReceiptRefundType.PaymentOnly || record.RefundType == ReceiptRefundType.Both)
                 {
                     var dto = await RefundService.GetCashRefundSummaryAsync(record.SalesOrderId, record.Id);
@@ -592,13 +794,22 @@
         customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
-        var allAccounts = await SegCoaService.GetCoaAsync(companyId);
+        allAccounts = await SegCoaService.GetCoaAsync(companyId);
 
         bankAccounts = allAccounts.Where(a =>
         {
             var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
             return type != null && type.Description.Trim().Equals("Cash and Cash Equivalents", StringComparison.OrdinalIgnoreCase) && type.IsBalanceSheet && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
+
+        defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
+            companyId, SystemTransactionType.ReceiptRefundStock, isDebit: true, defaultAccountId: Guid.Empty);
+
+        defaultCogsAccountId = await MappingService.GetMappedAccountAsync(
+            companyId, SystemTransactionType.ReceiptRefundStock, isDebit: false, defaultAccountId: Guid.Empty);
+
+        defaultArAccountId = await MappingService.GetMappedAccountAsync(
+            companyId, SystemTransactionType.ReceiptRefundCash, isDebit: true, defaultAccountId: Guid.Empty);
 
         allHistoricalRefunds = await ctx.ReceiptRefunds
             .Include(r => r.Customer)
@@ -659,6 +870,53 @@
         }
         catch (Exception ex) { _errMsg = ex.Message; }
         finally { isBusy = false; StateHasChanged(); }
+    }
+
+    private async Task OpenRouteModal()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentRefund.CompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var customer = customers.FirstOrDefault(c => c.Id == currentRefund.CustomerId);
+        defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentRefund.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentRefund.CompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                {
+                    currentRefund.OverrideReceivablesGlAccountId = map.OverrideDebitGlAccountId.Value;
+                    currentRefund.OverrideInventoryAssetGlAccountId = map.OverrideDebitGlAccountId.Value;
+                }
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                {
+                    currentRefund.OverrideCogsGlAccountId = map.OverrideCreditGlAccountId.Value;
+                }
+            }
+        }
+        else
+        {
+            currentRefund.CustomTransactionTypeId = null;
+        }
     }
 
     private void OnDateChanged(ChangeEventArgs e)
@@ -736,54 +994,10 @@
         else await JS.InvokeVoidAsync("alert", err);
     }
 
-    // FIXED: Restored the missing draft cancellation handler
     private async Task DeleteDraft()
     {
         if (!await JS.InvokeAsync<bool>("confirm", "Discard this draft workspace permanently?")) return;
         await RefundService.DeleteDraftAsync(currentRefund.Id);
         ResetToDashboard();
     }
-
-    // FIXED: Embedded internal declaration directly on page to eliminate assembly reference errors
-    public class CashRefundSummaryDto
-    {
-        public decimal TotalPaid { get; set; }
-        public decimal PriorCashRefunded { get; set; }
-        public decimal MaxRefundable { get; set; }
-    }
 }
-
-<style>
-    .label {
-        display: block;
-        font-size: 0.70rem;
-        font-weight: 800;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.35rem;
-        letter-spacing: 0.05em;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.75rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.5rem 0.75rem;
-        font-size: 0.875rem;
-        color: #0f172a;
-        outline: none;
-        transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #10b981;
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
-        }
-
-        .input-class:disabled {
-            background-color: #f8fafc;
-            color: #94a3b8;
-            cursor: not-allowed;
-            border-color: #e2e8f0;
-        }
-</style>

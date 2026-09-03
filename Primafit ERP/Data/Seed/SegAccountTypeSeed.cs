@@ -13,7 +13,6 @@ namespace PrimafitERP.Data.Seed
 
             b.Property(x => x.Description).HasMaxLength(150).IsRequired();
 
-            // ---- SEED DATA (from your uploaded excel) ----
             b.HasData(
             new SegAccountType { Id = 1, Description = "Cash and Cash Equivalents", IsBalanceSheet = true, IsDebit = true },
             new SegAccountType { Id = 2, Description = "Other Expense", IsBalanceSheet = false, IsDebit = true },

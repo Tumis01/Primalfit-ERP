@@ -5,11 +5,13 @@
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.IO
 
 @inject PaymentService PayService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CurrencyService CurrService
+@inject TransactionMappingService MappingService
 @inject IEmailService EmailService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
@@ -24,10 +26,11 @@
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 mb-16">
 
+    <!-- Header Section -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Accounts Receivable</h1>
-            <p class="text-sm text-slate-500">Track invoice statuses and receive incoming payments.</p>
+            <p class="text-sm text-slate-500">Track invoice statuses, configure ledger routes, and receive incoming customer payments.</p>
         </div>
         <div class="flex items-center gap-4">
             <div class="flex bg-slate-100 p-1 rounded-xl">
@@ -49,7 +52,7 @@
                 <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-[42px]">
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Filter Status:</span>
                     <select @bind="statusFilter" class="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer">
-                        <option value="All">All Receipr</option>
+                        <option value="All">All Invoices</option>
                         <option value="Unpaid">Unpaid</option>
                         <option value="Partially Paid">Partially Paid</option>
                         <option value="Paid in Full">Paid in Full</option>
@@ -98,7 +101,6 @@
                                     </td>
                                     <td class="p-4 text-center">
                                         <div class="flex items-center justify-center gap-2">
-                                            @* FIXED: Load Wizard Button Element inserted here before the download action *@
                                             @if (inv.Status != "Paid in Full")
                                             {
                                                 <button @onclick="() => SelectAndLoadInvoice(inv)" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Load Invoice into Payment Form">
@@ -109,7 +111,7 @@
                                             }
                                             else
                                             {
-                                                <div class="w-7 h-7"></div> @* Layout Spacer element placeholder for paid items *@
+                                                <div class="w-7 h-7"></div>
                                             }
 
                                             <button @onclick="() => DownloadReceipt(inv.InvoiceId)" class="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors" title="Download Receipt PDF">
@@ -130,7 +132,6 @@
                     </table>
                 </div>
 
-                <!-- Pagination Footer -->
                 @if (FilteredInvoiceStatuses.Any())
                 {
                     <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
@@ -142,7 +143,7 @@
                                 Previous
                             </button>
 
-                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
+                            <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm font-mono">
                                 Page @currentPage of @TotalPages
                             </span>
 
@@ -156,22 +157,39 @@
         }
         else if (activeTab == 1)
         {
-            <div class="flex justify-end mb-4">
-                <PermissionGate Key="AR_PAYMENT_CREATE">
-                    <Authorized>
-                        <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95">
-                            @if (isBusy)
-                            {
-                                <span class="animate-spin">↻</span> <span>Processing...</span>
-                            }
-                            else
-                            {
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                <span>Post Payment</span>
-                            }
-                        </button>
-                    </Authorized>
-                </PermissionGate>
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">Customer Payment Receipt Voucher</h2>
+                    <p class="text-xs text-slate-500">Record incoming client settlements against invoiced receivables.</p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <!-- Configure Route Button -->
+                    <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>Configure Route</span>
+                        @if (payment.CustomTransactionTypeId.HasValue)
+                        {
+                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                        }
+                    </button>
+
+                    <PermissionGate Key="AR_PAYMENT_CREATE">
+                        <Authorized>
+                            <button @onclick="PostPayment" disabled="@isBusy" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 transition-all active:scale-95 text-sm">
+                                @if (isBusy)
+                                {
+                                    <span class="animate-spin">↻</span> <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                    <span>Post Payment</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </PermissionGate>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-2">
@@ -185,7 +203,7 @@
                         </div>
 
                         <div>
-                            <label class="label">Customer</label>
+                            <label class="label">Customer <span class="text-rose-500">*</span></label>
                             <select value="@payment.CustomerId" @onchange="OnCustomerChanged" class="input-class font-bold text-slate-900 border-indigo-200 bg-indigo-50/30">
                                 <option value="@Guid.Empty">-- Select Customer --</option>
                                 @foreach (var c in customers)
@@ -196,7 +214,7 @@
                         </div>
 
                         <div>
-                            <label class="label text-indigo-600">Sales Order Invoice Number</label>
+                            <label class="label text-indigo-600">Sales Order Invoice Number <span class="text-rose-500">*</span></label>
                             <select value="@selectedInvoiceId" @onchange="OnInvoiceChanged" class="input-class border-indigo-200 bg-indigo-50/30 font-bold" disabled="@(payment.CustomerId == Guid.Empty)">
                                 <option value="@Guid.Empty">-- Select Order --</option>
                                 @foreach (var inv in openInvoices)
@@ -224,9 +242,9 @@
                         </div>
 
                         <div class="pt-2">
-                            <label class="label text-emerald-700">Amount Received (@currencySymbol)</label>
+                            <label class="label text-emerald-700">Amount Received (@currencySymbol) <span class="text-rose-500">*</span></label>
                             <div class="relative">
-                                <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
+                                <input type="number" step="0.01" @bind="payment.AmountReceived" class="input-class font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.00" />
                             </div>
 
                             @if (HasInvoiceSelected)
@@ -241,28 +259,26 @@
                         </div>
                     </div>
 
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                        <h3 class="font-bold border-b border-slate-100 pb-2 text-slate-800 uppercase text-xs tracking-wider flex items-center justify-between">
-                            GL Mapping
-                            <span class="text-[10px] text-slate-400 font-normal normal-case">Required</span>
-                        </h3>
-
-                        <div class="space-y-3">
-                            <div>
-                                <SearchableGlAccount Label="Deposit To (Bank)"
-                                                     Placeholder="Search Bank Asset..."
-                                                     Accounts="@bankAccounts"
-                                                     @bind-Value="payment.DepositToGlAccountId"
-                                                     IsInvalid="@(payment.DepositToGlAccountId == Guid.Empty)" />
+                    <!-- Live Routing Profile Summary Card -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                Edit Mappings
+                            </button>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Bank (Dr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[170px]" title="@GetAccountDisplayName(payment.DepositToGlAccountId)">
+                                    @(payment.DepositToGlAccountId == Guid.Empty ? "Not Configured" : GetAccountDisplayName(payment.DepositToGlAccountId))
+                                </span>
                             </div>
-
-                            <div>
-                                <label class="label">Crediting Account (A/R)</label>
-                                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-500 flex items-center justify-between cursor-not-allowed">
-                                    <span class="font-bold">@CustomerArAccountName</span>
-                                    <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                </div>
-                                <p class="text-[10px] text-slate-400 mt-1">This account was debited during invoicing.</p>
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Customer AR (Cr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[170px]" title="@GetAccountDisplayName(payment.CreditGlAccountId)">
+                                    @(payment.CreditGlAccountId == Guid.Empty ? "Not Configured" : GetAccountDisplayName(payment.CreditGlAccountId))
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -281,9 +297,7 @@
                                     <span class="text-xs font-semibold text-slate-400 font-mono">Date Issued: @SelectedInvoice.Date.ToString("yyyy-MM-dd")</span>
                                 </div>
 
-                                @* FIXED: Hard-locked grid tracking to 2 columns to prevent sidebar squeezing *@
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 duration-300">
-
                                     <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
                                         <div class="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wide">Invoice Total (@currencySymbol)</div>
                                         <div class="text-xl font-mono font-black text-slate-900">@SelectedInvoice.OriginalTotal.ToString("N2")</div>
@@ -304,12 +318,10 @@
                                         </div>
                                     </div>
 
-                                    @* FIXED: Dynamically expands to full width on row 2 if no credit adjustments exist to keep elements balanced *@
                                     <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] @(SelectedInvoice.CreditNoteTotal > 0 ? "" : "sm:col-span-2")">
                                         <div class="text-[10px] text-indigo-700 uppercase font-bold mb-1 tracking-wide">Net Balance Due</div>
                                         <div class="text-xl font-mono font-black text-indigo-700">@SelectedInvoice.BalanceDue.ToString("N2")</div>
                                     </div>
-
                                 </div>
                             </div>
                         }
@@ -393,11 +405,154 @@
     }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
+<!-- ========================================================= -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Customer Receipt Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override account routes for customer payment inflows.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (payment.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => payment.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Receipt Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(payment.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1">
+                            <option value="">-- Standard Customer Receipt Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Deposit Bank Asset (Debit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Deposit To (Bank Account)</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (payment.DepositToGlAccountId != Guid.Empty && payment.DepositToGlAccountId != defaultBankAccountId)
+                                {
+                                    <button type="button"
+                                            @onclick="() => payment.DepositToGlAccountId = defaultBankAccountId"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Reset to Default Bank">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Search Bank Asset..."
+                                                         Accounts="@bankAccounts"
+                                                         Value="@payment.DepositToGlAccountId"
+                                                         ValueChanged="@((Guid val) => payment.DepositToGlAccountId = val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Customer AR Control Account (Credit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Customer AR Control</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (payment.CreditGlAccountId != Guid.Empty && payment.CreditGlAccountId != defaultArAccountId)
+                                {
+                                    <button type="button"
+                                            @onclick="() => payment.CreditGlAccountId = defaultArAccountId"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Reset to Default Customer AR">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Search AR Control Account..."
+                                                         Accounts="@allAccounts"
+                                                         Value="@payment.CreditGlAccountId"
+                                                         ValueChanged="@((Guid val) => payment.CreditGlAccountId = val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Discount Allowed Account (Debit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Discount Allowed (Cash Disc)</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (payment.DiscountGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => payment.DiscountGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Discount Allowed Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(payment.DiscountGlAccountId ?? defaultDiscountAccountId)"
+                                                         ValueChanged="@((Guid val) => payment.DiscountGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Payment
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Email Popup -->
 @if (showEmailPopup)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
-
             <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Payment Receipt</h3>
                 <button type="button" @onclick="() => showEmailPopup = false" class="text-slate-400 hover:text-rose-600 transition-colors">
@@ -429,8 +584,7 @@
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
                     @if (isSendingEmail)
                     {
-                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Sending...</span>
+                        <span class="animate-spin">↻</span> <span>Sending...</span>
                     }
                     else
                     {
@@ -481,7 +635,7 @@
     [SupplyParameterFromQuery]
     public Guid? invoiceId { get; set; }
 
-    private int activeTab = 0; // 0 = Invoice Status Grid, 1 = Receive Payment Form
+    private int activeTab = 0;
 
     private CustomerPayment payment = new();
     private List<Customer> customers = new();
@@ -491,10 +645,16 @@
     private List<SegChartOfAccount> bankAccounts = new();
     private List<SegAccountType> accountTypes = new();
 
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultBankAccountId = Guid.Empty;
+    private Guid defaultArAccountId = Guid.Empty;
+    private Guid defaultDiscountAccountId = Guid.Empty;
+
     private Guid currentCompanyId;
     private bool isBusy = false;
     private string currencySymbol = "";
-    private string CustomerArAccountName = "Select Customer First";
 
     private Guid selectedInvoiceId = Guid.Empty;
     private bool HasInvoiceSelected => selectedInvoiceId != Guid.Empty;
@@ -507,14 +667,16 @@
     private string emailCustomerAddress = "";
     private string emailSubject = "";
     private string customEmailMessage = "";
-    private int pageSize = 15; // Set rows per page here
+    private Guid emailTargetInvoiceId = Guid.Empty;
+
+    private int pageSize = 15;
     private int currentPage = 1;
     private string currentUserId = "";
     private string _statusFilter = "All";
     private string statusFilter
     {
         get => _statusFilter;
-        set { _statusFilter = value; currentPage = 1; } // Always reset to page 1 on filter change
+        set { _statusFilter = value; currentPage = 1; }
     }
 
     public class InvoiceRow
@@ -577,12 +739,15 @@
                        type.IsDebit == true;
             }).OrderBy(x => x.AccountCode).ToList();
 
+            defaultDiscountAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.DiscountAllowed, isDebit: true, defaultAccountId: Guid.Empty);
+
             await LoadInvoiceStatuses();
-            CreateNew();
+            await CreateNewAsync();
 
             if (invoiceId.HasValue && invoiceId.Value != Guid.Empty)
             {
-                activeTab = 1; // Auto-switch to Form
+                activeTab = 1;
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 var targetInvoice = await ctx.SalesOrders.FirstOrDefaultAsync(o => o.Id == invoiceId.Value);
                 if (targetInvoice != null)
@@ -593,6 +758,38 @@
             }
         }
     }
+
+    private async Task CreateNewAsync()
+    {
+        payment = new CustomerPayment
+        {
+            CompanyId = currentCompanyId,
+            Date = DateTime.Today,
+            ExchangeRate = 1,
+            DepositToGlAccountId = Guid.Empty
+        };
+        openInvoices.Clear();
+        selectedInvoiceId = Guid.Empty;
+
+        defaultBankAccountId = await MappingService.GetMappedAccountAsync(
+            currentCompanyId,
+            SystemTransactionType.CustomerPayment,
+            isDebit: true,
+            defaultAccountId: Guid.Empty);
+
+        if (defaultBankAccountId != Guid.Empty)
+        {
+            payment.DepositToGlAccountId = defaultBankAccountId;
+        }
+
+        if (currencies.Any())
+        {
+            var def = currencies.First();
+            payment.CurrencyId = def.Id;
+            currencySymbol = def.CurrencyCode;
+        }
+    }
+
     private async Task LoadInvoiceStatuses()
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
@@ -610,7 +807,6 @@
 
         var invoiceIds = invoices.Select(i => i.Id).ToList();
 
-        // FIXED: Filter out draft records by joining on the parent payment status
         var arPayments = await (from pa in ctx.PaymentApplications
                                 join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
                                 where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
@@ -656,28 +852,25 @@
             });
         }
     }
+
     private async Task SelectAndLoadInvoice(InvoiceStatusRow statusRow)
     {
-        // 1. Locate the master customer profile mapping via name reference string
         var targetCustomer = customers.FirstOrDefault(c => c.Name == statusRow.CustomerName);
         if (targetCustomer == null) return;
 
-        // FIXED: Swapped _busy for your page's existing isBusy variable
         isBusy = true; StateHasChanged();
 
-        // 2. Initialize the base transaction header container details
         payment.CustomerId = targetCustomer.Id;
-        if (targetCustomer.ReceivablesAccountId.HasValue)
-        {
-            payment.CreditGlAccountId = targetCustomer.ReceivablesAccountId.Value;
-            var arAcc = allAccounts.FirstOrDefault(a => a.Id == payment.CreditGlAccountId);
-            CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.Description}" : "Unknown Account";
-        }
 
-        // 3. Force-load the customer's invoices dropdown list array
+        defaultArAccountId = targetCustomer.ReceivablesAccountId ?? Guid.Empty;
+        payment.CreditGlAccountId = await MappingService.GetMappedAccountAsync(
+            currentCompanyId,
+            SystemTransactionType.CustomerPayment,
+            isDebit: false,
+            defaultAccountId: defaultArAccountId);
+
         await LoadCustomerInvoices(targetCustomer.Id);
 
-        // 4. Bind the select menu values to populate the tracking cards
         selectedInvoiceId = statusRow.InvoiceId;
 
         var loadedInvoice = openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
@@ -692,44 +885,25 @@
             currencySymbol = currencyObj?.CurrencyCode ?? "";
         }
 
-        // 5. Shift UI context index directly over to the "Receive Payment" tab form
         activeTab = 1;
-        isBusy = false; // FIXED here as well
+        isBusy = false;
         StateHasChanged();
-    }
-
-    private void CreateNew()
-    {
-        payment = new CustomerPayment { CompanyId = currentCompanyId, Date = DateTime.Today, ExchangeRate = 1 };
-        openInvoices.Clear();
-        selectedInvoiceId = Guid.Empty;
-
-        if (currencies.Any())
-        {
-            var def = currencies.First();
-            payment.CurrencyId = def.Id;
-            currencySymbol = def.CurrencyCode;
-        }
     }
 
     private async Task OnCustomerChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var custId))
+        if (Guid.TryParse(e.Value?.ToString(), out var custId) && custId != Guid.Empty)
         {
             payment.CustomerId = custId;
 
             var customer = customers.FirstOrDefault(c => c.Id == custId);
-            if (customer != null && customer.ReceivablesAccountId.HasValue)
-            {
-                payment.CreditGlAccountId = customer.ReceivablesAccountId.Value;
-                var arAcc = allAccounts.FirstOrDefault(a => a.Id == payment.CreditGlAccountId);
-                CustomerArAccountName = arAcc != null ? $"{arAcc.AccountCode} - {arAcc.Description}" : "Unknown Account";
-            }
-            else
-            {
-                payment.CreditGlAccountId = Guid.Empty;
-                CustomerArAccountName = "⚠️ Customer Missing AR Account!";
-            }
+            defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
+
+            payment.CreditGlAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId,
+                SystemTransactionType.CustomerPayment,
+                isDebit: false,
+                defaultAccountId: defaultArAccountId);
 
             await LoadCustomerInvoices(custId);
             selectedInvoiceId = Guid.Empty;
@@ -740,22 +914,22 @@
         {
             payment.CustomerId = Guid.Empty;
             payment.CreditGlAccountId = Guid.Empty;
-            CustomerArAccountName = "Select Customer First";
             openInvoices.Clear();
             selectedInvoiceId = Guid.Empty;
         }
     }
+
     private async Task LoadCustomerInvoices(Guid customerId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         var invoices = await ctx.SalesOrders
-                    .Include(o => o.Lines).ThenInclude(l => l.Item)
-                    .Where(o => o.CompanyId == currentCompanyId &&
-                                o.CustomerId == customerId &&
-                                o.OrderNumber.StartsWith("INV") &&
-                                (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
-                    .ToListAsync();
+            .Include(o => o.Lines).ThenInclude(l => l.Item)
+            .Where(o => o.CompanyId == currentCompanyId &&
+                        o.CustomerId == customerId &&
+                        o.OrderNumber.StartsWith("INV") &&
+                        (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
+            .ToListAsync();
 
         var invoiceIds = invoices.Select(i => i.Id).ToList();
 
@@ -765,7 +939,6 @@
             .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
             .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
 
-        // FIXED: Exclude current browser layout allocations from dropdown metrics
         var arPaymentsMap = await (from pa in ctx.PaymentApplications
                                    join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
                                    where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
@@ -830,7 +1003,7 @@
 
     private void OnInvoiceChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var invId))
+        if (Guid.TryParse(e.Value?.ToString(), out var invId) && invId != Guid.Empty)
         {
             selectedInvoiceId = invId;
             var inv = SelectedInvoice;
@@ -854,11 +1027,58 @@
         }
     }
 
+    private async Task OpenRouteModal()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            payment.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    payment.DepositToGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    payment.CreditGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            payment.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
+    }
+
     private async Task PromptEmailPopup(Customer customer, Guid invoiceId, string invoiceNum, decimal amountPaid, decimal remainingBalance, string currSymbol)
     {
         if (customer != null && !string.IsNullOrWhiteSpace(customer.Email))
         {
-            emailTargetInvoiceId = invoiceId; // Assign the target ID for the PDF generator
+            emailTargetInvoiceId = invoiceId;
 
             emailCustomerName = customer.Name;
             emailCustomerAddress = customer.Email;
@@ -870,16 +1090,17 @@
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!\n(No email sent: Customer missing email address).");
+            await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!\n(No email sent: Customer missing email address).");
             activeTab = 0;
         }
     }
+
     private async Task PostPayment()
     {
         if (!HasInvoiceSelected) { await JS.InvokeVoidAsync("alert", "Please select a Sales Order Invoice."); return; }
         if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount received must be greater than zero."); return; }
         if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
-        if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Customer does not have a configured AR Account."); return; }
+        if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Crediting (A/R) account."); return; }
         if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.BalanceDue)
         {
             await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N2}) cannot exceed the remaining adjusted balance due ({SelectedInvoice.BalanceDue:N2}) after credit note deductions.");
@@ -921,16 +1142,15 @@
                 payment.AmountReceived = 0;
                 payment.Reference = "";
 
-                // --- GLOBAL COMM PREFERENCE TOGGLE EVALUATION ---
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == currentCompanyId);
                 bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
 
                 if (!showPopupToggle)
                 {
-                    await JS.InvokeVoidAsync("alert", "✅ Payment Posted Successfully!");
+                    await JS.InvokeVoidAsync("alert", "Payment Posted Successfully!");
                     showEmailPopup = false;
-                    activeTab = 0; // Drops out of payment collection wizard to statuses overview table
+                    activeTab = 0;
                     StateHasChanged();
                     return;
                 }
@@ -982,9 +1202,7 @@
             await JS.InvokeVoidAsync("alert", "This customer does not have an email address on file.");
         }
     }
-    private Guid emailTargetInvoiceId = Guid.Empty;
 
-    // --- 1. MASTER PDF GENERATOR ---
     private async Task<(byte[] Bytes, string FileName, string Subject, string CustomerEmail)> GetReceiptDataAsync(Guid invoiceId)
     {
         var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
@@ -995,8 +1213,6 @@
         var currency = currencies.FirstOrDefault(c => c.Id == order.CurrencyId);
         string curSymbol = currency?.CurrencyCode ?? "";
 
-        // Generates the PDF. Because GetOrderByIdAsync includes AmountPaid,
-        // this PDF acts perfectly as a Receipt showing the new balance.
         byte[] pdfBytes = ReportExportService.GenerateInvoicePdf(order, company, curSymbol);
 
         string fileName = $"Receipt_{order.OrderNumber}.pdf";
@@ -1005,7 +1221,6 @@
         return (pdfBytes, fileName, subject, order.Customer?.Email ?? "");
     }
 
-    // --- 2. DOWNLOAD RECEIPT BUTTON ---
     private async Task DownloadReceipt(Guid invoiceId)
     {
         try
@@ -1026,24 +1241,22 @@
         }
     }
 
-    
-
-    // --- 4. DISPATCH EMAIL (WITH ATTACHMENT) ---
     private async Task DispatchEmail()
     {
+        if (emailTargetInvoiceId == Guid.Empty) return;
+
         isSendingEmail = true;
         try
         {
-            // Generate the PDF on-the-fly to attach it
             var data = await GetReceiptDataAsync(emailTargetInvoiceId);
             if (data.Bytes == null) throw new Exception("Failed to generate PDF attachment.");
 
             await EmailService.SendEmailAsync(
                 emailCustomerAddress,
                 emailSubject,
-                customEmailMessage.Replace("\n", "<br>"), // Format for HTML
-                data.Bytes,      // THE ATTACHMENT
-                data.FileName    // THE FILENAME
+                customEmailMessage.Replace("\n", "<br>"),
+                data.Bytes,
+                data.FileName
             );
 
             await JS.InvokeVoidAsync("alert", "Receipt emailed successfully!");
@@ -1060,13 +1273,12 @@
             isSendingEmail = false;
         }
     }
+
     private IEnumerable<InvoiceStatusRow> FilteredInvoiceStatuses => invoiceStatuses
         .Where(i => statusFilter == "All" || i.Status == statusFilter);
 
-    // 2. Calculates total pages required
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredInvoiceStatuses.Count() / (double)pageSize));
 
-    // 3. Extracts exactly the items needed for the current page
     private IEnumerable<InvoiceStatusRow> PagedInvoiceStatuses => FilteredInvoiceStatuses
         .Skip((currentPage - 1) * pageSize)
         .Take(pageSize);

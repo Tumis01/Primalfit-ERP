@@ -375,25 +375,23 @@ namespace Primafit_ERP.Services
             {
                 var invoiceOrder = await ctx.PurchaseOrders
                     .Include(p => p.Lines)
+                    .Include(p => p.CustomTransactionType)
                     .FirstOrDefaultAsync(p => p.Id == invoiceOrderId);
 
                 if (invoiceOrder == null) return "Invoice record not found.";
                 if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced) return "This invoice has already been posted to the ledger.";
 
-                // Validate that the document format is a draft invoice
                 bool isLegitDraft = invoiceOrder.Status == PurchaseOrderStatus.DraftInvoice ||
                                     invoiceOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
 
                 if (!isLegitDraft)
                     return $"Validation Exception: Only Draft Invoices can be posted. Current Status: {invoiceOrder.Status}";
 
-                // --- 3-WAY MATCH CONTROL: LOCATE INVENTORY ALLOCATION ENTRIES ---
                 var grns = await ctx.GoodsReceipts
                     .Include(g => g.Lines)
                     .Where(g => g.PurchaseOrderId == invoiceOrderId)
                     .ToListAsync();
 
-                // If physical items exist but no receipt has been logged, block posting
                 bool requiresPhysicalReceipt = invoiceOrder.Lines.Any();
 
                 if (requiresPhysicalReceipt && !grns.Any() && !invoiceOrder.IsDirectInvoice)
@@ -401,11 +399,52 @@ namespace Primafit_ERP.Services
                     return "3-Way Match Exception: No Goods Receipt found for this document. You must receive items inside the Invoice View first to balance inventory clearing accounts.";
                 }
 
-                // Extract the locked matching account ID from the very first historical warehouse log
-                Guid grIrAccountId = grns.Any() ? grns.First().InventoryGlAccountId : Guid.Empty;
+                // 1. Resolve custom mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (invoiceOrder.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == invoiceOrder.CompanyId && m.CustomTransactionTypeId == invoiceOrder.CustomTransactionTypeId.Value);
+                }
+
+                // 2. Resolve GR/IR Clearing Account (Debit side on bill)
+                Guid resolvedClearingAccount = invoiceOrder.GoodsReceiptClearingGlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? (grns.Any() ? grns.First().InventoryGlAccountId : Guid.Empty);
+
+                if (resolvedClearingAccount == Guid.Empty)
+                {
+                    resolvedClearingAccount = await _mappingService.GetMappedAccountAsync(
+                        invoiceOrder.CompanyId,
+                        SystemTransactionType.GoodsReceipt,
+                        isDebit: false,
+                        defaultAccountId: Guid.Empty);
+                }
 
                 var vendor = await ctx.Vendors.FindAsync(invoiceOrder.VendorId);
-                if (vendor?.PayablesAccountId == null) return "Accounts Payable configuration missing on Vendor Master Profile.";
+                if (vendor?.PayablesAccountId == null && invoiceOrder.AccountsPayableGlAccountId == null && customMapping?.OverrideCreditGlAccountId == null)
+                    return "Accounts Payable configuration missing on Vendor Master Profile.";
+
+                if (resolvedClearingAccount == Guid.Empty)
+                    resolvedClearingAccount = vendor?.PayablesAccountId ?? Guid.Empty;
+
+                // 3. Resolve Accounts Payable Liability Account (Credit side)
+                Guid resolvedApAccount = invoiceOrder.AccountsPayableGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? vendor?.PayablesAccountId
+                    ?? Guid.Empty;
+
+                if (resolvedApAccount == Guid.Empty)
+                {
+                    resolvedApAccount = await _mappingService.GetMappedAccountAsync(
+                        invoiceOrder.CompanyId,
+                        SystemTransactionType.PurchaseInvoice,
+                        isDebit: false,
+                        defaultAccountId: vendor?.PayablesAccountId ?? Guid.Empty);
+                }
+
+                if (resolvedApAccount == Guid.Empty)
+                    return "Unable to resolve a valid Accounts Payable GL Account for this vendor invoice.";
 
                 var bill = new VendorBill
                 {
@@ -413,7 +452,7 @@ namespace Primafit_ERP.Services
                     CompanyId = invoiceOrder.CompanyId,
                     VendorId = invoiceOrder.VendorId,
                     PurchaseOrderId = invoiceOrder.Id,
-                    AccountsPayableGlId = vendor.PayablesAccountId.Value,
+                    AccountsPayableGlId = resolvedApAccount,
                     ExternalInvoiceNumber = invoiceOrder.OrderNumber,
                     BillDate = DateTime.Today,
                     CurrencyId = invoiceOrder.CurrencyId,
@@ -429,9 +468,6 @@ namespace Primafit_ERP.Services
                 {
                     if (line.QuantityOrdered > 0)
                     {
-                        // Ensure the ledger entry debits the exact clearing account used during the warehouse intake
-                        Guid clearingTargetAccount = grIrAccountId != Guid.Empty ? grIrAccountId : vendor.PayablesAccountId.Value;
-
                         bill.Lines.Add(new VendorBillLine
                         {
                             Id = Guid.NewGuid(),
@@ -439,14 +475,13 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             QuantityBilled = line.QuantityOrdered,
                             UnitCostBilled = line.UnitCost,
-                            ExpenseGlAccountId = clearingTargetAccount
+                            ExpenseGlAccountId = resolvedClearingAccount
                         });
                         totalGrossForeign += (line.QuantityOrdered * line.UnitCost);
                         line.QuantityBilled = line.QuantityOrdered;
                     }
                 }
 
-                // --- COMPUTATION EXTRACTION PIPELINES ---
                 decimal discountForeign = invoiceOrder.DiscountAmount;
                 if (invoiceOrder.DiscountPercentage > 0)
                 {
@@ -473,48 +508,52 @@ namespace Primafit_ERP.Services
                 ctx.VendorBills.Add(bill);
                 ctx.VendorBillLines.AddRange(bill.Lines);
 
-                // --- BUILD GENERAL LEDGER JOURNAL ---
                 var glLines = new List<GLJournalLine>();
 
                 if (grossBase > 0)
                 {
-                    // Debit the locked clearing account to clear out the temporary receipt liability
-                    Guid accountingDebitLeg = grIrAccountId != Guid.Empty ? grIrAccountId : vendor.PayablesAccountId.Value;
-                    glLines.Add(new GLJournalLine { SegCoaId = accountingDebitLeg, Debit = grossBase, Credit = 0, Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}" });
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = resolvedClearingAccount,
+                        Debit = grossBase,
+                        Credit = 0,
+                        Reference = $"Clear GR/IR: {bill.ExternalInvoiceNumber}"
+                    });
                 }
 
                 if (taxBase > 0 && invoiceOrder.TaxGLAccountId.HasValue)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = invoiceOrder.TaxGLAccountId.Value, Debit = taxBase, Credit = 0, Reference = $"Input VAT: {bill.ExternalInvoiceNumber}" });
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = invoiceOrder.TaxGLAccountId.Value,
+                        Debit = taxBase,
+                        Credit = 0,
+                        Reference = $"Input VAT: {bill.ExternalInvoiceNumber}"
+                    });
                 }
 
                 if (discountBase > 0)
                 {
-                    Guid discountAccount = await _mappingService.GetMappedAccountAsync(
-                        invoiceOrder.CompanyId,
-                        SystemTransactionType.DiscountReceived,
-                        isDebit: false,
-                        defaultAccountId: invoiceOrder.DiscountGlAccountId ?? Guid.Empty);
+                    Guid discountAccount = invoiceOrder.DiscountGlAccountId ?? Guid.Empty;
+                    if (discountAccount == Guid.Empty)
+                    {
+                        discountAccount = await _mappingService.GetMappedAccountAsync(
+                            invoiceOrder.CompanyId,
+                            SystemTransactionType.DiscountReceived,
+                            isDebit: false,
+                            defaultAccountId: Guid.Empty);
+                    }
 
                     if (discountAccount == Guid.Empty) return "Financial configuration missing: No Discount Received GL Account mapped.";
                     glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = discountBase, Reference = $"Disc Received: {bill.ExternalInvoiceNumber}" });
                 }
 
-                // Credit the permanent Accounts Payable Trade liability account
-                Guid apAccount = await _mappingService.GetMappedAccountAsync(
-                    invoiceOrder.CompanyId,
-                    SystemTransactionType.PurchaseInvoice,
-                    isDebit: false,
-                    defaultAccountId: bill.AccountsPayableGlId);
+                glLines.Add(new GLJournalLine { SegCoaId = resolvedApAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                glLines.Add(new GLJournalLine { SegCoaId = apAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
-
-                // Post Entry directly to the General Ledger
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Vendor Bill Post", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
 
-                // Update structural document states
                 invoiceOrder.Status = PurchaseOrderStatus.Invoiced;
                 invoiceOrder.IsInvoicePosted = true;
 
@@ -549,7 +588,6 @@ namespace Primafit_ERP.Services
                 if (grn.CompanyId == Guid.Empty) return "STOP: No CompanyId.";
                 if (grn.PurchaseOrderId == Guid.Empty) return "STOP: No Purchase Order selected.";
                 if (warehouseId == Guid.Empty) return "STOP: No Warehouse selected.";
-                if (grn.InventoryGlAccountId == Guid.Empty) return "STOP: You must select a GR/IR Clearing Account.";
 
                 var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
                 if (po == null) return "STOP: PO not found.";
@@ -574,16 +612,46 @@ namespace Primafit_ERP.Services
 
                 foreach (var line in grn.Lines) line.Id = Guid.NewGuid();
 
+                // 1. Resolve custom template mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (grn.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == grn.CompanyId && m.CustomTransactionTypeId == grn.CustomTransactionTypeId.Value);
+                }
+
+                // 2. Resolve GR/IR Clearing Account (Credit Leg)
+                Guid grIrClearingAccount = grn.OverrideGrIrClearingGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? (grn.InventoryGlAccountId != Guid.Empty ? grn.InventoryGlAccountId : Guid.Empty);
+
+                if (grIrClearingAccount == Guid.Empty)
+                {
+                    grIrClearingAccount = await _mappingService.GetMappedAccountAsync(
+                        grn.CompanyId,
+                        SystemTransactionType.GoodsReceipt,
+                        isDebit: false,
+                        defaultAccountId: Guid.Empty);
+                }
+
+                if (grIrClearingAccount == Guid.Empty)
+                    return "STOP: You must configure a valid GR/IR Clearing Account in GL Mapping Settings or in the Route configuration.";
+
+                grn.InventoryGlAccountId = grIrClearingAccount;
+
                 ctx.GoodsReceipts.Add(grn);
 
                 var glLines = new List<GLJournalLine>();
                 decimal totalReceivedValueBase = 0;
 
-                // Post Inventory & Financials
+                // 3. Post Inventory & Financials
                 foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
+                    if (poLine == null) continue;
+
                     var item = await ctx.Items.FindAsync(poLine.ItemId);
+                    if (item == null) continue;
 
                     decimal lineValueForeign = grnLine.QuantityReceived * poLine.UnitCost;
                     decimal lineValueBase = Math.Round(lineValueForeign * po.ExchangeRate, 2);
@@ -591,7 +659,7 @@ namespace Primafit_ERP.Services
 
                     if (!item.IsService)
                     {
-                        // 1. Physical Stock Increase
+                        // A. Physical Stock Increase
                         ctx.StockLedgers.Add(new StockLedger
                         {
                             Id = Guid.NewGuid(),
@@ -605,36 +673,63 @@ namespace Primafit_ERP.Services
                             CostAtTime = poLine.UnitCost
                         });
 
-                        // 2. Debit: Inventory Asset
-                        if (item.InventoryAssetAccountId != Guid.Empty)
+                        // B. Debit: Inventory Stock Asset
+                        Guid itemInventoryAssetAccount = grn.OverrideInventoryAssetGlAccountId
+                            ?? customMapping?.OverrideDebitGlAccountId
+                            ?? await _mappingService.GetMappedAccountAsync(
+                                grn.CompanyId,
+                                SystemTransactionType.GoodsReceipt,
+                                isDebit: true,
+                                defaultAccountId: item.InventoryAssetAccountId);
+
+                        if (itemInventoryAssetAccount == Guid.Empty)
+                            return $"Configuration Error: Item '{item.Name}' is missing an Inventory Asset GL Account mapping.";
+
+                        glLines.Add(new GLJournalLine
                         {
-                            glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = lineValueBase, Credit = 0, Reference = $"GRN Recv: {item.Name}" });
-                        }
+                            SegCoaId = itemInventoryAssetAccount,
+                            Debit = lineValueBase,
+                            Credit = 0,
+                            Reference = $"GRN Recv: {item.Name}"
+                        });
                     }
                     else if (item.CostOfGoodsSoldAccountId != Guid.Empty)
                     {
                         // Debit: Expense (for Services)
-                        glLines.Add(new GLJournalLine { SegCoaId = item.CostOfGoodsSoldAccountId, Debit = lineValueBase, Credit = 0, Reference = $"Service Recv: {item.Name}" });
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = item.CostOfGoodsSoldAccountId,
+                            Debit = lineValueBase,
+                            Credit = 0,
+                            Reference = $"Service Recv: {item.Name}"
+                        });
                     }
                 }
 
-                // 3. CREDIT: GR/IR CLEARING ACCOUNT (Temporary Liability)
+                // 4. CREDIT: GR/IR CLEARING ACCOUNT (Temporary Liability)
                 if (glLines.Any())
                 {
                     glLines.Add(new GLJournalLine
                     {
-                        SegCoaId = grn.InventoryGlAccountId,
+                        SegCoaId = grIrClearingAccount,
                         Debit = 0,
                         Credit = totalReceivedValueBase,
                         Reference = $"GR/IR Accrual for {grn.GrnNumber}"
                     });
 
-                    var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(grn.CompanyId, DateOnly.FromDateTime(grn.DateReceived), "Goods Receipt", $"GRN {grn.GrnNumber}", glLines, userId);
+                    var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
+                        grn.CompanyId,
+                        DateOnly.FromDateTime(grn.DateReceived),
+                        "Goods Receipt",
+                        $"GRN {grn.GrnNumber}",
+                        glLines,
+                        userId);
+
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                     if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
                 }
 
-                // Update PO Status Tracking without breaking Invoice views
+                // Update PO Status Tracking
                 po.HasReceipt = true;
                 decimal totalOrdered = po.Lines.Sum(l => l.QuantityOrdered);
                 decimal totalCurrentlyReceiving = grn.Lines.Sum(l => l.QuantityReceived);
@@ -642,7 +737,6 @@ namespace Primafit_ERP.Services
 
                 if ((totalPastReceived + totalCurrentlyReceiving) >= totalOrdered) po.IsFullyReceived = true;
 
-                // Preserve Invoice indicators if this is an inventory receipt linked through Tab 3
                 if (po.Status != PurchaseOrderStatus.DraftInvoice && po.Status != PurchaseOrderStatus.Invoiced)
                 {
                     po.Status = PurchaseOrderStatus.PartiallyReceived;
@@ -733,18 +827,19 @@ namespace Primafit_ERP.Services
 
             if (bill == null) return "Bill not found.";
             if (bill.IsPosted) return "STOP: This bill has already been posted.";
-            if (bill.AccountsPayableGlId == Guid.Empty) return "STOP: The AP Account is not set.";
+
+            // 1. Resolve Accounts Payable Liability via Mapping Router (Credit leg)
+            Guid apAccount = await _mappingService.GetMappedAccountAsync(
+                bill.CompanyId,
+                SystemTransactionType.PurchaseInvoice,
+                isDebit: false,
+                defaultAccountId: bill.AccountsPayableGlId);
+
+            if (apAccount == Guid.Empty) return "STOP: Accounts Payable GL Account is not set or mapped.";
 
             // Validate Accounts in SegCOA
-            bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == bill.AccountsPayableGlId && a.CompanyId == bill.CompanyId && a.IsActive);
-            if (!apExists) return "STOP: AP Account ID is invalid or Inactive.";
-
-            foreach (var line in bill.Lines)
-            {
-                if (line.ExpenseGlAccountId == Guid.Empty) return "STOP: Line missing Expense Account.";
-                bool expExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == line.ExpenseGlAccountId && a.CompanyId == bill.CompanyId && a.IsActive);
-                if (!expExists) return "STOP: Selected Expense/Asset account is invalid or Inactive.";
-            }
+            bool apExists = await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == apAccount && a.CompanyId == bill.CompanyId && a.IsActive);
+            if (!apExists) return "STOP: Resolved AP Account ID is invalid or Inactive.";
 
             // Validate Period
             DateOnly postDate = DateOnly.FromDateTime(bill.BillDate);
@@ -755,28 +850,35 @@ namespace Primafit_ERP.Services
 
             var glLines = new List<GLJournalLine>();
             var vendorName = (await ctx.Vendors.FindAsync(bill.VendorId))?.Name ?? "Unknown";
-
             decimal totalDebitsBase = 0;
 
-            // 1. DEBITS (Expense/Asset Lines)
+            // 2. Debits (Expense/Clearing Lines)
             foreach (var line in bill.Lines)
             {
+                // Check line-level mapping override first, fallback to line default
+                Guid expenseAccount = await _mappingService.GetMappedAccountAsync(
+                    bill.CompanyId,
+                    SystemTransactionType.PurchaseInvoice,
+                    isDebit: true,
+                    defaultAccountId: line.ExpenseGlAccountId);
+
+                if (expenseAccount == Guid.Empty) return "STOP: Line missing Expense Account.";
+
                 decimal lineTotalBase = Math.Round((line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate, 2);
                 totalDebitsBase += lineTotalBase;
 
-                // NEW: Use the individual line Description if available!
                 string glRef = !string.IsNullOrWhiteSpace(line.Description) ? line.Description : $"Bill: {bill.ExternalInvoiceNumber}";
 
                 glLines.Add(new GLJournalLine
                 {
-                    SegCoaId = line.ExpenseGlAccountId,
+                    SegCoaId = expenseAccount,
                     Debit = lineTotalBase,
                     Credit = 0,
                     Reference = glRef
                 });
             }
 
-            // 2. DEBIT TAX ASSET (If Applicable)
+            // 3. Tax Debits
             if (bill.TaxId.HasValue && bill.TaxGLAccountId.HasValue)
             {
                 var tax = await ctx.Taxes.FindAsync(bill.TaxId);
@@ -798,19 +900,19 @@ namespace Primafit_ERP.Services
                 }
             }
 
-            // 3. CREDIT AP LIABILITY
-            // Force the exact debit sum into the TotalAmount to prevent rounding fraction crashes in the GL Engine
+            // 4. Credit AP Liability
             bill.TotalAmount = totalDebitsBase;
+            bill.AccountsPayableGlId = apAccount; // Record the resolved account on the bill
 
             glLines.Add(new GLJournalLine
             {
-                SegCoaId = bill.AccountsPayableGlId,
+                SegCoaId = apAccount,
                 Debit = 0,
                 Credit = totalDebitsBase,
                 Reference = $"Inv #{bill.ExternalInvoiceNumber} - {vendorName}"
             });
 
-            // Post to GL
+            // 5. Create and Post Journal Batch
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
                 $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId
@@ -824,11 +926,9 @@ namespace Primafit_ERP.Services
                 if (!string.IsNullOrEmpty(postErr)) return $"GL Engine Rejected Posting: {postErr}";
             }
 
-            // Update Status
             bill.IsPosted = true;
             bill.PostedDate = DateTime.Now;
 
-            // --- UPDATE PO ---
             if (bill.PurchaseOrderId.HasValue)
             {
                 var po = await ctx.PurchaseOrders.FirstOrDefaultAsync(p => p.Id == bill.PurchaseOrderId.Value);
@@ -844,36 +944,118 @@ namespace Primafit_ERP.Services
             using var tx = await ctx.Database.BeginTransactionAsync();
             try
             {
-                var bill = await ctx.VendorBills.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == payment.VendorBillId);
-                if (bill == null) return "Bill not found.";
-                if (!bill.IsPosted) return "Cannot pay an unposted bill.";
-                if (payment.Amount <= 0) return "Payment amount must be > 0.";
+                var bill = await ctx.VendorBills
+                    .Include(b => b.Payments)
+                    .FirstOrDefaultAsync(b => b.Id == payment.VendorBillId && b.CompanyId == companyId);
 
-                decimal currentPaid = bill.Payments.Sum(p => p.Amount);
-                if (currentPaid + payment.Amount > bill.TotalAmount)
-                    return $"Payment of {payment.Amount:N2} exceeds remaining balance of {(bill.TotalAmount - currentPaid):N2}.";
+                if (bill == null) return "Vendor Bill not found.";
+                if (!bill.IsPosted) return "Cannot pay an unposted draft bill.";
+                if (payment.Amount <= 0) return "Payment amount must be greater than zero.";
 
+                decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
+
+                // 1. Genuine Cash Payments already paid
+                decimal grossPaidBase = bill.Payments.Where(p => p.Amount > 0).Sum(p => p.Amount);
+
+                // 2. Query Debit Notes directly from DebitNotes table using the Invoice ID (PurchaseOrderId)
+                decimal debitNotesBase = 0;
+                if (bill.PurchaseOrderId.HasValue)
+                {
+                    var postedDebitNotes = await ctx.DebitNotes
+                        .Where(d => d.PurchaseOrderId == bill.PurchaseOrderId.Value
+                                 && d.CompanyId == companyId
+                                 && d.Status == DebitNoteStatus.Posted)
+                        .ToListAsync();
+
+                    debitNotesBase = postedDebitNotes.Sum(d => Math.Round(d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1.0m), 2));
+                }
+
+                // 3. Net Invoice Liability = Bill Total - Debit Notes
+                decimal netBillTotalBase = Math.Max(0, bill.TotalAmount - debitNotesBase);
+
+                // 4. Remaining Balance Due = Net Invoice Liability - Cash Paid
+                decimal remainingBalanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
+
+                if (payment.Amount > remainingBalanceBase + 0.01m)
+                {
+                    decimal remainingForeign = Math.Round(remainingBalanceBase / rate, 2);
+                    decimal paymentForeign = Math.Round(payment.Amount / rate, 2);
+                    return $"Payment of {paymentForeign:N2} exceeds remaining payable balance of {remainingForeign:N2} (Invoice reduced by Debit Notes).";
+                }
+
+                TransactionGlMapping? customMapping = null;
+                if (payment.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == companyId && m.CustomTransactionTypeId == payment.CustomTransactionTypeId.Value);
+                }
+
+                // Debit: AP
+                Guid debitApAccountId = payment.OverrideDebitApGlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        companyId,
+                        SystemTransactionType.VendorPayment,
+                        isDebit: true,
+                        defaultAccountId: bill.AccountsPayableGlId);
+
+                // Credit: Bank / Cash
+                Guid creditBankAccountId = payment.OverrideCreditBankGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? (payment.BankGlAccountId != Guid.Empty ? payment.BankGlAccountId : Guid.Empty);
+
+                if (creditBankAccountId == Guid.Empty)
+                {
+                    creditBankAccountId = await _mappingService.GetMappedAccountAsync(
+                        companyId,
+                        SystemTransactionType.VendorPayment,
+                        isDebit: false,
+                        defaultAccountId: Guid.Empty);
+                }
+
+                if (debitApAccountId == Guid.Empty) return "Configuration Error: Missing Accounts Payable Account for payment debit.";
+                if (creditBankAccountId == Guid.Empty) return "Configuration Error: Missing Bank / Cash GL Account for payment credit.";
+
+                payment.BankGlAccountId = creditBankAccountId;
                 if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
                 ctx.Set<VendorPayment>().Add(payment);
 
                 var glLines = new List<GLJournalLine>
-                {
-                    new GLJournalLine { SegCoaId = bill.AccountsPayableGlId, Debit = payment.Amount, Credit = 0, Reference = $"Pay: {bill.ExternalInvoiceNumber}" },
-                    new GLJournalLine { SegCoaId = payment.BankGlAccountId, Debit = 0, Credit = payment.Amount, Reference = $"Pay: {bill.ExternalInvoiceNumber}" }
-                };
+        {
+            new GLJournalLine
+            {
+                SegCoaId = debitApAccountId,
+                Debit = payment.Amount,
+                Credit = 0,
+                Reference = $"Pay Bill: {bill.ExternalInvoiceNumber}"
+            },
+            new GLJournalLine
+            {
+                SegCoaId = creditBankAccountId,
+                Debit = 0,
+                Credit = payment.Amount,
+                Reference = $"Disbursement: {bill.ExternalInvoiceNumber}"
+            }
+        };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(payment.Date), "Vendor Payment", payment.Reference, glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(
+                    companyId,
+                    DateOnly.FromDateTime(payment.Date),
+                    "Vendor Payment",
+                    string.IsNullOrWhiteSpace(payment.Reference) ? $"Pay {bill.ExternalInvoiceNumber}" : payment.Reference,
+                    glLines,
+                    userId);
+
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
 
-                // --- CLOSE PO ONLY IF FULLY PAID ---
-                if (bill.PurchaseOrderId.HasValue && (currentPaid + payment.Amount) >= bill.TotalAmount)
+                if (bill.PurchaseOrderId.HasValue && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
                 {
                     var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
                     if (po != null)
                     {
                         po.IsFullyPaid = true;
-                        po.Status = PurchaseOrderStatus.Closed; // Marks as officially closed!
+                        po.Status = PurchaseOrderStatus.Closed;
                     }
                 }
 
@@ -930,7 +1112,6 @@ namespace Primafit_ERP.Services
             {
                 if (bill.CompanyId == Guid.Empty) return "Company ID is missing.";
                 if (bill.VendorId == Guid.Empty) return "Vendor is required.";
-                if (bill.AccountsPayableGlId == Guid.Empty) return "Accounts Payable GL Account is required.";
                 if (!bill.Lines.Any()) return "Bill must have at least one line.";
 
                 var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
@@ -939,22 +1120,53 @@ namespace Primafit_ERP.Services
                 if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
                     bill.ExternalInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
 
+                // 1. Resolve custom template mapping if assigned
+                TransactionGlMapping? customMapping = null;
+                if (bill.CustomTransactionTypeId.HasValue)
+                {
+                    customMapping = await ctx.TransactionGlMappings
+                        .FirstOrDefaultAsync(m => m.CompanyId == bill.CompanyId && m.CustomTransactionTypeId == bill.CustomTransactionTypeId.Value);
+                }
+
+                // 2. Resolve Expense Account (Debit)
+                Guid defaultExpenseAccount = bill.OverrideExpenseGlAccountId
+                    ?? customMapping?.OverrideDebitGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        bill.CompanyId,
+                        SystemTransactionType.DirectPurchaseInvoice,
+                        isDebit: true,
+                        defaultAccountId: Guid.Empty);
+
+                if (defaultExpenseAccount == Guid.Empty)
+                    return "An Expense GL Account is required for Direct Bills. Please configure it in GL Mapping Settings or in the Route Modal.";
+
+                // 3. Resolve Accounts Payable Account (Credit)
+                Guid apAccount = bill.OverrideAccountsPayableGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId
+                    ?? await _mappingService.GetMappedAccountAsync(
+                        bill.CompanyId,
+                        SystemTransactionType.DirectPurchaseInvoice,
+                        isDebit: false,
+                        defaultAccountId: vendor.PayablesAccountId ?? bill.AccountsPayableGlId);
+
+                if (apAccount == Guid.Empty)
+                    return "Accounts Payable Liability Account is required. Please check Vendor setup or GL Mapping settings.";
+
+                bill.AccountsPayableGlId = apAccount;
+
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1;
                 decimal totalGrossForeign = 0;
                 decimal grossBaseForLedger = 0;
                 var glLines = new List<GLJournalLine>();
 
-                // 1. Process Lines (DEBIT EXPENSES)
+                // Process Lines (Debit Expenses)
                 foreach (var line in bill.Lines)
                 {
-                    // --- THE FIX: We pass Guid.Empty because the UI no longer provides it ---
-                    Guid expenseAccount = await _mappingService.GetMappedAccountAsync(
-                        bill.CompanyId,
-                        SystemTransactionType.DirectPurchaseInvoice,
-                        isDebit: true, // Expenses are Debits
-                        defaultAccountId: Guid.Empty);
+                    Guid lineExpenseAccount = line.ExpenseGlAccountId != Guid.Empty
+                        ? line.ExpenseGlAccountId
+                        : defaultExpenseAccount;
 
-                    if (expenseAccount == Guid.Empty) return "An Expense GL Account is required for Direct Bills. Please configure it in GL Mapping Settings.";
+                    line.ExpenseGlAccountId = lineExpenseAccount;
 
                     decimal lineTotalForeign = line.QuantityBilled * line.UnitCostBilled;
                     totalGrossForeign += lineTotalForeign;
@@ -964,18 +1176,18 @@ namespace Primafit_ERP.Services
 
                     string glRef = !string.IsNullOrWhiteSpace(line.Description)
                         ? line.Description
-                        : $"Direct Bill: {bill.ExternalInvoiceNumber ?? "Expense"}";
+                        : $"Direct Bill: {bill.ExternalInvoiceNumber}";
 
                     glLines.Add(new GLJournalLine
                     {
-                        SegCoaId = expenseAccount,
+                        SegCoaId = lineExpenseAccount,
                         Debit = lineTotalBase,
                         Credit = 0,
                         Reference = glRef
                     });
                 }
 
-                // 2. Process Tax (DEBIT TAX ASSET)
+                // Process Tax (Debit Tax Asset / Input VAT)
                 decimal taxForeign = 0;
                 decimal taxBaseForLedger = 0;
 
@@ -997,18 +1209,10 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                // 3. Accounts Payable (CREDIT AP LIABILITY)
+                // Credit Accounts Payable Liability
                 bill.TotalAmountForeign = totalGrossForeign + taxForeign;
-
                 decimal actualCreditBase = grossBaseForLedger + taxBaseForLedger;
                 bill.TotalAmount = actualCreditBase;
-
-                // --- THE FIX: INTERCEPT ACCOUNTS PAYABLE FOR DIRECT BILLS ---
-                Guid apAccount = await _mappingService.GetMappedAccountAsync(
-                    bill.CompanyId,
-                    SystemTransactionType.DirectPurchaseInvoice,
-                    isDebit: false, // AP is a Credit
-                    defaultAccountId: bill.AccountsPayableGlId);
 
                 glLines.Add(new GLJournalLine
                 {
@@ -1018,7 +1222,6 @@ namespace Primafit_ERP.Services
                     Reference = $"Vendor Bill: {bill.ExternalInvoiceNumber}"
                 });
 
-                // Generate IDs and finalize status
                 if (bill.Id == Guid.Empty) bill.Id = Guid.NewGuid();
                 bill.IsDirectBill = true;
                 bill.IsPosted = true;
@@ -1031,8 +1234,14 @@ namespace Primafit_ERP.Services
                     line.VendorBillId = bill.Id;
                 }
 
-                // POST GL BATCH
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(bill.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Direct Vendor Bill", $"Bill {bill.ExternalInvoiceNumber}", glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(
+                    bill.CompanyId,
+                    DateOnly.FromDateTime(bill.BillDate),
+                    "Direct Vendor Bill",
+                    $"Bill {bill.ExternalInvoiceNumber}",
+                    glLines,
+                    userId);
+
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)

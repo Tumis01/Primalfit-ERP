@@ -12,6 +12,7 @@
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
 @inject SegCoaService SegCoaService
+@inject TransactionMappingService MappingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -22,21 +23,21 @@
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 font-sans text-slate-800">
 
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Direct AR Invoice</h1>
-            <p class="text-sm text-slate-500 mt-1">Create free-text invoices directly to a GL Income account without affecting inventory.</p>
+            <p class="text-sm text-slate-500 mt-1">Record revenue and billing vouchers directly against GL accounts without inventory items.</p>
         </div>
 
         @if (!showForm && HasCompany && !isLoading)
         {
             <PermissionGate Key="SALES_ORDER_CREATE">
                 <Authorized>
-                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-2">
+                    <button type="button" @onclick="OpenNewForm" class="px-5 py-2.5 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors shadow-sm flex items-center gap-2 active:scale-95">
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                        Create Invoice
+                        <span>Create Invoice</span>
                     </button>
                 </Authorized>
             </PermissionGate>
@@ -45,19 +46,51 @@
 
     @if (isLoading)
     {
-        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading setup data...</div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading AR setup data...</div>
     }
     else if (HasCompany)
     {
         @if (showForm)
         {
             <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible mb-8">
+                <!-- Form Header Bar -->
+                <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between sm:items-center gap-4 rounded-t-2xl">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500">Invoice Workspace</span>
+                        @if (!string.IsNullOrEmpty(invoice.OrderNumber))
+                        {
+                            <span class="px-2.5 py-1 bg-slate-200 text-slate-700 font-mono text-xs rounded-lg font-bold">@invoice.OrderNumber</span>
+                        }
+                        @if (IsLocked)
+                        {
+                            <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded uppercase tracking-wider">Posted (Read-Only)</span>
+                        }
+                        else
+                        {
+                            <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded uppercase tracking-wider">Draft</span>
+                        }
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        @if (!IsLocked)
+                        {
+                            <!-- Configure Route Button -->
+                            <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                <span>Configure Route</span>
+                                @if (invoice.CustomTransactionTypeId.HasValue)
+                                {
+                                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                                }
+                            </button>
+                        }
+                    </div>
+                </div>
 
                 <EditForm Model="invoice">
                     <DataAnnotationsValidator />
 
                     <div class="p-6 md:p-8 space-y-8">
-
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-2xl border border-slate-200">
                             <div>
                                 <label class="label">Customer <span class="text-rose-500">*</span></label>
@@ -101,13 +134,14 @@
                             </div>
                         </div>
 
-                        <div class="border border-slate-200 rounded-xl shadow-sm">
+                        <!-- Lines Grid -->
+                        <div class="border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                             <table class="w-full text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
                                     <tr>
                                         <th class="p-3 pl-4 w-[50%]">Description / Service Rendered <span class="text-rose-500">*</span></th>
                                         <th class="p-3 w-[15%] text-center">Qty</th>
-                                        <th class="p-3 w-[15%] text-right">Unit Price</th>
+                                        <th class="p-3 w-[15%] text-right">Unit Price (@currencySymbol)</th>
                                         <th class="p-3 w-[15%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
                                     </tr>
@@ -117,13 +151,13 @@
                                     {
                                         <tr class="hover:bg-slate-50 transition-colors">
                                             <td class="p-2 pl-4 align-top pt-3">
-                                                <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Consulting Fees for March" disabled="@IsLocked" />
+                                                <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Monthly Retainer Services" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                                <input type="number" step="0.01" min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number" step="0.01" min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N2"))
@@ -131,7 +165,7 @@
                                             <td class="p-2 text-center align-top pt-5">
                                                 @if (!IsLocked)
                                                 {
-                                                    <button type="button" @onclick="() => invoice.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600">
+                                                    <button type="button" @onclick="() => invoice.Lines.Remove(line)" class="text-slate-400 hover:text-rose-600 transition-colors">
                                                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                                                     </button>
                                                 }
@@ -142,40 +176,64 @@
                             </table>
                             @if (!IsLocked)
                             {
-                                <div class="p-2 bg-slate-50 border-t border-slate-200 rounded-b-xl">
+                                <div class="p-2 bg-slate-50 border-t border-slate-200">
                                     <button type="button" @onclick="AddLine" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 flex items-center gap-1 px-2 py-1 uppercase tracking-wide">
-                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg> Add Free-Text Line
+                                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg> Add Service Line
                                     </button>
                                 </div>
                             }
                         </div>
 
-                        <div class="flex justify-end pt-4">
-                            <div class="w-full md:w-80 space-y-4">
-                                <div class="bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
-                                    <div class="flex justify-between">
-                                        <span>Subtotal:</span>
-                                        <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
+                        <!-- Calculations and Summary -->
+                        <div class="flex flex-col md:flex-row justify-between items-start gap-6">
+                            <div class="w-full md:w-1/2 p-5 bg-rose-50 border border-rose-100 rounded-xl shadow-sm">
+                                <h4 class="font-extrabold text-xs uppercase tracking-wider text-rose-700 mb-4 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
+                                    Apply Discount
+                                </h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="label text-[10px]">Percentage (%)</label>
+                                        <input type="number" min="0" max="100" @bind="invoice.DiscountPercentage"
+                                               @bind:after="() => { if (invoice.DiscountPercentage > 0) invoice.DiscountAmount = 0; }"
+                                               class="input-class text-center font-bold text-rose-600 border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
-                                    <div class="flex justify-between items-center pt-2">
-                                        <span>Tax (@TaxPercentage%):</span>
-                                        <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
-                                    </div>
-                                    <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                        <span class="font-bold">Total (@currencySymbol):</span>
-                                        <span class="font-mono font-black text-emerald-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
-                                    </div>
-                                    <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
-                                        <span>Ledger Base Asset:</span>
-                                        <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                    <div>
+                                        <label class="label text-[10px]">Flat Amount (@currencySymbol)</label>
+                                        <input type="number" min="0" @bind="invoice.DiscountAmount"
+                                               @bind:after="() => { if (invoice.DiscountAmount > 0) invoice.DiscountPercentage = 0; }"
+                                               class="input-class text-right font-mono border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
+                            <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
+                                <div class="flex justify-between">
+                                    <span>Subtotal:</span>
+                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between items-center text-rose-600 border-b border-slate-200 pb-2">
+                                    <span>Discount:</span>
+                                    <span class="font-mono font-bold">- @DiscountForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between items-center pt-1">
+                                    <span>Tax (@TaxPercentage%):</span>
+                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
+                                    <span class="font-bold">Total (@currencySymbol):</span>
+                                    <span class="font-mono font-black text-emerald-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                                </div>
+                                <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
+                                    <span>Ledger Base Value:</span>
+                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 rounded-b-2xl">
+                    <!-- Footer Controls -->
+                    <div class="p-6 border-t border-slate-100 bg-slate-50/50 flex flex-wrap justify-between items-center gap-3 rounded-b-2xl">
                         @if (IsLocked)
                         {
                             <div class="mr-auto flex items-center gap-2">
@@ -193,42 +251,44 @@
                             </div>
                         }
 
-                        <button type="button" @onclick="CloseForm" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors">
-                            Close
-                        </button>
+                        <div class="flex items-center gap-3 ml-auto">
+                            <button type="button" @onclick="CloseForm" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors">
+                                Close
+                            </button>
 
-                        <button type="button" @onclick="() => ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty)" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-white transition-colors">
-                            @if (IsLocked)
+                            <button type="button" @onclick="() => ResetForm(defaultIncomeGlAccountId)" class="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-white transition-colors">
+                                @(IsLocked ? "New Invoice" : "Clear")
+                            </button>
+
+                            @if (!IsLocked)
                             {
-                                <span>New Invoice</span>
-                            }
-                            else
-                            {
+                                <button type="button" @onclick="SaveDraftInvoice" disabled="@isBusy" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                                    @if (isBusy)
+                                    {
+                                        <span class="animate-spin">↻</span>
+                                    }
+                                    <span>Save Draft</span>
+                                </button>
 
-                                <span>Clear</span>
+                                <PermissionGate Key="SALES_INVOICE_POST">
+                                    <Authorized>
+                                        <button type="button" @onclick="PostInvoice" disabled="@isBusy" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+                                            @if (isBusy)
+                                            {
+                                                <span class="animate-spin">↻</span>
+                                            }
+                                            <span>Post Invoice</span>
+                                        </button>
+                                    </Authorized>
+                                </PermissionGate>
                             }
-                        </button>
-
-                        @if (!IsLocked)
-                        {
-                            <PermissionGate Key="SALES_INVOICE_POST">
-                                <Authorized>
-                                    <button type="button" @onclick="PostInvoice" disabled="@isBusy" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
-                                        @if (isBusy)
-                                        {
-                                            <span class="animate-spin">↻</span>
-                                        }
-                                        Post Invoice
-                                    </button>
-                                </Authorized>
-                            </PermissionGate>
-                        }
+                        </div>
                     </div>
                 </EditForm>
-
             </div>
         }
 
+        <!-- Historical List Grid -->
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mt-8">
             <div class="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
                 <h2 class="text-lg font-bold text-slate-800">Past Direct Invoices</h2>
@@ -241,7 +301,6 @@
                             <th class="p-4">Invoice #</th>
                             <th class="p-4">Customer</th>
                             <th class="p-4">Description</th>
-                            <th class="p-4 text-right">Total (Foreign)</th>
                             <th class="p-4 text-right">Total (Base)</th>
                             <th class="p-4 text-center">Status</th>
                             <th class="p-4 pr-6 text-center">Actions</th>
@@ -251,31 +310,27 @@
                         @if (pastInvoices == null || !pastInvoices.Any())
                         {
                             <tr>
-                                <td colspan="8" class="p-8 text-center text-slate-400 italic">No past direct invoices found.</td>
+                                <td colspan="7" class="p-8 text-center text-slate-400 italic">No past direct invoices found.</td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var pInv in pastInvoices)
                             {
-                                decimal pGrandBase = pInv.GrandTotalForeign * (pInv.ExchangeRate > 0 ? pInv.ExchangeRate : 1);
-                                string pCurr = pInv.Currency?.CurrencyCode ?? "N/A";
+                                bool isInvPosted = pInv.Status == OrderStatus.Invoiced || pInv.Status == OrderStatus.PartiallyInvoiced || pInv.InvoiceBatchId.HasValue;
 
-                                <tr class="hover:bg-slate-50 transition-colors">
+                                <tr class="hover:bg-slate-50 transition-colors align-middle">
                                     <td class="p-4 pl-6 whitespace-nowrap">@pInv.Date.ToString("MMM dd, yyyy")</td>
                                     <td class="p-4 font-mono text-slate-600 font-semibold whitespace-nowrap">@pInv.OrderNumber</td>
                                     <td class="p-4 font-bold text-slate-800">@(pInv.Customer?.Name ?? "Unknown")</td>
-                                    <td class="p-4 text-slate-500 max-w-[200px] truncate" title="@(pInv.Lines.FirstOrDefault()?.Description)">
-                                        @(pInv.Lines.FirstOrDefault()?.Description ?? "Direct Invoice")
+                                    <td class="p-4 text-slate-500 max-w-xs truncate" title="@(pInv.Lines.FirstOrDefault()?.Description)">
+                                        @(pInv.Lines.FirstOrDefault()?.Description ?? "Direct AR Invoice")
                                     </td>
                                     <td class="p-4 text-right font-mono font-bold text-slate-700">
-                                        @pInv.GrandTotalForeign.ToString("N2") <span class="text-[10px] text-slate-400">@pCurr</span>
-                                    </td>
-                                    <td class="p-4 text-right font-mono font-bold text-emerald-700">
-                                        @pGrandBase.ToString("N2")
+                                        @((pInv.GrandTotalForeign * (pInv.ExchangeRate > 0 ? pInv.ExchangeRate : 1)).ToString("N2"))
                                     </td>
                                     <td class="p-4 text-center">
-                                        @if (pInv.Status == OrderStatus.Invoiced)
+                                        @if (isInvPosted)
                                         {
                                             <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded uppercase tracking-wider">Posted</span>
                                         }
@@ -285,12 +340,12 @@
                                         }
                                     </td>
                                     <td class="p-4 pr-6 text-center space-x-2 whitespace-nowrap">
-                                        <button type="button" @onclick="() => LoadInvoiceForView(pInv)" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 text-xs font-bold transition-colors">
-                                            View
-                                        </button>
-
-                                        @if (pInv.Status == OrderStatus.Invoiced)
+                                        @if (isInvPosted)
                                         {
+                                            <button type="button" @onclick="() => LoadInvoiceForView(pInv)" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 text-xs font-bold transition-colors">
+                                                View
+                                            </button>
+
                                             @if (pInv.IsFullyPaid)
                                             {
                                                 <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">
@@ -298,12 +353,32 @@
                                                     Paid
                                                 </span>
                                             }
+                                            else if (pInv.AmountPaid > 0)
+                                            {
+                                                <button type="button" @onclick="() => NavigateToPayment(pInv.Id)" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-600 hover:text-white text-xs font-bold transition-colors">
+                                                    Receive Balance
+                                                </button>
+                                            }
                                             else
                                             {
                                                 <button type="button" @onclick="() => NavigateToPayment(pInv.Id)" class="px-3 py-1.5 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-600 hover:text-white text-xs font-bold transition-colors">
-                                                    @(pInv.AmountPaid > 0 ? "Receive Balance" : "Receive Payment")
+                                                    Receive Payment
                                                 </button>
                                             }
+                                        }
+                                        else
+                                        {
+                                            <button type="button" @onclick="() => LoadInvoiceForEdit(pInv)" class="px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 text-xs font-bold transition-colors shadow-sm">
+                                                Edit
+                                            </button>
+
+                                            <PermissionGate Key="SALES_INVOICE_POST">
+                                                <Authorized>
+                                                    <button type="button" @onclick="() => PostDraftFromList(pInv)" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-bold transition-colors shadow-sm">
+                                                        Post Invoice
+                                                    </button>
+                                                </Authorized>
+                                            </PermissionGate>
                                         }
                                     </td>
                                 </tr>
@@ -316,11 +391,172 @@
     }
 </div>
 
+<!-- ========================================================= -->
+<!-- ROUTE CONFIGURATION MODAL -->
+<!-- ========================================================= -->
+@if (showRouteModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Direct Invoice GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override transactional ledger accounts for this direct billing voucher.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (invoice.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => invoice.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Direct Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(invoice.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsLocked">
+                            <option value="">-- Standard Direct Invoice Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Receivable</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (invoice.ReceivablesGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => invoice.ReceivablesGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="System Default Customer AR"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(invoice.ReceivablesGlAccountId ?? defaultArAccountId)"
+                                                         ValueChanged="@((Guid val) => invoice.ReceivablesGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Direct Income / Revenue</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (invoice.DirectIncomeGlAccountId.HasValue && invoice.DirectIncomeGlAccountId.Value != defaultIncomeGlAccountId)
+                                {
+                                    <button type="button"
+                                            @onclick="() => invoice.DirectIncomeGlAccountId = defaultIncomeGlAccountId"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Reset to Default Income">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Select Income / Revenue GL Account"
+                                                         Accounts="@revenueAccounts"
+                                                         Value="@(invoice.DirectIncomeGlAccountId ?? defaultIncomeGlAccountId)"
+                                                         ValueChanged="@((Guid val) => invoice.DirectIncomeGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Tax / VAT Payable</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (invoice.TaxGLAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => invoice.TaxGLAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Tax Setup Default Account"
+                                                         Accounts="@taxAccounts"
+                                                         Value="@(invoice.TaxGLAccountId ?? Guid.Empty)"
+                                                         ValueChanged="@((Guid val) => invoice.TaxGLAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[20] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Discount Allowed</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (invoice.DiscountGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => invoice.DiscountGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="GL Setup Default Discount Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(invoice.DiscountGlAccountId ?? defaultDiscountAccountId)"
+                                                         ValueChanged="@((Guid val) => invoice.DiscountGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Email Modal -->
 @if (showEmailPopup)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
-
             <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-sm">Send Invoice via Email</h3>
                 <button type="button" @onclick="() => { showEmailPopup = false; showForm = false; }" class="text-slate-400 hover:text-rose-600 transition-colors">
@@ -333,17 +569,14 @@
                     <label class="label">To Customer:</label>
                     <input type="text" class="input-class bg-slate-50 cursor-not-allowed font-bold text-slate-600" value="@($"{emailCustomerName} <{emailCustomerAddress}>")" disabled />
                 </div>
-
                 <div>
                     <label class="label">Subject:</label>
                     <input type="text" class="input-class font-bold text-slate-800" value="@emailSubject" disabled />
                 </div>
-
                 <div>
                     <label class="label">Professional Message:</label>
                     <textarea @bind="customEmailMessage" class="input-class h-36 resize-none text-sm text-slate-700"></textarea>
                 </div>
-
                 <div class="flex items-center gap-2 p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-indigo-700 text-xs font-bold">
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
                     A PDF copy of the invoice will be attached automatically.
@@ -400,7 +633,12 @@
             background-color: #f8fafc;
             color: #94a3b8;
             cursor: not-allowed;
+            border-color: #e2e8f0;
         }
+
+    tr, td {
+        overflow: visible !important;
+    }
 </style>
 
 @code {
@@ -416,11 +654,19 @@
     private List<Customer> customers = new();
     private List<Currency> currencies = new();
     private List<Tax> taxes = new();
+    private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> revenueAccounts = new();
     private List<SegChartOfAccount> taxAccounts = new();
 
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultArAccountId = Guid.Empty;
+    private Guid defaultIncomeGlAccountId = Guid.Empty;
+    private Guid defaultDiscountAccountId = Guid.Empty;
+
     private string currencySymbol = "";
-    private bool IsLocked => invoice.Status == OrderStatus.Invoiced;
+    private bool IsLocked => invoice.Status == OrderStatus.Invoiced || invoice.Status == OrderStatus.PartiallyInvoiced || invoice.InvoiceBatchId.HasValue;
 
     // Email Modal Backing Fields
     private bool showEmailPopup = false;
@@ -431,7 +677,7 @@
     private string emailSubject = "";
     private string customEmailMessage = "";
 
-    // Math logic mapped to handle foreign currency correctly
+    // Math calculations
     private decimal SubTotalForeign => invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == invoice.TaxId)?.Per ?? 0;
     private decimal DiscountForeign => invoice.DiscountPercentage > 0 ? SubTotalForeign * (invoice.DiscountPercentage / 100) : invoice.DiscountAmount;
@@ -465,13 +711,13 @@
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
-        var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
+        allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
 
         revenueAccounts = allAccounts.Where(a =>
-                {
-                    var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                    return type != null && type.IsBalanceSheet == false && type.IsDebit == false && a.IsActive;
-                }).OrderBy(x => x.AccountCode).ToList();
+        {
+            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+            return type != null && type.IsBalanceSheet == false && type.IsDebit == false && a.IsActive;
+        }).OrderBy(x => x.AccountCode).ToList();
 
         taxAccounts = allAccounts.Where(a =>
         {
@@ -479,56 +725,28 @@
             return type != null && type.IsBalanceSheet == true && a.IsActive;
         }).OrderBy(x => x.AccountCode).ToList();
 
-        Guid defaultIncomeGl = revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty;
+        defaultIncomeGlAccountId = await MappingService.GetMappedAccountAsync(
+            selectedCompanyId, SystemTransactionType.DirectSalesInvoice, isDebit: false, defaultAccountId: revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
+
+        defaultDiscountAccountId = await MappingService.GetMappedAccountAsync(
+            selectedCompanyId, SystemTransactionType.DiscountAllowed, isDebit: true, defaultAccountId: Guid.Empty);
 
         await FetchPastInvoices();
-        ResetForm(defaultIncomeGl);
+        ResetForm(defaultIncomeGlAccountId);
     }
 
     private async Task FetchPastInvoices()
     {
-        await using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var invoices = await ctx.SalesOrders
-                    .Include(o => o.Customer)
-                    .Include(o => o.Currency)
-                    .Include(o => o.Lines)
-                    .Where(o => o.CompanyId == selectedCompanyId && o.IsDirectInvoice)
-                    .OrderByDescending(o => o.Date)
-                    .AsNoTracking()
-                    .ToListAsync();
-
-        var invoiceIds = invoices.Select(i => i.Id).ToList();
-        var payments = await ctx.PaymentApplications
-            .Where(pa => invoiceIds.Contains(pa.InvoiceId))
-            .GroupBy(pa => pa.InvoiceId)
-            .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
-            .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
-
-        foreach (var inv in invoices)
-        {
-            decimal pSubTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
-            decimal pDiscount = inv.DiscountPercentage > 0 ? pSubTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
-            decimal pNet = pSubTotal - pDiscount;
-            decimal pTaxPer = inv.TaxId.HasValue && taxes.FirstOrDefault(t => t.Id == inv.TaxId) != null ? taxes.FirstOrDefault(t => t.Id == inv.TaxId)!.Per : 0;
-
-            inv.GrandTotalForeign = pNet + (pNet * (pTaxPer / 100));
-            inv.AmountPaid = payments.ContainsKey(inv.Id) ? payments[inv.Id] : 0;
-        }
-
-        pastInvoices = invoices;
+        pastInvoices = await SalesService.GetDirectInvoicesAsync(selectedCompanyId);
     }
 
     private void OpenNewForm()
     {
-        ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
+        ResetForm(defaultIncomeGlAccountId);
         showForm = true;
     }
 
-    private void CloseForm()
-    {
-        showForm = false;
-    }
+    private void CloseForm() => showForm = false;
 
     private void ResetForm(Guid defaultIncomeGl)
     {
@@ -537,6 +755,8 @@
             CompanyId = selectedCompanyId,
             Date = DateOnly.FromDateTime(DateTime.Today),
             ExchangeRate = 1,
+            Status = OrderStatus.Draft,
+            IsDirectInvoice = true,
             DirectIncomeGlAccountId = defaultIncomeGl
         };
         currencySymbol = "";
@@ -545,18 +765,65 @@
 
     private void AddLine() => invoice.Lines.Add(new SalesOrderLine { Quantity = 1 });
 
+    private async Task OpenRouteModal()
+    {
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == selectedCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var customer = customers.FirstOrDefault(c => c.Id == invoice.CustomerId);
+        defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            invoice.CustomTransactionTypeId = customId;
+
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == selectedCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    invoice.ReceivablesGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    invoice.DirectIncomeGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            invoice.CustomTransactionTypeId = null;
+        }
+    }
+
     private async Task OnCustomerChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var custId))
+        if (Guid.TryParse(e.Value?.ToString(), out var custId) && custId != Guid.Empty)
         {
             invoice.CustomerId = custId;
             var customer = customers.FirstOrDefault(c => c.Id == custId);
 
-            if (customer != null && customer.CurrencyId != Guid.Empty)
+            if (customer != null)
             {
-                invoice.CurrencyId = customer.CurrencyId;
-                currencySymbol = currencies.FirstOrDefault(c => c.Id == customer.CurrencyId)?.CurrencyCode ?? "";
-                invoice.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(selectedCompanyId, invoice.CurrencyId);
+                defaultArAccountId = customer.ReceivablesAccountId ?? Guid.Empty;
+                if (customer.CurrencyId != Guid.Empty)
+                {
+                    invoice.CurrencyId = customer.CurrencyId;
+                    currencySymbol = currencies.FirstOrDefault(c => c.Id == customer.CurrencyId)?.CurrencyCode ?? "";
+                    invoice.ExchangeRate = await CurrService.GetLatestExchangeRateAsync(selectedCompanyId, invoice.CurrencyId);
+                }
             }
         }
         else
@@ -568,7 +835,7 @@
 
     private void OnTaxChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var taxId))
+        if (Guid.TryParse(e.Value?.ToString(), out var taxId) && taxId != Guid.Empty)
         {
             invoice.TaxId = taxId;
             var selectedTax = taxes.FirstOrDefault(t => t.Id == taxId);
@@ -581,31 +848,110 @@
         }
     }
 
+    private async Task SaveDraftInvoice()
+    {
+        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
+        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
+        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "All lines must have a Description / Service Rendered."); return; }
+
+        isBusy = true;
+        StateHasChanged();
+
+        try
+        {
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+
+            invoice.IsDirectInvoice = true;
+            invoice.Status = OrderStatus.Draft;
+
+            if (string.IsNullOrWhiteSpace(invoice.OrderNumber))
+            {
+                bool isDup = true;
+                string generated = string.Empty;
+                while (isDup)
+                {
+                    generated = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
+                    isDup = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == invoice.CompanyId && o.OrderNumber == generated);
+                }
+                invoice.OrderNumber = generated;
+            }
+
+            var existing = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == invoice.Id);
+            if (existing == null)
+            {
+                if (invoice.Id == Guid.Empty) invoice.Id = Guid.NewGuid();
+                foreach (var line in invoice.Lines)
+                {
+                    if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                    line.HeaderId = invoice.Id;
+                }
+                ctx.SalesOrders.Add(invoice);
+            }
+            else
+            {
+                if (existing.Status == OrderStatus.Invoiced || existing.Status == OrderStatus.PartiallyInvoiced || existing.InvoiceBatchId.HasValue)
+                {
+                    await JS.InvokeVoidAsync("alert", "Cannot edit an invoice that has already been posted.");
+                    return;
+                }
+
+                ctx.Entry(existing).CurrentValues.SetValues(invoice);
+                ctx.SalesOrderLines.RemoveRange(existing.Lines);
+                foreach (var line in invoice.Lines)
+                {
+                    line.HeaderId = existing.Id;
+                    if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                    ctx.SalesOrderLines.Add(line);
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+            await FetchPastInvoices();
+            await JS.InvokeVoidAsync("alert", "Draft invoice saved successfully!");
+            showForm = false;
+            ResetForm(defaultIncomeGlAccountId);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Save Draft Error: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PostDraftFromList(SalesOrder draftInv)
+    {
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Post invoice {draftInv.OrderNumber} directly to the General Ledger?");
+        if (!confirm) return;
+
+        isBusy = true;
+        StateHasChanged();
+
+        var err = await SalesService.PostDirectInvoiceAsync(draftInv, currentUserId);
+        if (string.IsNullOrEmpty(err))
+        {
+            await FetchPastInvoices();
+            await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted to Ledger Successfully!");
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+
+        isBusy = false;
+        StateHasChanged();
+    }
+
     private async Task PostInvoice()
     {
-        if (invoice.CustomerId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Please select a Customer.");
-            return;
-        }
-
-        if (invoice.DirectIncomeGlAccountId == null || invoice.DirectIncomeGlAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Please select a Credit GL Account (Revenue).");
-            return;
-        }
-
-        if (!invoice.Lines.Any())
-        {
-            await JS.InvokeVoidAsync("alert", "Please add at least one line item.");
-            return;
-        }
-
-        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description)))
-        {
-            await JS.InvokeVoidAsync("alert", "All lines must have a Description / Service Rendered.");
-            return;
-        }
+        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
+        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
+        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "All lines must have a Description / Service Rendered."); return; }
+        if (invoice.Lines.Any(l => l.Quantity <= 0)) { await JS.InvokeVoidAsync("alert", "Line quantity must be greater than zero."); return; }
+        if (invoice.Lines.Any(l => l.UnitPrice < 0)) { await JS.InvokeVoidAsync("alert", "Unit price cannot be negative."); return; }
 
         isBusy = true;
         StateHasChanged();
@@ -616,39 +962,37 @@
         {
             await FetchPastInvoices();
 
-            // 1. Check corporate configuration safety toggle switch
             await using var ctx = await DbFactory.CreateDbContextAsync();
             var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
             bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
 
             if (!showPopupToggle)
             {
-                await JS.InvokeVoidAsync("alert", "Direct Invoice Posted Successfully!");
-                showForm = false; // Collapse entry layout view back to historical grid list
-                ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
+                await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted Successfully!");
+                showForm = false;
+                ResetForm(defaultIncomeGlAccountId);
                 isBusy = false;
                 StateHasChanged();
                 return;
             }
 
-            // 2. Hydrate composition context if configuration preference permits
             var targetCustomer = customers.FirstOrDefault(c => c.Id == invoice.CustomerId);
             if (targetCustomer != null && !string.IsNullOrWhiteSpace(targetCustomer.Email))
             {
                 emailTargetInvoiceId = invoice.Id;
                 emailCustomerName = targetCustomer.Name;
                 emailCustomerAddress = targetCustomer.Email;
-                emailSubject = $"Invoice {invoice.OrderNumber} ";
+                emailSubject = $"Invoice {invoice.OrderNumber}";
                 customEmailMessage = $"Dear {targetCustomer.Name},\n\nPlease find attached our official invoice {invoice.OrderNumber} issued regarding services rendered.\n\nTotal Due: {currencySymbol}{invoice.GrandTotalForeign:N2}.\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
 
                 showEmailPopup = true;
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!\n(No email sent: Customer missing email address).");
+                await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted Successfully!\n(No email sent: Customer missing email address).");
                 showForm = false;
             }
-            ResetForm(revenueAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
+            ResetForm(defaultIncomeGlAccountId);
         }
         else
         {
@@ -682,7 +1026,7 @@
 
             await JS.InvokeVoidAsync("alert", "Invoice emailed successfully!");
             showEmailPopup = false;
-            showForm = false; // Safely return layout to view grid
+            showForm = false;
             emailTargetInvoiceId = Guid.Empty;
         }
         catch (Exception ex)
@@ -714,6 +1058,51 @@
         JS.InvokeVoidAsync("window.scrollTo", new { top = 0, behavior = "smooth" });
     }
 
+    private void LoadInvoiceForEdit(SalesOrder draftInvoice)
+    {
+        invoice = new SalesOrder
+        {
+            Id = draftInvoice.Id,
+            CompanyId = draftInvoice.CompanyId,
+            CustomerId = draftInvoice.CustomerId,
+            Date = draftInvoice.Date,
+            OrderNumber = draftInvoice.OrderNumber,
+            Status = OrderStatus.Draft,
+            IsDirectInvoice = true,
+            CurrencyId = draftInvoice.CurrencyId,
+            ExchangeRate = draftInvoice.ExchangeRate,
+            TaxId = draftInvoice.TaxId,
+            TaxGLAccountId = draftInvoice.TaxGLAccountId,
+            DiscountPercentage = draftInvoice.DiscountPercentage,
+            DiscountAmount = draftInvoice.DiscountAmount,
+            DiscountGlAccountId = draftInvoice.DiscountGlAccountId,
+            CustomTransactionTypeId = draftInvoice.CustomTransactionTypeId,
+            ReceivablesGlAccountId = draftInvoice.ReceivablesGlAccountId,
+            DirectIncomeGlAccountId = draftInvoice.DirectIncomeGlAccountId,
+            Lines = draftInvoice.Lines.Select(l => new SalesOrderLine
+            {
+                Id = l.Id,
+                HeaderId = draftInvoice.Id,
+                Description = l.Description,
+                Quantity = l.Quantity,
+                UnitPrice = l.UnitPrice
+            }).ToList()
+        };
+
+        var customer = customers.FirstOrDefault(c => c.Id == invoice.CustomerId);
+        if (customer != null && customer.CurrencyId != Guid.Empty)
+        {
+            currencySymbol = currencies.FirstOrDefault(c => c.Id == customer.CurrencyId)?.CurrencyCode ?? "";
+        }
+        else
+        {
+            currencySymbol = invoice.Currency?.CurrencyCode ?? "";
+        }
+
+        showForm = true;
+        JS.InvokeVoidAsync("window.scrollTo", new { top = 0, behavior = "smooth" });
+    }
+
     private void NavigateToPayment(Guid invoiceId)
     {
         NavManager.NavigateTo($"/ar/payment-entry?invoiceId={invoiceId}");
@@ -728,10 +1117,6 @@
         {
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company == null) return;
-
-            targetInvoice.GrandTotalForeign = targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice)
-                                            - (targetInvoice.DiscountPercentage > 0 ? targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) * (targetInvoice.DiscountPercentage / 100) : targetInvoice.DiscountAmount)
-                                            + ((targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) - (targetInvoice.DiscountPercentage > 0 ? targetInvoice.Lines.Sum(l => l.Quantity * l.UnitPrice) * (targetInvoice.DiscountPercentage / 100) : targetInvoice.DiscountAmount)) * (taxes.FirstOrDefault(t => t.Id == targetInvoice.TaxId)?.Per ?? 0) / 100);
 
             var pdfBytes = ExportService.GenerateDirectInvoicePdf(targetInvoice, company);
             var fileName = $"AR_Invoice_{targetInvoice.OrderNumber}.pdf";

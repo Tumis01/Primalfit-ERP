@@ -8,41 +8,44 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
-@inject PurchaseReturnService ReturnService
+@using DebitNoteModel = Primafit_ERP.Components.Models.DebitNote
+@using DebitNoteLineModel = Primafit_ERP.Components.Models.DebitNoteLine
+
+@inject DebitNoteService DebitService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
-@inject CurrencyService CurrService
+@inject TransactionMappingService MappingService
 @inject CompanyApiService CompanyService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
-@inject PermissionCacheService PermissionCache
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
-<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800">
+<div class="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8 animate-in fade-in duration-500 font-sans text-slate-800 pb-16">
 
+    <!-- HEADER / ACTION BAR -->
     <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-4 border-b border-slate-200">
         <div class="space-y-1">
             <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
                 @if (IsListMode)
                 {
-                    <span>Debit Notes </span>
+                    <span>Debit Notes</span>
                 }
                 else if (IsNewInitialization)
                 {
-                    <span>Initialize Cash Refund</span>
+                    <span>Initialize Debit Note</span>
                 }
                 else
                 {
-                    <span>Debit Note: @customReferenceInput</span>
+                    <span>Debit Note: @currentDebitNote?.DebitNoteNumber</span>
                 }
             </h1>
             <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
                 @if (IsListMode)
                 {
-                    <span class="text-slate-500">Review, track, and manage Debit Note</span>
+                    <span class="text-slate-500">Review, track, and manage vendor purchase billing line adjustments</span>
                 }
                 else if (IsPosted)
                 {
@@ -50,44 +53,55 @@
                 }
                 else
                 {
-                    <span>● Draft Debit Note </span>
+                    <span>● Draft Debit Note Workspace</span>
                 }
             </p>
         </div>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap items-center gap-3">
             @if (!IsListMode)
             {
                 <button type="button" @onclick="NavigateToListView"
-                        class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95 animate-in fade-in duration-200">
-                    Cancel & Back to List
+                        class="px-5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm active:scale-95">
+                    Back to List
+                </button>
+            }
+
+            @if (!IsListMode && !IsNewInitialization && currentDebitNote != null)
+            {
+                <!-- Configure Route Button -->
+                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Configure Route</span>
+                    @if (currentDebitNote.CustomTransactionTypeId.HasValue)
+                    {
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                    }
                 </button>
             }
 
             @if (IsListMode)
             {
-                <PermissionGate Key="AP_PAYMENT_PAGE">
-                    <Authorized>
-                        <button type="button" @onclick="OpenNewFormInitializer" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
-                            <span>New Debit Note</span>
-                        </button>
-                    </Authorized>
-                </PermissionGate>
+                <button type="button" @onclick="OpenNewFormInitializer" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
+                    <span>New Debit Note</span>
+                </button>
             }
             else if (!IsPosted && !IsNewInitialization)
             {
-                <PermissionGate Key="AP_PAYMENT_PAGE">
-                    <Authorized>
-                        <button type="button" @onclick="DeleteDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm active:scale-95">
-                            Delete Draft
-                        </button>
-                        <button type="button" @onclick="SaveDraftWorkspace" class="px-5 py-2.5 bg-white border border-slate-200 text-indigo-600 text-sm font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
-                            Save Draft
-                        </button>
-                    </Authorized>
-                </PermissionGate>
-                <button type="button" @onclick="PostDebitNoteAdjustment" class="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                    Post Debit Note
+                <button type="button" @onclick="DeleteDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm active:scale-95">
+                    Delete Draft
+                </button>
+
+                <button type="button" @onclick="SaveDraftWorkspace" disabled="@isBusy" class="px-5 py-2.5 bg-white border border-slate-200 text-indigo-600 text-sm font-bold rounded-xl hover:bg-indigo-50 transition-colors shadow-sm active:scale-95">
+                    Save Draft
+                </button>
+
+                <button type="button" @onclick="PostStockDebitNote" disabled="@isBusy" class="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-bold hover:bg-rose-700 shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50">
+                    @if (isBusy)
+                    {
+                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                    }
+                    <span>Post Billing Adjustment</span>
                 </button>
             }
         </div>
@@ -96,20 +110,20 @@
     @if (isLoading)
     {
         <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">
-            Loading debit note workspace context configuration...
+            Loading debit note workspace...
         </div>
     }
     else if (currentCompanyId != Guid.Empty)
     {
         @if (IsListMode)
         {
+            <!-- LIST VIEW -->
             <div class="space-y-4">
                 <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div class="relative w-full sm:w-80">
                         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                        <input type="text" @bind="listSearchTerm" @bind:event="oninput" placeholder="Search reference, bill hash..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-rose-500 transition-all" />
+                        <input type="text" @bind="listSearchTerm" @bind:event="oninput" placeholder="Search reference, vendor, invoice..." class="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium outline-none focus:border-rose-500 transition-all" />
                     </div>
-                    <div class="text-xs text-slate-400 font-medium italic"> </div>
                 </div>
 
                 <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
@@ -117,28 +131,28 @@
                         <table class="w-full text-left text-sm whitespace-nowrap">
                             <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                                 <tr>
-                                    <th class="px-6 py-4">Document Ref</th>
-                                    <th class="px-6 py-4">Execution Date</th>
-                                    <th class="px-6 py-4">Vendor Partner</th>
-                                    <th class="px-6 py-4">Invoice</th>
-                                    <th class="px-6 py-4">Refunding Bank Account</th>
+                                    <th class="px-6 py-4">Debit Note #</th>
+                                    <th class="px-6 py-4">Date</th>
+                                    <th class="px-6 py-4">Vendor</th>
+                                    <th class="px-6 py-4">Target Invoice</th>
                                     <th class="px-6 py-4 text-center">Status</th>
-                                    <th class="px-6 py-4 text-right">Refund Amount (Foreign)</th>
-                                    <th class="px-6 py-4 text-right pr-8">Refund Amount (Base)</th>
+                                    <th class="px-6 py-4 text-right pr-8">Total Adjusted</th>
                                     <th class="px-6 py-4 text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 font-medium text-slate-700">
-                                @foreach (var rev in PaginatedReversals)
+                                @foreach (var dn in PaginatedDebitNotes)
                                 {
+                                    bool hasFx = dn.ExchangeRate > 1 && dn.ExchangeRate != 1m;
+                                    decimal baseAmount = Math.Round(dn.TotalAmount * dn.ExchangeRate, 2);
+
                                     <tr class="hover:bg-slate-50/60 transition-colors">
-                                        <td class="px-6 py-4 font-mono font-bold text-slate-900">@rev.Reference</td>
-                                        <td class="px-6 py-4 text-slate-500 font-medium">@rev.Date.ToString("yyyy-MM-dd")</td>
-                                        <td class="px-6 py-4 font-bold text-slate-900">@rev.VendorName</td>
-                                        <td class="px-6 py-4"><span class="text-xs font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200">@rev.BillRef</span></td>
-                                        <td class="px-6 py-4 text-xs text-slate-600">@rev.GlAccountDescription</td>
+                                        <td class="px-6 py-4 font-mono font-bold text-slate-900">@dn.DebitNoteNumber</td>
+                                        <td class="px-6 py-4 text-slate-500 font-medium">@dn.Date.ToString("yyyy-MM-dd")</td>
+                                        <td class="px-6 py-4 font-bold text-slate-900">@(dn.Vendor?.Name ?? "Unknown Vendor")</td>
+                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(dn.PurchaseOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="px-6 py-4 text-center">
-                                            @if (rev.IsPosted)
+                                            @if (dn.Status == DebitNoteStatus.Posted)
                                             {
                                                 <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Posted</span>
                                             }
@@ -147,24 +161,34 @@
                                                 <span class="inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">Draft</span>
                                             }
                                         </td>
-                                        <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">
-                                            <span>@rev.AmountForeign.ToString("N2")</span>
-                                            <span class="text-[9px] text-slate-400 font-bold uppercase ml-1">@rev.CurrencyCode</span>
-                                        </td>
-                                        <td class="px-6 py-4 text-right font-mono font-black text-rose-600 pr-8">
-                                            <span>@rev.AmountBase.ToString("N2")</span>
-                                            <span class="text-[9px] text-slate-400 font-bold uppercase ml-1">@companyBaseCurrency</span>
+                                        <td class="px-6 py-4 text-right font-mono pr-8">
+                                            @if (hasFx)
+                                            {
+                                                <div>
+                                                    <span class="font-bold text-rose-600">@dn.TotalAmount.ToString("N2")</span>
+                                                    <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(dn.Currency?.CurrencyCode ?? "")</span>
+                                                </div>
+                                                <div class="text-xs text-slate-500 font-semibold">
+                                                    <span>@baseAmount.ToString("N2")</span>
+                                                    <span class="text-[9px] text-slate-400 uppercase ml-0.5">@companyBaseCurrency</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="font-black text-rose-600">@dn.TotalAmount.ToString("N2")</span>
+                                                <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(dn.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
+                                            }
                                         </td>
                                         <td class="px-6 py-4 text-center">
-                                            <button type="button" @onclick="() => RouteToTargetAdjustment(rev.PaymentId)" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
-                                                @(rev.IsPosted ? "View Details" : "Edit Draft")
+                                            <button type="button" @onclick="() => RouteToTargetNote(dn.Id)" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
+                                                @(dn.Status == DebitNoteStatus.Posted ? "View Details" : "Edit Draft")
                                             </button>
                                         </td>
                                     </tr>
                                 }
-                                @if (!PaginatedReversals.Any())
+                                @if (!PaginatedDebitNotes.Any())
                                 {
-                                    <tr><td colspan="9" class="p-16 text-center text-slate-400 font-medium">No payment reversals recorded inside this ledger cycle partition.</td></tr>
+                                    <tr><td colspan="7" class="p-16 text-center text-slate-400 font-medium">No debit notes recorded for this period.</td></tr>
                                 }
                             </tbody>
                         </table>
@@ -183,394 +207,428 @@
         }
         else if (IsNewInitialization)
         {
-            <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6 overflow-visible relative">
-                <h3 class="text-lg font-bold text-slate-900 text-center">Initialize Refund Voucher</h3>
-
-                <div class="relative overflow-visible z-50">
-                    <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
-                    <div @onclick="ToggleVendorDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
-                        <span class="@(selectedVendorId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedVendorName</span>
-                        <svg class="w-4 h-4 text-slate-400 transition-transform @(isVendorDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
-                    </div>
-
-                    @if (isVendorDropdownOpen)
-                    {
-                        <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 space-y-3 z-[100] animate-in fade-in zoom-in-95 duration-100">
-                            <div class="relative">
-                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                </div>
-                                <input type="text" @bind="vendorSearchQuery" @bind:event="oninput" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-rose-500 focus:bg-white transition-all font-medium text-slate-800" placeholder="Filter vendor partners..." @onclick:stopPropagation />
-                            </div>
-                            <div class="max-h-48 overflow-y-auto pr-1 divide-y divide-slate-50">
-                                @foreach (var ven in vendors.Where(v => v.Name.Contains(vendorSearchQuery, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    <div @onclick="() => SelectVendor(ven)" @onclick:stopPropagation class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-900 rounded-lg transition-colors cursor-pointer">@ven.Name</div>
-                                }
-                            </div>
-                        </div>
-                    }
+            <!-- INITIALIZATION WIZARD -->
+            <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6">
+                <div>
+                    <h3 class="text-base font-bold text-slate-900 uppercase tracking-wider">Initialize Invoice Line Adjustment</h3>
+                    <p class="text-xs text-slate-500 mt-1">Select a vendor partner and the target purchase invoice to adjust quantities and costs.</p>
                 </div>
 
-                @if (selectedVendorId != Guid.Empty)
-                {
-                    <div class="relative animate-in fade-in duration-300 z-40">
-                        <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">Step 2: Choose Invoice <span class="text-rose-500">*</span></label>
-                        <div @onclick="ToggleBillDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
-                            <span class="@(selectedBillId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedBillName</span>
-                            <svg class="w-4 h-4 text-slate-400 transition-transform @(isBillDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
-                        </div>
-
-                        @if (isBillDropdownOpen)
-                        {
-                            <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 space-y-3 z-[100] animate-in fade-in zoom-in-95 duration-100">
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                    </div>
-                                    <input type="text" @bind="billSearchQuery" @bind:event="oninput" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-rose-500 focus:bg-white transition-all font-medium text-slate-800" placeholder="Search by Invoice Number..." @onclick:stopPropagation />
-                                </div>
-                                <div class="max-h-48 overflow-y-auto pr-1 divide-y divide-slate-50">
-                                    @foreach (var bill in openBills.Where(b => b.RefNumber.Contains(billSearchQuery, StringComparison.OrdinalIgnoreCase)))
-                                    {
-                                        <div @onclick="() => SelectBillItem(bill)" @onclick:stopPropagation class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-900 rounded-lg transition-colors cursor-pointer flex justify-between">
-                                            <span>@bill.RefNumber</span>
-                                            <span class="text-slate-400 font-mono">Refundable: @bill.RemainingRefundableForeign.ToString("N2")</span>
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-                        }
-
-                        @if (_loadingInvoices)
-                        {
-                            <p class="text-xs text-rose-600 font-bold mt-2 animate-pulse">Aggregating historical payment allocations...</p>
-                        }
+                <div class="space-y-4">
+                    <div>
+                        <label class="label">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
+                        <select value="@selectedVendorId" @onchange="OnVendorSelected" class="input-class font-bold">
+                            <option value="@Guid.Empty">-- Select Vendor --</option>
+                            @foreach (var ven in vendors)
+                            {
+                                <option value="@ven.Id">@ven.Name</option>
+                            }
+                        </select>
                     </div>
-                }
 
-                <button type="button" @onclick="InitializeDraftWorkspace" disabled="@(isBusy || selectedBillId == Guid.Empty)" class="w-full px-6 py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-40">
-                    @if (isBusy)
+                    @if (selectedVendorId != Guid.Empty)
                     {
-                        <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        <div class="animate-in fade-in duration-300">
+                            <label class="label">Step 2: Choose Target Purchase Invoice <span class="text-rose-500">*</span></label>
+                            <select @bind="selectedInvoiceId" class="input-class font-mono font-bold">
+                                <option value="@Guid.Empty">-- Select Invoice --</option>
+                                @foreach (var inv in eligibleInvoices)
+                                {
+                                    <option value="@inv.Id">@inv.OrderNumber (@inv.OrderDate.ToString("yyyy-MM-dd"))</option>
+                                }
+                            </select>
+                            @if (_loadingInvoices)
+                            {
+                                <p class="text-xs text-rose-600 font-bold mt-2 animate-pulse">Scanning eligible transactions...</p>
+                            }
+                            else if (!eligibleInvoices.Any())
+                            {
+                                <p class="text-xs text-amber-600 font-bold mt-2">No adjustable invoices found for this supplier.</p>
+                            }
+                        </div>
                     }
-                    <span>Open </span>
-                </button>
-                @if (!string.IsNullOrEmpty(_errMsg))
-                {
-                    <div class="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold rounded-xl">@_errMsg</div>
-                }
+
+                    <button type="button" @onclick="CreateDebitNoteWorkspace" disabled="@(isBusy || selectedInvoiceId == Guid.Empty)" class="w-full px-6 py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-40">
+                        @if (isBusy)
+                        {
+                            <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        }
+                        <span>Open Debit Note Workspace</span>
+                    </button>
+
+                    @if (!string.IsNullOrEmpty(_errMsg))
+                    {
+                        <div class="p-4 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-bold rounded-xl">@_errMsg</div>
+                    }
+                </div>
             </div>
         }
-        else
+        else if (currentDebitNote != null)
         {
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10 overflow-visible">
+            <!-- ACTIVE WORKSPACE -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
 
+                <!-- PARAMETERS SIDEBAR -->
                 <div class="lg:col-span-4 space-y-6">
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5 overflow-visible relative">
-                        <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Operational Parameters</h3>
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+                        <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Document Parameters</h3>
 
                         <div>
-                            <label class="label">Date:</label>
-                            <input type="date" value="@targetReversalDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) targetReversalDate = d; })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
+                            <label class="label">Execution Date</label>
+                            <input type="date" value="@currentDebitNote.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentDebitNote.Date = d; })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
                         </div>
 
                         <div>
-                            <label class="label text-slate-500">Vendor </label>
+                            <label class="label">Vendor</label>
                             <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800">
-                                @(vendors.FirstOrDefault(v => v.Id == selectedVendorId)?.Name ?? "Loaded Supplier Master Profile")
+                                @(currentDebitNote.Vendor?.Name ?? "Loaded Supplier Profile")
                             </div>
                         </div>
 
                         <div>
-                            <label class="label text-slate-500">Original Invoice Link</label>
+                            <label class="label">Reference Invoice Link</label>
                             <div class="font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">
-                                @(SelectedBillRow?.RefNumber ?? "Direct Reversal Tracking")
+                                @(currentDebitNote.PurchaseOrder?.OrderNumber ?? "N/A")
                             </div>
                         </div>
 
                         <div>
                             <label class="label">Debit Note Reference Code</label>
-                            <input type="text" @bind="customReferenceInput" class="input-class font-mono font-bold" placeholder="Auto-Generated Reference ID" disabled />
+                            <input type="text" @bind="currentDebitNote.DebitNoteNumber" class="input-class font-mono font-bold" disabled />
                         </div>
 
-                        <div class="relative overflow-visible z-50">
-                            <label class="label block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5">Bank Account<span class="text-rose-500">*</span></label>
-                            <div @onclick="ToggleBankDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none @(IsPosted ? "bg-slate-50 opacity-60 cursor-not-allowed" : "")">
-                                <span class="@(targetBankGlAccountId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedBankGlName</span>
-                                @if (!IsPosted)
-                                {
-                                    <svg class="w-4 h-4 text-slate-400 transition-transform @(isBankDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" /></svg>
-                                }
-                            </div>
+                        <div>
+                            <label class="label">Reason / Narrative</label>
+                            <input type="text" @bind="currentDebitNote.Reason" class="input-class" placeholder="Correction description..." disabled="@IsPosted" />
+                        </div>
 
-                            @if (isBankDropdownOpen && !IsPosted)
-                            {
-                                <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 space-y-3 z-[100] animate-in fade-in zoom-in-95 duration-100">
-                                    <div class="relative">
-                                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                        </div>
-                                        <input type="text" @bind="bankSearchQuery" @bind:event="oninput" class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-rose-500 focus:bg-white transition-all font-medium text-slate-800" placeholder="Filter cash accounts..." @onclick:stopPropagation />
-                                    </div>
-                                    <div class="max-h-40 overflow-y-auto pr-1 divide-y divide-slate-50">
-                                        @foreach (var bank in bankAccounts.Where(b => $"{b.AccountCode} {b.Description}".Contains(bankSearchQuery, StringComparison.OrdinalIgnoreCase)))
-                                        {
-                                            <div @onclick="() => SelectBankAccount(bank)" @onclick:stopPropagation class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer">
-                                                @bank.AccountCode - @bank.Description
-                                            </div>
-                                        }
-                                    </div>
+                        @if (currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m)
+                        {
+                            <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
+                                <span class="text-[10px] font-extrabold text-indigo-900 uppercase tracking-wider">Exchange Rate</span>
+                                <div class="text-sm font-mono font-bold text-indigo-700">
+                                    1 @(currentDebitNote.Currency?.CurrencyCode ?? "FX") = @currentDebitNote.ExchangeRate.ToString("N4") @companyBaseCurrency
                                 </div>
-                            }
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Live Active Route Card -->
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                Edit Mappings
+                            </button>
+                        </div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Accounts Payable (Dr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)">
+                                    @(GetAccountDisplayName(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId))
+                                </span>
+                            </div>
+                            <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                <span class="text-slate-500 font-medium">Expense / Clearing (Cr):</span>
+                                <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
+                                    @(GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="lg:col-span-8 overflow-visible">
-                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden h-full flex flex-col min-h-[550px]">
-                        @if (SelectedBillRow != null)
-                        {
-                            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
-                                    Reference Invoice: <span class="text-rose-600 font-mono ml-2">@SelectedBillRow.RefNumber</span> (@currencySymbol)
-                                </h3>
-                                <div class="grid grid-cols-3 gap-4">
-                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1">Total Bill Balance</div>
-                                        <div class="text-xl font-mono font-bold text-slate-900">@SelectedBillRow.TotalForeign.ToString("N2")</div>
-                                    </div>
-                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1">Cash Paid</div>
-                                        <div class="text-xl font-mono font-black text-emerald-700">@SelectedBillRow.TotalPaidForeign.ToString("N2")</div>
-                                    </div>
+                <!-- MAIN WORKSPACE DETAILS -->
+                <div class="lg:col-span-8">
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[550px]">
 
-                                    <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm">
-                                        <div class="text-[10px] text-rose-700 uppercase font-bold mb-1">Remaining Refundable</div>
-                                        <div class="text-xl font-mono font-black text-rose-700">@SelectedBillRow.RemainingRefundableForeign.ToString("N2")</div>
-                                    </div>
+                        <!-- BILLING QUANTITY GRID -->
+                        <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                            <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                                Invoice Line Item Adjustments
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-1">Specify deduction quantities against original billed amounts to reduce AP liability.</p>
+                        </div>
 
-                                </div>
-                            </div>
-
-                            <div class="overflow-x-auto flex-1 p-6">
-                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
-                                    <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
-                                        <tr>
-                                            <th class="px-4 py-3">Purchase Item / Service Segment</th>
-                                            <th class="px-4 py-3 text-center">Quantity</th>
-                                            <th class="px-4 py-3 text-right">Unit Settlement Cost (@currencySymbol)</th>
-                                            <th class="px-4 py-3 text-right pr-6">Line Valuation Gross (@currencySymbol)</th>
+                        <div class="overflow-x-auto flex-1 p-6">
+                            <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
+                                    <tr>
+                                        <th class="px-4 py-3">Item / Service Component</th>
+                                        <th class="px-4 py-3 text-center">Billed Qty</th>
+                                        <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
+                                        <th class="px-4 py-3 text-right">Unit Cost (@(currentDebitNote.Currency?.CurrencyCode ?? "BASE"))</th>
+                                        <th class="px-4 py-3 text-right w-36">Reduction Qty</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach (var line in currentDebitNote.Lines)
+                                    {
+                                        <tr class="bg-white hover:bg-slate-50 transition-colors">
+                                            <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
+                                            <td class="px-4 py-3 text-center font-mono text-slate-600">@line.OriginalPurchasedQty.ToString("N2")</td>
+                                            <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@line.MaxReturnableQty.ToString("N2")</td>
+                                            <td class="px-4 py-3 text-right font-mono text-slate-500">
+                                                @line.UnitCost.ToString("N2")
+                                                @if (currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m)
+                                                {
+                                                    <div class="text-[10px] text-slate-400 font-semibold">
+                                                        (@((line.UnitCost * currentDebitNote.ExchangeRate).ToString("N2")) @companyBaseCurrency)
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td class="px-4 py-3 text-right">
+                                                <input type="number" step="0.01" min="0" max="@line.MaxReturnableQty"
+                                                       value="@(line.Quantity == 0 ? "" : line.Quantity)"
+                                                       @oninput="@(e => ValidateLineQty(line, e.Value?.ToString()))"
+                                                       disabled="@IsPosted"
+                                                       placeholder="0.00"
+                                                       class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
+                                            </td>
                                         </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-slate-100">
-                                        @foreach (var line in SelectedBillRow.Lines)
-                                        {
-                                            <tr class="bg-white">
-                                                <td class="px-4 py-3 font-medium text-slate-800">@(items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Ad-Hoc Procurement Expense Line")</td>
-                                                <td class="px-4 py-3 text-center font-mono text-slate-600">@line.QuantityBilled.ToString("N2")</td>
-                                                <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitCostBilled.ToString("N2")</td>
-                                                <td class="px-4 py-3 pr-6 text-right font-mono font-semibold text-slate-700">@((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- FOOTER TOTALS -->
+                        <div class="border-t border-slate-200 bg-slate-50 p-6 flex justify-between items-center mt-auto rounded-b-2xl">
+                            <div>
+                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Adjustment Value:</span>
                             </div>
+                            <div class="text-right font-mono">
+                                @{
+                                    decimal totalForeign = currentDebitNote.Lines.Sum(l => l.Quantity * l.UnitCost);
+                                    bool hasFx = currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m;
+                                    decimal totalBase = Math.Round(totalForeign * currentDebitNote.ExchangeRate, 2);
+                                }
 
-                            <div class="border border-slate-100 rounded-2xl p-5 bg-slate-50/30 space-y-4 max-w-xl mx-6 mb-6">
-                                <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2"></h4>
-
-                                @if (SelectedBillRow.ExchangeRate == 1)
+                                @if (hasFx)
                                 {
-                                    <div class="space-y-2">
-                                        <label class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Refund Cash Value Amount</label>
-                                        <div class="relative bg-white border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-rose-900/10 transition-all duration-200">
-                                            <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                                                <span class="text-xs font-black text-slate-300 font-mono uppercase tracking-wider">@currencySymbol</span>
-                                            </div>
-                                            <input type="number" step="0.01" max="@SelectedBillRow.RemainingRefundableForeign"
-                                                   value="@amountToReverseForeign"
-                                                   @oninput="CalculateFromForeignInput"
-                                                   disabled="@IsPosted"
-                                                   class="w-full bg-transparent pl-16 pr-4 py-3.5 font-mono font-black text-rose-700 text-right text-lg outline-none placeholder:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                   placeholder="0.00" />
-                                        </div>
-                                        <p class="text-[10px] text-slate-400 font-medium px-1">
-                                            Max refundable: <span class="font-mono font-bold text-slate-600">@((SelectedBillRow?.RemainingRefundableForeign ?? 0).ToString("N2"))</span>
-                                        </p>
+                                    <div class="text-3xl font-black text-rose-600">
+                                        @totalForeign.ToString("N2")
+                                        <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentDebitNote.Currency?.CurrencyCode ?? "FX")</span>
+                                    </div>
+                                    <div class="text-sm font-bold text-slate-600 mt-0.5">
+                                        ≈ @totalBase.ToString("N2")
+                                        <span class="text-xs font-sans font-semibold text-slate-400 uppercase ml-1">@companyBaseCurrency</span>
                                     </div>
                                 }
                                 else
                                 {
-                                    <div class="space-y-3">
-                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            <div class="space-y-2">
-                                                <label class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Foreign Amount</label>
-                                                <div class="relative bg-white border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-rose-900/10 transition-all duration-200">
-                                                    <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                                                        <span class="text-[10px] font-black text-slate-300 font-mono uppercase tracking-wider">@currencySymbol</span>
-                                                    </div>
-                                                    <input type="number" step="0.01"
-                                                           value="@(amountToReverseForeign == 0 ? "" : amountToReverseForeign)"
-                                                           @oninput="CalculateFromForeignInput"
-                                                           disabled="@IsPosted"
-                                                           class="w-full bg-transparent pl-16 pr-4 py-3.5 font-mono font-black text-rose-700 text-right text-lg outline-none placeholder:text-slate-300 disabled:opacity-50"
-                                                           placeholder="0.00" />
-                                                </div>
-                                            </div>
-                                            <div class="space-y-2">
-                                                <label class="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Base Currency Impact</label>
-                                                <div class="relative bg-white border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-rose-900/10 transition-all duration-200">
-                                                    <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                                                        <span class="text-[10px] font-black text-slate-300 font-mono uppercase tracking-wider">Base</span>
-                                                    </div>
-                                                    <input type="number" step="0.01"
-                                                           value="@(baseCurrencyRefundDisplayValue == 0 ? "" : baseCurrencyRefundDisplayValue)"
-                                                           @oninput="CalculateFromBaseInput"
-                                                           disabled="@IsPosted"
-                                                           class="w-full bg-transparent pl-14 pr-4 py-3.5 font-mono font-black text-slate-900 text-right text-lg outline-none placeholder:text-slate-300 disabled:opacity-50"
-                                                           placeholder="0.00" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center justify-between px-1">
-                                            <p class="text-[10px] text-slate-400 font-medium">
-                                                Max refundable: <span class="font-mono font-bold text-slate-600">@SelectedBillRow.RemainingRefundableForeign.ToString("N2") @currencySymbol</span>
-                                            </p>
-                                            <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                                <span class="w-1 h-1 rounded-full bg-slate-300 inline-block"></span>
-                                                Rate <span class="font-mono text-slate-600">@SelectedBillRow.ExchangeRate.ToString("N4")</span>
-                                            </div>
-                                        </div>
+                                    <div class="text-3xl font-black text-rose-600">
+                                        @totalForeign.ToString("N2")
+                                        <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentDebitNote.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
                                     </div>
                                 }
                             </div>
-
-                            <div class="border-t border-slate-200 bg-rose-50/50 p-5 flex justify-between items-center mt-auto rounded-b-2xl gap-6">
-                                <div class="text-right ml-auto">
-                                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Total Ledger Inflow Value (Base Currency)</div>
-                                    <div class="text-2xl font-mono font-black text-emerald-700">
-                                        @((amountToReverseForeign * (SelectedBillRow?.ExchangeRate ?? 1m)).ToString("N2")) <span class="text-sm font-sans font-bold text-slate-400">@companyBaseCurrency</span>
-                                    </div>
-                                </div>
-                            </div>
-                        }
+                        </div>
                     </div>
                 </div>
             </div>
         }
     }
 </div>
+
+<!-- ROUTE CONFIGURATION MODAL -->
+@if (showRouteModal && currentDebitNote != null)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Debit Note GL Route Mapping</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for purchase returns and AP reductions.</p>
+                </div>
+                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Profile Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentDebitNote.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentDebitNote.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard Debit Note Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentDebitNote.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
+                            <option value="">-- Standard Debit Note Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Accounts Payable Liability (Debit Leg - Reduction) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Payable</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Liability Reduction)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentDebitNote.OverrideAccountsPayableGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentDebitNote.OverrideAccountsPayableGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="System Default Vendor AP"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentDebitNote.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)"
+                                                         ValueChanged="@((Guid val) => currentDebitNote.OverrideAccountsPayableGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Expense / Clearing Account (Credit Leg - Reversal) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Expense / Clearing Account</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Reversal)</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentDebitNote.OverrideGrIrClearingGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentDebitNote.OverrideGrIrClearingGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Line Expense / Clearing Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)"
+                                                         ValueChanged="@((Guid val) => currentDebitNote.OverrideGrIrClearingGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .label {
+        display: block;
+        font-size: 0.70rem;
+        font-weight: 800;
+        color: #64748b;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+        letter-spacing: 0.05em;
+    }
+
+    .input-class {
+        width: 100%;
+        border-radius: 0.75rem;
+        border: 1px solid #cbd5e1;
+        padding: 0.6rem 0.8rem;
+        font-size: 0.875rem;
+        outline: none;
+        transition: all 0.2s;
+        color: #0f172a;
+        background-color: #fff;
+    }
+
+        .input-class:focus {
+            border-color: #e11d48;
+            box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15);
+        }
+
+        .input-class:disabled {
+            background-color: #f8fafc;
+            color: #94a3b8;
+            cursor: not-allowed;
+        }
+
+    tr, td {
+        overflow: visible !important;
+    }
+</style>
+
 @code {
     [Parameter] public Guid? Id { get; set; }
-    [Parameter] public Guid? RouteBillId { get; set; }
 
-    private int activeTab = 0;
     private Guid currentCompanyId = Guid.Empty;
-    private string companyName = "";
-    private string currencySymbol = "";
+    private string currentUserId = "";
     private string companyBaseCurrency = "BASE";
-
     private bool isLoading = true;
     private bool isBusy = false;
-    private bool _isFormWorkspaceOpen = false;
-
-    // Fixed Context Parameter Variables
-    private DateTime targetReversalDate = DateTime.Today;
-    private Guid selectedVendorId = Guid.Empty;
-    private Guid selectedBillId = Guid.Empty;
-    private string customReferenceInput = "";
-    private decimal amountToReverseForeign = 0;
-    private Guid targetBankGlAccountId = Guid.Empty;
-
-    // Dropdown / UI state
-    private bool _loadingList = true;
+    private bool isCreateMode = false;
     private bool _loadingInvoices = false;
-    private string selectedBankGlName = "-- Search Bank Account --";
-    private string selectedVendorName = "-- Choose Target Vendor Partner --";
-    private string selectedBillName = "-- Choose Settled Supplier Invoice --";
-
-    private bool isVendorDropdownOpen = false;
-    private string vendorSearchQuery = string.Empty;
-    private bool isBillDropdownOpen = false;
-    private string billSearchQuery = string.Empty;
-    private bool isBankDropdownOpen = false;
-    private string bankSearchQuery = string.Empty;
-    private string currentUserId = "";
     private string _errMsg = string.Empty;
 
-    // Repositories
+    private Guid selectedVendorId = Guid.Empty;
+    private Guid selectedInvoiceId = Guid.Empty;
+
+    private DebitNoteModel? currentDebitNote;
+    private List<DebitNoteModel> allDebitNotes = new();
+    private List<PurchaseOrder> eligibleInvoices = new();
     private List<Vendor> vendors = new();
-    private List<Currency> currencies = new();
-    private List<Item> items = new();
     private List<SegChartOfAccount> allAccounts = new();
-    private List<SegChartOfAccount> bankAccounts = new();
-    private List<SegAccountType> accountTypes = new();
+
+    // Route Configuration Modal State
+    private bool showRouteModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultApAccountId = Guid.Empty;
+    private Guid defaultGrIrAccountId = Guid.Empty;
 
     private int pageSize = 15;
     private int currentPage = 1;
     private string listSearchTerm = "";
-    private decimal baseCurrencyRefundDisplayValue = 0;
 
-    public class LocalBillRow
-    {
-        public Guid BillId { get; set; }
-        public string RefNumber { get; set; } = "";
-        public decimal TotalForeign { get; set; }
+    // View State Selectors
+    private bool IsListMode => !Id.HasValue && !isCreateMode && currentDebitNote == null;
+    private bool IsNewInitialization => isCreateMode && currentDebitNote == null;
+    private bool IsPosted => currentDebitNote?.Status == DebitNoteStatus.Posted;
 
-        // Total actually paid (positive posted payments only — no drafts, no reversals)
-        public decimal TotalPaidForeign { get; set; }
+    private IEnumerable<DebitNoteModel> FilteredDebitNotes => allDebitNotes
+        .Where(d => string.IsNullOrWhiteSpace(listSearchTerm)
+                 || d.DebitNoteNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
+                 || (d.Vendor?.Name != null && d.Vendor.Name.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase))
+                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
 
-        // Net ceiling: TotalPaidForeign minus already-posted debit note reversals
-        public decimal RemainingRefundableForeign { get; set; }
-
-        public decimal ExchangeRate { get; set; }
-        public Guid CurrencyId { get; set; }
-        public List<VendorBillLine> Lines { get; set; } = new();
-    }
-
-    public class LocalReversalRow
-    {
-        public Guid PaymentId { get; set; }
-        public DateTime Date { get; set; }
-        public string Reference { get; set; } = "";
-        public string BillRef { get; set; } = "";
-        public string VendorName { get; set; } = "";
-        public string GlAccountDescription { get; set; } = "";
-        public decimal Amount { get; set; }
-        public decimal AmountForeign { get; set; }
-        public decimal AmountBase { get; set; }
-        public string CurrencyCode { get; set; } = "BASE";
-        public bool IsPosted { get; set; }
-    }
-
-    private List<LocalBillRow> openBills = new();
-    private List<LocalReversalRow> historicalReversals = new();
-
-    private LocalBillRow? SelectedBillRow => openBills.FirstOrDefault(b => b.BillId == selectedBillId);
-    private int TotalFilteredCount => FilteredReversals.Count();
-
-    // View-state selectors
-    private bool IsListMode => !Id.HasValue && !_isFormWorkspaceOpen;
-    private bool IsNewInitialization => !Id.HasValue && _isFormWorkspaceOpen && selectedBillId == Guid.Empty;
-    private bool IsPosted => !isLoading && !IsListMode && currentPaymentId != Guid.Empty && !IsDraftRecord;
-    private bool IsDraftRecord = false;
-
-    private Guid currentPaymentId = Guid.Empty;
-
-    private IEnumerable<LocalReversalRow> FilteredReversals => historicalReversals
-        .Where(r => string.IsNullOrWhiteSpace(listSearchTerm)
-                 || r.Reference.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
-                 || r.BillRef.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
-                 || r.VendorName.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase));
-
-    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredReversals.Count() / (double)pageSize));
-    private IEnumerable<LocalReversalRow> PaginatedReversals =>
-        FilteredReversals.Skip((currentPage - 1) * pageSize).Take(pageSize);
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // LIFECYCLE
-    // ─────────────────────────────────────────────────────────────────────────
+    private int TotalFilteredCount => FilteredDebitNotes.Count();
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalFilteredCount / (double)pageSize));
+    private IEnumerable<DebitNoteModel> PaginatedDebitNotes => FilteredDebitNotes.Skip((currentPage - 1) * pageSize).Take(pageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -585,556 +643,302 @@
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             if (company != null)
             {
-                companyName = company.CompanyName;
                 companyBaseCurrency = company.BaseCurrency ?? "BASE";
             }
 
             vendors = await MasterService.GetVendorsAsync(currentCompanyId);
-            currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
-            items = await MasterService.GetItemsAsync(currentCompanyId);
-            accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
-            bankAccounts = allAccounts.Where(a =>
-            {
-                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == true && type.Id == 1 && a.IsActive;
-            }).OrderBy(x => x.AccountCode).ToList();
+            defaultApAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.DebitNote, isDebit: true, defaultAccountId: Guid.Empty);
 
-            await LoadHistoricalReversalsGrid();
+            defaultGrIrAccountId = await MappingService.GetMappedAccountAsync(
+                currentCompanyId, SystemTransactionType.DebitNote, isDebit: false, defaultAccountId: Guid.Empty);
 
-            // Load payment record only after all repositories are ready
+            await LoadListGrid();
+
             if (Id.HasValue)
-                await LoadFromExistingPayment(Id.Value);
+            {
+                await LoadExistingNote(Id.Value);
+            }
         }
-
         isLoading = false;
+    }
+
+    private async Task LoadListGrid()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        allDebitNotes = await ctx.DebitNotes
+            .AsNoTracking()
+            .Include(d => d.Vendor)
+            .Include(d => d.PurchaseOrder)
+            .Include(d => d.Currency)
+            .Where(d => d.CompanyId == currentCompanyId)
+            .OrderByDescending(d => d.Date)
+            .ToListAsync();
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        // Guard: OnInitializedAsync handles the first load; this only fires on
-        // subsequent soft-nav parameter changes (no forceLoad).
         if (isLoading) return;
 
-        if (Id.HasValue && currentPaymentId != Id.Value)
-            await LoadFromExistingPayment(Id.Value);
-    }
-
-    private async Task LoadFromExistingPayment(Guid returnId)
-    {
-        _isFormWorkspaceOpen = true;
-        currentPaymentId = returnId;
-
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var returnRow = await ctx.PurchaseReturns
-            .Include(r => r.VendorBill)
-            .FirstOrDefaultAsync(r => r.Id == returnId);
-
-        if (returnRow == null)
+        if (Id.HasValue && (currentDebitNote == null || currentDebitNote.Id != Id.Value))
         {
-            _errMsg = "The requested purchase debit note record could not be found.";
-            ResetFormStateContainers();
-            return;
+            await LoadExistingNote(Id.Value);
         }
-
-        selectedVendorId = returnRow.VendorId;
-        selectedBillId = returnRow.VendorBillId;
-        targetReversalDate = returnRow.ReturnDate;
-
-        IsDraftRecord = returnRow.Status == ReturnStatus.Draft;
-
-        var vendorObj = vendors.FirstOrDefault(v => v.Id == selectedVendorId);
-        if (vendorObj != null) selectedVendorName = vendorObj.Name;
-
-        await LoadVendorBills(selectedVendorId, forCreation: false);
-
-        amountToReverseForeign = returnRow.TotalAmount;
-        baseCurrencyRefundDisplayValue = Math.Round(amountToReverseForeign * returnRow.ExchangeRate, 2);
-        customReferenceInput = returnRow.ReturnNumber;
-        targetBankGlAccountId = returnRow.BankGlAccountId;
-
-        SyncBillSelectionMetrics();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // COMPUTE HISTORICAL BILL OUTSTANDING RECOVERY CEILINGS
-    // ─────────────────────────────────────────────────────────────────────────
-    private async Task LoadVendorBills(Guid vendorId, bool forCreation = true)
-    {
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var bills = await ctx.VendorBills
-            .Include(b => b.Lines)
-            .Include(b => b.Payments)
-            .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
-            .ToListAsync();
-
-        var billIds = bills.Select(b => b.Id).ToList();
-
-        // Extract ONLY historical finalized financial debit notes (drops warehouse returns)
-        var historicalReturnsMap = await ctx.PurchaseReturns
-            .Where(r => billIds.Contains(r.VendorBillId)
-                     && r.Status == ReturnStatus.Posted
-                     && r.WarehouseId == null) // FIX: Factor only cash-refund allocations into the ceiling balance
-            .GroupBy(r => r.VendorBillId)
-            .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
-
-        openBills.Clear();
-
-        foreach (var b in bills)
+        else if (!Id.HasValue && currentDebitNote != null && !isCreateMode)
         {
-            decimal rate = b.ExchangeRate > 0 ? b.ExchangeRate : 1m;
-
-            decimal totalPaidBase = b.Payments?
-                .Where(p => p.Amount > 0 && !p.Reference.StartsWith("DRAFT-", StringComparison.OrdinalIgnoreCase))
-                .Sum(p => p.Amount) ?? 0m;
-
-            if (totalPaidBase <= 0.01m) continue;
-
-            decimal totalPaidForeign = Math.Round(totalPaidBase / rate, 2);
-            decimal alreadyReversedForeign = historicalReturnsMap.ContainsKey(b.Id) ? historicalReturnsMap[b.Id] : 0m;
-
-            decimal remainingRefundableForeign = Math.Max(0m, Math.Round(totalPaidForeign - alreadyReversedForeign, 2));
-
-            if (forCreation && remainingRefundableForeign <= 0.01m) continue;
-
-            openBills.Add(new LocalBillRow
-            {
-                BillId = b.Id,
-                RefNumber = b.ExternalInvoiceNumber,
-                TotalForeign = b.TotalAmountForeign,
-                TotalPaidForeign = totalPaidForeign,
-                RemainingRefundableForeign = remainingRefundableForeign,
-                ExchangeRate = rate,
-                CurrencyId = b.CurrencyId,
-                Lines = b.Lines.ToList()
-            });
+            currentDebitNote = null;
+            selectedVendorId = Guid.Empty;
+            selectedInvoiceId = Guid.Empty;
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GRID SUMMARY MONITOR LOG LINES
-    // ─────────────────────────────────────────────────────────────────────────
-    // Inside your Blazor Component Code Block
-    private async Task LoadHistoricalReversalsGrid()
+    private async Task LoadExistingNote(Guid noteId)
     {
-        _loadingList = true;
-        using var ctx = await DbFactory.CreateDbContextAsync();
-
-        var rawReturns = await ctx.PurchaseReturns
-            .Include(p => p.VendorBill)
-            .Where(p => p.CompanyId == currentCompanyId
-                     && p.WarehouseId == null) // FIX: Isolate only pure financial debit note entries
-            .OrderByDescending(p => p.ReturnDate)
-            .ToListAsync();
-
-        historicalReversals = rawReturns.Select(r =>
-        {
-            decimal rate = r.ExchangeRate > 0 ? r.ExchangeRate : 1.0m;
-            bool posted = r.Status == ReturnStatus.Posted;
-            return new LocalReversalRow
-            {
-                PaymentId = r.Id,
-                Date = r.ReturnDate,
-                Reference = r.ReturnNumber,
-                BillRef = r.VendorBill?.ExternalInvoiceNumber ?? "DIRECT-EXPENSE",
-                VendorName = vendors.FirstOrDefault(v => v.Id == r.VendorId)?.Name ?? "Unknown Supplier",
-                GlAccountDescription = allAccounts.FirstOrDefault(a => a.Id == r.BankGlAccountId)?.Description ?? "Liquid Asset Account",
-                Amount = -r.TotalAmount,
-                AmountForeign = r.TotalAmount,
-                AmountBase = Math.Round(r.TotalAmount * rate, 2),
-                CurrencyCode = currencies.FirstOrDefault(c => c.Id == r.CurrencyId)?.CurrencyCode ?? "BASE",
-                IsPosted = posted
-            };
-        }).ToList();
-
-        _loadingList = false;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // PERSIST DATA PARAMETERS DRAFT WORKSPACE
-    // ─────────────────────────────────────────────────────────────────────────
-    private async Task SaveDraftWorkspace()
-    {
-        if (SelectedBillRow == null || amountToReverseForeign <= 0 || targetBankGlAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Verify inputs before saving.");
-            return;
-        }
-
-        using var ctx = await DbFactory.CreateDbContextAsync();
-        var existingDraft = await ctx.PurchaseReturns.FirstOrDefaultAsync(p => p.Id == currentPaymentId);
-
-        if (existingDraft == null)
-        {
-            var newReturnDraft = new PurchaseReturn
-            {
-                Id = currentPaymentId == Guid.Empty ? Guid.NewGuid() : currentPaymentId,
-                CompanyId = currentCompanyId,
-                VendorId = selectedVendorId,
-                VendorBillId = selectedBillId,
-                ReturnDate = targetReversalDate,
-                ReturnNumber = string.IsNullOrWhiteSpace(customReferenceInput) ? $"DN-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}" : customReferenceInput,
-                CurrencyId = SelectedBillRow.CurrencyId,
-                ExchangeRate = SelectedBillRow.ExchangeRate,
-                TotalAmount = amountToReverseForeign,
-                Status = ReturnStatus.Draft,
-                BankGlAccountId = targetBankGlAccountId,
-                CreatedByUserId = Guid.Parse(currentUserId)
-            };
-            ctx.PurchaseReturns.Add(newReturnDraft);
-        }
-        else
-        {
-            existingDraft.ReturnDate = targetReversalDate;
-            existingDraft.TotalAmount = amountToReverseForeign;
-            existingDraft.ReturnNumber = customReferenceInput;
-            existingDraft.BankGlAccountId = targetBankGlAccountId;
-            ctx.PurchaseReturns.Update(existingDraft);
-        }
-
-        await ctx.SaveChangesAsync();
-        await JS.InvokeVoidAsync("alert", "Debit Note draft saved successfully.");
-        await LoadHistoricalReversalsGrid();
-        NavigateToListView();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // ATOMIC LEDGER TRANSMISSION
-    // ─────────────────────────────────────────────────────────────────────────
-    private async Task ExecutePaymentReversalPost()
-    {
-        if (SelectedBillRow == null || amountToReverseForeign <= 0 || targetBankGlAccountId == Guid.Empty)
-        {
-            await JS.InvokeVoidAsync("alert", "Validation Error: Verify workspace settings.");
-            return;
-        }
-
-        var confirmation = await JS.InvokeAsync<bool>("confirm", $"Post financial adjustment for {currencySymbol} {amountToReverseForeign:N2} to the General Ledger?");
-        if (!confirmation) return;
-
         isBusy = true;
-        StateHasChanged();
+        currentDebitNote = await DebitService.GetByIdAsync(noteId, currentCompanyId);
 
-        Guid executionId = currentPaymentId == Guid.Empty ? Guid.NewGuid() : currentPaymentId;
-
-        string result = await ReturnService.PostFinancialDebitNoteAsync(
-            executionId,
-            selectedVendorId,
-            selectedBillId,
-            targetReversalDate,
-            customReferenceInput,
-            amountToReverseForeign,
-            SelectedBillRow.ExchangeRate,
-            SelectedBillRow.CurrencyId,
-            targetBankGlAccountId,
-            currentCompanyId,
-            currentUserId);
-
-        if (string.IsNullOrEmpty(result))
+        if (currentDebitNote != null)
         {
-            await JS.InvokeVoidAsync("alert", "Debit Note posted to the General Ledger successfully.");
-            await LoadHistoricalReversalsGrid();
-            ResetFormStateContainers();
-            NavigateToListView();
+            isCreateMode = false;
+            selectedVendorId = currentDebitNote.VendorId;
+            selectedInvoiceId = currentDebitNote.PurchaseOrderId ?? Guid.Empty;
+
+            var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote.VendorId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", result);
+            NavigateToListView();
         }
 
         isBusy = false;
         StateHasChanged();
     }
-    // ─────────────────────────────────────────────────────────────────────────
-    // NAVIGATION
-    // ─────────────────────────────────────────────────────────────────────────
 
-    private void SetActiveTab(int tabIndex)
+    private async Task OnVendorSelected(ChangeEventArgs e)
     {
-        activeTab = tabIndex;
-        _isFormWorkspaceOpen = (tabIndex == 1);
-        if (tabIndex == 0) ResetFormStateContainers();
+        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
+        {
+            selectedVendorId = venId;
+            var vendor = vendors.FirstOrDefault(v => v.Id == venId);
+            defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+            await LoadEligibleInvoices();
+        }
+        else
+        {
+            selectedVendorId = Guid.Empty;
+            defaultApAccountId = Guid.Empty;
+            eligibleInvoices.Clear();
+        }
     }
 
-    private void NavigateToListView()
+    private async Task LoadEligibleInvoices()
     {
-        ResetFormStateContainers();
-        SetActiveTab(0);
-        if (Id.HasValue)
-            Nav.NavigateTo("/ap/debit-note");
-    }
-
-    private void OpenNewFormInitializer() => SetActiveTab(1);
-
-    private void ToggleVendorDropdown() => isVendorDropdownOpen = !isVendorDropdownOpen;
-    private void ToggleBillDropdown() => isBillDropdownOpen = !isBillDropdownOpen;
-    private void ToggleBankDropdown() => isBankDropdownOpen = !isBankDropdownOpen;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // DROPDOWN SELECTION HANDLERS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private async Task SelectVendor(Vendor ven)
-    {
-        selectedVendorId = ven.Id;
-        selectedVendorName = ven.Name;
-        isVendorDropdownOpen = false;
-        vendorSearchQuery = string.Empty;
-        selectedBillId = Guid.Empty;
-        selectedBillName = "-- Choose Settled Supplier Invoice --";
-        openBills.Clear();
-
         _loadingInvoices = true;
         StateHasChanged();
-        // forCreation: true — exclude exhausted bills from the new-note dropdown
-        await LoadVendorBills(selectedVendorId, forCreation: true);
+
+        eligibleInvoices = await DebitService.GetInvoicesEligibleForAdjustmentAsync(currentCompanyId, selectedVendorId);
+
         _loadingInvoices = false;
         StateHasChanged();
     }
 
-    private void SelectBillItem(LocalBillRow bill)
+    private async Task CreateDebitNoteWorkspace()
     {
-        selectedBillId = bill.BillId;
-        // Show the remaining refundable in the dropdown label so the user
-        // immediately knows the net ceiling before opening the workspace.
-        selectedBillName = $"{bill.RefNumber} (Refundable: {bill.RemainingRefundableForeign:N2})";
-        isBillDropdownOpen = false;
-        billSearchQuery = string.Empty;
-        SyncBillSelectionMetrics();
-    }
-
-    private void SelectBankAccount(SegChartOfAccount bank)
-    {
-        targetBankGlAccountId = bank.Id;
-        selectedBankGlName = $"{bank.AccountCode} - {bank.Description}";
-        isBankDropdownOpen = false;
-        bankSearchQuery = string.Empty;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // INITIALIZE WORKSPACE
-    // ─────────────────────────────────────────────────────────────────────────
-    private async Task InitializeDraftWorkspace()
-    {
-        if (selectedVendorId == Guid.Empty)
-        {
-            _errMsg = "Please select a vendor partner before proceeding.";
-            StateHasChanged();
-            return;
-        }
-        if (selectedBillId == Guid.Empty)
-        {
-            _errMsg = "Please select a settled supplier invoice before opening the workspace.";
-            StateHasChanged();
-            return;
-        }
-
+        if (selectedInvoiceId == Guid.Empty) return;
         isBusy = true;
         _errMsg = string.Empty;
-        StateHasChanged();
 
-        // Always reload fresh from the DB at the moment the user opens the workspace.
-        // This guarantees RemainingRefundableForeign reflects any reversals posted
-        // since the vendor dropdown was first populated — including a first reversal
-        // the user just ran moments ago in the same session.
-        // Never rely on the cached openBills entry from SelectVendor.
-        await LoadVendorBills(selectedVendorId, forCreation: true);
-
-        // After the fresh reload, the selected bill may no longer exist in openBills
-        // if it was fully exhausted between vendor selection and workspace open.
-        if (SelectedBillRow == null)
-        {
-            _errMsg = "This invoice has no remaining refundable balance. It may have been fully reversed since you selected it.";
-            selectedBillId = Guid.Empty;
-            selectedBillName = "-- Choose Settled Supplier Invoice --";
-            isBusy = false;
-            StateHasChanged();
-            return;
-        }
-
-        // Reset the amount so SyncBillSelectionMetrics defaults it to the
-        // freshly-loaded RemainingRefundableForeign, not a stale cached value.
-        amountToReverseForeign = 0;
-
-        SyncBillSelectionMetrics();
-
-        isBusy = false;
-        StateHasChanged();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // DATA LOADING
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // forCreation = true  → called from the new-debit-note wizard.
-    //                        Bills with no remaining refundable are excluded from
-    //                        the dropdown so the user can't select an exhausted bill.
-    //
-    // forCreation = false → called from LoadFromExistingPayment when viewing /
-    //                        editing a record that was already saved.
-    //                        ALL bills with at least one real payment are included
-    //                        regardless of remaining ceiling, so the form can always
-    //                        resolve SelectedBillRow and render correctly.
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // CALCULATION HELPERS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private void SyncBillSelectionMetrics()
-    {
-        if (SelectedBillRow == null) return;
-
-        // Default the amount to the net remaining ceiling freshly computed from DB.
-        // amountToReverseForeign is reset to 0 before this call in InitializeDraftWorkspace
-        // so this always picks up the latest RemainingRefundableForeign after a reload.
-        if (amountToReverseForeign == 0)
-            amountToReverseForeign = SelectedBillRow.RemainingRefundableForeign;
-
-        if (string.IsNullOrEmpty(customReferenceInput))
-            customReferenceInput = $"DN-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-
-        currencySymbol = currencies.FirstOrDefault(c => c.Id == SelectedBillRow.CurrencyId)?.CurrencyCode ?? "";
-        baseCurrencyRefundDisplayValue = Math.Round(amountToReverseForeign * SelectedBillRow.ExchangeRate, 2);
-
-        // Keep the dropdown label in sync with the freshly-loaded ceiling so it
-        // always shows the correct remaining balance, not the stale value from
-        // when the user first opened the vendor dropdown.
-        selectedBillName = $"{SelectedBillRow.RefNumber} (Refundable: {SelectedBillRow.RemainingRefundableForeign:N2})";
-
-        var matchedBank = bankAccounts.FirstOrDefault(b => b.Id == targetBankGlAccountId);
-        selectedBankGlName = matchedBank != null
-            ? $"{matchedBank.AccountCode} - {matchedBank.Description}"
-            : "-- Search Bank Account --";
-    }
-
-    private void CalculateFromForeignInput(ChangeEventArgs e)
-    {
-        if (SelectedBillRow == null) return;
-
-        if (decimal.TryParse(e.Value?.ToString(), out decimal val) && val > 0)
-        {
-            // Cap against the net remaining refundable ceiling, not the gross paid total.
-            if (val > SelectedBillRow.RemainingRefundableForeign)
-            {
-                amountToReverseForeign = SelectedBillRow.RemainingRefundableForeign;
-                _errMsg = $"Amount capped at the remaining refundable balance: {SelectedBillRow.RemainingRefundableForeign:N2} {currencySymbol}";
-            }
-            else
-            {
-                amountToReverseForeign = val;
-                _errMsg = string.Empty;
-            }
-
-            baseCurrencyRefundDisplayValue = Math.Round(amountToReverseForeign * SelectedBillRow.ExchangeRate, 2);
-        }
-        else
-        {
-            amountToReverseForeign = 0;
-            baseCurrencyRefundDisplayValue = 0;
-            _errMsg = string.Empty;
-        }
-
-        StateHasChanged();
-    }
-
-    private void CalculateFromBaseInput(ChangeEventArgs e)
-    {
-        if (SelectedBillRow == null) return;
-
-        if (decimal.TryParse(e.Value?.ToString(), out decimal baseVal) && baseVal > 0)
-        {
-            decimal maxBase = SelectedBillRow.RemainingRefundableForeign * SelectedBillRow.ExchangeRate;
-
-            if (baseVal > maxBase)
-            {
-                baseCurrencyRefundDisplayValue = Math.Round(maxBase, 2);
-                _errMsg = $"Base amount capped at the remaining refundable equivalent: {maxBase:N2}";
-            }
-            else
-            {
-                baseCurrencyRefundDisplayValue = baseVal;
-                _errMsg = string.Empty;
-            }
-
-            amountToReverseForeign = SelectedBillRow.ExchangeRate > 0
-                ? Math.Round(baseCurrencyRefundDisplayValue / SelectedBillRow.ExchangeRate, 4)
-                : 0;
-        }
-        else
-        {
-            amountToReverseForeign = 0;
-            baseCurrencyRefundDisplayValue = 0;
-            _errMsg = string.Empty;
-        }
-
-        StateHasChanged();
-    }
-
-
-    private async Task PostDebitNoteAdjustment()
-    {
-        if (isBusy) return;
-        _errMsg = string.Empty;
         try
         {
-            await ExecutePaymentReversalPost();
+            Guid parsedUserId = Guid.TryParse(currentUserId, out var uid) ? uid : Guid.Empty;
+
+            currentDebitNote = await DebitService.CreateStockAdjustmentDraftAsync(selectedInvoiceId, parsedUserId);
+
+            if (currentDebitNote != null)
+            {
+                currentDebitNote = await DebitService.GetByIdAsync(currentDebitNote.Id, currentCompanyId);
+                isCreateMode = false;
+
+                var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote?.VendorId);
+                defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+            }
         }
         catch (Exception ex)
         {
-            _errMsg = $"Ledger Interface Exception: {ex.Message}";
-            await JS.InvokeVoidAsync("alert", _errMsg);
+            _errMsg = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
         }
     }
 
+    private async Task OpenRouteModal()
+    {
+        if (currentDebitNote == null) return;
+
+        using var ctx = await DbFactory.CreateDbContextAsync();
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == currentCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote.VendorId);
+        defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
+
+        showRouteModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        if (currentDebitNote == null) return;
+
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentDebitNote.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    currentDebitNote.OverrideAccountsPayableGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                    currentDebitNote.OverrideGrIrClearingGlAccountId = map.OverrideCreditGlAccountId.Value;
+            }
+        }
+        else
+        {
+            currentDebitNote.CustomTransactionTypeId = null;
+        }
+    }
+
+    private string GetAccountDisplayName(Guid accountId)
+    {
+        if (accountId == Guid.Empty) return "System Default";
+        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
+        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
+    }
+
+    private void ValidateLineQty(DebitNoteLineModel line, string? val)
+    {
+        if (decimal.TryParse(val, out var parsed))
+        {
+            if (parsed < 0) line.Quantity = 0;
+            else if (parsed > line.MaxReturnableQty) line.Quantity = line.MaxReturnableQty;
+            else line.Quantity = parsed;
+        }
+        else
+        {
+            line.Quantity = 0;
+        }
+    }
+
+    private async Task SaveDraftWorkspace()
+    {
+        if (currentDebitNote == null) return;
+
+        isBusy = true;
+        string err = await DebitService.SaveDraftAsync(currentDebitNote);
+        isBusy = false;
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Draft workspace parameters saved securely.");
+            await LoadListGrid();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
+
+    private async Task PostStockDebitNote()
+    {
+        if (currentDebitNote == null) return;
+
+        decimal draftTotal = currentDebitNote.Lines.Sum(l => l.Quantity * l.UnitCost);
+        if (draftTotal <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Validation Failed: No item quantities have been assigned to generate a ledger debit impact.");
+            return;
+        }
+
+        if (!await JS.InvokeAsync<bool>("confirm", "This operation will permanently adjust Accounts Payable and Expense/Cost ledgers. Proceed?")) return;
+
+        isBusy = true;
+        await DebitService.SaveDraftAsync(currentDebitNote);
+
+        Guid parsedUserId = Guid.TryParse(currentUserId, out var uid) ? uid : Guid.Empty;
+        string err = await DebitService.PostStockDebitNoteAsync(currentDebitNote.Id, parsedUserId);
+        isBusy = false;
+
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Debit Note successfully posted and locked in the General Ledger.");
+            await LoadListGrid();
+            NavigateToListView();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
+    }
 
     private async Task DeleteDraft()
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Permanently discard this Debit Note draft?")) return;
+        if (currentDebitNote == null) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "Permanently discard this draft workspace?")) return;
 
-        if (currentPaymentId != Guid.Empty)
+        string err = await DebitService.DeleteDraftAsync(currentDebitNote.Id);
+        if (string.IsNullOrEmpty(err))
         {
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            var draft = await ctx.VendorPayments.FindAsync(currentPaymentId);
-            if (draft != null)
-            {
-                ctx.VendorPayments.Remove(draft);
-                await ctx.SaveChangesAsync();
-            }
+            await LoadListGrid();
+            NavigateToListView();
         }
-
-        await LoadHistoricalReversalsGrid();
-        NavigateToListView();
+        else
+        {
+            await JS.InvokeVoidAsync("alert", err);
+        }
     }
 
-    // forceLoad removed — OnParametersSetAsync handles parameter changes cleanly.
-    private void RouteToTargetAdjustment(Guid targetId)
+    private void RouteToTargetNote(Guid noteId)
     {
-        Nav.NavigateTo($"/ap/debit-note/entry/{targetId}");
+        Nav.NavigateTo($"/ap/debit-note/entry/{noteId}");
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // RESET
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private void ResetFormStateContainers()
+    private void NavigateToListView()
     {
+        currentDebitNote = null;
+        isCreateMode = false;
         selectedVendorId = Guid.Empty;
-        selectedBillId = Guid.Empty;
-        amountToReverseForeign = 0;
-        baseCurrencyRefundDisplayValue = 0;
-        customReferenceInput = "";
-        currencySymbol = "";
-        targetBankGlAccountId = Guid.Empty;
-        currentPaymentId = Guid.Empty;
-        _isFormWorkspaceOpen = false;
-        IsDraftRecord = false;
+        selectedInvoiceId = Guid.Empty;
         _errMsg = string.Empty;
-        selectedVendorName = "-- Choose Target Vendor Partner --";
-        selectedBillName = "-- Choose Settled Supplier Invoice --";
-        selectedBankGlName = "-- Search Bank Account --";
-        openBills.Clear();
+
+        if (Id.HasValue)
+        {
+            Nav.NavigateTo("/ap/debit-note");
+        }
+    }
+
+    private void OpenNewFormInitializer()
+    {
+        currentDebitNote = null;
+        isCreateMode = true;
+        selectedVendorId = Guid.Empty;
+        selectedInvoiceId = Guid.Empty;
+        eligibleInvoices.Clear();
+        _errMsg = string.Empty;
     }
 }

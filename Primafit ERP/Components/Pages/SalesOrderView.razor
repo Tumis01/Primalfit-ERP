@@ -21,14 +21,15 @@
 @inject IJSRuntime JS
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager Nav
+@inject TransactionMappingService MappingService
 
 @rendermode InteractiveServer
 
-<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16 font-sans text-slate-800">
 
     <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
 
-        <!-- Title Area (Left Side) -->
+        <!-- Title Area -->
         <div class="shrink-0">
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales & Invoicing</h1>
             @if (!string.IsNullOrEmpty(companyName))
@@ -39,14 +40,12 @@
             }
         </div>
 
-        <!-- Controls Area (Right Side) -->
+        <!-- Controls Area -->
         <div class="flex flex-col sm:flex-row flex-wrap gap-4 items-start sm:items-center w-full lg:w-auto lg:justify-end">
 
             @if (activeTab == 0)
             {
                 <div class="flex flex-col xl:flex-row gap-3 items-start xl:items-center w-full sm:w-auto">
-
-                    <!-- Date Filter (Scrollable on tiny mobile screens) -->
                     <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 h-[42px] w-full sm:w-auto overflow-x-auto shrink-0 scrollbar-hide">
                         <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">From</span>
                         <input type="date" @bind="filterStartDate" class="bg-transparent text-sm font-bold text-slate-700 outline-none w-auto sm:w-32 cursor-pointer" />
@@ -64,16 +63,13 @@
                         }
                     </div>
 
-                    <!-- Search Bar -->
                     <div class="relative w-full sm:w-64 xl:w-72 h-[42px] shrink-0">
                         <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                         <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="Search customer, item, or order..." class="w-full h-full pl-9 pr-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all" />
                     </div>
-
                 </div>
             }
 
-            <!-- Tab Buttons -->
             <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto shrink-0">
                 <button @onclick="() => activeTab = 0" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                     All Records
@@ -99,8 +95,6 @@
         @if (activeTab == 0)
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-
-                <!-- Added overflow-x-auto and whitespace-nowrap here so tabs scroll on mobile -->
                 <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50 overflow-x-auto whitespace-nowrap scrollbar-hide">
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Quotes" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Quotes"'>Quotes</button>
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Orders" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Orders"'>Orders</button>
@@ -108,9 +102,7 @@
                     <button class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
                 </div>
 
-                <!-- NEW WRAPPER: This creates the horizontal scroll area -->
                 <div class="overflow-x-auto w-full">
-                    <!-- Added min-w-[1000px] to force scrolling instead of text-squishing -->
                     <table class="w-full text-left text-sm text-slate-900 min-w-[1000px]">
                         <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                             <tr>
@@ -128,8 +120,9 @@
                         <tbody class="divide-y divide-slate-100">
                             @foreach (var o in PagedOrders)
                             {
-                                <!-- Your exact existing row logic stays here -->
-                                <tr class="hover:bg-slate-50 transition-colors">
+                                bool isInvPosted = o.OrderNumber.StartsWith("INV") && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.InvoiceBatchId.HasValue);
+
+                                <tr class="hover:bg-slate-50 transition-colors align-middle">
                                     <td class="p-4 font-mono text-slate-600 text-xs">@o.Date.ToString("dd MMM, yyyy")</td>
                                     <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : (o.OrderNumber.StartsWith("ORD") ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
                                     <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
@@ -141,16 +134,14 @@
                                             foreach (var l in previewLines)
                                             {
                                                 var itemName = items.FirstOrDefault(i => i.Id == l.ItemId)?.Name ?? "Unknown Item";
-                                                <div class="w-40 mb-2 last:mb-0" title="@itemName">
+                                                <div class="w-40 mb-1 last:mb-0" title="@itemName">
                                                     <div class="truncate flex items-center justify-between">
                                                         <span class="text-slate-700 truncate">@itemName</span>
                                                         <span class="text-slate-400 text-xs font-bold ml-1 whitespace-nowrap">(x@(l.Quantity.ToString("G29")))</span>
                                                     </div>
-
-                                                    @* FIXED: Display the reduction metadata row cleanly underneath if adjustments exist *@
                                                     @if (l.QtyCredited > 0)
                                                     {
-                                                        <span class="block text-[11px] font-semibold font-mono mt-0.5 animate-in fade-in duration-200">
+                                                        <span class="block text-[11px] font-semibold font-mono text-rose-600">
                                                             Credit Note qty: (@(l.QtyCredited.ToString("G29")))
                                                         </span>
                                                     }
@@ -174,21 +165,27 @@
                                             }
                                             else if (o.OrderNumber.StartsWith("INV"))
                                             {
-                                                <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
-                                                    @(o.Status == OrderStatus.Draft ? "Draft Inv" : "Invoiced")
-                                                </span>
+                                                @if (isInvPosted)
+                                                {
+                                                    <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+                                                        Posted
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 uppercase tracking-wider">
+                                                        Draft
+                                                    </span>
+                                                }
 
-                                                @if (o.Status != OrderStatus.Draft)
+                                                @if (isInvPosted)
                                                 {
                                                     var physicalLines = o.Lines?.Where(l => l.Item != null && !l.Item.IsService).ToList() ?? new List<SalesOrderLine>();
                                                     if (physicalLines.Any())
                                                     {
-                                                        // FIXED: Shipped ceiling now factors in credit note line write-downs
                                                         var totalOrdered = physicalLines.Sum(l => l.Quantity);
                                                         var totalShipped = physicalLines.Sum(l => l.QtyShipped);
                                                         var totalCredited = physicalLines.Sum(l => l.QtyCredited);
-
-                                                        // Adjusted target target value
                                                         var remainingToShip = totalOrdered - totalCredited;
 
                                                         if (totalShipped == 0 && remainingToShip > 0)
@@ -215,7 +212,7 @@
                                         @((o.GrandTotalForeign * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2"))
                                         @if (o.CreditNoteTotal > 0)
                                         {
-                                            <span class="block text-[11px] font-mono font-semibold text-rose-600  mt-1 ">
+                                            <span class="block text-[11px] font-mono font-semibold text-rose-600 mt-1">
                                                 credit note:(@((o.CreditNoteTotal * (o.ExchangeRate > 0 ? o.ExchangeRate : 1)).ToString("N2")))
                                             </span>
                                         }
@@ -260,7 +257,7 @@
                                             }
                                             else if (o.OrderNumber.StartsWith("INV"))
                                             {
-                                                if (o.Status == OrderStatus.Draft)
+                                                @if (!isInvPosted)
                                                 {
                                                     <PermissionGate Key="SALES_ORDER_CREATE">
                                                         <Authorized>
@@ -277,35 +274,45 @@
                                                 {
                                                     <button @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100">View</button>
 
-                                                    // --- FIXED: WAREHOUSE SHIPMENT ACCORDING TO CREDIT NOTE ADJUSTED VALUES ---
                                                     var physicalLines = o.Lines?.Where(l => l.Item != null && !l.Item.IsService).ToList() ?? new List<SalesOrderLine>();
-
-                                                    // An item line needs shipping only if shipped quantity is less than (ordered quantity minus credited quantity)
-                                                    bool needsShipping = physicalLines.Any(l => l.QtyShipped < (l.Quantity - l.QtyCredited));
+                                                    bool needsShipping = physicalLines.Any(l => (l.QtyShipped - l.QtyReturned) < (l.Quantity - l.QtyCredited - l.QtyReturned));
+                                                    bool hasShippedAny = physicalLines.Any(l => l.QtyShipped > 0);
 
                                                     @if (needsShipping)
                                                     {
                                                         <PermissionGate Key="SHIPMENT_CREATE">
                                                             <Authorized>
-                                                                <button @onclick="() => SendToWarehouse(o)" class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm" title="Send to Warehouse for Dispatch">To Warehouse</button>
+                                                                <button @onclick="() => SendToWarehouse(o)"
+                                                                        class="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm"
+                                                                        title="Send to Warehouse for Dispatch">
+                                                                    To Warehouse
+                                                                </button>
                                                             </Authorized>
                                                         </PermissionGate>
                                                     }
-                                                    else if (physicalLines.Any())
+                                                    else if (physicalLines.Any() && hasShippedAny)
                                                     {
-                                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded border border-slate-200">Dispatched</span>
+                                                        <span class="px-2.5 py-1 bg-slate-100 text-slate-500 font-bold text-[10px] uppercase tracking-wider rounded border border-slate-200">
+                                                            Dispatched
+                                                        </span>
                                                     }
 
                                                     @if (o.IsFullyPaid)
                                                     {
-                                                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 font-bold text-[10px] uppercase tracking-wider rounded border border-emerald-200 flex items-center gap-1">
-                                                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Paid
+                                                        <span class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">
+                                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Paid
                                                         </span>
+                                                    }
+                                                    else if (o.AmountPaid > 0)
+                                                    {
+                                                        <button @onclick='() => Nav.NavigateTo($"/ar/payment-entry?invoiceId={o.Id}")' class="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 shadow-sm flex items-center gap-1">
+                                                            Receive Balance
+                                                        </button>
                                                     }
                                                     else
                                                     {
                                                         <button @onclick='() => Nav.NavigateTo($"/ar/payment-entry?invoiceId={o.Id}")' class="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded hover:bg-emerald-100 shadow-sm flex items-center gap-1">
-                                                            Make Payment
+                                                            Receive Payment
                                                         </button>
                                                     }
                                                 }
@@ -320,8 +327,8 @@
                             }
                         </tbody>
                     </table>
-                </div> <!-- End of overflow wrapper -->
-                <!-- Pagination Footer -->
+                </div>
+
                 @if (FilteredOrders.Any())
                 {
                     <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
@@ -332,11 +339,9 @@
                             <button @onclick="() => currentPage--" disabled="@(currentPage == 1)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
                                 Previous
                             </button>
-
                             <span class="px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-sm">
                                 Page @currentPage of @TotalPages
                             </span>
-
                             <button @onclick="() => currentPage++" disabled="@(currentPage >= TotalPages)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
                                 Next
                             </button>
@@ -358,31 +363,37 @@
                         }
                     </div>
 
-                    @if (!IsLocked)
-                    {
-                        <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Quote)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Quote ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
-                                Quote
-                            </button>
-                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Order)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Order ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
-                                Sales Order
-                            </button>
-                            <button type="button" @onclick="() => SetStatusType(OrderStatus.Draft)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Draft ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
-                                Direct Invoice
-                            </button>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="px-4 py-1.5 rounded-lg text-xs font-bold @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "bg-slate-100 text-slate-600 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200") ring-1 flex items-center gap-1">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                            @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "Locked (Converted)" : "Locked Invoice")
-                        </div>
-                    }
+                    <div class="flex items-center gap-3">
+                        <button type="button" @onclick="OpenConfigModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            <span>Configure Route</span>
+                        </button>
+
+                        @if (!IsLocked)
+                        {
+                            <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                                <button type="button" @onclick="() => SetStatusType(OrderStatus.Quote)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Quote ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
+                                    Quote
+                                </button>
+                                <button type="button" @onclick="() => SetStatusType(OrderStatus.Order)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Order ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
+                                    Sales Order
+                                </button>
+                                <button type="button" @onclick="() => SetStatusType(OrderStatus.Draft)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Draft ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
+                                    Direct Invoice
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="px-4 py-1.5 rounded-lg text-xs font-bold @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "bg-slate-100 text-slate-600 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200") ring-1 flex items-center gap-1">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                @(currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order ? "Locked (Converted)" : "Locked Invoice (Posted)")
+                            </div>
+                        }
+                    </div>
                 </div>
 
                 <div class="p-6 sm:p-8">
-
                     <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 shadow-sm">
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
 
@@ -448,20 +459,6 @@
                                     }
                                 </select>
                             </div>
-
-                            @if (currentOrder.TaxId != null)
-                            {
-                                <div class=" hidden lg:col-span-2 animate-in fade-in slide-in-from-left-2 ">
-                                    <label class="label text-slate-600">Tax GL Account</label>
-                                    <select @bind="currentOrder.TaxGLAccountId" class="input-class bg-white" disabled="@IsLocked">
-                                        <option value="">-- Default from Tax Setup --</option>
-                                        @foreach (var acc in liabilityAccounts)
-                                        {
-                                            <option value="@acc.Id">@acc.AccountCode - @acc.Description</option>
-                                        }
-                                    </select>
-                                </div>
-                            }
                         </div>
                     </div>
 
@@ -549,7 +546,6 @@
                     </div>
 
                     <div class="flex flex-col md:flex-row justify-between items-start gap-6">
-
                         <div class="w-full md:w-1/2 p-5 bg-rose-50 border border-rose-100 rounded-xl shadow-sm">
                             <h4 class="font-extrabold text-xs uppercase tracking-wider text-rose-700 mb-4 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" /></svg>
@@ -569,8 +565,8 @@
                                            class="input-class text-right font-mono border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                 </div>
                             </div>
-
                         </div>
+
                         <div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm">
                             <div class="flex justify-between">
                                 <span>Subtotal:</span>
@@ -597,7 +593,6 @@
                                 <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
                             </div>
                         </div>
-
                     </div>
 
                     <div class="flex items-center gap-3 mt-8 justify-end pt-5 border-t border-slate-200">
@@ -624,36 +619,35 @@
                             <button type="button" @onclick="() => activeTab = 0" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">
                                 Cancel
                             </button>
-                            
-                                    @if (currentOrder.Status == OrderStatus.Quote)
-                                    {
-                                        <PermissionGate Key="SALES_ORDER_CREATE">
-                                        <Authorized>
+
+                            @if (currentOrder.Status == OrderStatus.Quote)
+                            {
+                                <PermissionGate Key="SALES_ORDER_CREATE">
+                                    <Authorized>
                                         <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
                                             Save Quote
                                         </button>
-                                        </Authorized>
-                                        </PermissionGate>
-                                    }
-                                    else if (currentOrder.Status == OrderStatus.Order)
-                                    {
-                                    <PermissionGate Key="SALES_ORDER_CREATE">
-                                        <Authorized>
+                                    </Authorized>
+                                </PermissionGate>
+                            }
+                            else if (currentOrder.Status == OrderStatus.Order)
+                            {
+                                <PermissionGate Key="SALES_ORDER_CREATE">
+                                    <Authorized>
                                         <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
                                             Save Order
                                         </button>
-                                        
-                                        </Authorized>
-                                    </PermissionGate>
-                                    }
+                                    </Authorized>
+                                </PermissionGate>
+                            }
                             else if (currentOrder.Status == OrderStatus.Draft)
                             {
                                 <PermissionGate Key="SALES_INVOICE_POST">
-                                <Authorized>
-                                <button type="button" @onclick="SaveAndPostInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                                    Post Invoice to GL
-                                </button>
-                                </Authorized>
+                                    <Authorized>
+                                        <button type="button" @onclick="SaveAndPostInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
+                                            Post Invoice to GL
+                                        </button>
+                                    </Authorized>
                                 </PermissionGate>
                             }
                         }
@@ -670,6 +664,7 @@
         }
     }
 </div>
+
 @if (showEmailPopup && recentlyPostedInvoice != null)
 {
     <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -705,14 +700,13 @@
             </div>
 
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <!-- FIXED: Wrapped action to execute multiple lines to ensure activeTab resets on cancellation skip -->
                 <button type="button" @onclick="() => { showEmailPopup = false; activeTab = 0; }" class="px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50" disabled="@isSendingEmail">
                     Skip
                 </button>
                 <button type="button" @onclick="DispatchEmail" class="px-6 py-2.5 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50" disabled="@isSendingEmail">
                     @if (isSendingEmail)
                     {
-                        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span class="animate-spin -ml-1 mr-2 h-4 w-4 text-white">↻</span>
                         <span>Sending...</span>
                     }
                     else
@@ -724,6 +718,172 @@
         </div>
     </div>
 }
+
+@if (showConfigModal)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div>
+                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Transaction GL Account Mapping Preview</h3>
+                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override account routes for this transaction execution.</p>
+                </div>
+                <button type="button" @onclick="() => showConfigModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 overflow-visible space-y-5 flex-1">
+                <!-- Custom Template Selector -->
+                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
+                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
+                    <div class="flex items-center gap-2">
+                        @if (currentOrder.CustomTransactionTypeId.HasValue)
+                        {
+                            <button type="button"
+                                    @onclick="() => currentOrder.CustomTransactionTypeId = null"
+                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                    title="Reset to Standard System Route">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        }
+                        <select value="@(currentOrder.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsLocked">
+                            <option value="">-- Standard System Sales Route (Default) --</option>
+                            @foreach (var custom in customTemplates)
+                            {
+                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Ledger Breakdown Table -->
+                <div class="space-y-3 overflow-visible">
+                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
+
+                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
+
+                        <!-- 1. Customer AR Account (Debit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Accounts Receivable</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentOrder.ReceivablesGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentOrder.ReceivablesGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="System Default Customer AR"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentOrder.ReceivablesGlAccountId ?? defaultArAccountId)"
+                                                         ValueChanged="@((Guid val) => currentOrder.ReceivablesGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Revenue Account (Credit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Sales Revenue</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (modalRevenueAccountId != Guid.Empty)
+                                {
+                                    <button type="button"
+                                            @onclick="() => modalRevenueAccountId = Guid.Empty"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Default Line Item Income Accounts"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(modalRevenueAccountId)"
+                                                         ValueChanged="@((Guid val) => { modalRevenueAccountId = val; currentOrder.DirectIncomeGlAccountId = val == Guid.Empty ? null : val; })" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Tax Account (Credit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[30] overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Tax / VAT Payable</span>
+                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentOrder.TaxGLAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentOrder.TaxGLAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="Tax Setup Default Account"
+                                                         Accounts="@liabilityAccounts"
+                                                         Value="@(currentOrder.TaxGLAccountId ?? Guid.Empty)"
+                                                         ValueChanged="@((Guid val) => currentOrder.TaxGLAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Discount Allowed Account (Debit) -->
+                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[20] rounded-b-xl overflow-visible">
+                            <div class="w-1/3">
+                                <span class="font-bold text-slate-700 block">Discount Allowed</span>
+                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
+                            </div>
+                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
+                                @if (currentOrder.DiscountGlAccountId.HasValue)
+                                {
+                                    <button type="button"
+                                            @onclick="() => currentOrder.DiscountGlAccountId = null"
+                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
+                                            title="Clear Override">
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                }
+                                <div class="flex-1 overflow-visible relative">
+                                    <SearchableGlAccount Label=""
+                                                         Placeholder="GL Setup Default Discount Account"
+                                                         Accounts="@allAccounts"
+                                                         Value="@(currentOrder.DiscountGlAccountId ?? defaultDiscountAccountId)"
+                                                         ValueChanged="@((Guid val) => currentOrder.DiscountGlAccountId = val == Guid.Empty ? null : val)" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+                <button type="button" @onclick="() => showConfigModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Close
+                </button>
+                <button type="button" @onclick="ApplyTransactionMappingModal" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                    Apply to Document
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 <style>
     .label {
         display: block;
@@ -767,15 +927,24 @@
     private bool isLoading = true;
     private int activeTab = 0;
     private bool isExporting = false;
-    
 
+    private bool showConfigModal = false;
+    private List<CustomTransactionType> customTemplates = new();
+    private Guid defaultArAccountId = Guid.Empty;
+    private Guid defaultDiscountAccountId = Guid.Empty;
+    private Guid modalRevenueAccountId = Guid.Empty;
+
+    // Strict lock check factoring in batch ID and posted statuses
     private bool IsLocked =>
         currentOrder.Status == OrderStatus.Invoiced ||
+        currentOrder.Status == OrderStatus.PartiallyInvoiced ||
+        currentOrder.InvoiceBatchId.HasValue ||
         ((currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order) && orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
 
     private string currencySymbol = "";
-    // --- FILTERS & PAGINATION STATE ---
-    private int pageSize = 15; 
+
+    // Filters & Pagination
+    private int pageSize = 15;
     private int currentPage = 1;
 
     private string _recordFilter = "Quotes";
@@ -805,7 +974,7 @@
         get => _filterEndDate;
         set { _filterEndDate = value; currentPage = 1; }
     }
-    // ----------------------------------
+
     private List<SalesOrder> orders = new();
     private SalesOrder currentOrder = new();
     private List<Customer> customers = new();
@@ -818,12 +987,13 @@
     private List<SegChartOfAccount> liabilityAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegAccountType> accountTypes = new();
+
     // Email Modal State
     private bool showEmailPopup = false;
     private bool isSendingEmail = false;
-    private SalesOrder recentlyPostedInvoice = null;
+    private SalesOrder? recentlyPostedInvoice = null;
     private string customEmailMessage = "";
-    // --- UPDATED COMPUTED MATH (Includes Discounts) ---
+
     private decimal SubTotal => currentOrder.Lines.Sum(l => l.Quantity * l.UnitPrice);
 
     private decimal DiscountValue => currentOrder.DiscountPercentage > 0
@@ -850,15 +1020,14 @@
                  || o.Lines.Any(l => items.FirstOrDefault(i => i.Id == l.ItemId)?.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) == true))
         .Where(o => !filterStartDate.HasValue || o.Date >= filterStartDate.Value)
         .Where(o => !filterEndDate.HasValue || o.Date <= filterEndDate.Value)
-        .OrderByDescending(o => o.Date); 
+        .OrderByDescending(o => o.Date);
 
-    // 2. Calculates total pages required
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredOrders.Count() / (double)pageSize));
 
-    // 3. Extracts exactly the 15 items needed for the current page
     private IEnumerable<SalesOrder> PagedOrders => FilteredOrders
         .Skip((currentPage - 1) * pageSize)
         .Take(pageSize);
+
     private string currentUserId = "";
 
     protected override async Task OnInitializedAsync()
@@ -870,7 +1039,6 @@
         if (user?.CompanyDetailsId != null)
         {
             currentUserId = user.Id;
-
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null) companyName = company.CompanyName;
@@ -879,17 +1047,72 @@
         isLoading = false;
     }
 
+    private async Task OpenConfigModal()
+    {
+        using var ctx = await DbFactory.CreateDbContextAsync();
+
+        customTemplates = await ctx.CustomTransactionTypes
+            .AsNoTracking()
+            .Where(t => t.CompanyId == selectedCompanyId)
+            .OrderBy(t => t.Name)
+            .ToListAsync();
+
+        var customer = customers.FirstOrDefault(c => c.Id == currentOrder.CustomerId);
+        defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
+
+        defaultDiscountAccountId = await MappingService.GetMappedAccountAsync(
+            selectedCompanyId, SystemTransactionType.DiscountAllowed, isDebit: true, defaultAccountId: Guid.Empty);
+
+        modalRevenueAccountId = currentOrder.DirectIncomeGlAccountId ?? await MappingService.GetMappedAccountAsync(
+            selectedCompanyId, SystemTransactionType.SalesInvoice, isDebit: false, defaultAccountId: Guid.Empty);
+
+        showConfigModal = true;
+    }
+
+    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
+        {
+            currentOrder.CustomTransactionTypeId = customId;
+
+            using var ctx = await DbFactory.CreateDbContextAsync();
+            var map = await ctx.TransactionGlMappings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(m => m.CompanyId == selectedCompanyId && m.CustomTransactionTypeId == customId);
+
+            if (map != null)
+            {
+                if (map.OverrideDebitGlAccountId.HasValue)
+                    currentOrder.ReceivablesGlAccountId = map.OverrideDebitGlAccountId.Value;
+
+                if (map.OverrideCreditGlAccountId.HasValue)
+                {
+                    modalRevenueAccountId = map.OverrideCreditGlAccountId.Value;
+                    currentOrder.DirectIncomeGlAccountId = map.OverrideCreditGlAccountId.Value;
+                }
+            }
+        }
+        else
+        {
+            currentOrder.CustomTransactionTypeId = null;
+        }
+    }
+
+    private void ApplyTransactionMappingModal()
+    {
+        showConfigModal = false;
+        StateHasChanged();
+    }
+
     private async Task LoadData()
     {
         if (!HasCompany) return;
         using var ctx = await DbFactory.CreateDbContextAsync();
         customers = await ctx.Customers.Include(c => c.DefaultCurrency).Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
 
-        // --- THE FIX ---
-        // Fetch all orders, but filter out the ones created in the Direct Invoice view
         var allOrders = await SalesService.GetOrdersAsync(selectedCompanyId);
         orders = allOrders.Where(o => !o.IsDirectInvoice).ToList();
-        // ---------------
 
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         items = await MasterService.GetItemsAsync(selectedCompanyId);
@@ -1087,12 +1310,10 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", "This will post the invoice to the General Ledger. Proceed?");
         if (!confirm) return;
 
-        // Passed currentUserId here
         var invErr = await SalesService.InvoiceOrderAsync(currentOrder.Id, currentUserId);
         if (!string.IsNullOrEmpty(invErr)) { await JS.InvokeVoidAsync("alert", invErr); return; }
 
         await LoadData();
-
         await PromptEmailPopup(currentOrder.Id);
     }
 
@@ -1113,28 +1334,26 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", $"Generate and Post Invoice for {o.OrderNumber}?");
         if (!confirm) return;
 
-        // Passed currentUserId here
         var err = await SalesService.InvoiceOrderAsync(o.Id, currentUserId);
         if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
         await LoadData();
         await PromptEmailPopup(o.Id);
     }
+
     private async Task PromptEmailPopup(Guid orderId)
     {
         recentlyPostedInvoice = orders.FirstOrDefault(o => o.Id == orderId);
 
-        // Fetch user setting from Database context
         using var ctx = await DbFactory.CreateDbContextAsync();
         var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
-        bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true; // Fallback to true if missing
+        bool showPopupToggle = emailConfig?.EnableInvoiceEmailPopup ?? true;
 
-        // Rule Check: If toggle is off, skip everything instantly and return to list grid view
         if (!showPopupToggle)
         {
             await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
             showEmailPopup = false;
-            activeTab = 0; // Fixes form visibility: closes edit layout back to table lists view
+            activeTab = 0;
             StateHasChanged();
             return;
         }
@@ -1148,7 +1367,7 @@
         else
         {
             await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!\n\n(No email sent: Customer does not have an email address on file).");
-            activeTab = 0; // Ensures the form closes back to table list view layout grid
+            activeTab = 0;
             StateHasChanged();
         }
     }
@@ -1160,19 +1379,14 @@
         isSendingEmail = true;
         try
         {
-            // 1. Generate the PDF entirely in the background (no downloading)
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-
-            // Extract the correct currency symbol for THIS specific invoice
             var currCode = currencies.FirstOrDefault(c => c.Id == recentlyPostedInvoice.CurrencyId)?.CurrencyCode ?? "";
 
             var pdfBytes = ReportExportService.GenerateInvoicePdf(recentlyPostedInvoice, company, currCode);
             var fileName = $"Invoice_{recentlyPostedInvoice.OrderNumber}.pdf";
 
-            // 2. Determine subject
             var subject = $"Invoice {recentlyPostedInvoice.OrderNumber} from {companyName}";
 
-            // 3. Send using your new MailKit service
             await EmailService.SendEmailAsync(
                 recentlyPostedInvoice.Customer.Email,
                 subject,
@@ -1183,7 +1397,7 @@
 
             await JS.InvokeVoidAsync("alert", "Invoice posted and email sent successfully!");
             showEmailPopup = false;
-            activeTab = 0; // Return to the main grid
+            activeTab = 0;
         }
         catch (Exception ex)
         {
@@ -1194,14 +1408,14 @@
             isSendingEmail = false;
         }
     }
+
     private async Task DownloadInvoice()
     {
         if (currentOrder == null || currentOrder.Id == Guid.Empty) return;
-    
+
         isExporting = true;
         try
         {
-            // We need the company details for the invoice header
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company == null)
             {
@@ -1210,11 +1424,10 @@
             }
 
             var printOrder = await SalesService.GetOrderByIdAsync(currentOrder.Id);
-        
-            // 3. PASS THE CURRENCY SYMBOL HERE!
+
             var pdfBytes = ReportExportService.GenerateInvoicePdf(printOrder, company, currencySymbol);
             var fileName = $"{printOrder.OrderNumber}_{printOrder.Customer?.Name?.Replace(" ", "_")}.pdf";
-        
+
             using var streamRef = new DotNetStreamReference(stream: new MemoryStream(pdfBytes));
             await JS.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
         }

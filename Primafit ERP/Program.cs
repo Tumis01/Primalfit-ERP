@@ -74,7 +74,6 @@ builder.Services.AddScoped<SegAccountTypeService>();
 builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 builder.Services.AddScoped<SegCoaService>();
 builder.Services.AddScoped<SegmentsSetupService>();
-builder.Services.AddScoped<PurchaseReturnService>();
 builder.Services.AddScoped<CreditNoteService>();
 builder.Services.AddScoped<InventoryValuationService>();
 builder.Services.AddHostedService<Primafit_ERP.Services.DepreciationWorker>();
@@ -96,6 +95,8 @@ builder.Services.AddScoped<IPermissionGuard, PermissionGuard>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<TransactionMappingService>();
 builder.Services.AddScoped<ReceiptRefundService>();
+builder.Services.AddScoped<DebitNoteService>();
+builder.Services.AddScoped<VendorReturnService>();
 
 var app = builder.Build();
 
