@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -41,10 +41,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmount { get; set; }
 
         public bool ReturnToStock { get; set; } = true;
@@ -82,7 +82,7 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]

@@ -1,4 +1,4 @@
-﻿@page "/wh/shipments"
+@page "/wh/shipments"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -81,7 +81,7 @@
 
     <div class="flex gap-4 border-b border-slate-200">
         <button @onclick="() => activeTab = 0" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 0 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">
-            Pending Dispatch Queue
+                                    Pending Dispatch / GL Review
         </button>
         <button @onclick="() => activeTab = 1" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 1 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">
             Shipment History
@@ -120,8 +120,8 @@
                                 }
                             </div>
                             <div class="flex items-center gap-3">
-                                <span class="px-2.5 py-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full uppercase tracking-wider">
-                                    Pending
+                                <span class="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider @ReviewPillClass(GetReviewStatus(shp))">
+                                    @ReviewLabel(GetReviewStatus(shp))
                                 </span>
                                 <svg class="w-5 h-5 text-slate-400 transform transition-transform @(expandedShipmentId == shp.Id ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                             </div>
@@ -132,36 +132,47 @@
                             <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto space-y-6">
                                 <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Dispatch Parameters</span>
-                                    <button type="button" @onclick="() => OpenRouteModal(shp)" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                                        <span>Configure GL Route</span>
-                                    </button>
+                                    @if (canConfigureRoute)
+                                    {
+                                        <button type="button" @onclick="() => OpenRouteModal(shp)" disabled="@(!IsShipmentEditable(shp))" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50">
+                                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                            <span>Configure GL Route</span>
+                                        </button>
+                                    }
                                 </div>
 
                                 <table class="w-full text-sm text-left min-w-[500px]">
                                     <thead class="text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
                                         <tr>
-                                            <th class="pb-3 w-1/2">Item Name</th>
-                                            <th class="pb-3 text-center">Required Qty</th>
-                                            <th class="pb-3 text-center w-40">Actual Shipped</th>
+                                            <th class="pb-3 min-w-[220px]">Item Name</th>
+                                            <th class="pb-3 text-right">Invoice Qty<br /><span class="text-[9px] font-semibold normal-case">Required</span></th>
+                                            <th class="pb-3 text-right">Previously Shipped</th>
+                                            <th class="pb-3 text-right">Max Left to Ship</th>
+                                            <th class="pb-3 text-center w-40">Qty Shipped<br /><span class="text-[9px] font-semibold normal-case">This Dispatch</span></th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in shp.Lines)
                                         {
-                                            bool isOver = line.QtyShipped > line.QtyOrdered;
+                                            var invoiceQty = GetInvoiceQuantity(shp, line);
+                                            var previouslyShipped = GetPreviouslyShipped(shp, line);
+                                            var maxLeftToShip = GetMaxLeftToShip(shp, line);
+                                            bool isOver = line.QtyShipped > maxLeftToShip;
                                             <tr class="@(isOver ? "bg-rose-50/40" : "")">
                                                 <td class="py-4 font-bold text-slate-800">@line.Item?.Name</td>
-                                                <td class="py-4 text-center text-slate-500 font-mono">@line.QtyOrdered.ToString("G29")</td>
+                                                <td class="py-4 text-right text-slate-600 font-mono">@invoiceQty.ToString("N2")</td>
+                                                <td class="py-4 text-right text-slate-500 font-mono">@previouslyShipped.ToString("N2")</td>
+                                                <td class="py-4 text-right font-mono font-bold text-indigo-700">@maxLeftToShip.ToString("N2")</td>
                                                 <td class="py-4">
-                                                    <input type="number" step="0.01" max="@line.QtyOrdered" min="0"
+                                                    <input type="number" step="0.0001" max="@maxLeftToShip" min="0"
                                                            value="@line.QtyShipped"
                                                            @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))"
-                                                           class="w-full border rounded-lg px-3 py-2 text-center font-bold focus:ring-1 outline-none transition-all
+                                                            disabled="@(!IsShipmentEditable(shp))"
+                                                            class="w-full border rounded-lg px-3 py-2 text-center font-bold focus:ring-1 outline-none transition-all
                                                     @(isOver ? "border-rose-400 text-rose-700 bg-rose-50 focus:border-rose-500" : "border-slate-300 text-slate-900 bg-white focus:border-indigo-500 focus:ring-indigo-500")" />
                                                     @if (isOver)
                                                     {
-                                                        <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Exceeds order balance</div>
+                                                         <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Exceeds maximum left to ship</div>
                                                     }
                                                 </td>
                                             </tr>
@@ -176,10 +187,10 @@
                                     <PermissionGate Key="SHIPMENT_DISPATCH">
                                         <Authorized>
                                             <button type="button" @onclick="() => ConfirmDispatch(shp)"
-                                                    disabled="@(shp.Lines.Any(l => l.QtyShipped > l.QtyOrdered) || !shp.Lines.Any(l => l.QtyShipped > 0))"
+                                                     disabled="@(!IsShipmentEditable(shp) || shp.Lines.Any(l => l.QtyShipped > GetMaxLeftToShip(shp, l)) || !shp.Lines.Any(l => l.QtyShipped > 0))"
                                                     class="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                                                <span>Confirm Dispatch</span>
+                                             <span>@(GetReviewStatus(shp) == BatchStatus.Rejected ? "Resubmit Dispatch for GL Review" : "Submit Dispatch for GL Review")</span>
                                             </button>
                                         </Authorized>
                                     </PermissionGate>
@@ -372,9 +383,10 @@
 
     private List<SalesShipment> shipments = new();
     private List<SalesShipment> history = new();
+    private Dictionary<Guid, BatchStatus> shipmentBatchStatuses = new();
     private Guid expandedShipmentId = Guid.Empty;
     private string currentUserId = "";
-
+    private bool canConfigureRoute = false;
     // Route Configuration Modal State
     private bool showRouteModal = false;
     private SalesShipment? selectedShipmentForConfig;
@@ -401,6 +413,7 @@
             if (user.CompanyDetailsId != null)
             {
                 companyId = user.CompanyDetailsId.Value;
+                canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(companyId);
                 allAccounts = await SegCoaService.GetCoaAsync(companyId);
 
                 defaultCogsAccountId = await MappingService.GetMappedAccountAsync(
@@ -419,11 +432,53 @@
         isLoading = true;
         warehouses = await WhService.GetWarehousesAsync(companyId);
         shipments = await ShipmentService.GetPendingShipmentsAsync(companyId);
+        var shipmentBatchIds = shipments.Where(s => s.ShipmentBatchId.HasValue).Select(s => s.ShipmentBatchId!.Value).ToList();
+        await using (var ctx = await DbFactory.CreateDbContextAsync())
+        {
+            shipmentBatchStatuses = await ctx.GLBatches.AsNoTracking()
+                .Where(b => shipmentBatchIds.Contains(b.Id) && b.CompanyId == companyId)
+                .ToDictionaryAsync(b => b.Id, b => b.Status);
+        }
         history = await ShipmentService.GetShipmentHistoryAsync(companyId);
         unshippedOrders = await ShipmentService.GetUnshippedOrdersAsync(companyId);
         isLoading = false;
         StateHasChanged();
     }
+
+    private BatchStatus? GetReviewStatus(SalesShipment shipment) =>
+        shipment.ShipmentBatchId.HasValue && shipmentBatchStatuses.TryGetValue(shipment.ShipmentBatchId.Value, out var status)
+            ? status : null;
+
+    private bool IsShipmentEditable(SalesShipment shipment) =>
+        GetReviewStatus(shipment) is null or BatchStatus.Draft or BatchStatus.Rejected;
+
+    private SalesOrderLine? GetInvoiceLine(SalesShipment shipment, SalesShipmentLine line) =>
+        shipment.SalesOrder?.Lines?.FirstOrDefault(orderLine => orderLine.Id == line.SalesOrderLineId);
+
+    private decimal GetInvoiceQuantity(SalesShipment shipment, SalesShipmentLine line) =>
+        GetInvoiceLine(shipment, line)?.Quantity ?? line.QtyOrdered;
+
+    private decimal GetPreviouslyShipped(SalesShipment shipment, SalesShipmentLine line) =>
+        Math.Max(0, GetInvoiceLine(shipment, line)?.QtyShipped ?? 0);
+
+    private decimal GetMaxLeftToShip(SalesShipment shipment, SalesShipmentLine line) =>
+        Math.Max(0, line.QtyOrdered - GetPreviouslyShipped(shipment, line));
+
+    private string ReviewLabel(BatchStatus? status) => status switch
+    {
+        BatchStatus.Ready => "In Review",
+        BatchStatus.Rejected => "Rejected - Edit Required",
+        BatchStatus.Posted => "Posted",
+        _ => "Draft - Not Submitted"
+    };
+
+    private string ReviewPillClass(BatchStatus? status) => status switch
+    {
+        BatchStatus.Ready => "text-amber-700 bg-amber-50 border border-amber-200",
+        BatchStatus.Rejected => "text-rose-700 bg-rose-50 border border-rose-200",
+        BatchStatus.Posted => "text-emerald-700 bg-emerald-50 border border-emerald-200",
+        _ => "text-slate-600 bg-slate-100 border border-slate-200"
+    };
 
     private void HandleInput()
     {
@@ -573,10 +628,10 @@
             return;
         }
 
-        bool isPartial = shp.Lines.Any(l => l.QtyShipped < l.QtyOrdered);
+        bool isPartial = shp.Lines.Any(l => l.QtyShipped < GetMaxLeftToShip(shp, l));
         string msg = isPartial
-            ? "You are doing a partial shipment. A new pending document will be created for the remainder. Proceed?"
-            : "Confirm physical dispatch of all items?";
+            ? "You are doing a partial shipment. A new pending document will be created for the remainder. Submit this dispatch for GL review?"
+            : "Submit this physical dispatch for GL review?";
 
         bool confirm = await JS.InvokeAsync<bool>("confirm", msg);
         if (!confirm) return;
@@ -589,7 +644,7 @@
         }
         else
         {
-            await JS.InvokeVoidAsync("alert", $"Dispatch Confirmed! GL and Stock Ledger updated for {shp.ShipmentNumber}");
+            await JS.InvokeVoidAsync("alert", $"Dispatch {shp.ShipmentNumber} was submitted for GL review. It will be committed after reviewer approval.");
             expandedShipmentId = Guid.Empty;
             await LoadData();
         }

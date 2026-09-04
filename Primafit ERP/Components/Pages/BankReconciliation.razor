@@ -1,4 +1,4 @@
-﻿@page "/gl/bank-reconciliation"
+@page "/gl/bank-reconciliation"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -116,7 +116,7 @@
                         <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 font-bold">$</span>
                         <input class="input-class pl-8 font-mono font-bold text-lg"
                                inputmode="decimal"
-                               placeholder="0.00"
+                               placeholder="0.0000"
                                value="@endingBalanceText"
                                @oninput="OnEndingBalanceInput" />
                     </div>
@@ -165,19 +165,19 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-md">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Statement Balance</span>
-                <div class="text-2xl font-mono font-bold mt-1">@vm.Reconciliation.StatementEndingBalance.ToString("N2")</div>
+                <div class="text-2xl font-mono font-bold mt-1">@vm.Reconciliation.StatementEndingBalance.ToString("N4")</div>
             </div>
 
             <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Book Balance (Cleared)</span>
-                <div class="text-2xl font-mono font-bold mt-1 text-indigo-600">@ReconciledBalance.ToString("N2")</div>
+                <div class="text-2xl font-mono font-bold mt-1 text-indigo-600">@ReconciledBalance.ToString("N4")</div>
                 <div class="text-[10px] text-slate-400 mt-1">Sum of all checked items</div>
             </div>
 
             <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Difference</span>
                 <div class="text-2xl font-mono font-bold mt-1 @(Difference == 0 ? "text-emerald-500" : "text-rose-500")">
-                    @Difference.ToString("N2")
+                    @Difference.ToString("N4")
                 </div>
                 <div class="text-[10px] text-slate-400 mt-1">Target is 0.00</div>
             </div>
@@ -234,7 +234,7 @@
                                                 <span class="ml-2 text-emerald-600 text-[10px] font-bold border border-emerald-200 px-1 rounded">MATCHED</span>
                                             }
                                         </td>
-                                        <td class="px-4 py-2 text-right font-mono font-bold text-slate-900">@line.Amount.ToString("N2")</td>
+                                        <td class="px-4 py-2 text-right font-mono font-bold text-slate-900">@line.Amount.ToString("N4")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -274,8 +274,8 @@
                                         <div class="font-medium text-slate-700">@txn.Narration</div>
                                         <div class="text-[10px] text-slate-400 font-mono">Jrn: @txn.JournalId.ToString().Substring(0, 8)</div>
                                     </td>
-                                    <td class="px-4 py-2 text-right font-mono text-emerald-600">@(txn.Debit > 0 ? txn.Debit.ToString("N2") : "-")</td>
-                                    <td class="px-4 py-2 text-right font-mono text-rose-600">@(txn.Credit > 0 ? txn.Credit.ToString("N2") : "-")</td>
+                                    <td class="px-4 py-2 text-right font-mono text-emerald-600">@(txn.Debit > 0 ? txn.Debit.ToString("N4") : "-")</td>
+                                    <td class="px-4 py-2 text-right font-mono text-rose-600">@(txn.Credit > 0 ? txn.Credit.ToString("N4") : "-")</td>
                                     <td class="px-4 py-2 text-center border-l border-slate-100 bg-white" @onclick:stopPropagation="true">
                                         @if (vm.Reconciliation.Type == ReconType.Manual)
                                         {
@@ -509,7 +509,7 @@
     {
         if (Difference != 0)
         {
-            if (!await JS.InvokeAsync<bool>("confirm", $"Difference is {Difference:N2}. Proceed anyway?")) return;
+            if (!await JS.InvokeAsync<bool>("confirm", $"Difference is {Difference:N4}. Proceed anyway?")) return;
         }
         var res = await ReconService.FinalizeReconciliationAsync(selectedCompanyId, reconId!.Value);
         await JS.InvokeVoidAsync("alert", res == "Success" ? "Reconciliation Finalized." : res);

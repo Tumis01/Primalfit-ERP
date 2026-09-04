@@ -1,4 +1,4 @@
-﻿@page "/hr/employees"
+@page "/hr/employees"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -130,7 +130,7 @@
                                 <option value="@Guid.Empty">-- Assign Compensation Band --</option>
                                 @foreach (var s in salaryStructures)
                                 {
-                                    <option value="@s.Id">@s.Name - @s.GrossMonthlyPay.ToString("N2") / month</option>
+                                    <option value="@s.Id">@s.Name - @s.GrossMonthlyPay.ToString("N4") / month</option>
                                 }
                             </InputSelect>
                         </div>

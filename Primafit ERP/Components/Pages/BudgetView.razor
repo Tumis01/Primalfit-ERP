@@ -1,4 +1,4 @@
-﻿@page "/finance/budget"
+@page "/finance/budget"
 @using System.IO
 @using ExcelDataReader
 @using System.Data
@@ -131,10 +131,10 @@
                                     <div class="w-full md:w-72 text-right">
                                         <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Calculated Totals</div>
                                         <div class="text-sm font-mono font-black text-slate-800">
-                                            Budget: @line.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N2")
+                                            Budget: @line.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N4")
                                         </div>
                                         <div class="text-sm font-mono font-black text-amber-700">
-                                            Forecast: @line.PeriodAllocations.Sum(p => p.ForecastAmount ?? 0).ToString("N2")
+                                            Forecast: @line.PeriodAllocations.Sum(p => p.ForecastAmount ?? 0).ToString("N4")
                                         </div>
                                     </div>
 
@@ -162,18 +162,16 @@
                                                             @p.PeriodName
                                                         </td>
                                                         <td class="py-3 pr-3">
-                                                            <input type="number"
-                                                                   step="0.01"
+                                                            <input type="number" step="0.0001"
                                                                    @bind="p.Amount"
                                                                    class="input-class text-right font-mono font-bold text-slate-700 border-indigo-100 bg-indigo-50/30 focus:border-indigo-400 text-sm"
-                                                                   placeholder="0.00" />
+                                                                   placeholder="0.0000" />
                                                         </td>
                                                         <td class="py-3">
-                                                            <input type="number"
-                                                                   step="0.01"
+                                                            <input type="number" step="0.0001"
                                                                    @bind="p.ForecastAmount"
                                                                    class="input-class text-right font-mono font-bold text-slate-700 border-amber-100 bg-amber-50/40 focus:border-amber-400 text-sm"
-                                                                   placeholder="0.00" />
+                                                                   placeholder="0.0000" />
                                                         </td>
                                                     </tr>
                                                 }
@@ -245,7 +243,7 @@
                                         <div class="w-full lg:w-64 text-right">
                                             <div class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Calculated Transfer Limit</div>
                                             <div class="text-xl font-mono font-black text-slate-800">
-                                                @tLine.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N2")
+                                                @tLine.PeriodAllocations.Sum(p => p.Amount ?? 0).ToString("N4")
                                             </div>
                                         </div>
 
@@ -261,7 +259,7 @@
                                             {
                                                 <div>
                                                     <label class="label text-[10px] text-emerald-600">@p.PeriodName</label>
-                                                    <input type="number" step="0.01" @bind="p.Amount" class="input-class text-right font-mono font-bold text-slate-700 border-emerald-100 bg-emerald-50/30 focus:border-emerald-400 text-sm" placeholder="NOT SET" />
+                                                    <input type="number" step="0.0001" @bind="p.Amount" class="input-class text-right font-mono font-bold text-slate-700 border-emerald-100 bg-emerald-50/30 focus:border-emerald-400 text-sm" placeholder="NOT SET" />
                                                 </div>
                                             }
                                         </div>
@@ -349,7 +347,7 @@
                                 </td>
 
                                 <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">
-                                    @(b.Lines != null && b.Lines.Any() ? b.Lines.Sum(l => l.LimitAmount).ToString("N2") : "0.00")
+                                    @(b.Lines != null && b.Lines.Any() ? b.Lines.Sum(l => l.LimitAmount).ToString("N4") : "0.00")
                                 </td>
                                 <td class="px-6 py-4 text-right">
                                     <PermissionGate Key="BUDGET_MANAGE">

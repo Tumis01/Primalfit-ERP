@@ -1,4 +1,4 @@
-﻿@page "/sales/credit-notes/entry/{Id:guid?}"
+@page "/sales/credit-notes/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -26,8 +26,8 @@
             <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">
                 @(IsNew ? "New Invoice Adjustment Credit Note" : $"Credit Note: {currentCn.CreditNoteNumber}")
             </h1>
-            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
-                @(IsPosted ? "● Posted Document - Read Only" : "● Draft - Pending Approval")
+            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : (IsRejected ? "text-rose-600" : "text-amber-600"))">
+                @(IsPosted ? "● Posted Document - Read Only" : (IsRejected ? "● Returned for Correction" : "● Draft - Pending Approval"))
             </p>
         </div>
         <div class="flex flex-wrap items-center gap-3">
@@ -35,7 +35,7 @@
                 Back to List
             </button>
 
-            @if (!IsNew)
+            @if (!IsNew && canConfigureRoute)
             {
                 <!-- Configure Route Button -->
                 <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
@@ -47,7 +47,6 @@
                     }
                 </button>
             }
-
             @if (!IsPosted && !IsNew)
             {
                 <PermissionGate Key="CREDIT_NOTE_CREATE">
@@ -61,11 +60,18 @@
                     </Authorized>
                 </PermissionGate>
                 <button type="button" @onclick="PostCreditNote" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                    Post Invoice Adjustment
+                    Submit Adjustment for GL Review
                 </button>
             }
         </div>
     </div>
+
+    @if (IsRejected && !string.IsNullOrWhiteSpace(currentBatchRejectionReason))
+    {
+        <div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
+            <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @currentBatchRejectionReason
+        </div>
+    }
 
     @if (IsNew)
     {
@@ -152,6 +158,8 @@
                     </div>
                 </div>
 
+                @if (canConfigureRoute)
+                {
                 <!-- Active Routing Profile Card -->
                 <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                     <div class="flex items-center justify-between border-b border-slate-100 pb-2">
@@ -175,6 +183,7 @@
                         </div>
                     </div>
                 </div>
+                }
             </div>
 
             <div class="lg:col-span-8 overflow-visible">
@@ -201,13 +210,13 @@
                                 {
                                     <tr class="hover:bg-slate-50/80 transition-colors align-middle relative overflow-visible">
                                         <td class="p-4 pl-6 font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Product Item")</td>
-                                        <td class="p-4 text-center font-mono font-semibold text-slate-500">@line.OriginalSoldQty.ToString("N2")</td>
-                                        <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@line.MaxReturnableQty.ToString("N2")</td>
+                                        <td class="p-4 text-center font-mono font-semibold text-slate-500">@line.OriginalSoldQty.ToString("N4")</td>
+                                        <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@line.MaxReturnableQty.ToString("N4")</td>
                                         <td class="p-4">
-                                            <input type="number" step="0.01" value="@line.Quantity" @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))" disabled="@IsPosted" class="w-full text-center font-mono font-black border border-slate-200 bg-white rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:outline-none transition-all" />
+                                            <input type="number" step="0.0001" value="@line.Quantity" @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))" disabled="@IsPosted" class="w-full text-center font-mono font-black border border-slate-200 bg-white rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:outline-none transition-all" />
                                         </td>
-                                        <td class="p-4 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N2")</td>
-                                        <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">@line.LineTotal.ToString("N2")</td>
+                                        <td class="p-4 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N4")</td>
+                                        <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">@line.LineTotal.ToString("N4")</td>
                                     </tr>
                                 }
                             </tbody>
@@ -217,7 +226,7 @@
                     <div class="bg-slate-50 border-t border-slate-200 p-5 flex justify-end items-center mt-auto rounded-b-2xl">
                         <div class="text-right">
                             <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Balanced Credit to Customer (@currentCn.Currency?.CurrencyCode)</div>
-                            <div class="text-2xl font-mono font-black text-slate-900">@currentCn.Lines.Sum(l => l.LineTotal).ToString("N2")</div>
+                            <div class="text-2xl font-mono font-black text-slate-900">@currentCn.Lines.Sum(l => l.LineTotal).ToString("N4")</div>
                         </div>
                     </div>
                 </div>
@@ -398,9 +407,16 @@
 
     private bool _busy = false;
     private string _errMsg = string.Empty;
+    private bool canConfigureRoute = false;
 
     private bool IsNew => Id == null;
-    private bool IsPosted => currentCn.Status == CreditNoteStatus.Posted;
+    private BatchStatus? currentBatchStatus;
+    private string? currentBatchRejectionReason;
+    private bool IsRejected => currentBatchStatus == BatchStatus.Rejected;
+    private bool IsPosted => currentCn.Status == CreditNoteStatus.Posted
+        && currentBatchStatus != BatchStatus.Ready
+        && currentBatchStatus != BatchStatus.Rejected
+        && currentBatchStatus != BatchStatus.Draft;
 
     protected override async Task OnInitializedAsync()
     {
@@ -412,6 +428,7 @@
         if (user?.CompanyDetailsId == null) return;
 
         Guid companyId = user.CompanyDetailsId.Value;
+        canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(companyId);
         warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
         customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
         allAccounts = await SegCoaService.GetCoaAsync(companyId);
@@ -426,10 +443,16 @@
         {
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             var user = await UserManager.GetUserAsync(authState.User);
+            await using var ctx = await DbFactory.CreateDbContextAsync();
             var cn = await CnService.GetByIdAsync(Id.Value, user.CompanyDetailsId ?? Guid.Empty);
             if (cn != null)
             {
                 currentCn = cn;
+                var batch = cn.GlBatchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == cn.GlBatchId.Value && b.CompanyId == cn.CompanyId)
+                    : null;
+                currentBatchStatus = batch?.Status;
+                currentBatchRejectionReason = batch?.RejectionReason;
                 var customer = customers.FirstOrDefault(c => c.Id == currentCn.CustomerId);
                 defaultArAccountId = customer?.ReceivablesAccountId ?? Guid.Empty;
             }
@@ -560,7 +583,7 @@
         var err = await CnService.PostStockCreditNoteAsync(currentCn.Id, Guid.Parse(user.Id));
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Invoice Adjustment Posted and Financial Ledger Balanced successfully!");
+            await JS.InvokeVoidAsync("alert", "Invoice adjustment submitted for GL review.");
             Nav.NavigateTo("/sales/credit-notes");
         }
         else await JS.InvokeVoidAsync("alert", err);

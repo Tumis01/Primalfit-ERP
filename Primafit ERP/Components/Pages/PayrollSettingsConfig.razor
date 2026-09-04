@@ -1,4 +1,4 @@
-﻿@page "/hr/settings"
+@page "/hr/settings"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -92,13 +92,13 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label class="label">Employee Pension Deduction Rate</label>
-                                <InputNumber step="0.01" @bind-Value="config.PensionEmployeeRate" class="input-class font-mono" />
+                                <InputNumber step="0.0001" @bind-Value="config.PensionEmployeeRate" class="input-class font-mono" />
                                 <div class="text-[10px] text-slate-400 mt-1">Standard PENCOM rate is 8% (0.08).</div>
                             </div>
                             
                             <div>
                                 <label class="label">Employer Pension Contribution Rate</label>
-                                <InputNumber step="0.01" @bind-Value="config.PensionEmployerRate" class="input-class font-mono" />
+                                <InputNumber step="0.0001" @bind-Value="config.PensionEmployerRate" class="input-class font-mono" />
                                 <div class="text-[10px] text-slate-400 mt-1">Standard PENCOM rate is 10% (0.10).</div>
                             </div>
                         </div>

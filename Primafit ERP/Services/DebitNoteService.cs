@@ -193,7 +193,14 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(d => d.Id == dnId);
 
                 if (dn == null) return "Debit note parameters not found.";
-                if (dn.Status == DebitNoteStatus.Posted) return "Document is already posted and locked.";
+                if (dn.Status == DebitNoteStatus.Posted)
+                {
+                    var existingBatch = dn.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == dn.GlBatchId.Value && b.CompanyId == dn.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (dn.PurchaseOrder == null) return "Parent purchase invoice reference missing.";
 
                 var inv = dn.PurchaseOrder;
@@ -389,7 +396,8 @@ namespace Primafit_ERP.Services
                     "Debit Note",
                     dn.DebitNoteNumber,
                     glLines,
-                    userId.ToString());
+                    userId.ToString(),
+                    existingBatchId: dn.GlBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(dn.CompanyId, batchId.Value, userId.ToString());
@@ -425,7 +433,11 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(d => d.Id == note.Id);
 
             if (existing == null) return "Debit note tracking record not found.";
-            if (existing.Status == DebitNoteStatus.Posted) return "Cannot edit locked records.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == DebitNoteStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot edit locked records.";
 
             existing.Date = note.Date;
             existing.Reason = note.Reason;

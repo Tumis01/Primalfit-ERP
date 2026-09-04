@@ -1,4 +1,4 @@
-﻿@page "/sc/transfers"
+@page "/sc/transfers"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -111,13 +111,13 @@
 
                                 <div class="mt-2 flex items-center gap-2 text-xs font-medium text-slate-500">
                                     <span>Available at Source:</span>
-                                    <span class="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">@currentStockLevel.ToString("N2")</span>
+                                    <span class="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">@currentStockLevel.ToString("N4")</span>
                                 </div>
                             </div>
 
                             <div>
                                 <label class="label">Quantity</label>
-                                <InputNumber @bind-Value="qty" class="input-class font-bold" placeholder="0.00" />
+                                <InputNumber @bind-Value="qty" class="input-class font-bold" placeholder="0.0000" />
                             </div>
                         </div>
 
@@ -156,7 +156,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                   d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                         </svg>
-                                        <span>Ship Transfer</span>
+                                        <span>Submit Transfer for GL Review</span>
                                     }
                                 </button>
                             </Authorized>
@@ -196,10 +196,10 @@
                                         </div>
                                     </td>
                                     <td class="p-4 font-bold text-slate-900">@t.Item?.Name</td>
-                                    <td class="p-4 text-right font-mono text-slate-500">@t.Quantity.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono text-slate-500">@t.Quantity.ToString("N4")</td>
 
                                     <td class="p-4 text-right">
-                                        <input type="number"
+                                        <input type="number" step="0.0001"
                                                value="@GetReceiveQty(t.Id, t.Quantity)"
                                                @onchange="(e => UpdateReceiveQty(t.Id, e))"
                                                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 focus:ring-slate-900 focus:border-slate-900 text-sm" />
@@ -212,7 +212,7 @@
                                                     <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                                                     </svg>
-                                                    Receive
+                                                    Submit Receipt for GL Review
                                                 </button>
                                             </Authorized>
                                         </PermissionGate>
@@ -377,7 +377,7 @@
 
             if (string.IsNullOrEmpty(err))
             {
-                await JS.InvokeVoidAsync("alert", "Transfer Shipped. Stock is now 'In Transit'.");
+                await JS.InvokeVoidAsync("alert", "Transfer submitted for GL review. Stock is now 'In Transit'.");
                 qty = 0; reference = "";
                 await LoadData();
                 activeTab = 2;
@@ -410,7 +410,7 @@
         return;
     }
 
-    if (!await JS.InvokeAsync<bool>("confirm", $"Confirm receipt of {actualQty:N2} (Shipped: {t.Quantity:N2})?"))
+    if (!await JS.InvokeAsync<bool>("confirm", $"Submit receipt of {actualQty:N4} (Shipped: {t.Quantity:N4}) for GL review?"))
         return;
 
     // Passed currentUserId here

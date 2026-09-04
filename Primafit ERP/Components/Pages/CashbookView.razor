@@ -1,4 +1,4 @@
-﻿@page "/gl/cashbook"
+@page "/gl/cashbook"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -71,7 +71,7 @@
                                 <div>
                                     <div class="text-[10px] text-slate-400">Opening Balance</div>
                                     <div class="text-sm font-mono font-bold @(batch.ClosingBalance < 0 ? "text-rose-600" : "text-slate-700")">
-                                        @batch.ClosingBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                        @batch.ClosingBalance.ToString("#,##0.0000;(#,##0.0000);0.0000")
                                     </div>
                                 </div>
                                 <div class="text-right">
@@ -109,13 +109,15 @@
                                 <p class="text-xs text-slate-500 mt-1">
                                     Base Opening Balance: 
                                     <span class="font-mono font-bold @(selectedBatch.OpeningBalance < 0 ? "text-rose-600" : "")">
-                                        @selectedBatch.OpeningBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                        @selectedBatch.OpeningBalance.ToString("#,##0.0000;(#,##0.0000);0.0000")
                                     </span>
                                 </p>
                             </div>
                             <div class="flex gap-2">
-                                @if (selectedBatch.Status == BatchStatus.Draft)
+                                @if (selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Rejected)
                                 {
+                                    @if (selectedBatch.Status == BatchStatus.Draft && !selectedBatch.IsLocked)
+                                    {
                                     <PermissionGate Key="CASHBOOK_BATCH_CREATE">
                                         <Authorized>
                                             <button @onclick="DeleteBatch" class="px-4 py-2 bg-white border border-rose-300 text-rose-700 text-xs font-bold rounded-lg hover:bg-rose-50 flex items-center gap-2 transition-colors">
@@ -124,38 +126,57 @@
                                             </button>
                                         </Authorized>
                                     </PermissionGate>
-                                    <PermissionGate Key="CASHBOOK_BATCH_APPROVE">
-                                        <Authorized>
-                                            <button @onclick="SubmitForApproval" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-100 flex items-center gap-2 transition-colors">
-                                                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                                Lock Batch
-                                            </button>
-                                        </Authorized>
-                                    </PermissionGate>
+                                    }
+
+                                    @if (selectedBatch.Status == BatchStatus.Draft && !selectedBatch.IsLocked)
+                                    {
+                                        <button @onclick="LockBatch" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50">Lock Batch</button>
+                                    }
+                                    else if (selectedBatch.Status == BatchStatus.Draft && selectedBatch.IsLocked)
+                                    {
+                                        <button @onclick="UnlockBatch" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50">Unlock for Edit</button>
+                                    }
+
+                                    <button @onclick="StageForGLReview" disabled="@(!selectedBatch.Entries.Any())" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2 transition-colors disabled:opacity-50">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+                                        @(selectedBatch.Status == BatchStatus.Rejected ? "Resubmit for GL Review" : "Submit for GL Review")
+                                    </button>
                                 }
-                                @if (selectedBatch.Status == BatchStatus.Ready)
+                                else if (selectedBatch.Status == BatchStatus.Ready)
                                 {
+                                    <span class="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                                        <span class="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+                                        Staged on /gl/batches
+                                    </span>
+
                                     <PermissionGate Key="CASHBOOK_BATCH_APPROVE">
                                         <Authorized>
-                                            <button @onclick="UnlockBatch" class="px-4 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-100 flex items-center gap-2">
+                                            <button @onclick="UnlockBatch" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 flex items-center gap-2">
                                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /></svg>
                                                 Unlock (Edit)
                                             </button>
                                         </Authorized>
                                     </PermissionGate>
-                                    <PermissionGate Key="CASHBOOK_BATCH_POST">
-                                        <Authorized>
-                                            <button @onclick="PostBatch" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-700 flex items-center gap-2">
-                                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                Post to GL
-                                            </button>
-                                        </Authorized>
-                                    </PermissionGate>
+                                }
+                                else if (selectedBatch.Status == BatchStatus.Posted)
+                                {
+                                    <span class="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+                                        Committed to GL (Read-Only)
+                                    </span>
+                                    <button @onclick="ReuseBatch" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 shadow-sm">Reuse Batch</button>
                                 }
                             </div>
                         </div>
 
-                        @if (selectedBatch.Status == BatchStatus.Draft)
+                        @if (selectedBatch.Status == BatchStatus.Rejected && !string.IsNullOrWhiteSpace(selectedBatch.RejectionReason))
+                        {
+                            <div class="px-6 py-3 bg-rose-50 border-b border-rose-200 text-xs text-rose-800">
+                                <span class="font-bold uppercase tracking-wider">Returned for correction:</span> @selectedBatch.RejectionReason
+                            </div>
+                        }
+
+                        @if ((selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Rejected) && !selectedBatch.IsLocked)
                         {
                             <EditForm Model="@entryForm" OnValidSubmit="SaveEntry" class="p-4 bg-slate-50/50 border-b border-slate-100">
                                 <DataAnnotationsValidator />
@@ -202,20 +223,20 @@
                                     {
                                         <div class="md:col-span-3">
                                             <label class="label text-indigo-600">Foreign Debit </label>
-                                            <input type="number" step="0.01" @bind="ForeignDebitInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@(!inputForeignAmount)" />
+                                            <input type="number" step="0.0001" @bind="ForeignDebitInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-indigo-600">Foreign Credit </label>
-                                            <input type="number" step="0.01" @bind="ForeignCreditInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@(!inputForeignAmount)" />
+                                            <input type="number" step="0.0001" @bind="ForeignCreditInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
                                         </div>
                                         
                                         <div class="md:col-span-3">
                                             <label class="label text-rose-700"> Debit </label>
-                                            <input type="number" step="0.01" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@inputForeignAmount" />
+                                            <input type="number" step="0.0001" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-emerald-700"> Credit</label>
-                                            <input type="number" step="0.01" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.00" disabled="@inputForeignAmount" />
+                                            <input type="number" step="0.0001" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
                                         </div>
                                     }
                                     else
@@ -223,11 +244,11 @@
                                         <div class="md:col-span-6"></div>
                                         <div class="md:col-span-3">
                                             <label class="label text-rose-700">Debit (Money In)</label>
-                                            <input type="number" step="0.01" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700" placeholder="0.00" />
+                                            <input type="number" step="0.0001" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700" placeholder="0.0000" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-emerald-700">Credit (Money Out)</label>
-                                            <input type="number" step="0.01" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700" placeholder="0.00" />
+                                            <input type="number" step="0.0001" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700" placeholder="0.0000" />
                                         </div>
                                     }
 
@@ -277,12 +298,12 @@
                                             
                                             @if (selectedBatch.IsForeignCurrency)
                                             {
-                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignDebit > 0 ? entry.ForeignDebit.ToString("N2") : "-")</td>
-                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignCredit > 0 ? entry.ForeignCredit.ToString("N2") : "-")</td>
+                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignDebit > 0 ? entry.ForeignDebit.ToString("N4") : "-")</td>
+                                                <td class="p-4 text-right font-mono text-indigo-600 text-xs bg-indigo-50/30">@(entry.ForeignCredit > 0 ? entry.ForeignCredit.ToString("N4") : "-")</td>
                                             }
 
-                                            <td class="p-4 text-right font-mono text-rose-600 font-bold text-xs">@(entry.Debit > 0 ? entry.Debit.ToString("N2") : "-")</td>
-                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold text-xs">@(entry.Credit > 0 ? entry.Credit.ToString("N2") : "-")</td>
+                                            <td class="p-4 text-right font-mono text-rose-600 font-bold text-xs">@(entry.Debit > 0 ? entry.Debit.ToString("N4") : "-")</td>
+                                            <td class="p-4 text-right font-mono text-emerald-600 font-bold text-xs">@(entry.Credit > 0 ? entry.Credit.ToString("N4") : "-")</td>
                                             <td class="p-4 text-center">
                                                 @if (entry.IsPosted)
                                                 {
@@ -293,7 +314,7 @@
                                                         Posted
                                                     </span>
                                                 }
-                                                else if (selectedBatch.Status == BatchStatus.Draft)
+                                                else if ((selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Rejected) && !selectedBatch.IsLocked)
                                                 {
                                                     <div class="flex items-center justify-center gap-2">
                                                         <button @onclick="() => EditEntry(entry)" class="text-slate-400 hover:text-indigo-600" title="Edit">
@@ -315,7 +336,7 @@
                                     <tr class="bg-slate-50 border-t border-slate-200">
                                         <td colspan="@(selectedBatch.IsForeignCurrency ? 6 : 4)" class="p-4 text-right font-bold text-slate-600 text-xs uppercase">Base Closing Balance</td>
                                         <td colspan="2" class="p-4 text-right font-mono font-bold @(selectedBatch.ClosingBalance < 0 ? "text-rose-600" : "text-slate-900") text-lg">
-                                            @selectedBatch.ClosingBalance.ToString("#,##0.00;(#,##0.00);0.00")
+                                            @selectedBatch.ClosingBalance.ToString("#,##0.0000;(#,##0.0000);0.0000")
                                         </td>
                                         <td></td>
                                     </tr>
@@ -564,22 +585,62 @@
         if (string.IsNullOrEmpty(err)) await LoadBatches(); else await JS.InvokeVoidAsync("alert", err);
     }
 
-    private async Task PostBatch()
+    private async Task LockBatch()
     {
         if (selectedBatch == null) return;
-        if (!await JS.InvokeAsync<bool>("confirm", "This will post to the General Ledger. Continue?")) return;
+        var err = await CashService.LockBatchAsync(selectedBatch.Id);
+        if (string.IsNullOrEmpty(err)) await LoadBatches(); else await JS.InvokeVoidAsync("alert", err);
+    }
 
-        var batchId = selectedBatch.Id;
-        var err = await CashService.PostBatchAsync(batchId, currentUserId);
+    private async Task ReuseBatch()
+    {
+        if (selectedBatch == null) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Reuse {selectedBatch.BatchReference} for additional cashbook entries?")) return;
+        var err = await CashService.ReuseBatchAsync(selectedBatch.Id);
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Batch Posted Successfully.");
             await LoadBatches();
+            await SelectBatch(selectedBatch.Id);
+        }
+        else await JS.InvokeVoidAsync("alert", err);
+    }
 
-            if (selectedBatch != null && !selectedBatch.ClearAfterPost)
-                await SelectBatch(batchId); // stay on retained batch
-            else
-                selectedBatch = null;      // clear — it's been closed out
+    // private async Task PostBatch()
+    // {
+    //     if (selectedBatch == null) return;
+    //     if (!await JS.InvokeAsync<bool>("confirm", "This will post to the General Ledger. Continue?")) return;
+
+    //     var batchId = selectedBatch.Id;
+    //     var err = await CashService.PostBatchAsync(batchId, currentUserId);
+    //     if (string.IsNullOrEmpty(err))
+    //     {
+    //         await JS.InvokeVoidAsync("alert", "Batch Posted Successfully.");
+    //         await LoadBatches();
+
+    //         if (selectedBatch != null && !selectedBatch.ClearAfterPost)
+    //             await SelectBatch(batchId); stay on retained batch
+    //         else
+    //             selectedBatch = null;      clear — it's been closed out
+    //     }
+    //     else
+    //     {
+    //         await JS.InvokeVoidAsync("alert", err);
+    //     }
+    // }
+
+    private async Task StageForGLReview()
+    {
+        if (selectedBatch == null || !selectedBatch.Entries.Any()) return;
+
+        bool confirm = await JS.InvokeAsync<bool>("confirm",
+            $"Stage cashbook batch {selectedBatch.BatchReference} for review? It will appear on /gl/batches for GL posting.");
+        if (!confirm) return;
+
+        var err = await CashService.PostBatchAsync(selectedBatch.Id, currentUserId);
+        if (string.IsNullOrEmpty(err))
+        {
+            await JS.InvokeVoidAsync("alert", "Batch submitted and staged for GL review.");
+            await LoadBatches();
         }
         else
         {

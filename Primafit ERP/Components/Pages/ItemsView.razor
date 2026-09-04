@@ -1,4 +1,4 @@
-﻿@page "/sc/items"
+@page "/sc/items"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -62,7 +62,7 @@
                 <h3 class="text-lg font-bold text-slate-900">@(isEditing ? "Edit Item" : "New Item")</h3>
                 @if (isEditing)
                 {
-                    <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold font-mono border border-slate-200">Current Cost: @currentItem.CurrentDisplayCost.ToString("N2")</span>
+                    <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-xs font-bold font-mono border border-slate-200">Current Cost: @currentItem.CurrentDisplayCost.ToString("N4")</span>
                 }
             </div>
 
@@ -122,14 +122,14 @@
                             {
                                 <div class="animate-in fade-in slide-in-from-top-2">
                                     <label class="label text-indigo-700">User Specified Cost</label>
-                                    <InputNumber @bind-Value="currentItem.UserSpecifiedCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                    <InputNumber @bind-Value="currentItem.UserSpecifiedCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.0000" />
                                 </div>
                             }
                             else if (currentItem.CostingType == CostingMethod.StandardCosting)
                             {
                                 <div class="animate-in fade-in slide-in-from-top-2">
                                     <label class="label text-indigo-700">Standard Cost</label>
-                                    <InputNumber @bind-Value="currentItem.StandardCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.00" />
+                                    <InputNumber @bind-Value="currentItem.StandardCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.0000" />
                                 </div>
                             }
                         </div>
@@ -247,9 +247,9 @@
                                         <span class="text-xs text-slate-400 italic">N/A</span>
                                     }
                                 </td>
-                                <td class="p-4 text-right font-mono font-bold text-emerald-600">@i.SellingPrice.ToString("N2")</td>
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600">@i.SellingPrice.ToString("N4")</td>
 
-                                <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N2")</td>
+                                <td class="p-4 text-right font-mono text-slate-500">@i.CurrentDisplayCost.ToString("N4")</td>
 
                                 <td class="p-4 text-right pr-6 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                                     <PermissionGate Key="INVENTORY_SETUP_MANAGE">

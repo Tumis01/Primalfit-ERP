@@ -1,4 +1,4 @@
-﻿@page "/tax-setup"
+@page "/tax-setup"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -87,7 +87,7 @@
                     <div class="md:col-span-3">
                         <label class="label">Percentage (%)</label>
                         <div class="relative">
-                            <InputNumber @bind-Value="currentTax.Per" class="input-class pr-8" placeholder="0.00" />
+                            <InputNumber @bind-Value="currentTax.Per" class="input-class pr-8" placeholder="0.0000" />
                             <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                                 <span class="text-slate-400 text-sm font-bold">%</span>
                             </div>

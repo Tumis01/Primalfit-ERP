@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -25,7 +25,7 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CurrencyId { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
@@ -35,10 +35,10 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; } 
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
@@ -48,6 +48,7 @@ namespace Primafit_ERP.Components.Models
 
         public Guid? AccountsPayableGlAccountId { get; set; }
         public Guid? GoodsReceiptClearingGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public bool HasReceipt { get; set; } = false;
@@ -84,6 +85,7 @@ namespace Primafit_ERP.Components.Models
         public string GrnNumber { get; set; } = string.Empty;
         public DateTime DateReceived { get; set; } = DateTime.Today;
         public Guid InventoryGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
         public Guid? CustomTransactionTypeId { get; set; }
         [ForeignKey(nameof(CustomTransactionTypeId))]
         public virtual CustomTransactionType? CustomTransactionType { get; set; }
@@ -130,13 +132,13 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public virtual Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmountForeign { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmount { get; set; }
 
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
@@ -155,6 +157,7 @@ namespace Primafit_ERP.Components.Models
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
+        public Guid? GLBatchId { get; set; }
         public virtual List<VendorPayment> Payments { get; set; } = new();
 
         [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount) ?? 0;
@@ -190,10 +193,10 @@ namespace Primafit_ERP.Components.Models
         public Guid ExpenseGlAccountId { get; set; }
         public string? Description { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QuantityBilled { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal UnitCostBilled { get; set; }
 
         [NotMapped]
@@ -215,7 +218,7 @@ namespace Primafit_ERP.Components.Models
 
         public DateTime Date { get; set; } = DateTime.Today;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Amount { get; set; }
 
         public Guid BankGlAccountId { get; set; }
@@ -228,6 +231,7 @@ namespace Primafit_ERP.Components.Models
 
         public Guid? OverrideDebitApGlAccountId { get; set; }
         public Guid? OverrideCreditBankGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
     }
 
     public class ItemCostHistory
@@ -235,9 +239,9 @@ namespace Primafit_ERP.Components.Models
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid ItemId { get; set; }
         public DateTime DateChanged { get; set; } = DateTime.UtcNow;
-        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
-        [Column(TypeName = "decimal(18,2)")] public decimal NewQtyIn { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal NewQtyIn { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal NewCostIn { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal ResultingWacc { get; set; }
         public string Reference { get; set; } = string.Empty;
@@ -249,9 +253,9 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         public DateTime DateChanged { get; set; } = DateTime.UtcNow;
         public string Reference { get; set; } = "";
-        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
-        [Column(TypeName = "decimal(18,2)")] public decimal IncomingQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal IncomingQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal IncomingCost { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal NewWacc { get; set; }
     }

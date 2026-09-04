@@ -1,6 +1,8 @@
-﻿@page "/hr/payroll-manager"
+@page "/hr/payroll-manager"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
@@ -12,6 +14,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
@@ -45,7 +48,7 @@
                 <button @onclick="CloseRunDetails" class="px-5 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-all h-[42px]">
                     ← Back to Runs
                 </button>
-                @if (selectedRun.Status == PayrollRunStatus.Draft)
+                @if (selectedRun.Status == PayrollRunStatus.Draft || IsRejected(selectedRun.GLBatchId))
                 {
                     <PermissionGate Key="HR_MANAGEMENT_MANAGE">
                         <Authorized>
@@ -54,7 +57,7 @@
                                 {
                                     <span class="animate-spin">↻</span>
                                 }
-                                Approve & Accrue (GL)
+                                @(IsRejected(selectedRun.GLBatchId) ? "Resubmit Accrual for GL Review" : "Submit Accrual for GL Review")
                             </button>
                         </Authorized>
                     </PermissionGate>
@@ -67,6 +70,15 @@
     {
         <div class="bg-rose-50 text-rose-700 p-4 rounded-xl font-bold text-sm border border-rose-200">
             @error
+        </div>
+    }
+
+    @if (selectedRun != null && IsRejected(selectedRun.GLBatchId))
+    {
+        <div class="bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl text-sm">
+            <div class="font-black uppercase tracking-wider text-xs mb-1">Payroll accrual rejected</div>
+            <div>@(GetBatch(selectedRun.GLBatchId)?.RejectionReason ?? "The reviewer returned this batch for correction.")</div>
+            <div class="text-xs mt-2 font-semibold">Adjust the payroll details, then resubmit it for GL review. No ledger entry was posted.</div>
         </div>
     }
 
@@ -93,15 +105,15 @@
                     <div class="space-y-3">
                         <div class="flex justify-between items-center border-b border-slate-800 pb-2">
                             <span class="text-xs text-slate-400">Total Gross</span>
-                            <span class="font-mono font-bold text-sm">@selectedRun.TotalGrossPay.ToString("N2")</span>
+                            <span class="font-mono font-bold text-sm">@selectedRun.TotalGrossPay.ToString("N4")</span>
                         </div>
                         <div class="flex justify-between items-center border-b border-slate-800 pb-2">
                             <span class="text-xs text-slate-400">Total Deductions</span>
-                            <span class="font-mono font-bold text-sm text-rose-400">@selectedRun.TotalDeductions.ToString("N2")</span>
+                            <span class="font-mono font-bold text-sm text-rose-400">@selectedRun.TotalDeductions.ToString("N4")</span>
                         </div>
                         <div class="flex justify-between items-center pt-2">
                             <span class="text-sm font-bold text-emerald-400">Net Payable</span>
-                            <span class="font-mono font-black text-lg text-emerald-400">@selectedRun.TotalNetPay.ToString("N2")</span>
+                            <span class="font-mono font-black text-lg text-emerald-400">@selectedRun.TotalNetPay.ToString("N4")</span>
                         </div>
                     </div>
                 </div>
@@ -116,55 +128,68 @@
                     <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-3">
                         <span class="text-[10px] font-black uppercase text-slate-400 mr-2 tracking-widest">Financial Actions:</span>
                         
-                        @if (selectedRun.Status == PayrollRunStatus.Approved && !selectedRun.DisbursementGLBatchId.HasValue)
+                        @if ((selectedRun.Status == PayrollRunStatus.Approved || selectedRun.Status == PayrollRunStatus.Paid) &&
+                             (!selectedRun.DisbursementGLBatchId.HasValue || IsRejected(selectedRun.DisbursementGLBatchId)))
 {
                             <PermissionGate Key="HR_MANAGEMENT_MANAGE">
                                 <Authorized>
                                     <button @onclick='() => OpenPaymentModal("Disburse")' class="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700 shadow-sm transition-colors">
-                                        Pay Salaries
+                                        @(IsRejected(selectedRun.DisbursementGLBatchId) ? "Resubmit Salary Disbursement" : "Submit Salary Disbursement")
                                     </button>
                                 </Authorized>
                             </PermissionGate>
                         }
-                        else if (selectedRun.Status == PayrollRunStatus.Paid)
+                        else if (GetBatch(selectedRun.DisbursementGLBatchId)?.Status == BatchStatus.Posted)
                         {
                             <span class="px-4 py-2 bg-emerald-50 text-emerald-700 text-sm font-bold rounded-lg border border-emerald-200 flex items-center gap-1">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg> Salaries Disbursed
                             </span>
                         }
+                        else if (selectedRun.DisbursementGLBatchId.HasValue)
+                        {
+                            <span class="px-4 py-2 bg-amber-50 text-amber-700 text-sm font-bold rounded-lg border border-amber-200">Salary disbursement awaiting GL review</span>
+                        }
 
-                        @if (!selectedRun.IsPayeRemitted && selectedRun.PayrollItems.Sum(i => i.PAYETax) > 0)
+                        @if ((!selectedRun.IsPayeRemitted || IsRejected(selectedRun.PayeRemittanceGLBatchId)) && selectedRun.PayrollItems.Sum(i => i.PAYETax) > 0)
                         {
                             <PermissionGate Key="HR_MANAGEMENT_MANAGE">
                                 <Authorized>
                                     <button @onclick='() => OpenPaymentModal("PAYE")' class="px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg hover:bg-slate-800 shadow-sm transition-colors">
-                                        Remit PAYE Tax
+                                        @(IsRejected(selectedRun.PayeRemittanceGLBatchId) ? "Resubmit PAYE for Review" : "Submit PAYE for Review")
                                     </button>
                                 </Authorized>
                             </PermissionGate>
                         }
-                        else if (selectedRun.IsPayeRemitted)
+                        else if (GetBatch(selectedRun.PayeRemittanceGLBatchId)?.Status == BatchStatus.Posted)
                         {
                             <span class="px-3 py-2 text-slate-400 text-xs font-bold flex items-center gap-1">
                                 <svg class="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> PAYE Remitted
                             </span>
                         }
+                        else if (selectedRun.PayeRemittanceGLBatchId.HasValue)
+                        {
+                            <span class="px-3 py-2 text-amber-700 text-xs font-bold">PAYE awaiting GL review</span>
+                        }
                         
-                        @if (!selectedRun.IsPensionRemitted && selectedRun.PayrollItems.Sum(i => i.EmployeePension + i.EmployerPension) > 0)
+                        @if ((!selectedRun.IsPensionRemitted || IsRejected(selectedRun.PensionRemittanceGLBatchId)) && selectedRun.PayrollItems.Sum(i => i.EmployeePension + i.EmployerPension) > 0)
                         {
                             <PermissionGate Key="HR_MANAGEMENT_MANAGE">
                                 <Authorized>
                                     <button @onclick='() => OpenPaymentModal("Pension")' class="px-4 py-2 bg-slate-900 text-white text-sm font-bold rounded-lg hover:bg-slate-800 shadow-sm transition-colors">
-                                        Remit Pension
+                                        @(IsRejected(selectedRun.PensionRemittanceGLBatchId) ? "Resubmit Pension for Review" : "Submit Pension for Review")
                                     </button>
                                 </Authorized>
                             </PermissionGate>
                         }
-                        else if (selectedRun.IsPensionRemitted)
+                        else if (GetBatch(selectedRun.PensionRemittanceGLBatchId)?.Status == BatchStatus.Posted)
                         {
                             <span class="px-3 py-2 text-slate-400 text-xs font-bold flex items-center gap-1">
                                 <svg class="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg> Pension Remitted
                             </span>
+                        }
+                        else if (selectedRun.PensionRemittanceGLBatchId.HasValue)
+                        {
+                            <span class="px-3 py-2 text-amber-700 text-xs font-bold">Pension awaiting GL review</span>
                         }
                     </div>
                 }
@@ -190,10 +215,10 @@
                                             <div class="font-bold text-slate-900">@item.Employee?.FirstName @item.Employee?.LastName</div>
                                             <div class="text-[10px] text-slate-500">@item.Employee?.EmployeeCode</div>
                                         </td>
-                                        <td class="p-4 text-right font-mono text-slate-600">@item.GrossPay.ToString("N2")</td>
-                                        <td class="p-4 text-right font-mono font-bold text-indigo-600">@item.OtherEarnings.ToString("N2")</td>
-                                        <td class="p-4 text-right font-mono font-bold text-rose-600">@((item.PAYETax + item.EmployeePension + item.OtherDeductions).ToString("N2"))</td>
-                                        <td class="p-4 text-right font-mono font-black text-emerald-600">@item.NetPay.ToString("N2")</td>
+                                        <td class="p-4 text-right font-mono text-slate-600">@item.GrossPay.ToString("N4")</td>
+                                        <td class="p-4 text-right font-mono font-bold text-indigo-600">@item.OtherEarnings.ToString("N4")</td>
+                                        <td class="p-4 text-right font-mono font-bold text-rose-600">@((item.PAYETax + item.EmployeePension + item.OtherDeductions).ToString("N4"))</td>
+                                        <td class="p-4 text-right font-mono font-black text-emerald-600">@item.NetPay.ToString("N4")</td>
                                         <td class="p-4 text-center pr-6">
                                             @if (selectedRun.Status == PayrollRunStatus.Draft)
                                             {
@@ -242,8 +267,8 @@
                             <tr class="hover:bg-slate-50 transition-colors cursor-pointer" @onclick="() => LoadRunDetails(run.Id)">
                                 <td class="p-4 pl-6 font-bold text-slate-900">@run.Period</td>
                                 <td class="p-4 text-slate-500">@run.RunDate.ToString("MMM dd, yyyy")</td>
-                                <td class="p-4 text-right font-mono text-slate-700">@run.TotalGrossPay.ToString("N2")</td>
-                                <td class="p-4 text-right font-mono font-bold text-emerald-600">@run.TotalNetPay.ToString("N2")</td>
+                                <td class="p-4 text-right font-mono text-slate-700">@run.TotalGrossPay.ToString("N4")</td>
+                                <td class="p-4 text-right font-mono font-bold text-emerald-600">@run.TotalNetPay.ToString("N4")</td>
                                 <td class="p-4 text-center">
                                     <span class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full 
                                         @(run.Status == PayrollRunStatus.Draft ? "bg-amber-100 text-amber-700" : 
@@ -284,7 +309,7 @@
                     </div>
                     <div>
                         <label class="label">Amount</label>
-                        <input type="number" step="0.01" @bind="adjAmt" class="input-class font-mono" placeholder="0.00" />
+                        <input type="number" step="0.0001" @bind="adjAmt" class="input-class font-mono" placeholder="0.0000" />
                     </div>
                 </div>
 
@@ -373,7 +398,13 @@
     // State
     private List<PayrollRun> runs = new();
     private PayrollRun? selectedRun;
+    private Dictionary<Guid, GLBatch> batchCache = new();
     private DateTime newPeriodDate = DateTime.Today;
+
+    private GLBatch? GetBatch(Guid? batchId) =>
+        batchId.HasValue && batchCache.TryGetValue(batchId.Value, out var batch) ? batch : null;
+
+    private bool IsRejected(Guid? batchId) => GetBatch(batchId)?.Status == BatchStatus.Rejected;
 
     // Adjustment Modal State
     private bool showAdjModal = false;
@@ -420,6 +451,10 @@
     private async Task LoadRuns()
     {
         runs = await PayrollService.GetPayrollRunsAsync(currentCompanyId);
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+        batchCache = await ctx.GLBatches
+            .Where(b => b.CompanyId == currentCompanyId)
+            .ToDictionaryAsync(b => b.Id);
     }
 
     private async Task LoadRunDetails(Guid runId)

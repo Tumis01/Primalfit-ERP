@@ -1,4 +1,4 @@
-﻿@page "/sales/credit-notes"
+@page "/sales/credit-notes"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -63,6 +63,11 @@
                     <tbody class="divide-y divide-slate-100">
                         @foreach (var cn in FilteredCreditNotes)
                         {
+                            var batchStatus = cn.GlBatchId.HasValue && batchStatuses.TryGetValue(cn.GlBatchId.Value, out var linkedStatus)
+                                ? linkedStatus
+                                : (cn.Status == CreditNoteStatus.Posted ? BatchStatus.Posted : BatchStatus.Draft);
+                            bool isRejected = batchStatus == BatchStatus.Rejected;
+                            bool isPosted = batchStatus == BatchStatus.Posted;
                             <tr class="hover:bg-slate-50/80 transition-colors">
                                 <td class="px-6 py-4 font-mono font-bold text-indigo-700">@cn.CreditNoteNumber</td>
                                 <td class="px-6 py-4 text-slate-500 font-medium">@cn.Date.ToString("MMM dd, yyyy")</td>
@@ -73,10 +78,22 @@
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 text-center">
-                                    @if (cn.Status == CreditNoteStatus.Posted)
+                                    @if (isPosted)
                                     {
                                         <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
                                             Posted
+                                        </span>
+                                    }
+                                    else if (isRejected)
+                                    {
+                                        <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider animate-pulse" title="@GetRejectionReason(cn)">
+                                            Rejected - Edit Required
+                                        </span>
+                                    }
+                                    else if (batchStatus == BatchStatus.Ready)
+                                    {
+                                        <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">
+                                            Pending GL Review
                                         </span>
                                     }
                                     else
@@ -87,12 +104,12 @@
                                     }
                                 </td>
                                 <td class="px-6 py-4 text-right">
-                                    <div class="font-mono font-bold text-slate-900">@cn.TotalAmount.ToString("N2")</div>
+                                    <div class="font-mono font-bold text-slate-900">@cn.TotalAmount.ToString("N4")</div>
                                     <div class="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">@cn.Currency?.CurrencyCode</div>
                                 </td>
                                 <td class="px-6 py-4 text-center">
-                                    <a href="/sales/credit-notes/entry/@cn.Id" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold transition-colors @(cn.Status == CreditNoteStatus.Draft ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-100 text-slate-600 hover:bg-slate-200")">
-                                        @(cn.Status == CreditNoteStatus.Draft ? "Edit Draft" : "View Details")
+                                    <a href="/sales/credit-notes/entry/@cn.Id" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold transition-colors @(!isPosted ? "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50" : "bg-slate-100 text-slate-600 hover:bg-slate-200")">
+                                        @(isRejected ? "Edit & Resubmit" : (isPosted ? "View Details" : "Edit Draft"))
                                     </a>
                                 </td>
                             </tr>
@@ -116,7 +133,11 @@
 @code {
     private bool isLoading = true;
     private List<CreditNote> creditNotes = new();
+    private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private Dictionary<Guid, string?> batchRejectionReasons = new();
     private string searchTerm = "";
+
+    private string? GetRejectionReason(CreditNote note) => note.GlBatchId.HasValue && batchRejectionReasons.TryGetValue(note.GlBatchId.Value, out var reason) ? reason : null;
 
     // Dynamic Search Filter
     private IEnumerable<CreditNote> FilteredCreditNotes => string.IsNullOrWhiteSpace(searchTerm)
@@ -147,6 +168,13 @@
             .OrderByDescending(c => c.Date)
             .AsNoTracking()
             .ToListAsync();
+
+        var batches = await ctx.GLBatches
+            .Where(b => b.CompanyId == companyId && b.Id != Guid.Empty)
+            .Select(b => new { b.Id, b.Status, b.RejectionReason })
+            .ToListAsync();
+        batchStatuses = batches.ToDictionary(b => b.Id, b => b.Status);
+        batchRejectionReasons = batches.ToDictionary(b => b.Id, b => b.RejectionReason);
 
         isLoading = false;
     }

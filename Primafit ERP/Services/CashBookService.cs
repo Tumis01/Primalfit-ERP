@@ -15,15 +15,58 @@ namespace Primafit_ERP.Services
             _glOps = glOps;
         }
 
+        private static void AddAudit(AppDbContext ctx, Guid companyId, string action, Guid entityId, string details)
+        {
+            ctx.AuditLogs.Add(new AuditLog
+            {
+                CompanyId = companyId, UserId = "system", Action = action,
+                EntityType = nameof(CashbookBatch), EntityId = entityId,
+                Details = details, CreatedAt = DateTime.UtcNow
+            });
+        }
+
         public async Task<List<CashbookBatch>> GetActiveBatchesAsync(Guid companyId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            return await ctx.CashbookBatches
+            var batches = await ctx.CashbookBatches
                 .Include(b => b.Entries)
-                .Where(b => b.CompanyId == companyId && b.Status != BatchStatus.Posted)
+                .Where(b => b.CompanyId == companyId)
                 .OrderByDescending(b => b.CreatedDate)
                 .ToListAsync();
+
+            var glBatchIds = batches.Where(b => b.PostedGLBatchId.HasValue)
+                .Select(b => b.PostedGLBatchId!.Value).ToList();
+            var glStatuses = await ctx.GLBatches.AsNoTracking()
+                .Where(b => glBatchIds.Contains(b.Id) && b.CompanyId == companyId)
+                .ToDictionaryAsync(b => b.Id, b => new { b.Status, b.RejectionReason });
+
+            foreach (var batch in batches)
+            {
+                if (batch.PostedGLBatchId.HasValue && glStatuses.TryGetValue(batch.PostedGLBatchId.Value, out var gl))
+                {
+                    if (gl.Status == BatchStatus.Rejected)
+                    {
+                        batch.Status = BatchStatus.Rejected;
+                        batch.IsLocked = false;
+                        batch.RejectionReason = gl.RejectionReason;
+                    }
+                    else if (gl.Status == BatchStatus.Posted)
+                    {
+                        batch.Status = BatchStatus.Posted;
+                        batch.IsLocked = true;
+                        if (batch.ClearAfterPost)
+                        {
+                            ctx.CashbookEntries.RemoveRange(batch.Entries);
+                            batch.Entries.Clear();
+                        }
+                        else foreach (var entry in batch.Entries) entry.IsPosted = true;
+                    }
+                }
+            }
+
+            await ctx.SaveChangesAsync();
+            return batches;
         }
 
         public async Task<CashbookBatch> GetBatchByIdAsync(Guid id)
@@ -33,6 +76,29 @@ namespace Primafit_ERP.Services
             var batch = await ctx.CashbookBatches
                 .Include(b => b.Entries)
                 .FirstOrDefaultAsync(b => b.Id == id);
+
+            if (batch != null && batch.PostedGLBatchId.HasValue)
+            {
+                var glBatch = await ctx.GLBatches.AsNoTracking()
+                    .FirstOrDefaultAsync(g => g.Id == batch.PostedGLBatchId.Value && g.CompanyId == batch.CompanyId);
+                if (glBatch?.Status == BatchStatus.Rejected)
+                {
+                    batch.Status = BatchStatus.Rejected;
+                    batch.IsLocked = false;
+                    batch.RejectionReason = glBatch.RejectionReason;
+                }
+                else if (glBatch?.Status == BatchStatus.Posted)
+                {
+                    batch.Status = BatchStatus.Posted;
+                    batch.IsLocked = true;
+                    if (batch.ClearAfterPost)
+                    {
+                        ctx.CashbookEntries.RemoveRange(batch.Entries);
+                        batch.Entries.Clear();
+                    }
+                    else foreach (var entry in batch.Entries) entry.IsPosted = true;
+                }
+            }
 
             if (batch != null)
             {
@@ -84,6 +150,9 @@ namespace Primafit_ERP.Services
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (entry.Id == Guid.Empty) entry.Id = Guid.NewGuid();
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == entry.CashbookBatchId);
+            if (batch == null) return "Cashbook batch not found.";
+            if (batch.Status != BatchStatus.Draft || batch.IsLocked) return "Cashbook batch is locked.";
             if (entry.OffsetSegCoaId == Guid.Empty) return "Offset account is required.";
             if (entry.Debit <= 0 && entry.Credit <= 0) return "Enter a Debit or Credit amount.";
 
@@ -98,6 +167,9 @@ namespace Primafit_ERP.Services
 
             var existing = await ctx.CashbookEntries.FindAsync(entry.Id);
             if (existing == null) return "Entry not found.";
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == existing.CashbookBatchId);
+            if (batch == null || batch.Status != BatchStatus.Draft || batch.IsLocked) return "Cashbook batch is locked.";
+            if (existing.IsPosted) return "Posted cashbook entries cannot be edited.";
 
             if (entry.OffsetSegCoaId == Guid.Empty) return "Offset account is required.";
             if (entry.Debit <= 0 && entry.Credit <= 0) return "Enter a Debit or Credit amount.";
@@ -113,6 +185,8 @@ namespace Primafit_ERP.Services
 
             var entry = await ctx.CashbookEntries.FindAsync(id);
             if (entry == null) return;
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == entry.CashbookBatchId);
+            if (batch == null || batch.Status != BatchStatus.Draft || batch.IsLocked || entry.IsPosted) return;
 
             ctx.CashbookEntries.Remove(entry);
             await ctx.SaveChangesAsync();
@@ -120,24 +194,59 @@ namespace Primafit_ERP.Services
 
         public async Task<string> SubmitForApprovalAsync(Guid batchId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var batch = await ctx.CashbookBatches.FindAsync(batchId);
-            if (batch == null) return "Batch not found.";
-
-            batch.Status = BatchStatus.Ready;
-            await ctx.SaveChangesAsync();
-            return string.Empty;
+            return await PostBatchAsync(batchId, "system");
         }
 
         public async Task<string> RevertToDraftAsync(Guid batchId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            var batch = await ctx.CashbookBatches.FindAsync(batchId);
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == batchId);
             if (batch == null) return "Batch not found.";
 
+            // Prevent unlocking if the central reviewer already posted the batch
+            if (batch.PostedGLBatchId.HasValue)
+            {
+                var glBatch = await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(g => g.Id == batch.PostedGLBatchId.Value);
+                if (glBatch != null && glBatch.Status == BatchStatus.Posted)
+                {
+                    return "This batch has already been committed to the General Ledger by an approver and cannot be unlocked.";
+                }
+            }
+
+            if (batch.Status == BatchStatus.Posted) return "Use Reuse Batch to begin a new posting cycle.";
             batch.Status = BatchStatus.Draft;
+            batch.IsLocked = false;
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> LockBatchAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == batchId);
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Draft) return "Only Draft batches can be locked.";
+            if (batch.IsLocked) return "Batch is already locked.";
+            batch.IsLocked = true;
+            AddAudit(ctx, batch.CompanyId, "CashbookBatchLocked", batch.Id,
+                $"Cashbook batch '{batch.BatchReference}' was locked as Draft.");
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> ReuseBatchAsync(Guid batchId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.CashbookBatches.FirstOrDefaultAsync(b => b.Id == batchId);
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Posted) return "Only posted batches can be reused.";
+            batch.Status = BatchStatus.Draft;
+            batch.IsLocked = false;
+            batch.PostedGLBatchId = null;
+            batch.RejectionReason = null;
+            AddAudit(ctx, batch.CompanyId, "CashbookBatchReused", batch.Id,
+                $"Posted cashbook batch '{batch.BatchReference}' was reopened for additional entries.");
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
@@ -151,14 +260,15 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == batchId);
 
             if (batch == null) return "Batch not found.";
-            if (batch.Status != BatchStatus.Ready) return "Batch must be locked (Ready) before posting.";
+            if (batch.Status != BatchStatus.Draft && batch.Status != BatchStatus.Ready && batch.Status != BatchStatus.Rejected)
+                return "Batch cannot be staged in its current status.";
 
-            // Only post entries that haven't been posted yet
             var pendingEntries = batch.Entries.Where(e => !e.IsPosted).ToList();
-            if (!pendingEntries.Any()) return "No new entries to post.";
+            if (!pendingEntries.Any()) return "No entries to stage.";
 
             var postingDate = DateOnly.FromDateTime(pendingEntries.Max(e => e.TransactionDate));
 
+            // Validate accounts
             var allCoaIds = pendingEntries.Select(e => e.OffsetSegCoaId).ToList();
             allCoaIds.Add(batch.BankSegCoaId);
             allCoaIds = allCoaIds.Where(x => x != Guid.Empty).Distinct().ToList();
@@ -179,12 +289,13 @@ namespace Primafit_ERP.Services
                 if (entry.OffsetSegCoaId == Guid.Empty) return "One or more entries are missing an offset account.";
                 if (entry.Debit <= 0 && entry.Credit <= 0) return "One or more entries have zero amount.";
 
+                // Debit Bank / Credit Offset or vice-versa
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = entry.OffsetSegCoaId,
                     Debit = entry.Credit,
                     Credit = entry.Debit,
-                    Reference = $"{entry.Reference}: {entry.Description}",
+                    Reference = $"{entry.Reference}: {entry.Description}"
                 });
 
                 glLines.Add(new GLJournalLine
@@ -196,39 +307,62 @@ namespace Primafit_ERP.Services
                 });
             }
 
-            var (err, glBatchId) = await _glOps.CreateJournalEntryAsync(
-                batch.CompanyId, postingDate,
-                "Cashbook Posting", $"Ref: {batch.BatchReference}",
-                glLines, userId); // Added userId here
+            // Stage the batch to the central GL router without creating GLTransactions
+            var (err, glBatchId) = await _glOps.StageSubledgerBatchAsync(
+                companyId: batch.CompanyId,
+                txnDate: postingDate,
+                batchName: batch.BatchReference,
+                description: $"Cashbook: {batch.BatchReference}",
+                sourceReference: batch.BatchReference,
+                lines: glLines,
+                userId: userId,
+                existingBatchId: batch.PostedGLBatchId,
+                clearAfterPost: batch.ClearAfterPost
+            );
 
             if (!string.IsNullOrWhiteSpace(err)) return err;
 
-            if (glBatchId.HasValue)
-            {
-                var postErr = await _glOps.PostBatchAsync(batch.CompanyId, glBatchId.Value, userId); // Added userId here
-                if (!string.IsNullOrWhiteSpace(postErr))
-                    return $"Cashbook GL posting failed: {postErr}";
-            }
-
-            if (batch.ClearAfterPost)
-            {
-                // Original behaviour — batch is done, mark it posted
-                batch.Status = BatchStatus.Posted;
-                batch.PostedGLBatchId = glBatchId;
-            }
-            else
-            {
-                // Retain behaviour — flag entries, reset batch to Draft for reuse
-                foreach (var entry in pendingEntries)
-                    entry.IsPosted = true;
-
-                batch.Status = BatchStatus.Draft;
-                batch.PostedGLBatchId = glBatchId; // still record the last GL batch ref
-            }
+            batch.PostedGLBatchId = glBatchId;
+            batch.Status = BatchStatus.Ready; // Staged for review on /gl/batches
+            batch.IsLocked = true;
+            AddAudit(ctx, batch.CompanyId, "CashbookBatchSubmittedForReview", batch.Id,
+                $"Cashbook batch '{batch.BatchReference}' was staged for General Ledger review.");
 
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+
+        public async Task<string> FinalizeApprovedBatchAsync(Guid glBatchId, string userId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.CashbookBatches.Include(b => b.Entries)
+                .FirstOrDefaultAsync(b => b.PostedGLBatchId == glBatchId);
+            if (batch == null) return string.Empty;
+
+            var glStatus = await ctx.GLBatches.AsNoTracking()
+                .Where(g => g.Id == glBatchId && g.CompanyId == batch.CompanyId)
+                .Select(g => g.Status)
+                .FirstOrDefaultAsync();
+            if (glStatus != BatchStatus.Posted) return "The linked General Ledger batch is not posted.";
+
+            batch.Status = BatchStatus.Posted;
+            batch.IsLocked = true;
+            if (batch.ClearAfterPost)
+            {
+                ctx.CashbookEntries.RemoveRange(batch.Entries);
+                batch.Entries.Clear();
+            }
+            else
+            {
+                foreach (var entry in batch.Entries) entry.IsPosted = true;
+            }
+            AddAudit(ctx, batch.CompanyId, "CashbookBatchApprovedAndPosted", batch.Id,
+                $"Cashbook batch '{batch.BatchReference}' was finalized after GL approval by {userId}.");
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+
         public async Task<string> DeleteDraftBatchAsync(Guid batchId)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -239,6 +373,7 @@ namespace Primafit_ERP.Services
 
             if (batch == null) return "Batch not found.";
             if (batch.Status != BatchStatus.Draft) return "Only draft batches can be deleted.";
+            if (batch.IsLocked) return "Unlock the batch before deleting it.";
 
             // Explicitly remove entries first to prevent Foreign Key constraint errors
             if (batch.Entries.Any())

@@ -1,4 +1,4 @@
-﻿@page "/hr/compliance-reports"
+@page "/hr/compliance-reports"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -103,10 +103,10 @@
                                         <tr class="hover:bg-slate-50">
                                             <td class="p-3 font-bold text-slate-800">@row.BranchName</td>
                                             <td class="p-3 text-center font-mono">@row.EmployeeCount</td>
-                                            <td class="p-3 text-right font-mono text-slate-600">@row.TotalGross.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPAYE.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPension.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.TotalGross.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPAYE.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.TotalPension.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N4")</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -136,9 +136,9 @@
                                         <tr class="hover:bg-slate-50">
                                             <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
                                             <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
-                                            <td class="p-3 text-right font-mono text-slate-600">@row.GrossPay.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono text-slate-600">@row.PensionDeducted.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.PayeDeducted.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.GrossPay.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono text-slate-600">@row.PensionDeducted.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.PayeDeducted.ToString("N4")</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -170,9 +170,9 @@
                                             <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
                                             <td class="p-3 text-slate-600">@row.PFA</td>
                                             <td class="p-3 font-mono text-xs text-slate-500">@row.RSAPin</td>
-                                            <td class="p-3 text-right font-mono text-rose-600">@row.EmployeeContribution.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono text-amber-600">@row.EmployerContribution.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono font-bold text-slate-900">@row.TotalRemittance.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-rose-600">@row.EmployeeContribution.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono text-amber-600">@row.EmployerContribution.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-slate-900">@row.TotalRemittance.ToString("N4")</td>
                                         </tr>
                                     }
                                 </tbody>
@@ -209,15 +209,15 @@
                                         {
                                             <tr class="hover:bg-slate-50">
                                                 <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
-                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousGross.ToString("N2")</td>
-                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentGross.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousGross.ToString("N4")</td>
+                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentGross.ToString("N4")</td>
                                                 <td class="p-3 text-right font-mono font-bold @(row.VarianceGross > 0 ? "text-emerald-600" : row.VarianceGross < 0 ? "text-rose-600" : "text-slate-300")">
-                                                    @(row.VarianceGross > 0 ? "+" : "")@row.VarianceGross.ToString("N2")
+                                                    @(row.VarianceGross > 0 ? "+" : "")@row.VarianceGross.ToString("N4")
                                                 </td>
-                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousNet.ToString("N2")</td>
-                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentNet.ToString("N2")</td>
+                                                <td class="p-3 text-right font-mono text-slate-500 bg-slate-50/50">@row.PreviousNet.ToString("N4")</td>
+                                                <td class="p-3 text-right font-mono text-slate-900 bg-slate-50/50">@row.CurrentNet.ToString("N4")</td>
                                                 <td class="p-3 text-right font-mono font-bold @(row.VarianceNet > 0 ? "text-emerald-600" : row.VarianceNet < 0 ? "text-rose-600" : "text-slate-300")">
-                                                    @(row.VarianceNet > 0 ? "+" : "")@row.VarianceNet.ToString("N2")
+                                                    @(row.VarianceNet > 0 ? "+" : "")@row.VarianceNet.ToString("N4")
                                                 </td>
                                             </tr>
                                         }
@@ -271,10 +271,10 @@
                                             <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
                                             <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
                                             <td class="p-3 text-center font-bold">@row.MonthsWorked</td>
-                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalGross.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalPension.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.TotalPAYE.ToString("N2")</td>
-                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N2")</td>
+                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalGross.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono text-slate-700">@row.TotalPension.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-rose-600">@row.TotalPAYE.ToString("N4")</td>
+                                            <td class="p-3 text-right font-mono font-bold text-emerald-600">@row.TotalNet.ToString("N4")</td>
                                         </tr>
                                     }
                                 </tbody>

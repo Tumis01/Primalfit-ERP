@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -21,7 +21,7 @@ namespace Primafit_ERP.Components.Models
         [Required] public string Name { get; set; } = string.Empty;
         public bool IsService { get; set; }
         public string UoM { get; set; } = "Each"; 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ReorderLevel { get; set; } = 10;
         public CostingMethod CostingType { get; set; } = CostingMethod.WACC;
 
@@ -37,7 +37,7 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal MostRecentCost { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal SellingPrice { get; set; } 
         public Guid? CategoryId { get; set; }
         public virtual ItemCategory? Category { get; set; }

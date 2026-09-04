@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260902120158_configcongigroute")]
+    partial class configcongigroute
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -135,7 +138,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
@@ -319,10 +322,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("DecliningFactor")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal?>("DecliningRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<int>("DefaultDepreciationMethod")
                         .HasColumnType("int");
@@ -331,7 +334,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("EstimatedTotalUnits")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("FixedAssetAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -357,7 +360,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<DateTime>("Date")
                         .HasColumnType("datetime2");
@@ -376,7 +379,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal?>("UnitsUsed")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -402,7 +405,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("UnitsUsed")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -470,7 +473,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("date");
 
                     b.Property<decimal>("StatementEndingBalance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -490,7 +493,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("BankReconciliationId")
                         .HasColumnType("uniqueidentifier");
@@ -577,7 +580,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("LimitAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -596,13 +599,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("BudgetLineId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("ForecastAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -624,7 +627,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("LimitAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("ToGlAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -646,7 +649,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("BudgetTransferLineId")
                         .HasColumnType("uniqueidentifier");
@@ -689,31 +692,25 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<bool>("IsForeignCurrency")
                         .HasColumnType("bit");
 
-                    b.Property<bool>("IsLocked")
-                        .HasColumnType("bit");
-
                     b.Property<decimal>("OpeningBalance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("PostedGLBatchId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("RejectionReason")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalCredits")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("TotalDebits")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -730,20 +727,20 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Credit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("Debit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ForeignCredit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("ForeignDebit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<bool>("IsPosted")
                         .HasColumnType("bit");
@@ -899,7 +896,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("date");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("GlBatchId")
                         .HasColumnType("uniqueidentifier");
@@ -930,7 +927,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
@@ -966,13 +963,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("SalesOrderLineId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1025,7 +1022,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("Rate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1135,7 +1132,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("AmountReceived")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
@@ -1162,12 +1159,9 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("FxGainLossGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("GLBatchId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Reference")
@@ -1216,7 +1210,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("GlBatchId")
                         .HasColumnType("uniqueidentifier");
@@ -1247,7 +1241,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -1286,10 +1280,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1392,13 +1386,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("BasicSalary")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("HousingAllowance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<bool>("IsPensionable")
                         .HasColumnType("bit");
@@ -1407,7 +1401,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("bit");
 
                     b.Property<decimal>("MealAllowance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1415,10 +1409,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<decimal>("TransportAllowance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UtilityAllowance")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1449,13 +1443,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("CurrentBookValue")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal?>("DecliningFactor")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal?>("DecliningRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("DepreciationExpenseAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -1467,7 +1461,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal?>("EstimatedTotalUnits")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("FixedAssetAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -1476,13 +1470,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("PurchaseCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<DateTime>("PurchaseDate")
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("SalvageValue")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("SerialNumber")
                         .IsRequired()
@@ -1554,9 +1548,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsLocked")
-                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("PostedAt")
                         .HasColumnType("datetime2");
@@ -1668,10 +1659,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Credit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("Debit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("HeaderId")
                         .HasColumnType("uniqueidentifier");
@@ -1745,10 +1736,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("Credit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("Debit")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<bool>("IsReconciled")
                         .HasColumnType("bit");
@@ -1798,9 +1789,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<DateTime>("DateReceived")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("GrnNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1837,7 +1825,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QuantityReceived")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1856,7 +1844,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<int>("CostType")
                         .HasColumnType("int");
@@ -1897,14 +1885,14 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("bit");
 
                     b.Property<decimal>("MostRecentCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ReorderLevel")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("SKU")
                         .IsRequired()
@@ -1914,20 +1902,20 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("SellingPrice")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("StandardCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("UoM")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("UserSpecifiedCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("WeightedAverageCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -1983,23 +1971,23 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("NewCostIn")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("NewQtyIn")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OldQty")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OldWacc")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ResultingWacc")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2039,10 +2027,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("AppliedAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("CashDiscountTaken")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("CustomerPaymentId")
                         .HasColumnType("uniqueidentifier");
@@ -2064,7 +2052,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -2088,7 +2076,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -2115,25 +2103,25 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("EmployeePension")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("EmployerPension")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("GrossPay")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("NetPay")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OtherDeductions")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OtherEarnings")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("PAYETax")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("PayrollRunId")
                         .HasColumnType("uniqueidentifier");
@@ -2185,16 +2173,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalDeductions")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("TotalEmployerPension")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("TotalGrossPay")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("TotalNetPay")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2214,10 +2202,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("PensionEmployeeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("PensionEmployerRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("PensionPayableAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -2272,10 +2260,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("BudgetedCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("BudgetedRevenue")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
@@ -2332,19 +2320,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("DiscountAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("DiscountGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("DiscountPercentage")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("GoodsReceiptClearingGlAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -2408,16 +2393,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QuantityBilled")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("QuantityOrdered")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("QuantityReceived")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2460,7 +2445,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("GlBatchId")
                         .HasColumnType("uniqueidentifier");
@@ -2498,7 +2483,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2528,13 +2513,13 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("SalesOrderLineId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2577,7 +2562,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
@@ -2623,16 +2608,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("DiscountAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("DiscountGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("DiscountPercentage")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("InvoiceBatchId")
                         .HasColumnType("uniqueidentifier");
@@ -2692,16 +2677,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QtyInvoiced")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("QtyShipped")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -2774,10 +2759,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QtyOrdered")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("QtyShipped")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("SalesOrderLineId")
                         .HasColumnType("uniqueidentifier");
@@ -3345,19 +3330,16 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("CostAtTime")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<DateTime>("Date")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QuantityChanged")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Reference")
                         .IsRequired()
@@ -3392,17 +3374,14 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("FromWarehouseId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal?>("QuantityReceived")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Reference")
                         .IsRequired()
@@ -3418,7 +3397,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("ValueAtShipment")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -3621,14 +3600,11 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("ExternalInvoiceNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsDirectBill")
                         .HasColumnType("bit");
@@ -3662,10 +3638,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("TotalAmountForeign")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -3699,10 +3675,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("QuantityBilled")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitCostBilled")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("VendorBillId")
                         .HasColumnType("uniqueidentifier");
@@ -3745,7 +3721,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Amount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("BankGlAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -3755,9 +3731,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<DateTime>("Date")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("GLBatchId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("OverrideCreditBankGlAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -3809,7 +3782,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("date");
 
                     b.Property<decimal>("ExchangeRate")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid?>("GlBatchId")
                         .HasColumnType("uniqueidentifier");
@@ -3849,7 +3822,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("TotalAmount")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -3890,10 +3863,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("UnitCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.HasKey("Id");
 
@@ -3914,22 +3887,22 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<decimal>("IncomingCost")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("IncomingQty")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("NewWacc")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OldQty")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<decimal>("OldWacc")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("Reference")
                         .IsRequired()
@@ -3974,7 +3947,7 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("Per")
-                        .HasColumnType("decimal(18, 4)");
+                        .HasColumnType("decimal(18, 6)");
 
                     b.Property<string>("TaxCode")
                         .IsRequired()

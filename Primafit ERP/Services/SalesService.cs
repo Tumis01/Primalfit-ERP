@@ -226,8 +226,16 @@ namespace Primafit_ERP.Services
             {
                 var existing = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == order.Id);
                 if (existing == null) return "Order not found.";
-                if (existing.Status == OrderStatus.Invoiced || existing.InvoiceBatchId.HasValue)
+                if (existing.InvoiceBatchId.HasValue)
+                {
+                    var batch = await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.InvoiceBatchId.Value);
+                    if (batch != null && batch.Status == BatchStatus.Posted)
+                        return "Cannot edit an invoice that has already been committed to the General Ledger.";
+                }
+                else if (existing.Status == OrderStatus.Invoiced)
+                {
                     return "Cannot edit an invoice that has already been posted to the ledger.";
+                }
 
                 if (existing.Status == OrderStatus.Quote || existing.Status == OrderStatus.Order)
                 {
@@ -475,7 +483,15 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(o => o.Id == orderId);
 
                 if (order == null) return "Order not found.";
-                if (order.Status == OrderStatus.Invoiced || order.InvoiceBatchId.HasValue) return "Order is already fully invoiced and posted.";
+
+                // Prevent modification if already committed to the General Ledger
+                if (order.InvoiceBatchId.HasValue)
+                {
+                    var existingBatch = await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == order.InvoiceBatchId.Value);
+                    if (existingBatch != null && existingBatch.Status == BatchStatus.Posted)
+                        return "This invoice has already been posted to the General Ledger and cannot be modified.";
+                }
+
                 if (order.Status == OrderStatus.Quote) return "Quotes cannot be invoiced directly.";
 
                 var glLines = new List<GLJournalLine>();
@@ -485,7 +501,6 @@ namespace Primafit_ERP.Services
                 decimal totalRevenueBase = 0;
                 bool itemsInvoicedInThisRun = false;
 
-                // 1. Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
                 if (order.CustomTransactionTypeId.HasValue && order.CustomTransactionTypeId.Value != Guid.Empty)
                 {
@@ -499,15 +514,14 @@ namespace Primafit_ERP.Services
                     if (line.Item == null) continue;
 
                     decimal qtyToInvoice = line.Quantity - line.QtyInvoiced;
-                    if (qtyToInvoice <= 0) continue;
+                    if (qtyToInvoice <= 0 && !order.InvoiceBatchId.HasValue) continue;
                     itemsInvoicedInThisRun = true;
 
-                    decimal lineTotalForeign = qtyToInvoice * line.UnitPrice;
+                    decimal lineTotalForeign = line.Quantity * line.UnitPrice;
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
 
                     foreignSubTotalToInvoice += lineTotalForeign;
 
-                    // Resolve Revenue Account
                     Guid revenueAccount = order.DirectIncomeGlAccountId
                         ?? customMapping?.OverrideCreditGlAccountId
                         ?? line.Item.SalesIncomeAccountId;
@@ -527,12 +541,12 @@ namespace Primafit_ERP.Services
                     glLines.Add(new GLJournalLine { SegCoaId = revenueAccount, Debit = 0, Credit = lineTotalBase, Reference = $"Rev {line.Item.Name}" });
                     totalRevenueBase += lineTotalBase;
 
-                    line.QtyInvoiced += qtyToInvoice;
+                    line.QtyInvoiced = line.Quantity;
                 }
 
                 if (!itemsInvoicedInThisRun) return "No unbilled quantities found to invoice.";
 
-                // 2. Discount Line
+                // Discount Line
                 decimal discountForeign = 0;
                 if (order.DiscountPercentage > 0)
                 {
@@ -568,7 +582,7 @@ namespace Primafit_ERP.Services
                 decimal discountedRevenueBase = totalRevenueBase - discountBase;
                 decimal totalTaxBase = 0;
 
-                // 3. Tax Line
+                // Tax Line
                 if (order.TaxId.HasValue)
                 {
                     var taxDef = await ctx.Taxes.FindAsync(order.TaxId);
@@ -584,7 +598,7 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                // 4. Accounts Receivable (Debit)
+                // Accounts Receivable (Debit)
                 decimal grandTotalBase = discountedRevenueBase + totalTaxBase;
 
                 Guid arAccount = order.ReceivablesGlAccountId
@@ -605,21 +619,6 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
 
-                if (glLines.Any())
-                {
-                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Sales Invoice", $"Inv {order.OrderNumber}", glLines, userId);
-                    if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Batch Creation Error: {err}");
-
-                    if (batchId.HasValue)
-                    {
-                        var postErr = await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
-                        if (!string.IsNullOrEmpty(postErr))
-                            throw new Exception($"GL Engine Rejected Posting: {postErr}");
-
-                        order.InvoiceBatchId = batchId;
-                    }
-                }
-
                 if (!order.OrderNumber.StartsWith("INV"))
                 {
                     bool isDuplicate = true;
@@ -633,18 +632,29 @@ namespace Primafit_ERP.Services
                     order.OrderNumber = generatedInvoiceString;
                 }
 
-                bool fullyInvoiced = order.Lines.All(l => l.QtyInvoiced >= l.Quantity);
-                order.Status = fullyInvoiced ? OrderStatus.Invoiced : OrderStatus.PartiallyInvoiced;
+                // STAGE TO BATCH ONLY (DO NOT POST TO GLTRANSACTION DIRECTLY)
+                var (err, batchId) = await _glOps.StageSubledgerBatchAsync(
+                    companyId: order.CompanyId,
+                    txnDate: order.Date,
+                    batchName: order.OrderNumber,
+                    description: $"Sales Invoice: {order.OrderNumber} - {order.Customer?.Name}",
+                    sourceReference: order.OrderNumber,
+                    lines: glLines,
+                    userId: userId,
+                    existingBatchId: order.InvoiceBatchId
+                );
+
+                if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Staging Error: {err}");
+
+                order.InvoiceBatchId = batchId;
+                order.Status = OrderStatus.Invoiced;
 
                 if (!string.IsNullOrEmpty(order.ConvertedFromQuoteNumber))
                 {
                     var parentOrder = await ctx.SalesOrders
                         .FirstOrDefaultAsync(o => o.OrderNumber == order.ConvertedFromQuoteNumber && o.CompanyId == order.CompanyId);
 
-                    if (parentOrder != null)
-                    {
-                        parentOrder.Status = order.Status;
-                    }
+                    if (parentOrder != null) parentOrder.Status = order.Status;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -727,6 +737,7 @@ namespace Primafit_ERP.Services
         }
 
         // 6. POST DIRECT INVOICE
+
         public async Task<string> PostDirectInvoiceAsync(SalesOrder invoice, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -744,11 +755,22 @@ namespace Primafit_ERP.Services
                 if (invoice.Lines.Any(l => l.UnitPrice < 0))
                     return "Validation Error: Line unit price cannot be negative.";
 
-                // Use AsNoTracking to prevent entity tracking conflicts
-                var customer = await ctx.Customers
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == invoice.CustomerId);
+                // 1. Resolve existing order from DB first to get the existing batch ID reliably
+                var existingOrder = invoice.Id != Guid.Empty
+                    ? await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == invoice.Id && o.CompanyId == invoice.CompanyId)
+                    : null;
 
+                Guid? batchToUpdate = invoice.InvoiceBatchId ?? existingOrder?.InvoiceBatchId;
+
+                // Prevent modification if already committed to GL
+                if (batchToUpdate.HasValue)
+                {
+                    var existingBatch = await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchToUpdate.Value);
+                    if (existingBatch != null && existingBatch.Status == BatchStatus.Posted)
+                        return "This direct invoice has already been committed to the General Ledger and cannot be modified.";
+                }
+
+                var customer = await ctx.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == invoice.CustomerId);
                 if (customer == null) return "Selected customer could not be resolved from master records.";
 
                 invoice.WarehouseId = await ctx.Warehouses
@@ -788,7 +810,6 @@ namespace Primafit_ERP.Services
 
                 var glLines = new List<GLJournalLine>();
 
-                // 1. Resolve custom template mapping if assigned
                 TransactionGlMapping? customMapping = null;
                 if (invoice.CustomTransactionTypeId.HasValue && invoice.CustomTransactionTypeId.Value != Guid.Empty)
                 {
@@ -797,7 +818,6 @@ namespace Primafit_ERP.Services
                         .FirstOrDefaultAsync(m => m.CompanyId == invoice.CompanyId && m.CustomTransactionTypeId == invoice.CustomTransactionTypeId.Value);
                 }
 
-                // 2. Revenue Account (Credit)
                 Guid directRevAccount = invoice.DirectIncomeGlAccountId
                     ?? customMapping?.OverrideCreditGlAccountId
                     ?? await _mappingService.GetMappedAccountAsync(
@@ -811,7 +831,6 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = directRevAccount, Debit = 0, Credit = subTotalBase, Reference = "Direct AR Revenue" });
 
-                // 3. Discount Allowed Account (Debit)
                 if (discountBase > 0)
                 {
                     Guid discountAccount = invoice.DiscountGlAccountId
@@ -827,7 +846,6 @@ namespace Primafit_ERP.Services
                     glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = discountBase, Credit = 0, Reference = "Discount Allowed" });
                 }
 
-                // 4. Tax Account (Credit)
                 if (taxBase > 0)
                 {
                     Guid targetGlId = invoice.TaxGLAccountId ?? Guid.Empty;
@@ -841,7 +859,6 @@ namespace Primafit_ERP.Services
                     glLines.Add(new GLJournalLine { SegCoaId = targetGlId, Debit = 0, Credit = taxBase, Reference = "Tax Payable" });
                 }
 
-                // 5. Receivables Control Account (Debit)
                 Guid arAccount = invoice.ReceivablesGlAccountId
                     ?? customMapping?.OverrideDebitGlAccountId
                     ?? await _mappingService.GetMappedAccountAsync(
@@ -855,15 +872,6 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = "Accounts Receivable" });
 
-                // 6. Balance verification
-                decimal totalDebits = glLines.Sum(l => l.Debit);
-                decimal totalCredits = glLines.Sum(l => l.Credit);
-                if (totalDebits != totalCredits)
-                {
-                    return $"Posting Aborted: GL imbalance detected. Debits: {totalDebits:N2} != Credits: {totalCredits:N2}";
-                }
-
-                // 7. Ensure invoice number is set
                 if (string.IsNullOrWhiteSpace(invoice.OrderNumber) || !invoice.OrderNumber.StartsWith("INV"))
                 {
                     bool isStringDuplicate = true;
@@ -877,32 +885,27 @@ namespace Primafit_ERP.Services
                     invoice.OrderNumber = generatedDirectInvoiceNumber;
                 }
 
-                // 8. Create and post Journal Batch
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(invoice.CompanyId, invoice.Date, "Direct AR Invoice", invoice.OrderNumber, glLines, userId);
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
+                // 2. Stage to batch using the verified batchToUpdate reference
+                var (err, batchId) = await _glOps.StageSubledgerBatchAsync(
+                    companyId: invoice.CompanyId,
+                    txnDate: invoice.Date,
+                    batchName: invoice.OrderNumber,
+                    description: $"Direct AR Invoice: {invoice.OrderNumber} - {customer.Name}",
+                    sourceReference: invoice.OrderNumber,
+                    lines: glLines,
+                    userId: userId,
+                    existingBatchId: batchToUpdate
+                );
 
-                if (batchId.HasValue)
-                {
-                    var postErr = await _glOps.PostBatchAsync(invoice.CompanyId, batchId.Value, userId);
-                    if (!string.IsNullOrEmpty(postErr))
-                    {
-                        throw new Exception($"GL Engine Rejected Posting: {postErr}");
-                    }
-                }
+                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 invoice.InvoiceBatchId = batchId;
                 invoice.Status = OrderStatus.Invoiced;
                 invoice.IsDirectInvoice = true;
 
-                // 9. Nullify Navigation References to prevent EF duplicate tracking collisions
                 invoice.Customer = null;
                 invoice.Currency = null;
                 invoice.CustomTransactionType = null;
-
-                // 10. Check if this is an existing draft or a brand new record
-                var existingOrder = invoice.Id != Guid.Empty
-                    ? await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == invoice.Id)
-                    : null;
 
                 if (existingOrder != null)
                 {

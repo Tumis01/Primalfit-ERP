@@ -1,4 +1,4 @@
-﻿@page "/sc/stock-list"
+@page "/sc/stock-list"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -101,13 +101,13 @@
                                     else
                                     {
                                         <span class="@(line.Quantity <= line.ReorderLevel ? "text-amber-600" : "text-slate-700")">
-                                            @line.Quantity.ToString("N2")
+                                            @line.Quantity.ToString("N4")
                                         </span>
                                     }
                                 </td>
 
                                 <td class="p-4 text-right font-mono text-slate-500">
-                                    @line.SellingPrice.ToString("N2")
+                                    @line.SellingPrice.ToString("N4")
                                 </td>
 
                                 <td class="p-4 text-right font-mono font-bold text-emerald-600">
@@ -117,7 +117,7 @@
                                     }
                                     else
                                     {
-                                        @((line.Quantity * line.SellingPrice).ToString("N2"))
+                                        @((line.Quantity * line.SellingPrice).ToString("N4"))
                                     }
                                 </td>
 

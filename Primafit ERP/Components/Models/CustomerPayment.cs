@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -25,12 +25,12 @@ namespace Primafit_ERP.Components.Models
         public Guid? UnappliedCashGlAccountId { get; set; } // Liability account for Customer Overpayments
 
         // --- CURRENCY & AMOUNTS ---
-        [Column(TypeName = "decimal(18, 6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal AmountReceived { get; set; } // Amount in Foreign Currency
 
         public Guid CurrencyId { get; set; }
 
-        [Column(TypeName = "decimal(18, 6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1; // Rate on the day of payment
         public Guid? CustomTransactionTypeId { get; set; }
         [ForeignKey(nameof(CustomTransactionTypeId))]
@@ -38,6 +38,7 @@ namespace Primafit_ERP.Components.Models
 
         // --- STATUS ---
         public PaymentStatus Status { get; set; } = PaymentStatus.Draft;
+        public Guid? GLBatchId { get; set; }
 
         // --- INVOICES PAID ---
         public List<PaymentApplication> Applications { get; set; } = new();
@@ -52,10 +53,10 @@ namespace Primafit_ERP.Components.Models
         // Links to the Sales Order that was Invoiced
         public Guid InvoiceId { get; set; }
 
-        [Column(TypeName = "decimal(18, 6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal AppliedAmount { get; set; }
 
-        [Column(TypeName = "decimal(18, 6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal CashDiscountTaken { get; set; }
     }
 }

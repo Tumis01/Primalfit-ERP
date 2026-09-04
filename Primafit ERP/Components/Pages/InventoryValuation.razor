@@ -1,4 +1,4 @@
-﻿@page "/reports/inventory-valuation"
+@page "/reports/inventory-valuation"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Services
@@ -154,10 +154,10 @@
                                 <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.SKU</td>
                                 <td class="px-6 py-4 font-bold text-slate-900 truncate max-w-[250px]" title="@row.Name">@row.Name</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-400">@row.UoM</td>
-                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.Qty.ToString("N2")</td>
+                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.Qty.ToString("N4")</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-500 bg-slate-50/50">@row.CostingMethod</td>
                                 <td class="px-6 py-4 text-right font-mono text-slate-600">@row.UnitCost.ToString("N4")</td>
-                                <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N2")</td>
+                                <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N4")</td>
                                 <td class="px-6 py-4 text-center">
                                     <button @onclick="() => ViewHistory(row.ItemId)" class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-600 hover:text-white transition-colors">
                                         History
@@ -174,7 +174,7 @@
                         <tr>
                             <td colspan="6" class="px-6 py-4 text-right font-black text-slate-600 uppercase text-xs tracking-wider">Filtered Grand Total</td>
                             <td class="px-6 py-4 text-right font-mono font-black text-emerald-600 text-xl">
-                                @FilteredData.Sum(x => x.TotalValue).ToString("N2")
+                                @FilteredData.Sum(x => x.TotalValue).ToString("N4")
                             </td>
                             <td></td>
                         </tr>
@@ -237,11 +237,11 @@
                                 <tr class="hover:bg-slate-50">
                                     <td class="p-3 font-mono text-xs text-slate-500">@h.DateChanged.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td class="p-3 font-bold text-xs text-slate-700">@h.Reference</td>
-                                    <td class="p-3 text-right font-mono">@h.OldQty.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono">@h.OldQty.ToString("N4")</td>
                                     <td class="p-3 text-right font-mono">@h.OldWacc.ToString("N4")</td>
 
                                     <td class="p-3 text-right font-mono font-bold @(h.NewQtyIn > 0 ? "text-emerald-600" : (h.NewQtyIn < 0 ? "text-rose-600" : "text-slate-400"))">
-                                        @(h.NewQtyIn > 0 ? "+" : "")@h.NewQtyIn.ToString("N2")
+                                        @(h.NewQtyIn > 0 ? "+" : "")@h.NewQtyIn.ToString("N4")
                                     </td>
                                     <td class="p-3 text-right font-mono font-bold text-slate-700">@h.NewCostIn.ToString("N4")</td>
 
@@ -504,14 +504,14 @@
                 row.SKU,
                 row.Name,
                 row.UoM,
-                row.Qty.ToString("N2"),
+                row.Qty.ToString("N4"),
                 row.CostingMethod,
                 row.UnitCost.ToString("N4"),
-                row.TotalValue.ToString("N2")
+                row.TotalValue.ToString("N4")
             });
         }
 
-        data.Rows.Add(new List<string> { "", "", "", "", "", "FILTERED GRAND TOTAL", FilteredData.Sum(x => x.TotalValue).ToString("N2") });
+        data.Rows.Add(new List<string> { "", "", "", "", "", "FILTERED GRAND TOTAL", FilteredData.Sum(x => x.TotalValue).ToString("N4") });
         return data;
     }
 

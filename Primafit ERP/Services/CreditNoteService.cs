@@ -244,7 +244,14 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(c => c.Id == cnId);
 
                 if (cn == null) return "Credit note execution layout parameters not found.";
-                if (cn.Status == CreditNoteStatus.Posted) return "Document already locked.";
+                if (cn.Status == CreditNoteStatus.Posted)
+                {
+                    var existingBatch = cn.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == cn.GlBatchId.Value && b.CompanyId == cn.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (cn.SalesOrder == null) return "Parent invoice reference missing from transaction context.";
 
                 var so = cn.SalesOrder;
@@ -394,7 +401,7 @@ namespace Primafit_ERP.Services
                     return $"Posting Aborted: Structural variance too wide to resolve safely. Mismatch: {mismatch:N2}";
                 }
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Credit Note", cn.CreditNoteNumber, glLines, userId.ToString());
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Credit Note", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
@@ -457,7 +464,7 @@ namespace Primafit_ERP.Services
                 // Credit Bank Account
                 glLines.Add(new GLJournalLine { SegCoaId = targetBankGlId, Debit = 0, Credit = refundAmountBase, Reference = $"Cash Refund Out: {cn.Customer?.Name}" });
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString());
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value, userId.ToString());
 
@@ -486,7 +493,11 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(c => c.Id == note.Id);
 
             if (existing == null) return "Credit Note tracking entity not found.";
-            if (existing.Status == CreditNoteStatus.Posted) return "Cannot edit locked records.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == CreditNoteStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot edit locked records.";
 
             existing.Date = note.Date;
             existing.Reason = note.Reason;

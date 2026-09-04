@@ -53,8 +53,10 @@ namespace Primafit_ERP.Services
                     Reference = $"Bill: {vendor.Name}"
                 });
 
-                // Post GL
-                await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase (Service)", reference, glLines, userId);
+                // Stage GL for review. The reviewer is the only actor allowed to
+                // create the final GL transaction rows.
+                var (serviceGlError, _) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase (Service)", reference, glLines, userId);
+                if (!string.IsNullOrWhiteSpace(serviceGlError)) return $"GL staging failed: {serviceGlError}";
 
                 return string.Empty; // Done for Service
             }
@@ -125,7 +127,9 @@ namespace Primafit_ERP.Services
                 Reference = $"Bill: {vendor.Name}"
             });
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
+            var (stockGlError, stockBatchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
+            if (!string.IsNullOrWhiteSpace(stockGlError)) return $"GL staging failed: {stockGlError}";
+            ledgerEntry.GLBatchId = stockBatchId;
 
             // 6. Save Everything
             await ctx.SaveChangesAsync();
@@ -144,7 +148,7 @@ namespace Primafit_ERP.Services
 
             decimal issueValue = qty * item.WeightedAverageCost;
 
-            ctx.StockLedgers.Add(new StockLedger
+            var issueLedger = new StockLedger
             {
                 CompanyId = companyId,
                 ItemId = itemId,
@@ -153,7 +157,8 @@ namespace Primafit_ERP.Services
                 Type = StockMovementType.Sale,
                 CostAtTime = item.WeightedAverageCost,
                 Reference = $"PRJ: {note}"
-            });
+            };
+            ctx.StockLedgers.Add(issueLedger);
 
             var glLines = new List<GLJournalLine>
             {
@@ -161,7 +166,9 @@ namespace Primafit_ERP.Services
                 new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = issueValue, Reference = $"Issued from {warehouseId}" }
             };
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines, userId);
+            var (issueGlError, issueBatchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines, userId);
+            if (!string.IsNullOrWhiteSpace(issueGlError)) return $"GL staging failed: {issueGlError}";
+            issueLedger.GLBatchId = issueBatchId;
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
@@ -221,6 +228,7 @@ namespace Primafit_ERP.Services
                 {
                     var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                    transfer.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -290,6 +298,7 @@ namespace Primafit_ERP.Services
                 {
                     var postErr = await _glOps.PostBatchAsync(transfer.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                    transfer.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();

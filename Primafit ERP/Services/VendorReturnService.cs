@@ -251,7 +251,14 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(r => r.Id == returnId);
 
                 if (vReturn == null) return "Vendor return parameters not found.";
-                if (vReturn.Status == VendorReturnStatus.Posted) return "Document is already posted and locked.";
+                if (vReturn.Status == VendorReturnStatus.Posted)
+                {
+                    var existingBatch = vReturn.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == vReturn.GlBatchId.Value && b.CompanyId == vReturn.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (vReturn.PurchaseOrder == null) return "Parent purchase order reference mapping is missing.";
 
                 var po = vReturn.PurchaseOrder;
@@ -437,7 +444,8 @@ namespace Primafit_ERP.Services
                     "Vendor Return",
                     vReturn.ReturnNumber,
                     glLines,
-                    userId.ToString());
+                    userId.ToString(),
+                    existingBatchId: vReturn.GlBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(vReturn.CompanyId, batchId.Value, userId.ToString());
@@ -468,7 +476,11 @@ namespace Primafit_ERP.Services
             var existing = await ctx.VendorReturns.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == vReturn.Id);
 
             if (existing == null) return "Vendor return tracking record not found.";
-            if (existing.Status == VendorReturnStatus.Posted) return "Cannot edit locked records.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == VendorReturnStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot edit locked records.";
 
             existing.Date = vReturn.Date;
             existing.Reason = vReturn.Reason;

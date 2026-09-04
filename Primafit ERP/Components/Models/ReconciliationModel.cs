@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -24,7 +24,7 @@ namespace Primafit_ERP.Components.Models
 
         public DateOnly StatementDate { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal StatementEndingBalance { get; set; }
 
         public ReconType Type { get; set; }
@@ -48,7 +48,7 @@ namespace Primafit_ERP.Components.Models
         public string Description { get; set; } = string.Empty;
         public string? Reference { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Amount { get; set; } // Positive = Deposit, Negative = Payment
 
         // Matching Logic

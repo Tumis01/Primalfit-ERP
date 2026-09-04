@@ -1,4 +1,4 @@
-﻿@page "/purchases/vendor-returns"
+@page "/purchases/vendor-returns"
 @page "/purchases/vendor-returns/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
@@ -40,7 +40,7 @@
                     <span>Vendor Return: @currentReturn?.ReturnNumber</span>
                 }
             </h1>
-            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : "text-amber-600")">
+            <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : (IsRejected ? "text-rose-600" : "text-amber-600"))">
                 @if (IsListMode)
                 {
                     <span class="text-slate-500">Track and execute goods returns and vendor cash refund recoveries</span>
@@ -49,9 +49,13 @@
                 {
                     <span>● Posted Financial & Stock Document - Read Only</span>
                 }
+                else if (IsRejected)
+                {
+                    <span>● Returned for Correction - Edit and Resubmit</span>
+                }
                 else
                 {
-                    <span>● Draft Return Workspace</span>
+                    <span>● Draft - Pending GL Review</span>
                 }
             </p>
         </div>
@@ -64,7 +68,7 @@
                 </button>
             }
 
-            @if (!IsListMode && !IsNewInitialization && currentReturn != null)
+            @if (!IsListMode && !IsNewInitialization && currentReturn != null && canConfigureRoute)
             {
                 <!-- Configure Route Button -->
                 <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
@@ -99,11 +103,18 @@
                     {
                         <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
                     }
-                    <span>Post Vendor Return</span>
+                    <span>Submit Return for GL Review</span>
                 </button>
             }
         </div>
     </div>
+
+    @if (IsRejected && !string.IsNullOrWhiteSpace(currentBatchRejectionReason))
+    {
+        <div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
+            <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @currentBatchRejectionReason
+        </div>
+    }
 
     @if (isLoading)
     {
@@ -143,6 +154,9 @@
                                 @foreach (var vr in PaginatedReturns)
                                 {
                                     bool hasFx = vr.ExchangeRate > 1 && vr.ExchangeRate != 1m;
+                                    var batchStatus = GetBatchStatus(vr.GlBatchId, vr.Status == VendorReturnStatus.Posted);
+                                    bool isRejected = batchStatus == BatchStatus.Rejected;
+                                    bool isPosted = batchStatus == BatchStatus.Posted;
                                     decimal totalDisplayVal = vr.ReturnType == VendorReturnType.PaymentOnly
                                         ? vr.TotalAmount
                                         : vr.Lines.Sum(l => l.Quantity * l.UnitCost) + (vr.ReturnType == VendorReturnType.Both ? vr.TotalAmount : 0);
@@ -159,9 +173,17 @@
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 text-center">
-                                            @if (vr.Status == VendorReturnStatus.Posted)
+                                            @if (isPosted)
                                             {
                                                 <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Posted</span>
+                                            }
+                                            else if (isRejected)
+                                            {
+                                                <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider animate-pulse">Rejected - Edit Required</span>
+                                            }
+                                            else if (batchStatus == BatchStatus.Ready)
+                                            {
+                                                <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Pending GL Review</span>
                                             }
                                             else
                                             {
@@ -172,23 +194,23 @@
                                             @if (hasFx)
                                             {
                                                 <div>
-                                                    <span class="font-bold text-rose-600">@totalDisplayVal.ToString("N2")</span>
+                                                    <span class="font-bold text-rose-600">@totalDisplayVal.ToString("N4")</span>
                                                     <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(vr.Currency?.CurrencyCode ?? "")</span>
                                                 </div>
                                                 <div class="text-xs text-slate-500 font-semibold">
-                                                    <span>@baseAmount.ToString("N2")</span>
+                                                    <span>@baseAmount.ToString("N4")</span>
                                                     <span class="text-[9px] text-slate-400 uppercase ml-0.5">@companyBaseCurrency</span>
                                                 </div>
                                             }
                                             else
                                             {
-                                                <span class="font-black text-rose-600">@totalDisplayVal.ToString("N2")</span>
+                                                <span class="font-black text-rose-600">@totalDisplayVal.ToString("N4")</span>
                                                 <span class="text-[9px] text-slate-400 uppercase ml-0.5">@(vr.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
                                             }
                                         </td>
                                         <td class="px-6 py-4 text-center">
                                             <button type="button" @onclick="() => RouteToTargetReturn(vr.Id)" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
-                                                @(vr.Status == VendorReturnStatus.Posted ? "View Details" : "Edit Draft")
+                                                @(isRejected ? "Edit & Resubmit" : (isPosted ? "View Details" : "Edit Draft"))
                                             </button>
                                         </td>
                                     </tr>
@@ -241,7 +263,7 @@
                                 <option value="@Guid.Empty">-- Select Document --</option>
                                 @foreach (var po in eligibleOrders)
                                 {
-                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd")) - Cash Refundable: @po.GrandTotalForeign.ToString("N2")</option>
+                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd")) - Cash Refundable: @po.GrandTotalForeign.ToString("N4")</option>
                                 }
                             </select>
                             @if (_loadingOrders)
@@ -364,41 +386,44 @@
                         }
                     </div>
 
-                    <!-- Live Active Routing Profile Card -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                            <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
-                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
-                                Edit Mappings
-                            </button>
-                        </div>
-                        <div class="space-y-2 text-xs">
-                            @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
-                            {
-                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
-                                    <span class="text-slate-500 font-medium">GR/IR Clearing (Dr):</span>
-                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
-                                        @(GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
-                                    </span>
-                                </div>
-                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
-                                    <span class="text-slate-500 font-medium">Inventory Asset (Cr):</span>
-                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)">
-                                        @(GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId))
-                                    </span>
-                                </div>
-                            }
-                            @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
-                            {
-                                <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
-                                    <span class="text-slate-500 font-medium">Accounts Payable (Cr):</span>
-                                    <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)">
-                                        @(GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId))
-                                    </span>
-                                </div>
-                            }
-                        </div>
+                    @if (canConfigureRoute)
+                    {
+                        <!-- Live Active Routing Profile Card -->
+                        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+                                <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
+                                <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                                    Edit Mappings
+                                </button>
+                            </div>
+                            <div class="space-y-2 text-xs">
+                                @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                                {
+                                    <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                        <span class="text-slate-500 font-medium">GR/IR Clearing (Dr):</span>
+                                        <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
+                                            @(GetAccountDisplayName(currentReturn.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId))
+                                        </span>
+                                    </div>
+                                    <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                        <span class="text-slate-500 font-medium">Inventory Asset (Cr):</span>
+                                        <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)">
+                                            @(GetAccountDisplayName(currentReturn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId))
+                                        </span>
+                                    </div>
+                                }
+                                @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
+                                {
+                                    <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
+                                        <span class="text-slate-500 font-medium">Accounts Payable (Cr):</span>
+                                        <span class="font-mono font-bold text-slate-800 truncate max-w-[150px]" title="@GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId)">
+                                            @(GetAccountDisplayName(currentReturn.OverrideAccountsPayableGlAccountId ?? defaultApAccountId))
+                                        </span>
+                                    </div>
+                                }
+                            </div>
                     </div>
+                    }
                 </div>
 
                 <!-- MAIN WORKSPACE DETAILS -->
@@ -432,18 +457,18 @@
                                         {
                                             <tr class="bg-white hover:bg-slate-50 transition-colors">
                                                 <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
-                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.OriginalReceivedQty.ToString("N2")</td>
-                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.PreviouslyReturnedQty.ToString("N2")</td>
-                                                <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@line.MaxReturnableQty.ToString("N2")</td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.OriginalReceivedQty.ToString("N4")</td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.PreviouslyReturnedQty.ToString("N4")</td>
+                                                <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@line.MaxReturnableQty.ToString("N4")</td>
                                                 <td class="px-4 py-3 text-right font-mono text-slate-500">
-                                                    @line.UnitCost.ToString("N2")
+                                                    @line.UnitCost.ToString("N4")
                                                 </td>
                                                 <td class="px-4 py-3 text-right">
-                                                    <input type="number" step="0.01" min="0" max="@line.MaxReturnableQty"
+                                                    <input type="number" step="0.0001" min="0" max="@line.MaxReturnableQty"
                                                            value="@(line.Quantity == 0 ? "" : line.Quantity)"
                                                            @oninput="@(e => ValidateLineQty(line, e.Value?.ToString()))"
                                                            disabled="@IsPosted"
-                                                           placeholder="0.00"
+                                                           placeholder="0.0000"
                                                            class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                                 </td>
                                             </tr>
@@ -458,25 +483,44 @@
                             <!-- CASH REFUND INPUT SECTION -->
                             <div class="p-6 space-y-6 @(currentReturn.ReturnType == VendorReturnType.Both ? "border-t border-slate-200 bg-slate-50/30" : "flex-1 flex flex-col items-center justify-center")">
                                 <div class="w-full max-w-md mx-auto space-y-4">
-                                    <div class="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-center">
-                                        <div class="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Cash Refund Inflow</div>
-                                        <div class="text-xs font-semibold text-emerald-900 mt-0.5">Record money deposited back into liquid banking assets.</div>
+                                    <div class="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+                                        <div class="flex items-start justify-between gap-4">
+                                            <div>
+                                                <div class="text-[10px] uppercase font-black tracking-wider text-emerald-700">Cash Refund Inflow</div>
+                                                <div class="mt-1 text-xs font-semibold text-slate-600">Record money deposited back into liquid banking assets.</div>
+                                            </div>
+                                            <span class="rounded-lg bg-white px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 shadow-sm border border-emerald-100">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span>
+                                        </div>
+                                        <div class="mt-5 grid grid-cols-2 gap-3">
+                                            <div class="rounded-xl border border-slate-200 bg-white p-3">
+                                                <div class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Invoice amount paid</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-slate-800">@cashSummary.TotalPaid.ToString("N4")</div>
+                                            </div>
+                                            <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                                <div class="text-[9px] font-bold uppercase tracking-wider text-amber-700">Max reversible</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-amber-800">@cashSummary.MaxRefundable.ToString("N4")</div>
+                                            </div>
+                                        </div>
+                                        @if (cashSummary.PriorCashRefunded > 0)
+                                        {
+                                            <div class="mt-3 text-[10px] font-semibold text-slate-500">Previously reversed: <span class="font-mono font-bold text-slate-700">@cashSummary.PriorCashRefunded.ToString("N4")</span></div>
+                                        }
                                     </div>
 
                                     <div class="space-y-1.5">
                                         <div class="flex justify-between text-xs font-bold text-slate-500">
                                             <label class="label mb-0">Refund Cash Amount</label>
-                                            <span>Ceiling: <span class="font-mono text-slate-800">@cashSummary.MaxRefundable.ToString("N2")</span></span>
+                                            <span>Max reversible: <span class="font-mono text-slate-800">@cashSummary.MaxRefundable.ToString("N4")</span></span>
                                         </div>
                                         <div class="relative bg-white border-2 border-slate-200 rounded-xl focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all shadow-sm">
                                             <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
                                                 <span class="text-xs font-black text-slate-300 font-mono uppercase">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span>
                                             </div>
-                                            <input type="number" step="0.01" min="0" max="@cashSummary.MaxRefundable"
+                                            <input type="number" step="0.0001" min="0" max="@cashSummary.MaxRefundable"
                                                    @bind="currentReturn.TotalAmount"
                                                    disabled="@IsPosted"
                                                    class="w-full bg-transparent pl-16 pr-4 py-3 font-mono font-black text-emerald-600 text-right text-2xl outline-none placeholder:text-slate-200 disabled:opacity-50"
-                                                   placeholder="0.00" />
+                                                   placeholder="0.0000" />
                                         </div>
                                     </div>
                                 </div>
@@ -501,18 +545,18 @@
                                 @if (hasFx)
                                 {
                                     <div class="text-3xl font-black text-rose-600">
-                                        @grandForeign.ToString("N2")
+                                        @grandForeign.ToString("N4")
                                         <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentReturn.Currency?.CurrencyCode ?? "FX")</span>
                                     </div>
                                     <div class="text-sm font-bold text-slate-600 mt-0.5">
-                                        ≈ @grandBase.ToString("N2")
+                                        ≈ @grandBase.ToString("N4")
                                         <span class="text-xs font-sans font-semibold text-slate-400 uppercase ml-1">@companyBaseCurrency</span>
                                     </div>
                                 }
                                 else
                                 {
                                     <div class="text-3xl font-black text-rose-600">
-                                        @grandForeign.ToString("N2")
+                                        @grandForeign.ToString("N4")
                                         <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentReturn.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
                                     </div>
                                 }
@@ -716,6 +760,7 @@
     private Guid defaultApAccountId = Guid.Empty;
 
     private CashRefundSummaryDto cashSummary = new();
+    private bool canConfigureRoute = false;
 
     private int pageSize = 15;
     private int currentPage = 1;
@@ -724,7 +769,19 @@
     // View State Selectors
     private bool IsListMode => !Id.HasValue && !isCreateMode && currentReturn == null;
     private bool IsNewInitialization => isCreateMode && currentReturn == null;
-    private bool IsPosted => currentReturn?.Status == VendorReturnStatus.Posted;
+    private BatchStatus? currentBatchStatus;
+    private string? currentBatchRejectionReason;
+    private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private bool IsRejected => currentBatchStatus == BatchStatus.Rejected;
+    private bool IsPosted => currentReturn?.Status == VendorReturnStatus.Posted
+        && currentBatchStatus != BatchStatus.Ready
+        && currentBatchStatus != BatchStatus.Rejected
+        && currentBatchStatus != BatchStatus.Draft;
+
+    private BatchStatus GetBatchStatus(Guid? batchId, bool legacyPosted) =>
+        batchId.HasValue && batchStatuses.TryGetValue(batchId.Value, out var status)
+            ? status
+            : (legacyPosted ? BatchStatus.Posted : BatchStatus.Draft);
 
     private IEnumerable<VendorReturn> FilteredReturns => allReturns
         .Where(d => string.IsNullOrWhiteSpace(listSearchTerm)
@@ -745,6 +802,7 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             currentUserId = user.Id;
+            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
 
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             if (company != null)
@@ -792,6 +850,9 @@
             .Where(d => d.CompanyId == currentCompanyId)
             .OrderByDescending(d => d.Date)
             .ToListAsync();
+        batchStatuses = await ctx.GLBatches
+            .Where(b => b.CompanyId == currentCompanyId)
+            .ToDictionaryAsync(b => b.Id, b => b.Status);
     }
 
     protected override async Task OnParametersSetAsync()
@@ -817,6 +878,12 @@
 
         if (currentReturn != null)
         {
+            await using var ctx = await DbFactory.CreateDbContextAsync();
+            var batch = currentReturn.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == currentReturn.GlBatchId.Value && b.CompanyId == currentCompanyId)
+                : null;
+            currentBatchStatus = batch?.Status;
+            currentBatchRejectionReason = batch?.RejectionReason;
             isCreateMode = false;
             selectedVendorId = currentReturn.VendorId;
             selectedOrderId = currentReturn.PurchaseOrderId ?? Guid.Empty;
@@ -976,7 +1043,7 @@
         if ((currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
             && currentReturn.TotalAmount > cashSummary.MaxRefundable && cashSummary.MaxRefundable > 0)
         {
-            await JS.InvokeVoidAsync("alert", $"Cash recovery amount ({currentReturn.TotalAmount:N2}) cannot exceed the remaining allowable ceiling ({cashSummary.MaxRefundable:N2}).");
+                await JS.InvokeVoidAsync("alert", $"Cash recovery amount ({currentReturn.TotalAmount:N4}) cannot exceed the max reversible amount ({cashSummary.MaxRefundable:N4}).");
             return;
         }
 
@@ -1032,7 +1099,7 @@
 
             if (currentReturn.TotalAmount > cashSummary.MaxRefundable + 0.01m)
             {
-                await JS.InvokeVoidAsync("alert", $"Refund cash amount ({currentReturn.TotalAmount:N2}) exceeds remaining refundable balance ({cashSummary.MaxRefundable:N2}).");
+                await JS.InvokeVoidAsync("alert", $"Refund cash amount ({currentReturn.TotalAmount:N4}) exceeds remaining refundable balance ({cashSummary.MaxRefundable:N4}).");
                 return;
             }
         }
@@ -1048,7 +1115,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Vendor Return successfully posted and locked in the General Ledger.");
+            await JS.InvokeVoidAsync("alert", "Vendor Return submitted for GL review.");
             await LoadListGrid();
             NavigateToListView();
         }

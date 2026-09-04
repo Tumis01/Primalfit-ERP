@@ -13,6 +13,9 @@ namespace Primafit_ERP.Services
         Task RemoveEntryAsync(Guid id);
         Task<string> SubmitForApprovalAsync(Guid batchId);
         Task<string> RevertToDraftAsync(Guid batchId);
+        Task<string> LockBatchAsync(Guid batchId);
+        Task<string> ReuseBatchAsync(Guid batchId);
+        Task<string> FinalizeApprovedBatchAsync(Guid glBatchId, string userId);
         Task<string> PostBatchAsync(Guid batchId, string userId);
         Task<string> DeleteDraftBatchAsync(Guid batchId);
     }

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -27,7 +27,7 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public virtual Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
         public OrderStatus Status { get; set; } = OrderStatus.Draft;
@@ -38,10 +38,10 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
@@ -85,16 +85,16 @@ namespace Primafit_ERP.Components.Models
 
         public string? Description { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal UnitPrice { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QtyShipped { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QtyInvoiced { get; set; }
 
         [NotMapped] public decimal QtyCredited { get; set; }
@@ -169,10 +169,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QtyOrdered { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QtyShipped { get; set; }
     }
 }

@@ -111,7 +111,8 @@ namespace PrimafitERP.Data
                 .SelectMany(t => t.GetProperties())
                 .Where(p => p.ClrType == typeof(decimal) || p.ClrType == typeof(decimal?)))
             {
-                property.SetColumnType("decimal(18, 6)");
+                // Transactional amounts use four decimal places consistently.
+                property.SetColumnType("decimal(18, 4)");
             }
 
             foreach (var relationship in builder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))

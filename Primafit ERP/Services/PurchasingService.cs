@@ -76,7 +76,11 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    if (existing.IsPosted) return "STOP: Cannot edit a bill that has already been posted.";
+                    var existingBatch = existing.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GLBatchId.Value && b.CompanyId == existing.CompanyId)
+                        : null;
+                    if (existing.IsPosted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                        return "STOP: Cannot edit a bill that has already been posted.";
 
                     bill.CompanyId = existing.CompanyId;
                     bill.IsPosted = existing.IsPosted;
@@ -195,7 +199,12 @@ namespace Primafit_ERP.Services
                     // --- GENERATE NUMBER BASED ON STATUS WITH COLLISION LOOP ---
                     if (string.IsNullOrWhiteSpace(po.OrderNumber))
                     {
-                        string prefix = po.Status == PurchaseOrderStatus.Request ? "REQ" : "PO";
+                        string prefix = po.Status switch
+                        {
+                            PurchaseOrderStatus.Request => "REQ",
+                            PurchaseOrderStatus.DraftInvoice => "INV",
+                            _ => "PO"
+                        };
                         bool isDuplicate = true;
                         string generatedNumber = string.Empty;
 
@@ -217,7 +226,13 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    if (existing.IsInvoicePosted || existing.HasReceipt)
+                    var existingBatch = existing.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking()
+                            .FirstOrDefaultAsync(b => b.Id == existing.GLBatchId.Value && b.CompanyId == existing.CompanyId)
+                        : null;
+                    bool reviewEditable = existingBatch?.Status is BatchStatus.Ready or BatchStatus.Rejected or BatchStatus.Draft;
+
+                    if (!reviewEditable && (existing.IsInvoicePosted || existing.HasReceipt))
                         return "Cannot edit an order that has already been received or invoiced.";
 
                     if (existing.Status == PurchaseOrderStatus.Request)
@@ -379,7 +394,16 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(p => p.Id == invoiceOrderId);
 
                 if (invoiceOrder == null) return "Invoice record not found.";
-                if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced) return "This invoice has already been posted to the ledger.";
+                if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced)
+                {
+                    var existingBatch = invoiceOrder.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoiceOrder.GLBatchId.Value && b.CompanyId == invoiceOrder.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted)
+                        return "This invoice has already been committed to the General Ledger and cannot be modified.";
+                    if (existingBatch == null)
+                        return "This invoice is not linked to a review batch.";
+                }
 
                 bool isLegitDraft = invoiceOrder.Status == PurchaseOrderStatus.DraftInvoice ||
                                     invoiceOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
@@ -446,9 +470,13 @@ namespace Primafit_ERP.Services
                 if (resolvedApAccount == Guid.Empty)
                     return "Unable to resolve a valid Accounts Payable GL Account for this vendor invoice.";
 
+                var existingBill = await ctx.VendorBills
+                    .Include(b => b.Lines)
+                    .FirstOrDefaultAsync(b => b.PurchaseOrderId == invoiceOrder.Id && b.CompanyId == invoiceOrder.CompanyId);
+
                 var bill = new VendorBill
                 {
-                    Id = Guid.NewGuid(),
+                    Id = existingBill?.Id ?? Guid.NewGuid(),
                     CompanyId = invoiceOrder.CompanyId,
                     VendorId = invoiceOrder.VendorId,
                     PurchaseOrderId = invoiceOrder.Id,
@@ -505,9 +533,6 @@ namespace Primafit_ERP.Services
 
                 bill.TotalAmount = grandTotalBase;
 
-                ctx.VendorBills.Add(bill);
-                ctx.VendorBillLines.AddRange(bill.Lines);
-
                 var glLines = new List<GLJournalLine>();
 
                 if (grossBase > 0)
@@ -550,9 +575,28 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = resolvedApAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId, existingBatchId: invoiceOrder.GLBatchId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
+                invoiceOrder.GLBatchId = batchId;
+                bill.GLBatchId = batchId;
+
+                if (existingBill == null)
+                {
+                    ctx.VendorBills.Add(bill);
+                    ctx.VendorBillLines.AddRange(bill.Lines);
+                }
+                else
+                {
+                    ctx.Entry(existingBill).CurrentValues.SetValues(bill);
+                    ctx.VendorBillLines.RemoveRange(existingBill.Lines);
+                    foreach (var line in bill.Lines)
+                    {
+                        line.Id = Guid.NewGuid();
+                        line.VendorBillId = existingBill.Id;
+                        ctx.VendorBillLines.Add(line);
+                    }
+                }
 
                 invoiceOrder.Status = PurchaseOrderStatus.Invoiced;
                 invoiceOrder.IsInvoicePosted = true;
@@ -723,10 +767,12 @@ namespace Primafit_ERP.Services
                         "Goods Receipt",
                         $"GRN {grn.GrnNumber}",
                         glLines,
-                        userId);
+                        userId,
+                        existingBatchId: grn.GLBatchId);
 
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                     if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                    grn.GLBatchId = batchId;
                 }
 
                 // Update PO Status Tracking
@@ -826,7 +872,16 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == billId);
 
             if (bill == null) return "Bill not found.";
-            if (bill.IsPosted) return "STOP: This bill has already been posted.";
+            if (bill.IsPosted)
+            {
+                var existingBatch = bill.GLBatchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bill.GLBatchId.Value && b.CompanyId == bill.CompanyId)
+                    : null;
+                if (existingBatch?.Status == BatchStatus.Posted)
+                    return "STOP: This bill has already been committed to the General Ledger.";
+                if (existingBatch == null)
+                    return "STOP: This bill is already locked and has no review batch.";
+            }
 
             // 1. Resolve Accounts Payable Liability via Mapping Router (Credit leg)
             Guid apAccount = await _mappingService.GetMappedAccountAsync(
@@ -915,7 +970,8 @@ namespace Primafit_ERP.Services
             // 5. Create and Post Journal Batch
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
-                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId
+                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId,
+                existingBatchId: bill.GLBatchId
             );
 
             if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
@@ -926,6 +982,7 @@ namespace Primafit_ERP.Services
                 if (!string.IsNullOrEmpty(postErr)) return $"GL Engine Rejected Posting: {postErr}";
             }
 
+            bill.GLBatchId = batchId;
             bill.IsPosted = true;
             bill.PostedDate = DateTime.Now;
 
@@ -944,6 +1001,19 @@ namespace Primafit_ERP.Services
             using var tx = await ctx.Database.BeginTransactionAsync();
             try
             {
+                var existingPayment = payment.Id != Guid.Empty
+                    ? await ctx.Set<VendorPayment>().FirstOrDefaultAsync(p => p.Id == payment.Id)
+                    : null;
+                var existingPaymentBatch = existingPayment?.GLBatchId.HasValue == true
+                    ? await ctx.GLBatches.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == existingPayment.GLBatchId!.Value && b.CompanyId == companyId)
+                    : null;
+
+                if (existingPaymentBatch?.Status == BatchStatus.Posted)
+                    return "This vendor payment has already been committed to the General Ledger and cannot be modified.";
+                if (existingPayment != null && existingPaymentBatch == null)
+                    return "Only draft payments or payments with an active review batch can be edited.";
+
                 var bill = await ctx.VendorBills
                     .Include(b => b.Payments)
                     .FirstOrDefaultAsync(b => b.Id == payment.VendorBillId && b.CompanyId == companyId);
@@ -955,7 +1025,14 @@ namespace Primafit_ERP.Services
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
 
                 // 1. Genuine Cash Payments already paid
-                decimal grossPaidBase = bill.Payments.Where(p => p.Amount > 0).Sum(p => p.Amount);
+                var postedBatchIds = await ctx.GLBatches.AsNoTracking()
+                    .Where(b => b.CompanyId == companyId && b.Status == BatchStatus.Posted)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+                decimal grossPaidBase = bill.Payments
+                    .Where(p => p.Id != payment.Id && p.Amount > 0
+                        && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value)))
+                    .Sum(p => p.Amount);
 
                 // 2. Query Debit Notes directly from DebitNotes table using the Invoice ID (PurchaseOrderId)
                 decimal debitNotesBase = 0;
@@ -964,7 +1041,8 @@ namespace Primafit_ERP.Services
                     var postedDebitNotes = await ctx.DebitNotes
                         .Where(d => d.PurchaseOrderId == bill.PurchaseOrderId.Value
                                  && d.CompanyId == companyId
-                                 && d.Status == DebitNoteStatus.Posted)
+                                 && d.Status == DebitNoteStatus.Posted
+                                 && (!d.GlBatchId.HasValue || postedBatchIds.Contains(d.GlBatchId.Value)))
                         .ToListAsync();
 
                     debitNotesBase = postedDebitNotes.Sum(d => Math.Round(d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1.0m), 2));
@@ -1018,7 +1096,6 @@ namespace Primafit_ERP.Services
 
                 payment.BankGlAccountId = creditBankAccountId;
                 if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
-                ctx.Set<VendorPayment>().Add(payment);
 
                 var glLines = new List<GLJournalLine>
         {
@@ -1044,12 +1121,27 @@ namespace Primafit_ERP.Services
                     "Vendor Payment",
                     string.IsNullOrWhiteSpace(payment.Reference) ? $"Pay {bill.ExternalInvoiceNumber}" : payment.Reference,
                     glLines,
-                    userId);
+                    userId,
+                    existingBatchId: payment.GLBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                payment.GLBatchId = batchId;
 
-                if (bill.PurchaseOrderId.HasValue && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
+                if (existingPayment == null)
+                {
+                    ctx.Set<VendorPayment>().Add(payment);
+                }
+                else
+                {
+                    ctx.Entry(existingPayment).CurrentValues.SetValues(payment);
+                }
+
+                var stagedBatch = batchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId.Value && b.CompanyId == companyId)
+                    : null;
+                if (bill.PurchaseOrderId.HasValue && stagedBatch?.Status == BatchStatus.Posted
+                    && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
                 {
                     var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
                     if (po != null)
@@ -1116,6 +1208,20 @@ namespace Primafit_ERP.Services
 
                 var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
                 if (vendor == null) return "Selected vendor does not exist.";
+
+                var existingBill = bill.Id != Guid.Empty
+                    ? await ctx.VendorBills.Include(b => b.Lines)
+                        .FirstOrDefaultAsync(b => b.Id == bill.Id && b.CompanyId == bill.CompanyId)
+                    : null;
+                var existingBillBatch = existingBill?.GLBatchId.HasValue == true
+                    ? await ctx.GLBatches.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == existingBill.GLBatchId!.Value && b.CompanyId == bill.CompanyId)
+                    : null;
+
+                if (existingBillBatch?.Status == BatchStatus.Posted)
+                    return "This direct bill has already been committed to the General Ledger and cannot be modified.";
+                if (existingBill != null && existingBill.IsPosted && existingBillBatch == null)
+                    return "This direct bill has already been committed and cannot be modified.";
 
                 if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
                     bill.ExternalInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
@@ -1240,7 +1346,8 @@ namespace Primafit_ERP.Services
                     "Direct Vendor Bill",
                     $"Bill {bill.ExternalInvoiceNumber}",
                     glLines,
-                    userId);
+                    userId,
+                    existingBatchId: bill.GLBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
@@ -1249,9 +1356,25 @@ namespace Primafit_ERP.Services
                     var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
                 }
+                bill.GLBatchId = batchId;
 
-                ctx.VendorBills.Add(bill);
-                ctx.VendorBillLines.AddRange(bill.Lines);
+                if (existingBill == null)
+                {
+                    ctx.VendorBills.Add(bill);
+                    ctx.VendorBillLines.AddRange(bill.Lines);
+                }
+                else
+                {
+                    bill.CompanyId = existingBill.CompanyId;
+                    ctx.Entry(existingBill).CurrentValues.SetValues(bill);
+                    ctx.VendorBillLines.RemoveRange(existingBill.Lines);
+                    foreach (var line in bill.Lines)
+                    {
+                        line.Id = Guid.NewGuid();
+                        line.VendorBillId = existingBill.Id;
+                        ctx.VendorBillLines.Add(line);
+                    }
+                }
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();

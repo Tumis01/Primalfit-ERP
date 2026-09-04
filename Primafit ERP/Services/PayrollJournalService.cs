@@ -25,7 +25,16 @@ namespace Primafit_ERP.Services
             {
                 var run = await ctx.PayrollRuns.Include(r => r.PayrollItems).FirstOrDefaultAsync(r => r.Id == runId);
                 if (run == null) return "Payroll run not found.";
-                if (run.Status != PayrollRunStatus.Draft) return "Only Draft payrolls can be approved.";
+                if (run.Status != PayrollRunStatus.Draft)
+                {
+                    var existingBatch = run.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == run.GLBatchId.Value && b.CompanyId == run.CompanyId)
+                        : null;
+                    if (run.Status != PayrollRunStatus.Approved || existingBatch?.Status != BatchStatus.Rejected)
+                        return existingBatch?.Status == BatchStatus.Posted
+                            ? "This payroll has already been committed to the General Ledger."
+                            : "Only Draft payrolls or rejected payroll batches can be submitted.";
+                }
 
                 var settings = await ctx.PayrollSettings.FirstOrDefaultAsync(s => s.CompanyId == run.CompanyId);
                 if (settings == null) return "STOP: Missing GL Configuration. Please map Payroll GL Accounts in settings.";
@@ -62,7 +71,7 @@ namespace Primafit_ERP.Services
                     glLines.Add(new GLJournalLine { SegCoaId = settings.SalariesPayableAccountId, Debit = 0, Credit = totalNetPay, Reference = $"Net Pay Liability: {run.Period}" });
 
                 // Post to GL Engine
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(run.RunDate), "Payroll Accrual", $"PR-{run.Period}", glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(run.RunDate), "Payroll Accrual", $"PR-{run.Period}", glLines, userId, existingBatchId: run.GLBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
@@ -95,8 +104,17 @@ namespace Primafit_ERP.Services
             {
                 var run = await ctx.PayrollRuns.FirstOrDefaultAsync(r => r.Id == runId);
                 if (run == null) return "Payroll run not found.";
-                if (run.Status != PayrollRunStatus.Approved) return "Payroll must be Approved before disbursement.";
-                if (run.DisbursementGLBatchId.HasValue) return "Salaries for this period have already been disbursed.";
+                if (run.Status != PayrollRunStatus.Approved && run.Status != PayrollRunStatus.Paid)
+                    return "Payroll must be Approved before disbursement.";
+                if (run.DisbursementGLBatchId.HasValue)
+                {
+                    var existingBatch = await ctx.GLBatches.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == run.DisbursementGLBatchId.Value && b.CompanyId == run.CompanyId);
+                    if (existingBatch?.Status != BatchStatus.Rejected)
+                        return existingBatch?.Status == BatchStatus.Posted
+                            ? "Salaries for this period have already been committed to the General Ledger."
+                            : "Salary disbursement is already awaiting review.";
+                }
 
                 var settings = await ctx.PayrollSettings.FirstOrDefaultAsync(s => s.CompanyId == run.CompanyId);
 
@@ -108,7 +126,7 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = run.TotalNetPay, Reference = $"Salary Payout: {run.Period} - {reference}" }
                 };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Salary Disbursement", reference, glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Salary Disbursement", reference, glLines, userId, existingBatchId: run.DisbursementGLBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
@@ -151,13 +169,27 @@ namespace Primafit_ERP.Services
 
                 if (isPaye)
                 {
-                    if (run.IsPayeRemitted) return "PAYE already remitted for this period.";
+                    if (run.IsPayeRemitted)
+                    {
+                        var existingBatch = run.PayeRemittanceGLBatchId.HasValue
+                            ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == run.PayeRemittanceGLBatchId.Value && b.CompanyId == run.CompanyId)
+                            : null;
+                        if (existingBatch?.Status != BatchStatus.Rejected)
+                            return existingBatch?.Status == BatchStatus.Posted ? "PAYE has already been committed to the General Ledger." : "PAYE remittance is already awaiting review.";
+                    }
                     amount = run.PayrollItems.Sum(i => i.PAYETax);
                     liabilityAccountId = settings!.PAYEPayableAccountId;
                 }
                 else
                 {
-                    if (run.IsPensionRemitted) return "Pension already remitted for this period.";
+                    if (run.IsPensionRemitted)
+                    {
+                        var existingBatch = run.PensionRemittanceGLBatchId.HasValue
+                            ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == run.PensionRemittanceGLBatchId.Value && b.CompanyId == run.CompanyId)
+                            : null;
+                        if (existingBatch?.Status != BatchStatus.Rejected)
+                            return existingBatch?.Status == BatchStatus.Posted ? "Pension has already been committed to the General Ledger." : "Pension remittance is already awaiting review.";
+                    }
                     amount = run.PayrollItems.Sum(i => i.EmployeePension + i.EmployerPension);
                     liabilityAccountId = settings!.PensionPayableAccountId;
                 }
@@ -172,7 +204,8 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = amount, Reference = $"{typeName} Remittance: {run.Period} - {reference}" }
                 };
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Statutory Remittance", reference, glLines, userId);
+                var existingRemittanceBatchId = isPaye ? run.PayeRemittanceGLBatchId : run.PensionRemittanceGLBatchId;
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Statutory Remittance", reference, glLines, userId, existingBatchId: existingRemittanceBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)

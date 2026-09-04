@@ -1,4 +1,4 @@
-﻿@page "/sc/stock-entry"
+@page "/sc/stock-entry"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -31,7 +31,7 @@
                     </span>
                 }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Track stock movements, direct receipts, and inventory valuation adjustments.</p>
+            <p class="text-sm text-slate-500 mt-1">Prepare stock movements, direct receipts, and valuation adjustments for GL review before posting.</p>
         </div>
 
         <div class="flex flex-col sm:flex-row gap-4 items-center">
@@ -124,7 +124,7 @@
                                             <span class="font-mono font-bold text-slate-400">0</span>
                                         }
                                     </td>
-                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">@ledger.CostAtTime.ToString("N2")</td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">@ledger.CostAtTime.ToString("N4")</td>
                                 </tr>
                             }
                             @if (!PaginatedHistory.Any())
@@ -236,7 +236,7 @@
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label">Quantity Change</label>
-                                    <input type="number"
+                                    <input type="number" step="0.0001"
                                            @bind="Qty"
                                            class="input-class font-mono text-center font-bold text-lg @(LockQty ? "bg-slate-100 text-slate-400 border-dashed" : "")"
                                            placeholder="0"
@@ -244,10 +244,10 @@
                                 </div>
                                 <div>
                                     <label class="label">Unit Cost </label>
-                                    <input type="number" step="0.01"
+                                    <input type="number" step="0.0001"
                                            @bind="UnitPrice"
                                            class="input-class font-mono text-right @(LockUnitPrice ? "bg-slate-100 text-slate-400 border-dashed" : "")"
-                                           placeholder="0.00"
+                                           placeholder="0.0000"
                                            readonly="@LockUnitPrice" />
                                 </div>
                             </div>
@@ -257,10 +257,10 @@
                                     <span>Total Valuation Change</span>
                                 </label>
                                 <div class="relative">
-                                    <input type="number" step="0.01"
+                                    <input type="number" step="0.0001"
                                            @bind="TotalCost"
                                            class="w-full bg-white border-2 @(entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease ? "border-indigo-400 focus:border-indigo-600 shadow-inner" : "border-slate-200") rounded-xl pl-10 pr-4 py-3 text-right font-mono font-black text-2xl text-slate-900 outline-none transition-colors"
-                                           placeholder="0.00"
+                                           placeholder="0.0000"
                                            readonly="@(!IsTotalCostEditable)" />
                                 </div>
                             </div>
@@ -281,7 +281,7 @@
                                     }
                                     else
                                     {
-                                        <span>Process</span>
+                                        <span>Submit Entry for GL Review</span>
                                     }
                                 </button>
                             </Authorized>
@@ -566,7 +566,7 @@
 
             if (string.IsNullOrEmpty(err))
             {
-                await JS.InvokeVoidAsync("alert", "Posted Successfully!");
+                await JS.InvokeVoidAsync("alert", "Stock entry submitted for GL review.");
                 await LoadData();
                 currentPage = 1;
                 activeTab = 0;

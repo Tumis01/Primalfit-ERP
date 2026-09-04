@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -33,7 +33,7 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid GoodsReceiptId { get; set; }
         public LandedCostType CostType { get; set; }
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Amount { get; set; }
 
         public AllocationMethod AllocationMethod { get; set; }

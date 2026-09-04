@@ -1,4 +1,4 @@
-﻿@page "/inventory/adjustments"
+@page "/inventory/adjustments"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -130,11 +130,11 @@
 
 
                             <td class="p-3 align-middle">
-                                <input type="number" step="0.01" min="0"
+                                <input type="number" step="0.0001" min="0"
                                        value="@(line.QuantityChange == 0 ? "" : line.QuantityChange.ToString())"
                                        @oninput="@(e => OnQtyChanged(line, e.Value?.ToString()))"
                                        class="w-full p-2.5 border border-slate-200 rounded-xl text-center font-mono font-bold text-slate-900 focus:border-indigo-500 focus:outline-none transition-all"
-                                       placeholder="0.00" />
+                                       placeholder="0.0000" />
                             </td>
 
                             <td class="p-3 text-center align-middle">
@@ -156,36 +156,36 @@
                                 }
                             </td>
                             <td class="p-3 align-middle">
-                                <input type="number" step="0.01" min="0"
+                                <input type="number" step="0.0001" min="0"
                                        value="@(line.Cost == 0 ? "" : line.Cost.ToString())"
                                        @oninput="@(e => OnCostChanged(line, e.Value?.ToString()))"
                                        disabled="@(!hasQty)"
                                        class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
                                 @(!hasQty ? "bg-slate-50 border-slate-100 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
-                                       placeholder="0.00" />
+                                       placeholder="0.0000" />
                             </td>
 
                             <td class="p-3 align-middle">
                                 <div class="relative rounded-xl shadow-sm">
-                                    <input type="number" step="0.01" min="0"
+                                    <input type="number" step="0.0001" min="0"
                                            value="@(line.DebitAmount == 0 ? "" : line.DebitAmount.ToString())"
                                            @oninput="@(e => OnManualDebitChanged(line, e.Value?.ToString()))"
                                            disabled="@(hasQty || line.CreditAmount > 0)"
                                            class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
                                     @(hasQty || line.CreditAmount > 0 ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
-                                           placeholder="0.00" />
+                                           placeholder="0.0000" />
                                 </div>
                             </td>
 
                             <td class="p-3 align-middle">
                                 <div class="relative rounded-xl shadow-sm">
-                                    <input type="number" step="0.01" min="0"
+                                    <input type="number" step="0.0001" min="0"
                                            value="@(line.CreditAmount == 0 ? "" : line.CreditAmount.ToString())"
                                            @oninput="@(e => OnManualCreditChanged(line, e.Value?.ToString()))"
                                            disabled="@(hasQty || line.DebitAmount > 0)"
                                            class="w-full p-2.5 border rounded-xl text-right font-mono font-bold focus:border-indigo-500 focus:outline-none transition-all
                                     @(hasQty || line.DebitAmount > 0 ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" : "bg-white border-slate-200 text-slate-900")"
-                                           placeholder="0.00" />
+                                           placeholder="0.0000" />
                                 </div>
                             </td>
 
@@ -214,12 +214,12 @@
             <div class="flex items-center gap-8 text-right">
                 <div>
                     <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Aggregate Value Debits (Dr)</span>
-                    <span class="text-lg font-mono font-bold text-emerald-600">@lines.Sum(l => l.DebitAmount).ToString("N2")</span>
+                    <span class="text-lg font-mono font-bold text-emerald-600">@lines.Sum(l => l.DebitAmount).ToString("N4")</span>
                 </div>
                 <div class="w-px h-8 bg-slate-200"></div>
                 <div>
                     <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Aggregate Value Credits (Cr)</span>
-                    <span class="text-lg font-mono font-bold text-rose-600">@lines.Sum(l => l.CreditAmount).ToString("N2")</span>
+                    <span class="text-lg font-mono font-bold text-rose-600">@lines.Sum(l => l.CreditAmount).ToString("N4")</span>
                 </div>
             </div>
         </div>
@@ -231,11 +231,11 @@
             @if (isBusy)
             {
                 <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                <span>Posting Balanced Stock Valuation Adjustments...</span>
+                <span>Submitting Balanced Adjustments for GL Review...</span>
             }
             else
             {
-                <span>Commit Inventory Adjustments</span>
+                <span>Submit Inventory Adjustments for Review</span>
             }
         </button>
     </div>
@@ -494,7 +494,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Inventory adjustments committed and financial ledgers balanced successfully line-by-line!");
+            await JS.InvokeVoidAsync("alert", "Inventory adjustments submitted for GL review.");
             ClearForm();
         }
         else
