@@ -28,6 +28,7 @@ namespace Primafit_ERP.Components.Models
         public SalesOrder? SalesOrder { get; set; }
 
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
 
         [Required]
         public string Reason { get; set; } = string.Empty;
@@ -78,6 +79,11 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid ItemId { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 

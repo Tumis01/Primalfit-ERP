@@ -186,6 +186,29 @@ namespace Primafit_ERP.Services
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
 
+            bool isInvoiceDocument = po.Status == PurchaseOrderStatus.DraftInvoice
+                || po.Status == PurchaseOrderStatus.Invoiced
+                || po.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
+            if (isInvoiceDocument && po.WithholdingTaxId.HasValue)
+            {
+                var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                    .FirstOrDefaultAsync(w => w.Id == po.WithholdingTaxId.Value && w.CompanyId == po.CompanyId);
+                if (withholding == null) return "Selected withholding tax is not configured for this company.";
+                if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                po.WithholdingTaxName = withholding.Name;
+                po.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                po.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+            }
+            else if (!isInvoiceDocument)
+            {
+                po.WithholdingTaxId = null;
+                po.WithholdingTaxName = null;
+                po.WithholdingPercentage = 0;
+                po.WithholdingAmountForeign = 0;
+                po.WithholdingAmount = 0;
+                po.WithholdingGlAccountId = null;
+            }
+
             var existing = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .FirstOrDefaultAsync(p => p.Id == po.Id);
@@ -297,7 +320,7 @@ namespace Primafit_ERP.Services
                 TaxId = req.TaxId,
                 TaxGLAccountId = req.TaxGLAccountId,
                 VendorId = req.VendorId,
-                OrderDate = DateTime.Today,
+                OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.Open,
                 CurrencyId = req.CurrencyId,
                 ExchangeRate = req.ExchangeRate,
@@ -315,7 +338,10 @@ namespace Primafit_ERP.Services
                     PurchaseOrderId = order.Id,
                     ItemId = line.ItemId,
                     QuantityOrdered = line.QuantityOrdered,
-                    UnitCost = line.UnitCost
+                    UnitCost = line.UnitCost,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor
                 });
             }
 
@@ -356,7 +382,7 @@ namespace Primafit_ERP.Services
                 TaxId = po.TaxId,
                 TaxGLAccountId = po.TaxGLAccountId,
                 VendorId = po.VendorId,
-                OrderDate = DateTime.Today,
+                OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.DraftInvoice, // Initial state inside the Invoice workspace
                 CurrencyId = po.CurrencyId,
                 ExchangeRate = po.ExchangeRate,
@@ -373,7 +399,10 @@ namespace Primafit_ERP.Services
                     PurchaseOrderId = invoice.Id,
                     ItemId = line.ItemId,
                     QuantityOrdered = line.QuantityOrdered,
-                    UnitCost = line.UnitCost
+                    UnitCost = line.UnitCost,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor
                 });
             }
 
@@ -482,12 +511,16 @@ namespace Primafit_ERP.Services
                     PurchaseOrderId = invoiceOrder.Id,
                     AccountsPayableGlId = resolvedApAccount,
                     ExternalInvoiceNumber = invoiceOrder.OrderNumber,
-                    BillDate = DateTime.Today,
+                    BillDate = DateTime.Now,
                     CurrencyId = invoiceOrder.CurrencyId,
                     ExchangeRate = invoiceOrder.ExchangeRate,
                     IsPosted = true,
                     PostedDate = DateTime.Now,
-                    MatchStatus = BillMatchStatus.Matched
+                    MatchStatus = BillMatchStatus.Matched,
+                    WithholdingTaxId = invoiceOrder.WithholdingTaxId,
+                    WithholdingTaxName = invoiceOrder.WithholdingTaxName,
+                    WithholdingPercentage = invoiceOrder.WithholdingPercentage,
+                    WithholdingGlAccountId = invoiceOrder.WithholdingGlAccountId
                 };
 
                 decimal totalGrossForeign = 0;
@@ -503,9 +536,12 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             QuantityBilled = line.QuantityOrdered,
                             UnitCostBilled = line.UnitCost,
+                            UomId = line.UomId,
+                            UomName = line.UomName,
+                            UomConversionFactor = line.UomConversionFactor,
                             ExpenseGlAccountId = resolvedClearingAccount
                         });
-                        totalGrossForeign += (line.QuantityOrdered * line.UnitCost);
+                        totalGrossForeign += line.LineTotal;
                         line.QuantityBilled = line.QuantityOrdered;
                     }
                 }
@@ -516,6 +552,38 @@ namespace Primafit_ERP.Services
                     discountForeign = totalGrossForeign * (invoiceOrder.DiscountPercentage / 100);
                 }
                 decimal netForeign = totalGrossForeign - discountForeign;
+
+                if (invoiceOrder.WithholdingTaxId.HasValue)
+                {
+                    var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.Id == invoiceOrder.WithholdingTaxId.Value && w.CompanyId == invoiceOrder.CompanyId);
+                    if (withholding == null) return "Selected withholding tax is no longer available.";
+                    if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                    invoiceOrder.WithholdingTaxName = withholding.Name;
+                    invoiceOrder.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                    invoiceOrder.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+                    invoiceOrder.WithholdingAmountForeign = Math.Round(netForeign * withholding.PercentageValue / 100m, 4);
+                    invoiceOrder.WithholdingAmount = Math.Round(invoiceOrder.WithholdingAmountForeign * invoiceOrder.ExchangeRate, 4);
+                    bill.WithholdingTaxName = invoiceOrder.WithholdingTaxName;
+                    bill.WithholdingPercentage = invoiceOrder.WithholdingPercentage;
+                    bill.WithholdingGlAccountId = invoiceOrder.WithholdingGlAccountId;
+                    bill.WithholdingAmountForeign = invoiceOrder.WithholdingAmountForeign;
+                    bill.WithholdingAmount = invoiceOrder.WithholdingAmount;
+                }
+                else
+                {
+                    invoiceOrder.WithholdingTaxName = null;
+                    invoiceOrder.WithholdingPercentage = 0;
+                    invoiceOrder.WithholdingAmountForeign = 0;
+                    invoiceOrder.WithholdingAmount = 0;
+                    invoiceOrder.WithholdingGlAccountId = null;
+                    bill.WithholdingTaxId = null;
+                    bill.WithholdingTaxName = null;
+                    bill.WithholdingPercentage = 0;
+                    bill.WithholdingAmountForeign = 0;
+                    bill.WithholdingAmount = 0;
+                    bill.WithholdingGlAccountId = null;
+                }
 
                 decimal taxForeign = 0;
                 if (invoiceOrder.TaxId.HasValue)
@@ -645,6 +713,20 @@ namespace Primafit_ERP.Services
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
                     if (poLine == null) continue;
 
+                    var item = await ctx.Items.FindAsync(poLine.ItemId);
+                    if (item == null) return $"STOP: Item master reference is missing for purchase line {poLine.Id}.";
+
+                    decimal expectedFactor = line.UomId.HasValue
+                        ? UomConversion.FactorFor(item, line.UomId)
+                        : UomConversion.NormalizeFactor(line.UomConversionFactor);
+                    if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                        return $"STOP: Invalid UOM conversion selected for item '{item.Name}'. Reload the receipt and try again.";
+
+                    line.UomConversionFactor = expectedFactor;
+                    line.UomName = string.IsNullOrWhiteSpace(line.UomName)
+                        ? UomConversion.NameFor(item, line.UomId)
+                        : line.UomName.Trim();
+
                     decimal pastQty = pastReceipts.Where(p => p.PurchaseOrderLineId == line.PurchaseOrderLineId).Sum(p => p.QuantityReceived);
                     decimal maxAllowed = poLine.QuantityOrdered - pastQty;
 
@@ -713,7 +795,13 @@ namespace Primafit_ERP.Services
                             Date = grn.DateReceived,
                             Reference = grn.GrnNumber,
                             Type = StockMovementType.Purchase,
+                            // QuantityChanged is the canonical physical/base
+                            // quantity used by valuation, WACC and stock checks.
                             QuantityChanged = grnLine.QuantityReceived,
+                            UomId = grnLine.UomId,
+                            UomName = string.IsNullOrWhiteSpace(grnLine.UomName) ? item.UoM : grnLine.UomName,
+                            UomConversionFactor = UomConversion.NormalizeFactor(grnLine.UomConversionFactor),
+                            QuantityInUom = UomConversion.FromBase(grnLine.QuantityReceived, grnLine.UomConversionFactor),
                             CostAtTime = poLine.UnitCost
                         });
 
@@ -919,7 +1007,7 @@ namespace Primafit_ERP.Services
 
                 if (expenseAccount == Guid.Empty) return "STOP: Line missing Expense Account.";
 
-                decimal lineTotalBase = Math.Round((line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate, 2);
+                decimal lineTotalBase = Math.Round(line.LineTotal * bill.ExchangeRate, 2, MidpointRounding.AwayFromZero);
                 totalDebitsBase += lineTotalBase;
 
                 string glRef = !string.IsNullOrWhiteSpace(line.Description) ? line.Description : $"Bill: {bill.ExternalInvoiceNumber}";
@@ -939,7 +1027,7 @@ namespace Primafit_ERP.Services
                 var tax = await ctx.Taxes.FindAsync(bill.TaxId);
                 if (tax != null)
                 {
-                    decimal subTotalForeign = bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+                    decimal subTotalForeign = bill.Lines.Sum(l => l.LineTotal);
                     decimal taxForeign = subTotalForeign * (tax.Per / 100);
                     decimal taxBase = Math.Round(taxForeign * bill.ExchangeRate, 2);
 
@@ -1032,7 +1120,7 @@ namespace Primafit_ERP.Services
                 decimal grossPaidBase = bill.Payments
                     .Where(p => p.Id != payment.Id && p.Amount > 0
                         && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value)))
-                    .Sum(p => p.Amount);
+                    .Sum(p => p.Amount + p.WithholdingAmount);
 
                 // 2. Query Debit Notes directly from DebitNotes table using the Invoice ID (PurchaseOrderId)
                 decimal debitNotesBase = 0;
@@ -1051,15 +1139,37 @@ namespace Primafit_ERP.Services
                 // 3. Net Invoice Liability = Bill Total - Debit Notes
                 decimal netBillTotalBase = Math.Max(0, bill.TotalAmount - debitNotesBase);
 
-                // 4. Remaining Balance Due = Net Invoice Liability - Cash Paid
+                // 4. Remaining AP liability includes both bank cash and withholding settlements.
                 decimal remainingBalanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
 
-                if (payment.Amount > remainingBalanceBase + 0.01m)
+                decimal withholdingRatio = bill.TotalAmount > 0 && bill.WithholdingAmount > 0
+                    ? Math.Min(0.999999m, bill.WithholdingAmount / bill.TotalAmount)
+                    : 0m;
+                decimal remainingWithholdingBase = Math.Min(
+                    Math.Max(0, bill.WithholdingAmount - bill.Payments
+                        .Where(p => p.Id != payment.Id && p.Amount > 0 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value)))
+                        .Sum(p => p.WithholdingAmount)),
+                    remainingBalanceBase * withholdingRatio);
+                decimal remainingBankBase = Math.Max(0, remainingBalanceBase - remainingWithholdingBase);
+
+                if (payment.Amount > remainingBankBase + 0.01m)
                 {
-                    decimal remainingForeign = Math.Round(remainingBalanceBase / rate, 2);
+                    decimal remainingForeign = Math.Round(remainingBankBase / rate, 2);
                     decimal paymentForeign = Math.Round(payment.Amount / rate, 2);
                     return $"Payment of {paymentForeign:N2} exceeds remaining payable balance of {remainingForeign:N2} (Invoice reduced by Debit Notes).";
                 }
+
+                payment.WithholdingAmount = Math.Round(payment.Amount <= 0 || withholdingRatio <= 0
+                    ? 0
+                    : payment.Amount * withholdingRatio / (1m - withholdingRatio), 4);
+                payment.WithholdingAmount = Math.Min(payment.WithholdingAmount, remainingWithholdingBase);
+                payment.WithholdingAmountForeign = Math.Round(payment.WithholdingAmount / rate, 4);
+                payment.WithholdingTaxId = bill.WithholdingTaxId;
+                payment.WithholdingTaxName = bill.WithholdingTaxName;
+                payment.WithholdingPercentage = bill.WithholdingPercentage;
+                payment.WithholdingGlAccountId = bill.WithholdingGlAccountId;
+                if (payment.WithholdingAmount > 0 && payment.WithholdingGlAccountId == null)
+                    return "Withholding tax GL account is missing on the invoice setup.";
 
                 TransactionGlMapping? customMapping = null;
                 if (payment.CustomTransactionTypeId.HasValue)
@@ -1097,12 +1207,24 @@ namespace Primafit_ERP.Services
                 payment.BankGlAccountId = creditBankAccountId;
                 if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
 
+                if (payment.WithholdingAmount > 0)
+                {
+                    bool withholdingAccountIsValid = payment.WithholdingGlAccountId.HasValue
+                        && await ctx.SegChartOfAccounts.AnyAsync(a =>
+                            a.Id == payment.WithholdingGlAccountId.Value
+                            && a.CompanyId == companyId
+                            && a.IsActive);
+
+                    if (!withholdingAccountIsValid)
+                        return "Configuration Error: The withholding tax GL account is missing or inactive.";
+                }
+
                 var glLines = new List<GLJournalLine>
         {
             new GLJournalLine
             {
                 SegCoaId = debitApAccountId,
-                Debit = payment.Amount,
+                Debit = payment.Amount + payment.WithholdingAmount,
                 Credit = 0,
                 Reference = $"Pay Bill: {bill.ExternalInvoiceNumber}"
             },
@@ -1114,6 +1236,21 @@ namespace Primafit_ERP.Services
                 Reference = $"Disbursement: {bill.ExternalInvoiceNumber}"
             }
         };
+                if (payment.WithholdingAmount > 0)
+                {
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = payment.WithholdingGlAccountId!.Value,
+                        Debit = 0,
+                        Credit = payment.WithholdingAmount,
+                        Reference = $"Withholding Tax: {bill.ExternalInvoiceNumber}"
+                    });
+                }
+
+                decimal totalDebits = Math.Round(glLines.Sum(l => l.Debit), 4, MidpointRounding.AwayFromZero);
+                decimal totalCredits = Math.Round(glLines.Sum(l => l.Credit), 4, MidpointRounding.AwayFromZero);
+                if (totalDebits != totalCredits)
+                    return $"Payment posting is not balanced. Debits: {totalDebits:N4}; Credits: {totalCredits:N4}.";
 
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                     companyId,
@@ -1141,7 +1278,7 @@ namespace Primafit_ERP.Services
                     ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId.Value && b.CompanyId == companyId)
                     : null;
                 if (bill.PurchaseOrderId.HasValue && stagedBatch?.Status == BatchStatus.Posted
-                    && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
+                    && (grossPaidBase + payment.Amount + payment.WithholdingAmount) >= netBillTotalBase - 0.01m)
                 {
                     var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
                     if (po != null)
@@ -1274,7 +1411,7 @@ namespace Primafit_ERP.Services
 
                     line.ExpenseGlAccountId = lineExpenseAccount;
 
-                    decimal lineTotalForeign = line.QuantityBilled * line.UnitCostBilled;
+                    decimal lineTotalForeign = line.LineTotal;
                     totalGrossForeign += lineTotalForeign;
 
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
@@ -1319,6 +1456,27 @@ namespace Primafit_ERP.Services
                 bill.TotalAmountForeign = totalGrossForeign + taxForeign;
                 decimal actualCreditBase = grossBaseForLedger + taxBaseForLedger;
                 bill.TotalAmount = actualCreditBase;
+
+                if (bill.WithholdingTaxId.HasValue)
+                {
+                    var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.Id == bill.WithholdingTaxId.Value && w.CompanyId == bill.CompanyId);
+                    if (withholding == null) return "Selected withholding tax is not available for this company.";
+                    if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                    bill.WithholdingTaxName = withholding.Name;
+                    bill.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                    bill.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+                    bill.WithholdingAmountForeign = Math.Round(totalGrossForeign * withholding.PercentageValue / 100m, 4);
+                    bill.WithholdingAmount = Math.Round(bill.WithholdingAmountForeign * rate, 4);
+                }
+                else
+                {
+                    bill.WithholdingTaxName = null;
+                    bill.WithholdingPercentage = 0;
+                    bill.WithholdingAmountForeign = 0;
+                    bill.WithholdingAmount = 0;
+                    bill.WithholdingGlAccountId = null;
+                }
 
                 glLines.Add(new GLJournalLine
                 {
@@ -1457,7 +1615,7 @@ namespace Primafit_ERP.Services
             foreach (var po in invoicedPOs)
             {
                 string invoiceNumber = invoices[po.OrderNumber]; // Guaranteed to exist via filter
-                decimal orderValue = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate;
+                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
                 int days = today.DayNumber - DateOnly.FromDateTime(po.OrderDate.Date).DayNumber;
 
                 string bucket = days <= 30 ? "Current (0–30 Days)"
@@ -1766,7 +1924,7 @@ namespace Primafit_ERP.Services
 
                 decimal remaining = qtyOrdered - qtyReceived;
                 decimal pct = qtyOrdered > 0 ? (qtyReceived / qtyOrdered) * 100 : 0;
-                decimal orderValue = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate;
+                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
 
                 reportData.Rows.Add(new List<string>
                 {
@@ -2041,7 +2199,7 @@ namespace Primafit_ERP.Services
             foreach (var po in invoicedPOs)
             {
                 string invoiceNumber = invoices[po.OrderNumber];
-                decimal grossForeign = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                decimal grossForeign = po.Lines.Sum(l => l.LineTotal);
                 decimal grossBase = Math.Round(grossForeign * po.ExchangeRate, 2);
 
                 decimal discountForeign = po.DiscountAmount;

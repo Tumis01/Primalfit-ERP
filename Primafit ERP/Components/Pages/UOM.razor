@@ -70,9 +70,13 @@
                         <p class="text-[10px] text-slate-400 mt-1">The primary name of the unit.</p>
                     </div>
                     <div>
-                        <label class="label">Conversion Factor / Base Unit <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentUom.ConversionFactor" class="input-class" placeholder="e.g., 12 Pieces, 1000 Kilograms" />
-                        <p class="text-[10px] text-slate-400 mt-1">What this unit breaks down into.</p>
+                        <SearchableUom Units="@uoms.Where(x => x.Id != currentUom.Id).ToList()" @bind-Value="currentUom.ConversionUomId" />
+                        <p class="text-[10px] text-slate-400 mt-1">The UOM this unit converts into.</p>
+                    </div>
+                    <div>
+                        <label class="label">Conversion Factor</label>
+                        <InputNumber @bind-Value="currentUom.ConversionFactorValue" class="input-class font-mono" min="0.0001"   disabled="@(currentUom.ConversionUomId is null)" />
+                        <p class="text-[10px] text-slate-400 mt-1">Example: 1 Bag = 50 Kilograms.</p>
                     </div>
                 </div>
 
@@ -100,7 +104,7 @@
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="p-4 w-[40%]">Unit of Measure (Name)</th>
-                        <th class="p-4 w-[40%]">Conversion Factor</th>
+                        <th class="p-4 w-[40%]">Conversion</th>
                         <th class="p-4 text-right w-[20%]">Actions</th>
                     </tr>
                 </thead>
@@ -115,7 +119,11 @@
                                         @u.Name
                                     </div>
                                 </td>
-                                <td class="p-4 text-slate-600 font-medium">@u.ConversionFactor</td>
+                                <td class="p-4 text-slate-600 font-medium">
+                                    @(u.ConversionUomId.HasValue && u.ConversionUom != null
+                                        ? $"1 {u.Name} = {u.ConversionFactorValue:N4} {u.ConversionUom.Name}"
+                                        : "1:1")
+                                </td>
                                 <td class="p-4 text-right">
                                     <PermissionGate Key="INVENTORY_SETUP_MANAGE">
                                         <Authorized>
@@ -210,7 +218,9 @@
             Id = u.Id,
             CompanyId = u.CompanyId,
             Name = u.Name,
-            ConversionFactor = u.ConversionFactor
+            ConversionFactor = u.ConversionFactor,
+            ConversionUomId = u.ConversionUomId,
+            ConversionFactorValue = u.ConversionFactorValue <= 0 ? 1m : u.ConversionFactorValue
         };
         showForm = true;
         isEditing = true;

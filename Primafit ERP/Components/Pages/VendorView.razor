@@ -121,6 +121,17 @@
     }
 
     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+            <div class="relative w-full sm:max-w-md">
+                
+                <input type="text" @bind="vendorSearch" @bind:event="oninput" class="input-class bg-white pl-10 pr-10" placeholder="Search vendors by name, email, phone, or group..." />
+                @if (!string.IsNullOrWhiteSpace(vendorSearch))
+                {
+                    <button type="button" @onclick="() => vendorSearch = string.Empty" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Clear vendor search">&times;</button>
+                }
+            </div>
+            <div class="text-xs font-bold uppercase tracking-wider text-slate-400">@FilteredVendors.Count() of @vendors.Count vendors</div>
+        </div>
         <div class="overflow-x-auto">
             <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
                 <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -134,7 +145,7 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    @foreach (var v in vendors)
+                    @foreach (var v in FilteredVendors)
                     {
                         var apAccount = apAccounts.FirstOrDefault(a => a.Id == v.PayablesAccountId);
                         <tr class="hover:bg-slate-50 transition-colors">
@@ -246,6 +257,15 @@
     private bool isEditing = false;
     private bool isImporting = false;
     private Guid currentCompanyId;
+    private string vendorSearch = string.Empty;
+
+    private IEnumerable<Vendor> FilteredVendors => vendors
+        .Where(v => string.IsNullOrWhiteSpace(vendorSearch)
+                 || v.Name.Contains(vendorSearch, StringComparison.OrdinalIgnoreCase)
+                 || (v.Email?.Contains(vendorSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (v.Phone?.Contains(vendorSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (v.Group?.Name.Contains(vendorSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (v.DefaultCurrency?.CurrencyCode.Contains(vendorSearch, StringComparison.OrdinalIgnoreCase) ?? false));
 
     protected override async Task OnInitializedAsync()
     {

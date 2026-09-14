@@ -133,6 +133,17 @@
     else
     {
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+                <div class="relative w-full sm:max-w-md">
+                    
+                    <input type="text" @bind="customerSearch" @bind:event="oninput" class="input-class bg-white pl-10 pr-10" placeholder="Search customers by name, email, phone, or group..." />
+                    @if (!string.IsNullOrWhiteSpace(customerSearch))
+                    {
+                        <button type="button" @onclick="() => customerSearch = string.Empty" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700" aria-label="Clear customer search">&times;</button>
+                    }
+                </div>
+                <div class="text-xs font-bold uppercase tracking-wider text-slate-400">@FilteredCustomers.Count() of @customers.Count customers</div>
+            </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -146,7 +157,7 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        @foreach (var c in customers)
+                        @foreach (var c in FilteredCustomers)
                         {
                             var arAccount = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId);
                             <tr class="hover:bg-slate-50 transition-colors">
@@ -267,6 +278,15 @@
     private bool isEditing = false;
     private bool isImporting = false;
     private Guid selectedCompanyId;
+    private string customerSearch = string.Empty;
+
+    private IEnumerable<Customer> FilteredCustomers => customers
+        .Where(c => string.IsNullOrWhiteSpace(customerSearch)
+                 || c.Name.Contains(customerSearch, StringComparison.OrdinalIgnoreCase)
+                 || (c.Email?.Contains(customerSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (c.Phone?.Contains(customerSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (c.Group?.Name.Contains(customerSearch, StringComparison.OrdinalIgnoreCase) ?? false)
+                 || (c.DefaultCurrency?.CurrencyCode.Contains(customerSearch, StringComparison.OrdinalIgnoreCase) ?? false));
 
     private Guid ReceivablesAccountIdWrapper
     {

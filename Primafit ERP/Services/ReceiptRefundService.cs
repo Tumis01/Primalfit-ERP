@@ -139,6 +139,9 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = refund.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
+                        UomId = soLine.UomId,
+                        UomName = soLine.UomName,
+                        UomConversionFactor = soLine.UomConversionFactor,
                         SalesOrderLineId = soLine.Id,
                         Quantity = 0,
                         UnitPrice = soLine.UnitPrice,
@@ -208,6 +211,7 @@ namespace Primafit_ERP.Services
                 return "Cannot modify posted accounting entries.";
 
             existing.Date = refund.Date;
+            existing.TransactionDateTime = refund.TransactionDateTime;
             existing.Reason = refund.Reason;
             existing.RefundType = refund.RefundType;
             existing.BankAccountId = refund.BankAccountId;
@@ -226,6 +230,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     SalesOrderLineId = line.SalesOrderLineId,
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice

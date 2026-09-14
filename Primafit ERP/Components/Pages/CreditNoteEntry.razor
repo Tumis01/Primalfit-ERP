@@ -150,7 +150,7 @@
                     <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3">Operational Parameters</h3>
                     <div>
                         <label class="label">Adjustment Posting Date</label>
-                        <input type="date" value="@currentCn.Date.ToString("yyyy-MM-dd")" @onchange="OnAdjustmentDateChanged" class="input-class font-bold" disabled="@IsPosted" />
+                        <input type="datetime-local" value="@currentCn.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="OnAdjustmentDateChanged" class="input-class font-bold" disabled="@IsPosted" />
                     </div>
                     <div>
                         <label class="label">Reason for Adjustment</label>
@@ -198,6 +198,7 @@
                             <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider relative z-20">
                                 <tr>
                                     <th class="p-4 pl-6">Item Name</th>
+                                    <th class="p-4 text-center">UOM</th>
                                     <th class="p-4 text-center">Invoiced Qty</th>
                                     <th class="p-4 text-center text-amber-600">Max Adjustable</th>
                                     <th class="p-4 text-center w-32">Adjustment Qty</th>
@@ -210,10 +211,11 @@
                                 {
                                     <tr class="hover:bg-slate-50/80 transition-colors align-middle relative overflow-visible">
                                         <td class="p-4 pl-6 font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Product Item")</td>
-                                        <td class="p-4 text-center font-mono font-semibold text-slate-500">@line.OriginalSoldQty.ToString("N4")</td>
-                                        <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@line.MaxReturnableQty.ToString("N4")</td>
+                                        <td class="p-4 text-center text-xs font-semibold text-slate-500">@line.UomName</td>
+                                        <td class="p-4 text-center font-mono font-semibold text-slate-500">@((line.UomConversionFactor > 0 ? line.OriginalSoldQty / line.UomConversionFactor : line.OriginalSoldQty).ToString("N2"))</td>
+                                        <td class="p-4 text-center font-mono font-bold text-amber-600 bg-amber-50/20">@((line.UomConversionFactor > 0 ? line.MaxReturnableQty / line.UomConversionFactor : line.MaxReturnableQty).ToString("N2"))</td>
                                         <td class="p-4">
-                                            <input type="number" step="0.0001" value="@line.Quantity" @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))" disabled="@IsPosted" class="w-full text-center font-mono font-black border border-slate-200 bg-white rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:outline-none transition-all" />
+                                            <input type="number"   value="@(line.Quantity == 0 ? "" : (line.UomConversionFactor > 0 ? line.Quantity / line.UomConversionFactor : line.Quantity).ToString("N2"))" @oninput="@(e => ValidateQuantity(line, e.Value?.ToString()))" disabled="@IsPosted" class="w-full text-center font-mono font-black border border-slate-200 bg-white rounded-lg px-2 py-1.5 appearance-none focus:border-indigo-500 focus:outline-none transition-all" />
                                         </td>
                                         <td class="p-4 text-right font-mono text-slate-500">@line.UnitPrice.ToString("N4")</td>
                                         <td class="p-4 pr-6 text-right font-mono font-black text-rose-600">@line.LineTotal.ToString("N4")</td>
@@ -547,9 +549,10 @@
 
     private void OnAdjustmentDateChanged(ChangeEventArgs e)
     {
-        if (DateOnly.TryParse(e.Value?.ToString(), out var parsedDate))
+        if (DateTime.TryParse(e.Value?.ToString(), out var parsedDateTime))
         {
-            currentCn.Date = parsedDate;
+            currentCn.TransactionDateTime = parsedDateTime;
+            currentCn.Date = DateOnly.FromDateTime(parsedDateTime);
         }
     }
 
@@ -557,9 +560,10 @@
     {
         if (decimal.TryParse(val, out decimal res))
         {
+            var factor = line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
             if (res < 0) line.Quantity = 0;
-            else if (res > line.MaxReturnableQty) line.Quantity = line.MaxReturnableQty;
-            else line.Quantity = res;
+            else if (res > line.MaxReturnableQty / factor) line.Quantity = line.MaxReturnableQty;
+            else line.Quantity = res * factor;
         }
         else line.Quantity = 0;
         StateHasChanged();

@@ -96,7 +96,7 @@
 
             <div>
                 <label class="label">Date Received</label>
-                <input type="date" @bind="currentGrn.DateReceived" class="input-class" />
+                <input type="datetime-local" @bind="currentGrn.DateReceived" class="input-class" />
             </div>
 
             <div class="bg-rose-50/40 border border-rose-200 p-3.5 rounded-xl md:col-span-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -129,6 +129,7 @@
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
                         <tr>
                             <th class="p-4">Item</th>
+                            <th class="p-4 text-center">Receipt UOM</th>
                             <th class="p-4 text-center">Ordered</th>
                             <th class="p-4 text-center text-amber-600">Max Allowed</th>
                             <th class="p-4 text-right w-40">Received Now</th>
@@ -138,23 +139,42 @@
                         @foreach (var line in currentGrn.Lines)
                         {
                             var poLine = selectedPO?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                            var item = items.FirstOrDefault(i => i.Id == poLine?.ItemId);
+                            var lineFactor = GetLineFactor(line);
+                            var uomOptions = GetUomOptions(line, item).ToList();
                             <tr class="hover:bg-slate-50">
                                 <td class="p-4 font-medium text-slate-900">
-                                    @(items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Unknown Item")
+                                    @(item?.Name ?? "Unknown Item")
+                                </td>
+                                <td class="p-4">
+                                    @if (uomOptions.Count > 0)
+                                    {
+                                        <select value="@(line.UomId?.ToString() ?? "")" @onchange="e => OnUomChanged(line, e, item)"
+                                                class="input-class text-xs font-bold" aria-label="Receipt unit of measure">
+                                            @foreach (var option in uomOptions)
+                                            {
+                                                <option value="@option.Id">@option.Name (@option.Factor.ToString("N4"))</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs font-bold text-slate-500">@GetLineUomName(line)</span>
+                                    }
                                 </td>
                                 <td class="p-4 text-center text-slate-500 font-mono">
-                                    @(poLine?.QuantityOrdered.ToString("N0") ?? "0")
+                                    @(poLine == null ? "0" : UomConversion.FromBase(poLine.QuantityOrdered, lineFactor).ToString("N2")) @GetLineUomName(line)
                                 </td>
                                 <td class="p-4 text-center font-bold text-amber-600 bg-amber-50/50 font-mono">
-                                    @line.MaxAllowed.ToString("G29")
+                                    @UomConversion.FromBase(line.MaxAllowed, lineFactor).ToString("N2") @GetLineUomName(line)
                                 </td>
                                 <td class="p-4">
                                     <div class="flex flex-col items-end">
-                                         <input type="number" step="0.0001"
-                                               value="@line.QuantityReceived"
+                                         <input type="text" inputmode="decimal"
+                                               value="@UomConversion.FromBase(line.QuantityReceived, lineFactor).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
                                                @onchange="@(e => ValidateQuantity(line, e.Value?.ToString()))"
                                                class="w-full text-right font-bold text-emerald-700 border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                               min="0" max="@line.MaxAllowed" />
+                                               min="0" max="@UomConversion.FromBase(line.MaxAllowed, lineFactor)" />
                                     </div>
                                 </td>
                             </tr>
@@ -193,7 +213,7 @@
                         </div>
                         <div class="w-32">
                             <label class="label">Amount</label>
-                            <input type="number" step="0.0001" @bind="newCostAmount" class="input-class font-bold" placeholder="0.0000" />
+                            <input type="number"   @bind="newCostAmount" class="input-class font-bold" placeholder="0.0000" />
                         </div>
                         <div class="w-40">
                             <label class="label">Allocation</label>
@@ -234,7 +254,11 @@
                             <tfoot class="border-t-2 border-slate-300 bg-slate-50">
                                 @{
                                     var exchangeRate = selectedPO?.ExchangeRate ?? 1m;
-                                    var goodsTotalBase = currentGrn.Lines.Sum(l => l.QuantityReceived * (selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId)?.UnitCost ?? 0)) * exchangeRate;
+                                    var goodsTotalBase = currentGrn.Lines.Sum(l =>
+                                    {
+                                        var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
+                                        return Math.Round(l.QuantityReceived * (poLine?.UnitCost ?? 0), 2, MidpointRounding.AwayFromZero);
+                                    }) * exchangeRate;
                                     var extrasTotal = addedCosts.Sum(x => x.Amount);
                                     var totalLandedValue = goodsTotalBase + extrasTotal;
                                 }
@@ -443,6 +467,7 @@
     private List<Warehouse> warehouses = new();
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
@@ -492,6 +517,14 @@
             openPOs = t3.Result;
             items = t4.Result;
 
+            await using (var uomCtx = await DbFactory.CreateDbContextAsync())
+            {
+                uoms = await uomCtx.UnitOfMeasures.AsNoTracking()
+                    .Where(u => u.CompanyId == currentCompanyId)
+                    .OrderBy(u => u.Name)
+                    .ToListAsync();
+            }
+
             allAccounts = t5.Result;
             var accountTypes = t6.Result;
 
@@ -540,7 +573,7 @@
                     CompanyId = currentCompanyId,
                     PurchaseOrderId = selectedPO.Id,
                     GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}",
-                    DateReceived = DateTime.Today
+                    DateReceived = DateTime.Now
                 };
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
@@ -569,6 +602,7 @@
 
                 foreach (var line in selectedPO.Lines)
                 {
+                    var itemForLine = items.FirstOrDefault(i => i.Id == line.ItemId);
                     decimal alreadyReceived = await ctx.GoodsReceiptLines
                         .Where(x => x.PurchaseOrderLineId == line.Id)
                         .SumAsync(x => x.QuantityReceived);
@@ -582,6 +616,11 @@
                             Id = Guid.NewGuid(),
                             GoodsReceiptId = currentGrn.Id,
                             PurchaseOrderLineId = line.Id,
+                            UomId = line.UomId ?? itemForLine?.UomId,
+                            UomName = string.IsNullOrWhiteSpace(line.UomName) ? (itemForLine?.PrimaryUom?.Name ?? itemForLine?.UoM ?? "base") : line.UomName,
+                            UomConversionFactor = line.UomId.HasValue
+                                ? UomConversion.NormalizeFactor(line.UomConversionFactor)
+                                : (itemForLine?.AlternateUomId.HasValue == true ? UomConversion.NormalizeFactor(itemForLine.AlternateUomConversionFactor) : 1m),
                             QuantityReceived = remainingToReceive,
                             MaxAllowed = remainingToReceive
                         });
@@ -591,20 +630,60 @@
         }
     }
 
+    private decimal GetLineFactor(GoodsReceiptLine line) => UomConversion.NormalizeFactor(line.UomConversionFactor);
+
+    private string GetLineUomName(GoodsReceiptLine line) =>
+        string.IsNullOrWhiteSpace(line.UomName)
+            ? uoms.FirstOrDefault(u => u.Id == line.UomId)?.Name ?? "base"
+            : line.UomName;
+
+    private IEnumerable<UomOption> GetUomOptions(GoodsReceiptLine line, Item? item)
+    {
+        if (item == null) yield break;
+
+        if (item.UomId.HasValue)
+            yield return new UomOption(item.UomId.Value, uoms.FirstOrDefault(u => u.Id == item.UomId.Value)?.Name ?? item.UoM,
+                UomConversion.NormalizeFactor(item.AlternateUomConversionFactor));
+
+        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
+            yield return new UomOption(item.AlternateUomId.Value, uoms.FirstOrDefault(u => u.Id == item.AlternateUomId.Value)?.Name ?? "base", 1m);
+
+        if (line.UomId.HasValue && line.UomId != item.UomId && line.UomId != item.AlternateUomId)
+            yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
+    }
+
+    private void OnUomChanged(GoodsReceiptLine line, ChangeEventArgs e, Item? item)
+    {
+        if (item == null || !Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
+        var option = GetUomOptions(line, item).FirstOrDefault(x => x.Id == selectedId);
+        if (option == null) return;
+
+        line.UomId = option.Id;
+        line.UomName = option.Name;
+        line.UomConversionFactor = option.Factor;
+        StateHasChanged();
+    }
+
     private void ValidateQuantity(GoodsReceiptLine line, string? inputVal)
     {
-        if (decimal.TryParse(inputVal, out decimal val))
+        if (TryParseDecimal(inputVal, out decimal val))
         {
-            if (val < 0) line.QuantityReceived = 0;
-            else if (val > line.MaxAllowed)
+            decimal normalized = val < 0 ? 0 : UomConversion.ToBase(val, GetLineFactor(line));
+            if (normalized > line.MaxAllowed)
             {
                 line.QuantityReceived = line.MaxAllowed;
-                JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({line.MaxAllowed}).");
+                _ = JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({UomConversion.FromBase(line.MaxAllowed, GetLineFactor(line)):N2} {GetLineUomName(line)}).");
             }
-            else line.QuantityReceived = val;
+            else line.QuantityReceived = normalized;
         }
         else line.QuantityReceived = 0;
     }
+
+    private sealed record UomOption(Guid Id, string Name, decimal Factor);
+
+    private static bool TryParseDecimal(string? value, out decimal result) =>
+        decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out result)
+        || decimal.TryParse(value, out result);
 
     private async Task OpenRouteModal()
     {

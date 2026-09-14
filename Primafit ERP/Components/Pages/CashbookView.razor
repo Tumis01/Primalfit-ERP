@@ -198,7 +198,7 @@
 
                                     <div class="md:col-span-2">
                                         <label class="label">Date</label>
-                                        <input type="date" @bind="entryForm.TransactionDate" class="input-class font-mono text-xs" />
+                                        <input type="datetime-local" @bind="entryForm.TransactionDate" class="input-class font-mono text-xs" />
                                     </div>
 
                                     <div class="md:col-span-3">
@@ -223,20 +223,20 @@
                                     {
                                         <div class="md:col-span-3">
                                             <label class="label text-indigo-600">Foreign Debit </label>
-                                            <input type="number" step="0.0001" @bind="ForeignDebitInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
+                                            <input type="number"   @bind="ForeignDebitInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-indigo-600">Foreign Credit </label>
-                                            <input type="number" step="0.0001" @bind="ForeignCreditInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
+                                            <input type="number"   @bind="ForeignCreditInput" class="input-class py-2 font-bold font-mono text-indigo-700 @(!inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@(!inputForeignAmount)" />
                                         </div>
                                         
                                         <div class="md:col-span-3">
                                             <label class="label text-rose-700"> Debit </label>
-                                            <input type="number" step="0.0001" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
+                                            <input type="number"   @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-emerald-700"> Credit</label>
-                                            <input type="number" step="0.0001" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
+                                            <input type="number"   @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700 @(inputForeignAmount ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "")" placeholder="0.0000" disabled="@inputForeignAmount" />
                                         </div>
                                     }
                                     else
@@ -244,11 +244,11 @@
                                         <div class="md:col-span-6"></div>
                                         <div class="md:col-span-3">
                                             <label class="label text-rose-700">Debit (Money In)</label>
-                                            <input type="number" step="0.0001" @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700" placeholder="0.0000" />
+                                            <input type="number"   @bind="BaseDebitInput" class="input-class py-2 font-bold font-mono text-rose-700" placeholder="0.0000" />
                                         </div>
                                         <div class="md:col-span-3">
                                             <label class="label text-emerald-700">Credit (Money Out)</label>
-                                            <input type="number" step="0.0001" @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700" placeholder="0.0000" />
+                                            <input type="number"   @bind="BaseCreditInput" class="input-class py-2 font-bold font-mono text-emerald-700" placeholder="0.0000" />
                                         </div>
                                     }
 
@@ -291,7 +291,7 @@
                                     @foreach (var entry in selectedBatch.Entries.OrderByDescending(e => e.TransactionDate))
                                     {
                                         <tr class="hover:bg-slate-50 transition-colors @(entry.Id == entryForm.Id ? "bg-indigo-50/50" : "")">
-                                            <td class="p-4 text-slate-500 text-xs font-mono">@entry.TransactionDate.ToString("MM/dd")</td>
+                                            <td class="p-4 text-slate-500 text-xs font-mono">@entry.TransactionDate.ToString("MM/dd HH:mm")</td>
                                             <td class="p-4 text-xs text-slate-600 font-medium">@GetAccountName(entry.OffsetSegCoaId)</td>
                                             <td class="p-4 text-xs font-mono text-slate-700">@entry.Reference</td>
                                             <td class="p-4 text-slate-900 text-xs">@entry.Description</td>
@@ -390,7 +390,7 @@
                                 </div>
                                 <div>
                                     <label class="label text-indigo-700">Exchange Rate</label>
-                                    <input type="number" step="0.0001" @bind="newBatchExchangeRate" class="input-class font-mono border-indigo-200" />
+                                    <input type="number"   @bind="newBatchExchangeRate" class="input-class font-mono border-indigo-200" />
                                 </div>
                             </div>
                         }
@@ -697,7 +697,7 @@
         entryForm = new CashbookEntry
         {
             CashbookBatchId = selectedBatch?.Id ?? Guid.Empty,
-            TransactionDate = DateTime.Today
+            TransactionDate = DateTime.Now
         };
     }
 

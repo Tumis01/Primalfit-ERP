@@ -128,7 +128,7 @@
 
                             <div>
                                 <label class="label">Invoice Date</label>
-                                <input type="date" value="@invoice.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) invoice.Date = d; })" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" value="@invoice.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { invoice.TransactionDateTime = d; invoice.Date = DateOnly.FromDateTime(d); } })" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
                             <ExchangeRatePicker CompanyId="@selectedCompanyId"
@@ -171,10 +171,10 @@
                                                 <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Monthly Retainer Services" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.0001" min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                                <input type="number"   min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.0001" min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number"   min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N4"))
@@ -211,13 +211,13 @@
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="label text-[10px]">Percentage (%)</label>
-                                        <input type="number" step="0.0001" min="0" max="100" @bind="invoice.DiscountPercentage"
+                                        <input type="number"   min="0" max="100" @bind="invoice.DiscountPercentage"
                                                @bind:after="() => { if (invoice.DiscountPercentage > 0) invoice.DiscountAmount = 0; }"
                                                class="input-class text-center font-bold text-rose-600 border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
                                     <div>
                                         <label class="label text-[10px]">Flat Amount (@currencySymbol)</label>
-                                        <input type="number" step="0.0001" min="0" @bind="invoice.DiscountAmount"
+                                        <input type="number"   min="0" @bind="invoice.DiscountAmount"
                                                @bind:after="() => { if (invoice.DiscountAmount > 0) invoice.DiscountPercentage = 0; }"
                                                class="input-class text-right font-mono border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
@@ -344,7 +344,7 @@
                                 bool isStaged = batchInfo?.Status == BatchStatus.Ready;
 
                                 <tr class="hover:bg-slate-50 transition-colors align-middle">
-                                    <td class="p-4 pl-6 whitespace-nowrap">@pInv.Date.ToString("MMM dd, yyyy")</td>
+                                    <td class="p-4 pl-6 whitespace-nowrap">@pInv.TransactionDateTime.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="p-4 font-mono text-slate-600 font-semibold whitespace-nowrap">@pInv.OrderNumber</td>
                                     <td class="p-4 font-bold text-slate-800">@(pInv.Customer?.Name ?? "Unknown")</td>
                                     <td class="p-4 text-slate-500 max-w-xs truncate" title="@(pInv.Lines.FirstOrDefault()?.Description)">
@@ -825,7 +825,8 @@
         invoice = new SalesOrder
         {
             CompanyId = selectedCompanyId,
-            Date = DateOnly.FromDateTime(DateTime.Today),
+            Date = DateOnly.FromDateTime(DateTime.Now),
+            TransactionDateTime = DateTime.Now,
             ExchangeRate = 1,
             Status = OrderStatus.Draft,
             IsDirectInvoice = true,

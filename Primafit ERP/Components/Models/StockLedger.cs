@@ -19,6 +19,15 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal QuantityChanged { get; set; } // + for In, - for Out
 
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal QuantityInUom { get; set; }
+
         [Column(TypeName = "decimal(18,4)")]
         public decimal CostAtTime { get; set; } // Snapshot of WACC at this moment
 

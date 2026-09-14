@@ -111,7 +111,7 @@
 
                             <div>
                                 <label class="label">Bill Date</label>
-                                <input type="date" value="@bill.BillDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" value="@bill.BillDate.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
                             <ExchangeRatePicker CompanyId="@selectedCompanyId"
@@ -131,6 +131,20 @@
                                         <option value="@t.Id">@t.TaxName (@t.Per%)</option>
                                     }
                                 </select>
+                            </div>
+                            <div>
+                                <label class="label text-amber-700">Withholding Tax</label>
+                                <select value="@(bill.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@IsLocked">
+                                    <option value="">No Withholding Tax</option>
+                                    @foreach (var wht in withholdingTaxes)
+                                    {
+                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
+                                    }
+                                </select>
+                                @if (bill.WithholdingAmountForeign > 0)
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-amber-700">Applied to the net bill amount before VAT.</p>
+                                }
                             </div>
                         </div>
 
@@ -154,13 +168,13 @@
                                                 <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Office Electricity Bill" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.0001" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                                <input type="number"   @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.0001" @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number"   @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
-                                                @((line.QuantityBilled * line.UnitCostBilled).ToString("N4"))
+                                                @line.LineTotal.ToString("N4")
                                             </td>
                                             <td class="p-2 text-center align-top pt-5">
                                                 @if (!IsLocked)
@@ -196,9 +210,20 @@
                                     <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                    <span class="font-bold">Total (@currencySymbol):</span>
+                                    <span class="font-bold">Total Invoice Amount (Gross) (@currencySymbol):</span>
                                     <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                                 </div>
+                                @if (WithholdingAmountForeign > 0)
+                                {
+                                    <div class="flex justify-between items-center text-amber-700 border-t border-amber-100 pt-2">
+                                        <span>Less: Withholding Tax (@bill.WithholdingPercentage.ToString("0.####")%):</span>
+                                        <span class="font-mono font-bold">- @currencySymbol@WithholdingAmountForeign.ToString("N4")</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-slate-900 font-semibold">
+                                        <span>Net Amount Payable to Vendor:</span>
+                                        <span class="font-mono font-black text-emerald-700">@currencySymbol@NetAmountPayableForeign.ToString("N4")</span>
+                                    </div>
+                                }
                                 <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
                                     <span>Local Base Value:</span>
                                     <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N4")</span>
@@ -591,6 +616,7 @@
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<Tax> taxes = new();
+    private List<WithholdingTax> withholdingTaxes = new();
 
     private List<SegChartOfAccount> apAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
@@ -625,10 +651,14 @@
             ? status
             : (legacyPosted ? BatchStatus.Posted : BatchStatus.Draft);
 
-    private decimal SubTotalForeign => bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+    private decimal SubTotalForeign => bill.Lines.Sum(l => l.LineTotal);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == bill.TaxId)?.Per ?? 0;
     private decimal TaxAmountForeign => SubTotalForeign * (TaxPercentage / 100);
     private decimal GrandTotalForeign => SubTotalForeign + TaxAmountForeign;
+    private decimal WithholdingAmountForeign => bill.WithholdingTaxId.HasValue
+        ? SubTotalForeign * (bill.WithholdingPercentage / 100m)
+        : 0m;
+    private decimal NetAmountPayableForeign => Math.Max(0, GrandTotalForeign - WithholdingAmountForeign);
     private decimal SubTotalBase => bill.ExchangeRate == 0 ? 0 : SubTotalForeign * bill.ExchangeRate;
     private decimal TaxAmountBase => bill.ExchangeRate == 0 ? 0 : TaxAmountForeign * bill.ExchangeRate;
     private decimal GrandTotalBase => SubTotalBase + TaxAmountBase;
@@ -663,6 +693,7 @@
         vendors = await ctx.Vendors.Include(v => v.DefaultCurrency).Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
+        withholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking().Where(t => t.CompanyId == selectedCompanyId).OrderBy(t => t.PercentageValue).ToListAsync();
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
@@ -708,7 +739,7 @@
         bill = new VendorBill
         {
             CompanyId = selectedCompanyId,
-            BillDate = DateTime.Today,
+            BillDate = DateTime.Now,
             ExchangeRate = 1
         };
         currentBatchStatus = null;
@@ -869,6 +900,27 @@
             await JS.InvokeVoidAsync("alert", err);
         }
         isBusy = false;
+    }
+
+    private void OnWithholdingChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
+        {
+            var selected = withholdingTaxes.FirstOrDefault(x => x.Id == id);
+            bill.WithholdingTaxId = selected?.Id;
+            bill.WithholdingTaxName = selected?.Name;
+            bill.WithholdingPercentage = selected?.PercentageValue ?? 0;
+            bill.WithholdingGlAccountId = selected?.WithholdingGlAccountId;
+        }
+        else
+        {
+            bill.WithholdingTaxId = null;
+            bill.WithholdingTaxName = null;
+            bill.WithholdingPercentage = 0;
+            bill.WithholdingGlAccountId = null;
+        }
+        bill.WithholdingAmountForeign = 0;
+        bill.WithholdingAmount = 0;
     }
 
     private async Task UpdateStagedBill(VendorBill selectedBill)

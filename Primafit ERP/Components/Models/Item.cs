@@ -20,7 +20,17 @@ namespace Primafit_ERP.Components.Models
         [Required] public string SKU { get; set; } = string.Empty;
         [Required] public string Name { get; set; } = string.Empty;
         public bool IsService { get; set; }
-        public string UoM { get; set; } = "Each"; 
+        public string UoM { get; set; } = "Each";
+
+        public Guid? UomId { get; set; }
+        [ForeignKey(nameof(UomId))]
+        public virtual UnitOfMeasure? PrimaryUom { get; set; }
+        public Guid? AlternateUomId { get; set; }
+        [ForeignKey(nameof(AlternateUomId))]
+        public virtual UnitOfMeasure? AlternateUom { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal AlternateUomConversionFactor { get; set; } = 1m;
         [Column(TypeName = "decimal(18,4)")]
         public decimal ReorderLevel { get; set; } = 10;
         public CostingMethod CostingType { get; set; } = CostingMethod.WACC;

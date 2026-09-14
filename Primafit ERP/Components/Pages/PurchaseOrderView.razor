@@ -111,7 +111,7 @@
                                 var vendorName = vendors.FirstOrDefault(v => v.Id == req.VendorId)?.Name ?? "Unknown";
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">@req.OrderNumber</div></td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@req.OrderDate.ToString("MMM dd, yyyy")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@req.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4"><div class="font-bold text-slate-800 truncate max-w-[200px]" title="@vendorName">@vendorName</div></td>
                                     <td class="px-6 py-4">
                                         @if (req.Lines != null && req.Lines.Any())
@@ -212,7 +212,7 @@
                                             <div class="text-[9px] text-slate-400 font-mono mt-1">From: @po.ConvertedFromRequestNumber</div>
                                         }
                                     </td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@po.OrderDate.ToString("MMM dd, yyyy")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@po.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4"><div class="font-bold text-slate-800 truncate max-w-[200px]" title="@vendorName">@vendorName</div></td>
                                     <td class="px-6 py-4">
                                         @if (po.Lines != null && po.Lines.Any())
@@ -321,7 +321,7 @@
                                 decimal grossPaidBase = 0;
                                 if (linkedBillsMap.TryGetValue(inv.Id, out var billObj))
                                 {
-                                    grossPaidBase = billObj.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount) ?? 0;
+                                     grossPaidBase = billObj.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount + p.WithholdingAmount) ?? 0;
                                 }
 
                                 decimal remainingBalanceBase = Math.Max(0, netInvoiceBase - grossPaidBase);
@@ -329,8 +329,8 @@
 
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4 font-mono font-bold text-emerald-800">@inv.OrderNumber</td>
-                                    <td class="px-6 py-4 font-mono text-xs text-slate-400">@(inv.ConvertedFromPONumber ?? "Direct Expense")</td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@inv.OrderDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="px-6 py-4 font-mono text-xs text-slate-400">@(inv.ConvertedFromPONumber ?? "-")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@inv.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4 font-bold text-slate-800">@vendorName</td>
                                     <td class="px-6 py-4 text-right">
                                         <div class="font-mono font-bold text-emerald-700">
@@ -356,13 +356,17 @@
                                                 Partial GRN
                                             </span>
                                         }
-                                        else
-                                        {
+                                         else
+                                         {
                                             <span class="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                                 Unreceived
-                                            </span>
-                                        }
-                                    </td>
+                                             </span>
+                                         }
+                                         @if (inv.WithholdingAmount > 0)
+                                         {
+                                             <div class="mt-1 text-[10px] font-bold text-amber-700">WHT @inv.WithholdingPercentage.ToString("0.####")% · @inv.WithholdingAmount.ToString("N4")</div>
+                                         }
+                                     </td>
                                     <td class="px-6 py-4 text-center">
                                         @if (isPosted)
                                         {
@@ -541,7 +545,7 @@
 
                             <div>
                                 <label class="label">Order Date</label>
-                                <input type="date" @bind="currentOrder.OrderDate" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" @bind="currentOrder.OrderDate" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
                             <ExchangeRatePicker CompanyId="@currentCompanyId"
@@ -562,6 +566,24 @@
                                     }
                                 </select>
                             </div>
+                            <div>
+                                <label class="label text-amber-700">Withholding Tax</label>
+                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@(!IsInvoiceDocument || IsLocked)">
+                                    <option value="">No Withholding Tax</option>
+                                    @foreach (var wht in withholdingTaxes)
+                                    {
+                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
+                                    }
+                                </select>
+                                @if (IsInvoiceDocument)
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-amber-700">Attached to this invoice; withheld only when the vendor payment is posted.</p>
+                                }
+                                else
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-slate-400">Available when the document type is Invoice.</p>
+                                }
+                            </div>
                         </div>
                     </div>
 
@@ -570,10 +592,11 @@
                             <table class="w-full text-sm text-left overflow-visible">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
                                     <tr>
-                                        <th class="p-3 pl-4 w-[40%]">Item</th>
-                                        <th class="p-3 w-[15%] text-center">Qty</th>
-                                        <th class="p-3 w-[20%] text-right">Unit Price / Cost (@currencySymbol)</th>
-                                        <th class="p-3 w-[20%] text-right pr-4">Total</th>
+                                        <th class="p-3 pl-4 w-[32%]">Item</th>
+                                        <th class="p-3 w-[14%]">UOM</th>
+                                        <th class="p-3 w-[14%] text-center">Qty</th>
+                                        <th class="p-3 w-[18%] text-right">Unit Cost (@currencySymbol)</th>
+                                        <th class="p-3 w-[17%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
                                     </tr>
                                 </thead>
@@ -593,14 +616,26 @@
                                                     <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineItem(line))" IsInvalid="@(line.ItemId == Guid.Empty)" />
                                                 }
                                             </td>
+                                            <td class="p-2 align-top">
+                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" class="input-class py-2 text-xs font-semibold" disabled="@(IsLocked || line.ItemId == Guid.Empty)">
+                                                    @foreach (var uom in GetItemUoms(line.ItemId))
+                                                    {
+                                                        <option value="@uom.Id">@uom.Name</option>
+                                                    }
+                                                </select>
+                                                @if (line.ItemId != Guid.Empty)
+                                                {
+                                                    <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                }
+                                            </td>
                                             <td class="p-2 align-top pt-3 text-center">
-                                                <input type="number" step="0.0001" @bind="line.QuantityOrdered" class="input-class py-2 text-center font-bold" placeholder="1.0000" disabled="@IsLocked" />
+                                                <input type="number"   value="@GetDisplayedQuantity(line)" @onchange="@(e => OnLineQuantityChanged(line, e.Value?.ToString()))" class="input-class py-2 text-center font-bold appearance-none" placeholder="1.00" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.0001" @bind="line.UnitCost" class="input-class py-2 text-right font-mono @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@IsLocked" />
+                                                <input type="number"   value="@GetDisplayedUnitCost(line)" @onchange="@(e => OnLineCostChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono appearance-none @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-4 text-right font-mono font-bold text-slate-700">
-                                                @((line.QuantityOrdered * line.UnitCost).ToString("N4"))
+                                                @line.LineTotal.ToString("N4")
                                             </td>
                                             <td class="p-2 text-center align-top pt-4">
                                                 @if (!IsLocked)
@@ -631,11 +666,11 @@
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label text-[10px]">Percentage (%)</label>
-                                    <input type="number" step="0.0001" @bind="currentOrder.DiscountPercentage" @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }" class="input-class text-center font-bold text-emerald-700 border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
+                                    <input type="number"   @bind="currentOrder.DiscountPercentage" @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }" class="input-class text-center font-bold text-emerald-700 border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                                 <div>
                                     <label class="label text-[10px]">Flat Value Amount (@currencySymbol)</label>
-                                    <input type="number" step="0.0001" @bind="currentOrder.DiscountAmount" @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }" class="input-class text-right font-mono border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
+                                    <input type="number"   @bind="currentOrder.DiscountAmount" @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }" class="input-class text-right font-mono border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                             </div>
                         </div>
@@ -646,9 +681,20 @@
                             <div class="flex justify-between items-center pt-1"><span>Net Subtotal:</span><span class="font-mono font-bold">@DiscountedSubTotal.ToString("N4")</span></div>
                             <div class="flex justify-between items-center"><span>Tax (@TaxPercentage%):</span><span class="font-mono font-bold">+ @TaxAmount.ToString("N4")</span></div>
                             <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                <span class="font-bold">Total (@currencySymbol):</span>
+                                <span class="">@(IsInvoiceDocument ? "Total Amount " : "Total Amount") (@currencySymbol):</span>
                                 <span class="font-mono font-black text-indigo-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                             </div>
+                            @if (IsInvoiceDocument && WithholdingAmountForeign > 0)
+                            {
+                                <div class="flex justify-between items-center text-amber-700 border-t border-amber-100 pt-2">
+                                    <span>Withholding Tax (@currentOrder.WithholdingPercentage.ToString("0.####")%):</span>
+                                    <span class="font-mono font-bold">- @currencySymbol@WithholdingAmountForeign.ToString("N4")</span>
+                                </div>
+                                <div class="flex justify-between items-center text-slate-900 font-semibold">
+                                    <span>Net Amount Payable :</span>
+                                    <span class="font-mono font-black text-emerald-700">@currencySymbol@NetAmountPayableForeign.ToString("N4")</span>
+                                </div>
+                            }
                             <div class="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">
                                 <span>Ledger Base Value:</span><span class="font-mono text-slate-500">@GrandTotalBase.ToString("N4")</span>
                             </div>
@@ -1000,8 +1046,10 @@
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new();
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
+    private List<WithholdingTax> withholdingTaxes = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
@@ -1031,13 +1079,19 @@
     private string emailSubject = "";
     private string customEmailMessage = "";
 
-    private decimal SubTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+    private decimal SubTotal => currentOrder.Lines.Sum(l => l.LineTotal);
     private decimal DiscountValue => currentOrder.DiscountPercentage > 0 ? SubTotal * (currentOrder.DiscountPercentage / 100) : currentOrder.DiscountAmount;
     private decimal DiscountedSubTotal => SubTotal - DiscountValue;
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
     private decimal TaxAmount => DiscountedSubTotal * (TaxPercentage / 100);
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
+    private decimal WithholdingAmountForeign => IsInvoiceDocument && currentOrder.WithholdingTaxId.HasValue
+        ? DiscountedSubTotal * (currentOrder.WithholdingPercentage / 100m)
+        : 0m;
+    private decimal NetAmountPayableForeign => Math.Max(0, GrandTotalForeign - WithholdingAmountForeign);
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
+    private bool IsInvoiceDocument => currentOrder.Status is PurchaseOrderStatus.DraftInvoice or PurchaseOrderStatus.Invoiced
+        || currentOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
     private Dictionary<Guid, VendorBill> linkedBillsMap = new();
     private Dictionary<Guid, decimal> debitNotesMap = new();
     private bool canConfigureRoute = false;
@@ -1108,13 +1162,15 @@
         vendors = await MasterService.GetVendorsAsync(currentCompanyId);
         currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
         items = await MasterService.GetItemsAsync(currentCompanyId);
+        uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
         warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToListAsync();
+        withholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking().Where(t => t.CompanyId == currentCompanyId).OrderBy(t => t.PercentageValue).ToListAsync();
 
         var rawOrders = await PurchService.GetPOsAsync(currentCompanyId);
         foreach (var po in rawOrders)
         {
-            decimal st = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+            decimal st = po.Lines.Sum(l => l.LineTotal);
             decimal disc = po.DiscountPercentage > 0 ? st * (po.DiscountPercentage / 100) : po.DiscountAmount;
             decimal net = st - disc;
             decimal txAmount = 0;
@@ -1191,7 +1247,7 @@
 
     private void CreateNew()
     {
-        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Today, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
+        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Now, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
         currencySymbol = "";
         selectedCurrencyCode = "";
         currentOrder.Lines.Add(new PurchaseOrderLine());
@@ -1203,7 +1259,7 @@
         currentOrder = new PurchaseOrder
         {
             CompanyId = currentCompanyId,
-            OrderDate = DateTime.Today,
+            OrderDate = DateTime.Now,
             ExchangeRate = 1,
             Status = PurchaseOrderStatus.DraftInvoice
         };
@@ -1239,6 +1295,12 @@
             ExchangeRate = po.ExchangeRate,
             TaxId = po.TaxId,
             TaxGLAccountId = po.TaxGLAccountId,
+            WithholdingTaxId = po.WithholdingTaxId,
+            WithholdingTaxName = po.WithholdingTaxName,
+            WithholdingPercentage = po.WithholdingPercentage,
+            WithholdingAmountForeign = po.WithholdingAmountForeign,
+            WithholdingAmount = po.WithholdingAmount,
+            WithholdingGlAccountId = po.WithholdingGlAccountId,
             DiscountAmount = po.DiscountAmount,
             DiscountPercentage = po.DiscountPercentage,
             DiscountGlAccountId = po.DiscountGlAccountId,
@@ -1255,9 +1317,20 @@
                 PurchaseOrderId = po.Id,
                 ItemId = l.ItemId,
                 QuantityOrdered = l.QuantityOrdered,
-                UnitCost = l.UnitCost
+                UnitCost = l.UnitCost,
+                UomId = l.UomId,
+                UomName = l.UomName,
+                UomConversionFactor = l.UomConversionFactor
             }).ToList()
         };
+        foreach (var line in currentOrder.Lines)
+        {
+            var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+            if (item == null) continue;
+            line.UomId ??= item.UomId;
+            if (string.IsNullOrWhiteSpace(line.UomName)) line.UomName = item.PrimaryUom?.Name ?? item.UoM;
+            if (line.UomConversionFactor <= 0) line.UomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m;
+        }
         activeTab = 1;
     }
 
@@ -1418,7 +1491,85 @@
     }
 
     private void AddLine() => currentOrder.Lines.Add(new PurchaseOrderLine());
-    private void UpdateLineItem(PurchaseOrderLine line) { }
+
+    private void UpdateLineItem(PurchaseOrderLine line)
+    {
+        var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+        if (item == null) return;
+
+        line.UomId = item.UomId;
+        line.UomName = item.PrimaryUom?.Name ?? item.UoM;
+        line.UomConversionFactor = item.AlternateUomId.HasValue
+            ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor)
+            : 1m;
+    }
+
+    private void OnWithholdingChanged(ChangeEventArgs e)
+    {
+        if (!IsInvoiceDocument) return;
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
+        {
+            var selected = withholdingTaxes.FirstOrDefault(x => x.Id == id);
+            currentOrder.WithholdingTaxId = selected?.Id;
+            currentOrder.WithholdingTaxName = selected?.Name;
+            currentOrder.WithholdingPercentage = selected?.PercentageValue ?? 0;
+            currentOrder.WithholdingGlAccountId = selected?.WithholdingGlAccountId;
+        }
+        else
+        {
+            currentOrder.WithholdingTaxId = null;
+            currentOrder.WithholdingTaxName = null;
+            currentOrder.WithholdingPercentage = 0;
+            currentOrder.WithholdingGlAccountId = null;
+        }
+        currentOrder.WithholdingAmountForeign = 0;
+        currentOrder.WithholdingAmount = 0;
+    }
+
+    private IEnumerable<UnitOfMeasure> GetItemUoms(Guid itemId)
+    {
+        var item = items.FirstOrDefault(x => x.Id == itemId);
+        if (item == null) return Enumerable.Empty<UnitOfMeasure>();
+
+        var result = new List<UnitOfMeasure>();
+        if (item.UomId.HasValue)
+            result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
+        else if (!string.IsNullOrWhiteSpace(item.UoM))
+            result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
+
+        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
+            result.Add(item.AlternateUom ?? uoms.FirstOrDefault(x => x.Id == item.AlternateUomId.Value) ?? new UnitOfMeasure { Id = item.AlternateUomId.Value, Name = "Alternate" });
+
+        return result;
+    }
+
+    private decimal GetLineFactor(PurchaseOrderLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
+    private decimal GetDisplayedQuantity(PurchaseOrderLine line) => UomConversion.FromBase(line.QuantityOrdered, GetLineFactor(line));
+    private decimal GetDisplayedUnitCost(PurchaseOrderLine line) => UomConversion.PriceFromBase(line.UnitCost, GetLineFactor(line));
+    private string GetUomConversionText(PurchaseOrderLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.UomName} = {GetLineFactor(line):N4} base units";
+
+    private void OnLineUomChanged(PurchaseOrderLine line, ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
+        var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+        if (item == null) return;
+
+        line.UomId = selectedId;
+        line.UomName = UomConversion.NameFor(item, selectedId);
+        line.UomConversionFactor = UomConversion.FactorFor(item, selectedId);
+    }
+
+    private void OnLineQuantityChanged(PurchaseOrderLine line, string? value)
+    {
+        if (decimal.TryParse(value, out var quantity) && quantity >= 0)
+            line.QuantityOrdered = UomConversion.ToBase(quantity, GetLineFactor(line));
+    }
+
+    private void OnLineCostChanged(PurchaseOrderLine line, string? value)
+    {
+        if (decimal.TryParse(value, out var cost) && cost >= 0)
+            line.UnitCost = UomConversion.PriceToBase(cost, GetLineFactor(line));
+    }
     private void RecalculatePrices() { StateHasChanged(); }
 
     private async Task OpenRouteModal()
@@ -1474,7 +1625,7 @@
         var vendor = vendors.FirstOrDefault(v => v.Id == printOrder.VendorId);
         var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
 
-        decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+        decimal st = printOrder.Lines.Sum(l => l.LineTotal);
         decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
         decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
         printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));

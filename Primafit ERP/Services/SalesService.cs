@@ -248,6 +248,7 @@ namespace Primafit_ERP.Services
                 existing.CurrencyId = order.CurrencyId;
                 existing.ExchangeRate = order.ExchangeRate;
                 existing.Date = order.Date;
+                existing.TransactionDateTime = order.TransactionDateTime;
                 existing.TaxId = order.TaxId;
                 existing.TaxGLAccountId = order.TaxGLAccountId;
 
@@ -270,7 +271,10 @@ namespace Primafit_ERP.Services
                         ItemId = line.ItemId,
                         Description = line.Description,
                         Quantity = line.Quantity,
-                        UnitPrice = line.UnitPrice
+                        UnitPrice = line.UnitPrice,
+                        UomId = line.UomId,
+                        UomName = line.UomName,
+                        UomConversionFactor = line.UomConversionFactor
                     });
                 }
             }
@@ -313,6 +317,7 @@ namespace Primafit_ERP.Services
                 TaxGLAccountId = quote.TaxGLAccountId,
                 CustomerId = quote.CustomerId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
+                TransactionDateTime = DateTime.Now,
                 Status = OrderStatus.Order,
                 CurrencyId = quote.CurrencyId,
                 ExchangeRate = quote.ExchangeRate,
@@ -324,7 +329,12 @@ namespace Primafit_ERP.Services
 
             foreach (var line in quote.Lines)
             {
-                order.Lines.Add(new SalesOrderLine { Id = Guid.NewGuid(), HeaderId = order.Id, ItemId = line.ItemId, Quantity = line.Quantity, UnitPrice = line.UnitPrice });
+                order.Lines.Add(new SalesOrderLine
+                {
+                    Id = Guid.NewGuid(), HeaderId = order.Id, ItemId = line.ItemId,
+                    Quantity = line.Quantity, UnitPrice = line.UnitPrice,
+                    UomId = line.UomId, UomName = line.UomName, UomConversionFactor = line.UomConversionFactor
+                });
             }
 
             ctx.SalesOrders.Add(order);
@@ -366,6 +376,7 @@ namespace Primafit_ERP.Services
                 TaxGLAccountId = order.TaxGLAccountId,
                 CustomerId = order.CustomerId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
+                TransactionDateTime = DateTime.Now,
                 Status = OrderStatus.Draft,
                 CurrencyId = order.CurrencyId,
                 ExchangeRate = order.ExchangeRate,
@@ -377,7 +388,12 @@ namespace Primafit_ERP.Services
 
             foreach (var line in order.Lines)
             {
-                invoice.Lines.Add(new SalesOrderLine { Id = Guid.NewGuid(), HeaderId = invoice.Id, ItemId = line.ItemId, Quantity = line.Quantity, UnitPrice = line.UnitPrice });
+                invoice.Lines.Add(new SalesOrderLine
+                {
+                    Id = Guid.NewGuid(), HeaderId = invoice.Id, ItemId = line.ItemId,
+                    Quantity = line.Quantity, UnitPrice = line.UnitPrice,
+                    UomId = line.UomId, UomName = line.UomName, UomConversionFactor = line.UomConversionFactor
+                });
             }
 
             ctx.SalesOrders.Add(invoice);

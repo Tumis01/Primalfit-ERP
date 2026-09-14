@@ -8,6 +8,7 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.IO
+@using System.Globalization
 
 @inject PurchasingService PurchService
 @inject MasterDataService MasterService
@@ -74,6 +75,7 @@
                                 <th class="p-4 text-right">Amount Paid</th>
                                 <th class="p-4 text-right">Balance Due</th>
                                 <th class="p-4 text-center">Status</th>
+                                <th class="p-4 text-center">Withholding</th>
                                 <th class="p-4 text-center">Payment Review</th>
                                 <th class="p-4 text-center">Actions</th>
                             </tr>
@@ -107,6 +109,14 @@
                                         {
                                             <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider">Unpaid</span>
                                         }
+                                    </td>
+                                    <td class="p-4 text-center">
+                                        @if (b.WithholdingAmount > 0)
+                                        {
+                                            <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-700">@b.WithholdingName</span>
+                                            <div class="mt-1 text-[10px] font-mono text-amber-700">@b.CurrencyCode @b.WithholdingAmount.ToString("N4")</div>
+                                        }
+                                        else { <span class="text-xs text-slate-400">None</span> }
                                     </td>
                                     <td class="p-4 text-center">
                                         @if (b.PaymentReviewStatus.HasValue)
@@ -153,7 +163,7 @@
                             }
                             @if (!PagedBillStatuses.Any())
                             {
-                                <tr><td colspan="11" class="p-12 text-center text-slate-400">No bills found matching the selected filter.</td></tr>
+                                <tr><td colspan="12" class="p-12 text-center text-slate-400">No bills found matching the selected filter.</td></tr>
                             }
                         </tbody>
                     </table>
@@ -237,7 +247,7 @@
 
                         <div>
                             <label class="label">Date Paid</label>
-                            <input type="date" @bind="payment.Date" class="input-class" />
+                            <input type="datetime-local" @bind="payment.Date" class="input-class" />
                         </div>
 
                         <div>
@@ -257,7 +267,7 @@
                                 <option value="@Guid.Empty">-- Select Bill --</option>
                                 @foreach (var b in openBills)
                                 {
-                                    <option value="@b.BillId">@b.RefNumber (Due: @b.BalanceDueForeign.ToString("N4"))</option>
+                                    <option value="@b.BillId">@b.RefNumber (Bank due: @b.BankBalanceDueForeign.ToString("N4"))</option>
                                 }
                             </select>
                         </div>
@@ -275,7 +285,7 @@
                             </div>
                             <div>
                                 <label class="label">Exchange Rate</label>
-                                <input type="number" step="0.0001" value="@(SelectedBill?.ExchangeRate ?? 1)" class="input-class font-mono text-right bg-slate-50 text-slate-500 cursor-not-allowed" readonly />
+                                <input type="number"   value="@(SelectedBill?.ExchangeRate ?? 1)" class="input-class font-mono text-right bg-slate-50 text-slate-500 cursor-not-allowed" readonly />
                             </div>
                         </div>
 
@@ -284,22 +294,38 @@
                             <input type="text" @bind="payment.Reference" class="input-class" placeholder="e.g. TRF-90210" />
                         </div>
 
-                        <div class="pt-2">
-                            <label class="label text-emerald-700">Amount Paid (@currencySymbol) <span class="text-rose-500">*</span></label>
-                            <div class="relative">
-                                <input type="number" step="0.0001" @bind="amountPaidForeign" class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0.0000" />
+                        @if (IsLocalVendor)
+                        {
+                            <div class="pt-2">
+                                <label class="label text-emerald-700">Net Bank Disbursement (@companyBaseCurrency) <span class="text-rose-500">*</span></label>
+                                <input type="text" inputmode="decimal" value="@FormatVendorAmount(payment.Amount)" @onchange="OnVendorBaseAmountChanged"
+                                       class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0" />
+                                <div class="mt-1 text-[10px] text-slate-500">Local vendor: 1:1 exchange rate. Enter the net amount leaving the bank.</div>
                             </div>
-
-                            @if (SelectedBill != null)
-                            {
-                                <div class="mt-2 flex justify-between items-center bg-slate-50 p-2 rounded text-xs border border-slate-100">
-                                    <span class="font-bold text-slate-400 uppercase">Ledger Value (Base)</span>
-                                    <div class="font-mono font-bold text-emerald-600">
-                                        @((amountPaidForeign * (SelectedBill?.ExchangeRate ?? 1)).ToString("N4"))
-                                    </div>
+                        }
+                        else
+                        {
+                            <div class="space-y-3">
+                                <div>
+                                    <label class="label text-emerald-700">Net Bank Disbursement (@currencySymbol) <span class="text-rose-500">*</span></label>
+                                    <input type="text" inputmode="decimal" value="@FormatVendorAmount(amountPaidForeign)" @onchange="OnVendorForeignAmountChanged"
+                                           class="input-class pl-8 font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0" />
                                 </div>
-                            }
-                        </div>
+                                <div>
+                                    <label class="label text-slate-600">Net Bank Disbursement (@companyBaseCurrency / Ledger) <span class="text-rose-500">*</span></label>
+                                    <input type="text" inputmode="decimal" value="@FormatVendorAmount(payment.Amount)" @onchange="OnVendorBaseAmountChanged"
+                                           class="input-class font-bold text-lg text-slate-800 border-slate-300 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" placeholder="0" />
+                                    @if (SelectedBill != null)
+                                    {
+                                        <div class="mt-1 text-[10px] text-slate-500">Rate: 1 @currencySymbol = @((SelectedBill.ExchangeRate > 0 ? SelectedBill.ExchangeRate : 1m).ToString("N4")) @companyBaseCurrency. Both values must reconcile.</div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                        @if (SelectedBill != null && SelectedBill.WithholdingDueForeign > 0)
+                        {
+                            <div class="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-[10px] font-medium text-amber-800">AP settlement: @currencySymbol@SelectedBill.BalanceDueForeign.ToString("N4") · WHT withheld: @currencySymbol@SelectedBill.WithholdingDueForeign.ToString("N4") · Net bank: @currencySymbol@SelectedBill.BankBalanceDueForeign.ToString("N4")</div>
+                        }
                     </div>
                     @if (canConfigureRoute)
                     {
@@ -335,33 +361,43 @@
                         @if (SelectedBill != null)
                         {
                             <div class="p-6 border-b border-slate-100 bg-slate-50/50 rounded-t-2xl">
-                                <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4">
-                                    Bill Tracking: <span class="text-indigo-600 font-mono ml-2">@SelectedBill.RefNumber</span>
-                                </h3>
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                                    <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                                        Bill Tracking: <span class="text-indigo-600 font-mono ml-1 text-base">@SelectedBill.RefNumber</span>
+                                    </h3>
+                                    <span class="text-xs font-semibold text-slate-400 font-mono">Date Issued: @SelectedBill.Date.ToString("yyyy-MM-dd")</span>
+                                </div>
 
-                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 animate-in slide-in-from-bottom-2">
-                                    <div class="bg-white border border-slate-200 p-3 rounded-xl text-center shadow-sm">
-                                        <div class="text-[9px] text-slate-400 uppercase font-bold mb-1">Gross Bill</div>
-                                        <div class="text-sm font-mono font-bold text-slate-700">@currencySymbol@SelectedBill.GrossTotalForeign.ToString("N4")</div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 duration-300">
+                                    <div class="bg-white border border-slate-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
+                                        <div class="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wide">Invoice Total (@currencySymbol)</div>
+                                        <div class="text-xl font-mono font-black text-slate-900">@SelectedBill.GrossTotalForeign.ToString("N4")</div>
                                     </div>
                                     @if (SelectedBill.DebitNoteForeign > 0.00005m)
                                     {
-                                        <div class="bg-rose-50 border border-rose-200 p-3 rounded-xl text-center shadow-sm">
-                                            <div class="text-[9px] text-rose-600 uppercase font-bold mb-1">Debit Notes</div>
-                                            <div class="text-sm font-mono font-bold text-rose-700">- @currencySymbol@SelectedBill.DebitNoteForeign.ToString("N4")</div>
+                                        <div class="bg-rose-50 border border-rose-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] animate-in zoom-in-95 duration-200">
+                                            <div class="text-[10px] text-rose-700 uppercase font-bold mb-1 tracking-wide">Debit Adjustments</div>
+                                            <div class="text-xl font-mono font-black text-rose-700">- @currencySymbol@SelectedBill.DebitNoteForeign.ToString("N4")</div>
                                         </div>
                                     }
-                                    <div class="bg-indigo-50/60 border border-indigo-100 p-3 rounded-xl text-center shadow-sm">
-                                        <div class="text-[9px] text-indigo-700 uppercase font-bold mb-1">Net Bill Total</div>
-                                        <div class="text-sm font-mono font-black text-indigo-900">@currencySymbol@SelectedBill.NetTotalForeign.ToString("N4")</div>
+                                    <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
+                                        <div class="text-[10px] text-indigo-700 uppercase font-bold mb-1 tracking-wide">Net AP Settlement</div>
+                                        <div class="text-xl font-mono font-black text-indigo-700">@currencySymbol@SelectedBill.NetTotalForeign.ToString("N4")</div>
                                     </div>
-                                    <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-xl text-center shadow-sm">
-                                        <div class="text-[9px] text-emerald-700 uppercase font-bold mb-1">Amount Paid</div>
-                                        <div class="text-sm font-mono font-bold text-emerald-700">@currencySymbol@SelectedBill.AmountPaidForeign.ToString("N4")</div>
+                                    @if (SelectedBill.WithholdingDueForeign > 0)
+                                    {
+                                        <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] animate-in zoom-in-95 duration-200">
+                                            <div class="text-[10px] text-amber-700 uppercase font-bold mb-1 tracking-wide">Withholding Tax (@SelectedBill.WithholdingPercentage.ToString("0.####")%)</div>
+                                            <div class="text-xl font-mono font-black text-amber-700">- @currencySymbol@SelectedBill.WithholdingDueForeign.ToString("N4")</div>
+                                        </div>
+                                    }
+                                    <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px]">
+                                        <div class="text-[10px] text-emerald-700 uppercase font-bold mb-1 tracking-wide">Prior Settlement Paid</div>
+                                        <div class="text-xl font-mono font-black text-emerald-700">@currencySymbol@SelectedBill.AmountPaidForeign.ToString("N4")</div>
                                     </div>
-                                    <div class="bg-slate-900 border border-slate-900 p-3 rounded-xl text-center shadow-sm col-span-2 sm:col-span-1">
-                                        <div class="text-[9px] text-slate-300 uppercase font-bold mb-1">Balance Due</div>
-                                        <div class="text-sm font-mono font-black text-emerald-400">@currencySymbol@SelectedBill.BalanceDueForeign.ToString("N4")</div>
+                                    <div class="bg-indigo-50 border border-indigo-200 p-4 rounded-xl text-center shadow-sm flex flex-col justify-center min-h-[90px] @(SelectedBill.DebitNoteForeign > 0.00005m || SelectedBill.WithholdingDueForeign > 0 ? "" : "sm:col-span-2")">
+                                        <div class="text-[10px] text-indigo-700 uppercase font-bold mb-1 tracking-wide">Net Disbursement Due</div>
+                                        <div class="text-xl font-mono font-black text-indigo-700">@currencySymbol@SelectedBill.BankBalanceDueForeign.ToString("N4")</div>
                                     </div>
                                 </div>
                             </div>
@@ -379,7 +415,8 @@
                                 <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
-                                            <th class="px-4 py-3 w-[45%]">Item / Service</th>
+                                            <th class="px-4 py-3 w-[38%]">Item / Service</th>
+                                            <th class="px-4 py-3 text-center">UOM</th>
                                             <th class="px-4 py-3 text-center">Qty</th>
                                             <th class="px-4 py-3 text-right">Unit Cost</th>
                                             <th class="px-4 py-3 text-right pr-6">Total (@currencySymbol)</th>
@@ -390,50 +427,62 @@
                                         {
                                             <tr class="hover:bg-slate-50 transition-colors">
                                                 <td class="px-4 py-3 font-medium text-slate-800">@(items.FirstOrDefault(i => i.Id == line.ItemId)?.Name ?? "Ad-Hoc Expense")</td>
-                                                <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@line.QuantityBilled.ToString("N4")</td>
-                                                <td class="px-4 py-3 text-right font-mono text-slate-500">@line.UnitCostBilled.ToString("N4")</td>
-                                                <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@((line.QuantityBilled * line.UnitCostBilled).ToString("N4"))</td>
+                                                <td class="px-4 py-3 text-center text-xs font-semibold text-slate-500">@(string.IsNullOrWhiteSpace(line.UomName) ? (items.FirstOrDefault(i => i.Id == line.ItemId)?.UoM ?? "Each") : line.UomName)</td>
+                                                <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@((line.UomConversionFactor > 0 ? line.QuantityBilled / line.UomConversionFactor : line.QuantityBilled).ToString("N2"))</td>
+                                                <td class="px-4 py-3 text-right font-mono text-slate-500">@((line.UnitCostBilled * (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m)).ToString("N4"))</td>
+                                                <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@line.LineTotal.ToString("N4")</td>
                                             </tr>
                                         }
                                     </tbody>
 
                                     <tfoot class="bg-slate-50 border-t-2 border-slate-200 text-right text-slate-600">
                                         <tr>
-                                            <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Subtotal:</td>
+                                             <td colspan="4" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Subtotal:</td>
                                             <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-700">@SelectedBill.SubTotalForeign.ToString("N4")</td>
                                         </tr>
                                         @if (SelectedBill.DiscountAmountForeign > 0)
                                         {
                                             <tr class="text-rose-600">
-                                                <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Discount:</td>
+                                                 <td colspan="4" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">Discount:</td>
                                                 <td class="px-4 py-2 pr-6 font-mono font-bold">- @SelectedBill.DiscountAmountForeign.ToString("N4")</td>
                                             </tr>
                                         }
                                         @if (SelectedBill.TaxAmountForeign > 0)
                                         {
                                             <tr>
-                                                <td colspan="3" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">@SelectedBill.TaxDescription:</td>
+                                                 <td colspan="4" class="px-4 py-2 font-bold text-xs uppercase tracking-wider">@SelectedBill.TaxDescription:</td>
                                                 <td class="px-4 py-2 pr-6 font-mono font-bold">+ @SelectedBill.TaxAmountForeign.ToString("N4")</td>
                                             </tr>
                                         }
                                         <tr class="text-slate-900 bg-slate-100/50 border-t border-slate-200">
-                                            <td colspan="3" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Gross Invoice Total:</td>
+                                             <td colspan="4" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Total  Amount (Gross):</td>
                                             <td class="px-4 py-2 pr-6 font-mono font-bold text-slate-900">@currencySymbol@SelectedBill.GrossTotalForeign.ToString("N4")</td>
                                         </tr>
                                         @if (SelectedBill.DebitNoteForeign > 0)
                                         {
                                             <tr class="text-rose-600 bg-rose-50/40">
-                                                <td colspan="3" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Less Debit Notes (Returns / Adjustments):</td>
+                                                 <td colspan="4" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Debit Notes (Returns / Adjustments):</td>
                                                 <td class="px-4 py-2 pr-6 font-mono font-bold text-rose-600">- @currencySymbol@SelectedBill.DebitNoteForeign.ToString("N4")</td>
                                             </tr>
                                             <tr class="text-indigo-900 bg-indigo-50/50 border-t border-indigo-100">
-                                                <td colspan="3" class="px-4 py-2 font-black uppercase text-xs tracking-wider">Net Payable Invoice Amount:</td>
+                                                 <td colspan="4" class="px-4 py-2 font-black uppercase text-xs tracking-wider">Net Payable Invoice Amount:</td>
                                                 <td class="px-4 py-2 pr-6 font-mono font-black text-indigo-900">@currencySymbol@SelectedBill.NetTotalForeign.ToString("N4")</td>
                                             </tr>
                                         }
+                                        @if (SelectedBill.WithholdingDueForeign > 0)
+                                        {
+                                            <tr class="text-amber-700 bg-amber-50/50 border-t border-amber-100">
+                                                <td colspan="4" class="px-4 py-2 font-bold uppercase text-xs tracking-wider">Less: Withholding Tax (@SelectedBill.WithholdingPercentage.ToString("0.####")%):</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-bold text-amber-700">- @currencySymbol@SelectedBill.WithholdingDueForeign.ToString("N4")</td>
+                                            </tr>
+                                            <tr class="text-emerald-900 bg-emerald-50/50 border-t border-emerald-100">
+                                                <td colspan="4" class="px-4 py-2 font-black uppercase text-xs tracking-wider">Net Amount Payable to Vendor:</td>
+                                                <td class="px-4 py-2 pr-6 font-mono font-black text-emerald-800">@currencySymbol@SelectedBill.BankBalanceDueForeign.ToString("N4")</td>
+                                            </tr>
+                                        }
                                         <tr class="text-slate-900 bg-slate-100 border-t-2 border-slate-300">
-                                            <td colspan="3" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Remaining Balance to Pay:</td>
-                                            <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-emerald-700">@currencySymbol@SelectedBill.BalanceDueForeign.ToString("N4")</td>
+                                             <td colspan="4" class="px-4 py-3 font-black uppercase text-xs tracking-wider">Bank Amount Remaining:</td>
+                                            <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-emerald-700">@currencySymbol@SelectedBill.BankBalanceDueForeign.ToString("N4")</td>
                                         </tr>
                                     </tfoot>
                                 </table>
@@ -666,6 +715,7 @@
 
     private Guid currentCompanyId;
     private string companyName = "";
+    private string companyBaseCurrency = "BASE";
     private bool isBusy = false;
     private string currencySymbol = "";
 
@@ -680,6 +730,7 @@
 
     private BillRow? SelectedBill => openBills.FirstOrDefault(i => i.BillId == selectedBillId);
     private bool HasBillSelected => SelectedBill != null;
+    private bool IsLocalVendor => SelectedBill != null && Math.Abs(SelectedBill.ExchangeRate - 1m) <= 0.00005m;
 
     // Email State
     private bool showEmailPopup = false;
@@ -719,11 +770,22 @@
         public decimal NetTotalForeign => Math.Max(0, GrossTotalForeign - DebitNoteForeign);
         public decimal AmountPaidForeign { get; set; }
         public decimal BalanceDueForeign => Math.Max(0, NetTotalForeign - AmountPaidForeign);
+        public decimal WithholdingAmountForeign { get; set; }
+        public decimal WithholdingPaidForeign { get; set; }
+        public decimal WithholdingPercentage { get; set; }
+        public decimal WithholdingDueForeign => Math.Min(Math.Max(0, WithholdingAmountForeign - WithholdingPaidForeign), BalanceDueForeign * WithholdingRatio);
+        public decimal BankBalanceDueForeign => Math.Max(0, BalanceDueForeign - WithholdingDueForeign);
 
         public decimal TotalBase { get; set; }
         public decimal NetTotalBase { get; set; }
         public decimal AmountPaidBase { get; set; }
         public decimal BalanceDueBase { get; set; }
+        public decimal WithholdingAmountBase { get; set; }
+        public decimal WithholdingPaidBase { get; set; }
+        public decimal WithholdingRatio => TotalBase > 0 && WithholdingAmountBase > 0 ? Math.Min(0.999999m, WithholdingAmountBase / TotalBase) : 0;
+        public decimal WithholdingDueBase => Math.Min(Math.Max(0, WithholdingAmountBase - WithholdingPaidBase), BalanceDueBase * WithholdingRatio);
+        public decimal BankBalanceDueBase => Math.Max(0, BalanceDueBase - WithholdingDueBase);
+        public string WithholdingName { get; set; } = "Withholding Tax";
 
         public decimal ExchangeRate { get; set; }
         public Guid CurrencyId { get; set; }
@@ -746,6 +808,8 @@
         public decimal NetTotal => Math.Max(0, GrossTotal - DebitNoteTotal);
         public decimal AmountPaid { get; set; }
         public decimal BalanceDue => Math.Max(0, NetTotal - AmountPaid);
+        public decimal WithholdingAmount { get; set; }
+        public string WithholdingName { get; set; } = "Withholding Tax";
         public string Status { get; set; } = "";
         public string CurrencyCode { get; set; } = "";
         public Guid? PaymentReviewId { get; set; }
@@ -774,7 +838,11 @@
             currentCompanyId = user.CompanyDetailsId.Value;
             canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
-            if (company != null) companyName = company.CompanyName;
+            if (company != null)
+            {
+                companyName = company.CompanyName;
+                companyBaseCurrency = string.IsNullOrWhiteSpace(company.BaseCurrency) ? "BASE" : company.BaseCurrency;
+            }
 
             using var ctx = await DbFactory.CreateDbContextAsync();
 
@@ -840,6 +908,10 @@
             .OrderByDescending(b => b.BillDate)
             .ToListAsync();
 
+        var debitNotesByInvoiceBase = await GetPostedDebitNotesByInvoiceAsync(
+            ctx,
+            bills.Where(b => b.PurchaseOrderId.HasValue).Select(b => b.PurchaseOrderId!.Value));
+
         var pendingPayments = await ctx.Set<VendorPayment>().AsNoTracking()
             .Where(p => p.VendorBill != null && p.VendorBill.CompanyId == currentCompanyId && p.GLBatchId.HasValue)
             .Join(ctx.GLBatches.AsNoTracking().Where(g => g.CompanyId == currentCompanyId && (g.Status == BatchStatus.Ready || g.Status == BatchStatus.Rejected)),
@@ -856,8 +928,13 @@
 
             decimal grossPaidBase = b.Payments?.Where(p => p.Amount > 0
                 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.Amount) ?? 0;
-            decimal debitNoteBase = Math.Abs(b.Payments?.Where(p => p.Amount < 0
-                && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.Amount) ?? 0);
+            decimal withholdingPaidBase = b.Payments?.Where(p => p.Amount > 0
+                && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.WithholdingAmount) ?? 0;
+            grossPaidBase += withholdingPaidBase;
+            decimal debitNoteBase = b.PurchaseOrderId.HasValue
+                && debitNotesByInvoiceBase.TryGetValue(b.PurchaseOrderId.Value, out var postedDebitNotes)
+                ? postedDebitNotes
+                : 0;
 
             decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
             decimal balanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
@@ -884,6 +961,8 @@
                 AmountPaid = amountPaidForeign,
                 Status = status,
                 CurrencyCode = currency?.CurrencyCode ?? "",
+                WithholdingAmount = Math.Round(b.WithholdingAmountForeign, 4),
+                WithholdingName = string.IsNullOrWhiteSpace(b.WithholdingTaxName) ? "Withholding Tax" : b.WithholdingTaxName,
                 PaymentReviewId = review?.p.Id,
                 PaymentReviewStatus = review?.g.Status,
                 PaymentReviewRejectionReason = review?.g.RejectionReason
@@ -895,9 +974,10 @@
     {
         payment = new VendorPayment
         {
-            Date = DateTime.Today,
+            Date = DateTime.Now,
             BankGlAccountId = defaultBankAccountId
         };
+        amountPaidForeign = 0;
         openBills.Clear();
         selectedBillId = Guid.Empty;
         selectedVendorId = Guid.Empty;
@@ -911,6 +991,33 @@
             selectedCurrencyId = def.Id;
             currencySymbol = def.CurrencyCode;
         }
+    }
+
+    private async Task<Dictionary<Guid, decimal>> GetPostedDebitNotesByInvoiceAsync(
+        AppDbContext ctx,
+        IEnumerable<Guid> invoiceIds)
+    {
+        var ids = invoiceIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, decimal>();
+
+        var postedBatchIds = await ctx.GLBatches.AsNoTracking()
+            .Where(b => b.CompanyId == currentCompanyId && b.Status == BatchStatus.Posted)
+            .Select(b => b.Id)
+            .ToListAsync();
+
+        return await ctx.DebitNotes.AsNoTracking()
+            .Where(d => d.CompanyId == currentCompanyId
+                && d.PurchaseOrderId.HasValue
+                && ids.Contains(d.PurchaseOrderId.Value)
+                && d.Status == DebitNoteStatus.Posted
+                && (!d.GlBatchId.HasValue || postedBatchIds.Contains(d.GlBatchId.Value)))
+            .GroupBy(d => d.PurchaseOrderId!.Value)
+            .Select(g => new
+            {
+                InvoiceId = g.Key,
+                TotalBase = g.Sum(d => d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1m))
+            })
+            .ToDictionaryAsync(x => x.InvoiceId, x => Math.Round(x.TotalBase, 2));
     }
 
     private async Task LoadVendorPaymentForEdit(Guid paymentId)
@@ -942,7 +1049,7 @@
         await LoadVendorBills(selectedVendorId);
         var selected = SelectedBill;
         var rate = selected?.ExchangeRate > 0 ? selected.ExchangeRate : 1m;
-        amountPaidForeign = Math.Round(loadedPayment.Amount / rate, 4);
+            amountPaidForeign = Math.Round(loadedPayment.Amount / rate, 4);
         selectedCurrencyId = loadedPayment.VendorBill.CurrencyId;
         currencySymbol = currencies.FirstOrDefault(c => c.Id == selectedCurrencyId)?.CurrencyCode ?? "";
         activeTab = 1;
@@ -972,7 +1079,8 @@
         var loadedBill = openBills.FirstOrDefault(b => b.BillId == selectedBillId);
         if (loadedBill != null)
         {
-            amountPaidForeign = Math.Round(loadedBill.BalanceDueForeign, 2);
+            amountPaidForeign = Math.Round(loadedBill.BankBalanceDueForeign, 4);
+            payment.Amount = Math.Round(loadedBill.BankBalanceDueBase, 4);
             payment.Reference = loadedBill.RefNumber;
             selectedCurrencyId = loadedBill.CurrencyId;
 
@@ -1003,6 +1111,7 @@
             await LoadVendorBills(venId);
             selectedBillId = Guid.Empty;
             amountPaidForeign = 0;
+            payment.Amount = 0;
             payment.Reference = "";
         }
         else
@@ -1035,6 +1144,10 @@
             .Where(p => poIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
 
+        var debitNotesByInvoiceBase = await GetPostedDebitNotesByInvoiceAsync(
+            ctx,
+            bills.Where(b => b.PurchaseOrderId.HasValue).Select(b => b.PurchaseOrderId!.Value));
+
         openBills.Clear();
 
         foreach (var b in bills.OrderBy(b => b.BillDate))
@@ -1043,8 +1156,13 @@
 
             decimal grossPaidBase = b.Payments?.Where(p => p.Amount > 0
                 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.Amount) ?? 0;
-            decimal debitNoteBase = Math.Abs(b.Payments?.Where(p => p.Amount < 0
-                && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.Amount) ?? 0);
+            decimal withholdingPaidBase = b.Payments?.Where(p => p.Amount > 0
+                && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.WithholdingAmount) ?? 0;
+            grossPaidBase += withholdingPaidBase;
+            decimal debitNoteBase = b.PurchaseOrderId.HasValue
+                && debitNotesByInvoiceBase.TryGetValue(b.PurchaseOrderId.Value, out var postedDebitNotes)
+                ? postedDebitNotes
+                : 0;
 
             decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
             decimal balBase = Math.Max(0, netBillTotalBase - grossPaidBase);
@@ -1089,6 +1207,12 @@
                     NetTotalBase = netBillTotalBase,
                     AmountPaidBase = grossPaidBase,
                     BalanceDueBase = balBase,
+                    WithholdingAmountBase = b.WithholdingAmount,
+                    WithholdingPaidBase = withholdingPaidBase,
+                    WithholdingAmountForeign = b.WithholdingAmountForeign,
+                    WithholdingPaidForeign = Math.Round(withholdingPaidBase / rate, 4),
+                    WithholdingPercentage = b.WithholdingPercentage,
+                    WithholdingName = string.IsNullOrWhiteSpace(b.WithholdingTaxName) ? "Withholding Tax" : b.WithholdingTaxName,
                     ExchangeRate = rate,
                     CurrencyId = b.CurrencyId,
                     AccountsPayableGlId = b.AccountsPayableGlId,
@@ -1111,7 +1235,8 @@
 
             if (b != null)
             {
-                amountPaidForeign = Math.Round(b.BalanceDueForeign, 2);
+                amountPaidForeign = Math.Round(b.BankBalanceDueForeign, 4);
+                payment.Amount = Math.Round(b.BankBalanceDueBase, 4);
                 payment.Reference = b.RefNumber;
                 selectedCurrencyId = b.CurrencyId;
 
@@ -1123,9 +1248,32 @@
         {
             selectedBillId = Guid.Empty;
             amountPaidForeign = 0;
+            payment.Amount = 0;
             payment.Reference = "";
             currencySymbol = "";
         }
+    }
+
+    private string FormatVendorAmount(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+
+    private static decimal ParseVendorAmount(string? value)
+    {
+        if (decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)) return parsed;
+        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.CurrentCulture, out parsed) ? parsed : 0m;
+    }
+
+    private decimal SelectedBillRate => SelectedBill is { ExchangeRate: > 0 } bill ? bill.ExchangeRate : 1m;
+
+    private void OnVendorForeignAmountChanged(ChangeEventArgs e)
+    {
+        amountPaidForeign = Math.Round(Math.Max(0, ParseVendorAmount(e.Value?.ToString())), 4);
+        payment.Amount = Math.Round(amountPaidForeign * SelectedBillRate, 4);
+    }
+
+    private void OnVendorBaseAmountChanged(ChangeEventArgs e)
+    {
+        payment.Amount = Math.Round(Math.Max(0, ParseVendorAmount(e.Value?.ToString())), 4);
+        amountPaidForeign = Math.Round(payment.Amount / SelectedBillRate, 4);
     }
 
     private async Task OpenRouteModal()
@@ -1202,7 +1350,7 @@
             {
                 var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
 
-                decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                decimal st = printOrder.Lines.Sum(l => l.LineTotal);
                 decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
                 decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
                 printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));
@@ -1338,9 +1486,9 @@
             return;
         }
 
-        if (amountPaidForeign > SelectedBill.BalanceDueForeign + 0.01m)
+        if (amountPaidForeign > SelectedBill.BankBalanceDueForeign + 0.0001m || payment.Amount > SelectedBill.BankBalanceDueBase + 0.0001m)
         {
-            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({amountPaidForeign:N4}) cannot exceed the remaining balance due ({SelectedBill.BalanceDueForeign:N4}).");
+            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nBank payment cannot exceed the remaining bank amount ({SelectedBill.BankBalanceDueForeign:N4} {currencySymbol} / {SelectedBill.BankBalanceDueBase:N4} base units). The AP balance includes the withholding settlement.");
             return;
         }
 
@@ -1350,7 +1498,7 @@
             decimal rate = SelectedBill.ExchangeRate > 0 ? SelectedBill.ExchangeRate : 1.0m;
 
             payment.VendorBillId = selectedBillId;
-            payment.Amount = Math.Round(amountPaidForeign * rate, 2);
+            payment.Amount = Math.Round(amountPaidForeign * rate, 4);
             payment.OverrideDebitApGlAccountId = selectedApAccountId;
             payment.OverrideCreditBankGlAccountId = payment.BankGlAccountId;
 
@@ -1362,7 +1510,7 @@
                 Guid targetBId = selectedBillId;
                 string billNum = SelectedBill.RefNumber;
                 decimal amt = amountPaidForeign;
-                decimal remBal = Math.Max(0, SelectedBill.BalanceDueForeign - amountPaidForeign);
+                decimal remBal = Math.Max(0, SelectedBill.BankBalanceDueForeign - amountPaidForeign);
                 string cur = currencySymbol;
 
                 await LoadVendorBills(selectedVendorId);

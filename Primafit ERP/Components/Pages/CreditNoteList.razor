@@ -70,7 +70,7 @@
                             bool isPosted = batchStatus == BatchStatus.Posted;
                             <tr class="hover:bg-slate-50/80 transition-colors">
                                 <td class="px-6 py-4 font-mono font-bold text-indigo-700">@cn.CreditNoteNumber</td>
-                                <td class="px-6 py-4 text-slate-500 font-medium">@cn.Date.ToString("MMM dd, yyyy")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@cn.TransactionDateTime.ToString("MMM dd, yyyy HH:mm")</td>
                                 <td class="px-6 py-4 font-bold text-slate-800">@cn.Customer?.Name</td>
                                 <td class="px-6 py-4">
                                     <span class="text-xs font-mono font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200">

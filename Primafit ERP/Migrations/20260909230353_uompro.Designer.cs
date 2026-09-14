@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260909230353_uompro")]
+    partial class uompro
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -932,9 +935,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
-
                     b.Property<Guid?>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1261,9 +1261,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -2435,24 +2432,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("WithholdingAmount")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("WithholdingAmountForeign")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("WithholdingPercentage")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingTaxId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("WithholdingTaxName")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
@@ -2576,9 +2555,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
@@ -2748,9 +2724,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid?>("TaxId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
@@ -3804,24 +3777,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("WithholdingAmount")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("WithholdingAmountForeign")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("WithholdingPercentage")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingTaxId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("WithholdingTaxName")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
@@ -3934,24 +3889,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("VendorBillId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<decimal>("WithholdingAmount")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("WithholdingAmountForeign")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("WithholdingPercentage")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("WithholdingTaxId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("WithholdingTaxName")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CustomTransactionTypeId");
@@ -4030,9 +3967,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -4152,44 +4086,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Warehouses");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.WithholdingTax", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("DefaultKey")
-                        .HasMaxLength(40)
-                        .HasColumnType("nvarchar(40)");
-
-                    b.Property<bool>("IsSystemDefault")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)");
-
-                    b.Property<decimal>("PercentageValue")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("WithholdingGlAccountId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("WithholdingTaxes");
                 });
 
             modelBuilder.Entity("Tax", b =>

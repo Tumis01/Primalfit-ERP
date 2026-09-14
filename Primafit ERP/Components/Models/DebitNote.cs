@@ -33,6 +33,7 @@ namespace Primafit_ERP.Components.Models
         public string DebitNoteNumber { get; set; } = string.Empty;
 
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
         public DebitNoteStatus Status { get; set; } = DebitNoteStatus.Draft;
         public string Reason { get; set; } = string.Empty;
 
@@ -81,6 +82,11 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }

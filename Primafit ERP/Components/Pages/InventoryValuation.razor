@@ -139,8 +139,8 @@
                         <tr>
                             <th class="px-6 py-4 w-32">Code</th>
                             <th class="px-6 py-4 w-[30%]">Item Description</th>
-                            <th class="px-6 py-4 text-center">UoM</th>
-                            <th class="px-6 py-4 text-center">Calculated Qty</th>
+                            <th class="px-6 py-4 text-center">Primary / Base UoM</th>
+                            <th class="px-6 py-4 text-center">Qty on Hand (Primary / Base)</th>
                             <th class="px-6 py-4 text-center">Costing Method</th>
                             <th class="px-6 py-4 text-right">Unit Cost</th>
                             <th class="px-6 py-4 text-right">Total Value</th>
@@ -154,9 +154,9 @@
                                 <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.SKU</td>
                                 <td class="px-6 py-4 font-bold text-slate-900 truncate max-w-[250px]" title="@row.Name">@row.Name</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-400">@row.UoM</td>
-                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.Qty.ToString("N4")</td>
+                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.QtyDisplay</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-500 bg-slate-50/50">@row.CostingMethod</td>
-                                <td class="px-6 py-4 text-right font-mono text-slate-600">@row.UnitCost.ToString("N4")</td>
+                                <td class="px-6 py-4 text-right font-mono text-slate-600">@row.UnitCostDisplay.ToString("N4")</td>
                                 <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N4")</td>
                                 <td class="px-6 py-4 text-center">
                                     <button @onclick="() => ViewHistory(row.ItemId)" class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-600 hover:text-white transition-colors">
@@ -307,8 +307,18 @@
         public string UoM { get; set; } = "";
         public decimal Qty { get; set; }
         public decimal UnitCost { get; set; }
+        public decimal PrimaryUomFactor { get; set; } = 1m;
+        public string BaseUomName { get; set; } = "base";
+        public string PrimaryUomName { get; set; } = "primary";
+        // Qty is always the normalized/base quantity from StockLedger.  The
+        // primary UOM is a presentation conversion only; valuation remains in
+        // base units so mixed-UOM movements cannot change the stock value.
+        public decimal BaseQty => Qty;
+        public decimal PrimaryQty => PrimaryUomFactor > 0 ? BaseQty / PrimaryUomFactor : BaseQty;
+        public string QtyDisplay => $"{PrimaryQty:N2} {PrimaryUomName} ({BaseQty:N2} {BaseUomName})";
+        public decimal UnitCostDisplay => UnitCost * (PrimaryUomFactor > 0 ? PrimaryUomFactor : 1m);
         public string CostingMethod { get; set; } = "";
-        public decimal TotalValue => Qty * UnitCost;
+        public decimal TotalValue => BaseQty * UnitCost;
     }
 
     private List<Item> items = new();
@@ -386,6 +396,8 @@
             items = await ctx.Items
                 .AsNoTracking()
                 .Where(i => i.CompanyId == selectedCompanyId && !i.IsService)
+                .Include(i => i.PrimaryUom)
+                .Include(i => i.AlternateUom)
                 .OrderBy(i => i.Name)
                 .ToListAsync();
 
@@ -451,7 +463,14 @@
                     ItemId = item.Id,
                     SKU = item.SKU ?? "N/A",
                     Name = item.Name,
-                    UoM = item.UoM ?? "",
+                    UoM = string.IsNullOrWhiteSpace(item.AlternateUom?.Name)
+                        ? (item.PrimaryUom?.Name ?? item.UoM ?? "")
+                        : $"{item.AlternateUom.Name} / {item.PrimaryUom?.Name ?? item.UoM}",
+                    PrimaryUomFactor = item.UomId.HasValue && item.AlternateUomId.HasValue
+                        ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor)
+                        : 1m,
+                    BaseUomName = item.AlternateUom?.Name ?? item.PrimaryUom?.Name ?? item.UoM ?? "base",
+                    PrimaryUomName = item.PrimaryUom?.Name ?? item.UoM ?? "primary",
                     CostingMethod = item.CostingType.ToString(),
                     UnitCost = activeCost,
                     Qty = qty
@@ -504,9 +523,9 @@
                 row.SKU,
                 row.Name,
                 row.UoM,
-                row.Qty.ToString("N4"),
+                row.QtyDisplay,
                 row.CostingMethod,
-                row.UnitCost.ToString("N4"),
+                row.UnitCostDisplay.ToString("N4"),
                 row.TotalValue.ToString("N4")
             });
         }

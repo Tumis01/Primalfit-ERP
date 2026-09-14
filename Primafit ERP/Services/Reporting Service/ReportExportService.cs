@@ -569,7 +569,7 @@ namespace Primafit_ERP.Services
                 // FIXED: Use the dictionary to look up the item name safely!
                 string itemName = itemNames.ContainsKey(line.ItemId) ? itemNames[line.ItemId] : "Unknown Item";
 
-                decimal lineTotal = line.QuantityOrdered * line.UnitCost;
+                decimal lineTotal = line.LineTotal;
                 subTotal += lineTotal;
 
                 itemTable.AddCell(new Cell().Add(new Paragraph(itemName)).SetPadding(5));
@@ -660,7 +660,7 @@ namespace Primafit_ERP.Services
                 // FIX: Look at the line description directly, since it was moved from the header
                 string lineDescription = string.IsNullOrWhiteSpace(line.Description) ? "Expense / Ad-Hoc Service" : line.Description;
 
-                decimal lineTotal = line.QuantityBilled * line.UnitCostBilled;
+                decimal lineTotal = line.LineTotal;
                 subTotal += lineTotal;
 
                 itemTable.AddCell(new Cell().Add(new Paragraph(lineDescription)).SetPadding(5));

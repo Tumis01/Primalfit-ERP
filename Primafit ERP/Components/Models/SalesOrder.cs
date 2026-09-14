@@ -20,7 +20,10 @@ namespace Primafit_ERP.Components.Models
 
         public Guid WarehouseId { get; set; }
         public string OrderNumber { get; set; } = string.Empty;
+        // Accounting still posts by Date, while this timestamp records the
+        // exact business transaction time entered by the user.
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
 
         [Required]
         public Guid CurrencyId { get; set; }
@@ -84,6 +87,11 @@ namespace Primafit_ERP.Components.Models
         public virtual Item? Item { get; set; }
 
         public string? Description { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
@@ -168,6 +176,11 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal QtyOrdered { get; set; }

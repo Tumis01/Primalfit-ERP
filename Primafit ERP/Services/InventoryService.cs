@@ -16,7 +16,7 @@ namespace Primafit_ERP.Services
         }
 
         // 1. RECEIVE STOCK (Procurement + WACC Calculation)
-        public async Task<string> ReceiveStockAsync(Guid companyId, Guid itemId, Guid warehouseId, decimal qty, decimal totalLandedCost, Guid vendorId, string reference, string userId)
+        public async Task<string> ReceiveStockAsync(Guid companyId, Guid itemId, Guid warehouseId, decimal qty, decimal totalLandedCost, Guid vendorId, string reference, string userId, Guid? uomId = null, string? uomName = null, decimal uomConversionFactor = 1m, decimal quantityInUom = 0m)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -102,6 +102,10 @@ namespace Primafit_ERP.Services
                 ItemId = itemId,
                 WarehouseId = warehouseId, // Required for Physical
                 QuantityChanged = qty,
+                UomId = uomId,
+                UomName = uomName ?? string.Empty,
+                UomConversionFactor = UomConversion.NormalizeFactor(uomConversionFactor),
+                QuantityInUom = quantityInUom == 0m ? UomConversion.FromBase(qty, uomConversionFactor) : quantityInUom,
                 Type = StockMovementType.Purchase,
                 CostAtTime = item.WeightedAverageCost,
                 Reference = reference,
@@ -312,7 +316,7 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string> AdjustStockAsync(Guid companyId, Guid itemId, Guid warehouseId, StockEntryType adjType, decimal qty, decimal totalValueChange, string reference, string userId)
+        public async Task<string> AdjustStockAsync(Guid companyId, Guid itemId, Guid warehouseId, StockEntryType adjType, decimal qty, decimal totalValueChange, string reference, string userId, Guid? uomId = null, string? uomName = null, decimal uomConversionFactor = 1m, decimal quantityInUom = 0m)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
@@ -400,6 +404,10 @@ namespace Primafit_ERP.Services
                         ItemId = itemId,
                         WarehouseId = warehouseId,
                         QuantityChanged = qtyChange,
+                        UomId = uomId,
+                        UomName = uomName ?? string.Empty,
+                        UomConversionFactor = UomConversion.NormalizeFactor(uomConversionFactor),
+                        QuantityInUom = quantityInUom == 0m ? UomConversion.FromBase(qtyChange, uomConversionFactor) : quantityInUom,
                         Type = StockMovementType.Adjustment,
                         CostAtTime = item.WeightedAverageCost,
                         Reference = reference,

@@ -101,7 +101,7 @@
                                     else
                                     {
                                         <span class="@(line.Quantity <= line.ReorderLevel ? "text-amber-600" : "text-slate-700")">
-                                            @line.Quantity.ToString("N4")
+                                            @line.QuantityDisplay
                                         </span>
                                     }
                                 </td>
@@ -117,7 +117,7 @@
                                     }
                                     else
                                     {
-                                        @((line.Quantity * line.SellingPrice).ToString("N4"))
+                                        @line.StockValue.ToString("N4")
                                     }
                                 </td>
 
@@ -143,7 +143,7 @@
     private List<StockSummaryRow> inventoryLines = new();
 
     // Sum only Physical items (Services are infinite, so we can't sum value)
-    private decimal GrandTotalValue => inventoryLines.Where(x => !x.IsService).Sum(x => x.Quantity * x.SellingPrice);
+    private decimal GrandTotalValue => inventoryLines.Where(x => !x.IsService).Sum(x => x.StockValue);
 
     protected override async Task OnInitializedAsync()
     {
@@ -175,6 +175,10 @@
             .AsNoTracking()
             .Where(i => i.CompanyId == currentCompanyId)
             .ToListAsync();
+        var uomMap = await ctx.UnitOfMeasures
+            .AsNoTracking()
+            .Where(u => u.CompanyId == currentCompanyId)
+            .ToDictionaryAsync(u => u.Id, u => u.Name);
 
         // 2. Fetch Ledger Data (Only for Physical Items)
         var ledgerData = await ctx.StockLedgers
@@ -213,7 +217,10 @@
                     SellingPrice = item.SellingPrice,
                     IsService = true,
                     Quantity = 0, // Placeholder
-                    WarehouseName = "Global"
+                    WarehouseName = "Global",
+                    PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM,
+                    AlternateUomName = item.AlternateUomId.HasValue ? uomMap.GetValueOrDefault(item.AlternateUomId.Value, "") : "",
+                    AlternateUomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m
                 });
             }
             else
@@ -235,6 +242,9 @@
                             IsService = false,
                             WarehouseName = warehouseMap.ContainsKey(stock.WarehouseId) ? warehouseMap[stock.WarehouseId] : "Unknown",
                             Quantity = stock.TotalQty
+                            ,PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM
+                            ,AlternateUomName = item.AlternateUomId.HasValue ? uomMap.GetValueOrDefault(item.AlternateUomId.Value, "") : ""
+                            ,AlternateUomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m
                         });
                     }
                 }
@@ -259,5 +269,13 @@
         public decimal SellingPrice { get; set; }
         public decimal ReorderLevel { get; set; }
         public bool IsService { get; set; }
+        public string PrimaryUomName { get; set; } = "Each";
+        public string AlternateUomName { get; set; } = "";
+        public decimal AlternateUomConversionFactor { get; set; } = 1m;
+        public decimal PrimaryQuantity => AlternateUomConversionFactor > 0 ? Quantity / AlternateUomConversionFactor : Quantity;
+        public string QuantityDisplay => string.IsNullOrWhiteSpace(AlternateUomName)
+            ? $"{Quantity:N2} {PrimaryUomName}"
+            : $"{PrimaryQuantity:N2} {PrimaryUomName} ({Quantity:N2} {AlternateUomName})";
+        public decimal StockValue => PrimaryQuantity * SellingPrice;
     }
 }

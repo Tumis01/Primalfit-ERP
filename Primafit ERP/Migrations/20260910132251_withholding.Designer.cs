@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260910132251_withholding")]
+    partial class withholding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -932,9 +935,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
-
                     b.Property<Guid?>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1261,9 +1261,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");
@@ -2577,9 +2574,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CurrencyId");
@@ -2748,9 +2742,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid?>("TaxId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
@@ -4030,9 +4021,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<decimal>("TotalAmount")
                         .HasColumnType("decimal(18, 4)");
-
-                    b.Property<DateTime>("TransactionDateTime")
-                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("VendorId")
                         .HasColumnType("uniqueidentifier");

@@ -53,7 +53,7 @@ namespace Primafit_ERP.Components.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CashbookBatchId { get; set; }
-        public DateTime TransactionDate { get; set; } = DateTime.Today;
+        public DateTime TransactionDate { get; set; } = DateTime.Now;
 
         [Required]
         public string Description { get; set; } = "";

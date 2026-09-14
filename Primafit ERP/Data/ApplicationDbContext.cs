@@ -15,6 +15,7 @@ namespace PrimafitERP.Data
         public DbSet<Currency> Currencies { get; set; }
         public DbSet<CurrencyManagement> CurrencyManagements { get; set; }
         public DbSet<Tax> Taxes { get; set; }
+        public DbSet<WithholdingTax> WithholdingTaxes { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<Warehouse> Warehouses { get; set; }
 
@@ -238,6 +239,24 @@ namespace PrimafitERP.Data
                 .HasOne(b => b.PurchaseOrder)
                 .WithMany()
                 .HasForeignKey(b => b.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<UnitOfMeasure>()
+                .HasOne(u => u.ConversionUom)
+                .WithMany()
+                .HasForeignKey(u => u.ConversionUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Item>()
+                .HasOne(i => i.PrimaryUom)
+                .WithMany()
+                .HasForeignKey(i => i.UomId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Item>()
+                .HasOne(i => i.AlternateUom)
+                .WithMany()
+                .HasForeignKey(i => i.AlternateUomId)
                 .OnDelete(DeleteBehavior.Restrict);
             builder.Entity<DebitNote>(entity =>
             {

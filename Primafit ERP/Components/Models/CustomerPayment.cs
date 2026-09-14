@@ -12,7 +12,7 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CompanyId { get; set; }
         public Guid CustomerId { get; set; }
-        public DateTime Date { get; set; } = DateTime.Today;
+        public DateTime Date { get; set; } = DateTime.Now;
         public string Reference { get; set; } = string.Empty; // e.g., Check # or Transfer Ref
 
         // --- CORE GL ACCOUNTS ---

@@ -75,16 +75,18 @@
                                 <th class="px-6 py-4">Date</th>
                                 <th class="px-6 py-4">Reference</th>
                                 <th class="px-6 py-4">Type</th>
-                                <th class="px-6 py-4 w-[30%]">Item Name</th>
+                                <th class="px-6 py-4 w-[26%]">Item Name</th>
                                 <th class="px-6 py-4">Warehouse</th>
-                                <th class="px-6 py-4 text-center">Qty Change</th>
+                                <th class="px-6 py-4 text-center">Entry / Primary UOM</th>
+                                <th class="px-6 py-4 text-center">Qty Change (Primary / Base)</th>
                                 <th class="px-6 py-4 text-right">Cost (WACC)</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             @foreach (var ledger in PaginatedHistory)
                             {
-                                var itemName = items.FirstOrDefault(i => i.Id == ledger.ItemId)?.Name ?? "Unknown Item";
+                                var item = items.FirstOrDefault(i => i.Id == ledger.ItemId);
+                                var itemName = item?.Name ?? "Unknown Item";
                                 var whName = warehouses.FirstOrDefault(w => w.Id == ledger.WarehouseId)?.Name ?? "N/A";
 
                                 <tr class="hover:bg-slate-50/80 transition-colors">
@@ -110,14 +112,20 @@
                                     </td>
                                     <td class="px-6 py-4 font-bold text-slate-800 truncate max-w-[250px]" title="@itemName">@itemName</td>
                                     <td class="px-6 py-4 text-slate-600 text-xs font-bold uppercase tracking-wider">@whName</td>
+                                    <td class="px-6 py-4 text-center text-xs font-semibold text-slate-500">
+                                        <div>@GetLedgerUomName(ledger, item)</div>
+                                        <div class="mt-1 text-[10px] text-slate-400">Primary: @GetPrimaryUomName(item) / Base: @GetBaseUomName(item)</div>
+                                    </td>
                                     <td class="px-6 py-4 text-center">
                                         @if (ledger.QuantityChanged > 0)
                                         {
-                                            <span class="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">+@ledger.QuantityChanged.ToString("G29")</span>
+                                            <span class="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">+@GetLedgerPrimaryQuantity(ledger, item).ToString("N2") @GetPrimaryUomName(item)</span>
+                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(+@ledger.QuantityChanged.ToString("N2") @GetBaseUomName(item))</div>
                                         }
                                         else if (ledger.QuantityChanged < 0)
                                         {
-                                            <span class="font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">@ledger.QuantityChanged.ToString("G29")</span>
+                                            <span class="font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">@GetLedgerPrimaryQuantity(ledger, item).ToString("N2") @GetPrimaryUomName(item)</span>
+                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(@ledger.QuantityChanged.ToString("N2") @GetBaseUomName(item))</div>
                                         }
                                         else
                                         {
@@ -129,7 +137,7 @@
                             }
                             @if (!PaginatedHistory.Any())
                             {
-                                <tr><td colspan="7" class="p-16 text-center text-slate-400">No stock history found matching your criteria.</td></tr>
+                                <tr><td colspan="8" class="p-16 text-center text-slate-400">No stock history found matching your criteria.</td></tr>
                             }
                         </tbody>
                     </table>
@@ -224,9 +232,22 @@
                             <div class="mb-5 overflow-visible">
                                 <SearchableItem Label="Target Item"
                                                 Items="@items"
-                                                @bind-Value="selectedItemId"
-                                                OnSelectionChanged="OnItemChanged"
-                                                IsInvalid="@(selectedItemId == Guid.Empty)" />
+                                                 @bind-Value="selectedItemId"
+                                                 OnSelectionChanged="OnItemChanged"
+                                                 IsInvalid="@(selectedItemId == Guid.Empty)" />
+                                @if (selectedItemId != Guid.Empty && !IsServiceItem)
+                                {
+                                    <div class="mt-4">
+                                        <label class="label">Adjustment UOM</label>
+                                        <select value="@selectedUomId" @onchange="OnUomChanged" class="input-class font-semibold">
+                                            @foreach (var uom in GetItemUoms(SelectedItem))
+                                            {
+                                                <option value="@uom.Id">@uom.Name</option>
+                                            }
+                                        </select>
+                                        <p class="text-[10px] text-slate-500 mt-1">The entered quantity is recorded in this UOM and posted in normalized stock units.</p>
+                                    </div>
+                                }
                                 @if (IsServiceItem)
                                 {
                                     <p class="text-[10px] text-indigo-600 mt-1 font-bold">Service Items can only be Direct Received. Adjustments are blocked.</p>
@@ -236,7 +257,7 @@
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label">Quantity Change</label>
-                                    <input type="number" step="0.0001"
+                                    <input type="number"  
                                            @bind="Qty"
                                            class="input-class font-mono text-center font-bold text-lg @(LockQty ? "bg-slate-100 text-slate-400 border-dashed" : "")"
                                            placeholder="0"
@@ -244,7 +265,7 @@
                                 </div>
                                 <div>
                                     <label class="label">Unit Cost </label>
-                                    <input type="number" step="0.0001"
+                                    <input type="number"  
                                            @bind="UnitPrice"
                                            class="input-class font-mono text-right @(LockUnitPrice ? "bg-slate-100 text-slate-400 border-dashed" : "")"
                                            placeholder="0.0000"
@@ -257,7 +278,7 @@
                                     <span>Total Valuation Change</span>
                                 </label>
                                 <div class="relative">
-                                    <input type="number" step="0.0001"
+                                    <input type="number"  
                                            @bind="TotalCost"
                                            class="w-full bg-white border-2 @(entryType == StockEntryType.CostIncrease || entryType == StockEntryType.CostDecrease ? "border-indigo-400 focus:border-indigo-600 shadow-inner" : "border-slate-200") rounded-xl pl-10 pr-4 py-3 text-right font-mono font-black text-2xl text-slate-900 outline-none transition-colors"
                                            placeholder="0.0000"
@@ -372,6 +393,7 @@
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
     private Guid selectedItemId;
+    private Guid? selectedUomId;
     private string referenceNote = "";
 
     private decimal _qty;
@@ -380,6 +402,8 @@
     private bool isBusy = false;
 
     private bool IsServiceItem => items.FirstOrDefault(i => i.Id == selectedItemId)?.IsService ?? false;
+    private Item? SelectedItem => items.FirstOrDefault(i => i.Id == selectedItemId);
+    private decimal SelectedUomFactor => SelectedItem == null ? 1m : UomConversion.FactorFor(SelectedItem, selectedUomId);
 
     // --- DYNAMIC UI BINDINGS & MATH ---
     private StockEntryType EntryType
@@ -485,6 +509,8 @@
         var item = items.FirstOrDefault(i => i.Id == selectedItemId);
         if (item != null)
         {
+            selectedUomId = item.UomId;
+            if (!selectedUomId.HasValue && !string.IsNullOrWhiteSpace(item.UoM)) selectedUomId = Guid.Empty;
             if (item.IsService)
             {
                 EntryType = StockEntryType.DirectReceipt;
@@ -493,9 +519,53 @@
             }
             else
             {
-                UnitPrice = item.WeightedAverageCost > 0 ? item.WeightedAverageCost : item.SellingPrice;
+                var baseUnitCost = item.WeightedAverageCost > 0 ? item.WeightedAverageCost : item.SellingPrice;
+                UnitPrice = UomConversion.PriceFromBase(baseUnitCost, SelectedUomFactor);
             }
         }
+    }
+
+    private IEnumerable<UnitOfMeasure> GetItemUoms(Item? item)
+    {
+        if (item == null) return Enumerable.Empty<UnitOfMeasure>();
+        var result = new List<UnitOfMeasure>();
+        if (item.UomId.HasValue)
+            result.Add(item.PrimaryUom ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
+        else if (!string.IsNullOrWhiteSpace(item.UoM))
+            result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
+        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
+            result.Add(item.AlternateUom ?? new UnitOfMeasure { Id = item.AlternateUomId.Value, Name = "Alternate" });
+        return result;
+    }
+
+    private void OnUomChanged(ChangeEventArgs e)
+    {
+        var oldFactor = SelectedUomFactor;
+        var baseQuantity = Qty * oldFactor;
+        var baseUnitCost = oldFactor > 0 ? UnitPrice / oldFactor : UnitPrice;
+        selectedUomId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        var newFactor = SelectedUomFactor;
+        Qty = newFactor > 0 ? baseQuantity / newFactor : baseQuantity;
+        UnitPrice = UomConversion.PriceFromBase(baseUnitCost, newFactor);
+    }
+
+    private string GetLedgerUomName(StockLedger ledger, Item? item)
+    {
+        if (!string.IsNullOrWhiteSpace(ledger.UomName)) return ledger.UomName;
+        if (item?.AlternateUom != null) return item.AlternateUom.Name;
+        return item?.PrimaryUom?.Name ?? item?.UoM ?? "Each";
+    }
+
+    private string GetPrimaryUomName(Item? item) => item?.PrimaryUom?.Name ?? item?.UoM ?? "Each";
+
+    private string GetBaseUomName(Item? item) => item?.AlternateUom?.Name ?? GetPrimaryUomName(item);
+
+    private decimal GetLedgerPrimaryQuantity(StockLedger ledger, Item? item)
+    {
+        var primaryFactor = item?.UomId.HasValue == true && item.AlternateUomId.HasValue
+            ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor)
+            : 1m;
+        return UomConversion.FromBase(ledger.QuantityChanged, primaryFactor);
     }
 
     private void Recalculate()
@@ -517,6 +587,7 @@
         selectedVendorId = Guid.Empty;
         selectedWarehouseId = Guid.Empty;
         selectedItemId = Guid.Empty;
+        selectedUomId = null;
         referenceNote = "";
         Qty = 0;
         UnitPrice = 0;
@@ -541,7 +612,13 @@
         {
             string err = "";
             Guid finalWhId = IsServiceItem ? Guid.Empty : selectedWarehouseId;
-            decimal finalQty = IsServiceItem ? 1 : Qty;
+            decimal finalQty = IsServiceItem ? 1 : UomConversion.ToBase(Qty, SelectedUomFactor);
+            decimal selectedQuantity = IsServiceItem ? 1 : Qty;
+            if (entryType == StockEntryType.QuantityDecrease || entryType == StockEntryType.BothDecrease)
+                selectedQuantity = -Math.Abs(selectedQuantity);
+            string selectedUomName = IsServiceItem
+                ? string.Empty
+                : (GetItemUoms(SelectedItem).FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? SelectedItem?.UoM ?? "Each");
 
             if (entryType == StockEntryType.DirectReceipt)
             {
@@ -549,7 +626,7 @@
 
                 // Passed currentUserId here
                 err = await InvService.ReceiveStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote, currentUserId);
+                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote, currentUserId, selectedUomId, selectedUomName, SelectedUomFactor, selectedQuantity);
             }
             else
             {
@@ -561,7 +638,7 @@
 
                 // Passed currentUserId here
                 err = await InvService.AdjustStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote, currentUserId);
+                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote, currentUserId, selectedUomId, selectedUomName, SelectedUomFactor, selectedQuantity);
             }
 
             if (string.IsNullOrEmpty(err))

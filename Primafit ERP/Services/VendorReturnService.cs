@@ -53,9 +53,14 @@ namespace Primafit_ERP.Services
 
             var paymentsMap = await (from p in ctx.Set<VendorPayment>()
                                      join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                     join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                     from batch in paymentBatches.DefaultIfEmpty()
                                      where b.PurchaseOrderId.HasValue
                                            && orderIds.Contains(b.PurchaseOrderId.Value)
                                            && b.IsPosted
+                                           // New payments become refundable only after their
+                                           // review batch is approved. Null batch supports legacy data.
+                                           && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
                                            && p.Amount > 0
                                      group p by b.PurchaseOrderId!.Value into g
                                      select new { OrderId = g.Key, TotalPaidBase = g.Sum(x => x.Amount) })
@@ -173,6 +178,9 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = vendorReturn.Id,
                         ItemId = poLine.ItemId,
+                        UomId = poLine.UomId,
+                        UomName = poLine.UomName,
+                        UomConversionFactor = poLine.UomConversionFactor,
                         PurchaseOrderLineId = poLine.Id,
                         Quantity = 0,
                         UnitCost = poLine.UnitCost,
@@ -405,7 +413,38 @@ namespace Primafit_ERP.Services
                     if (creditApAccount == Guid.Empty)
                         return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
-                    decimal cashRefundBase = Math.Round(vReturn.TotalAmount * rate, 2);
+                    // Recalculate the cash ceiling from approved payments at posting time.
+                    // The UI value is only a convenience and must not be trusted for accounting.
+                    var approvedPaymentTotals = await (from p in ctx.Set<VendorPayment>()
+                                                       join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                                       join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                                       from batch in paymentBatches.DefaultIfEmpty()
+                                                       where b.PurchaseOrderId == po.Id
+                                                             && b.IsPosted
+                                                             && p.Amount > 0
+                                                             && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
+                                                       group p by b.PurchaseOrderId into g
+                                                       select new
+                                                       {
+                                                           CashPaidBase = g.Sum(x => x.Amount),
+                                                           GrossSettledBase = g.Sum(x => x.Amount + x.WithholdingAmount)
+                                                       }).FirstOrDefaultAsync();
+
+                    decimal approvedCashPaidForeign = Math.Round((approvedPaymentTotals?.CashPaidBase ?? 0) / rate, 4);
+                    decimal priorRefundedForeign = await ctx.VendorReturns
+                        .Where(r => r.PurchaseOrderId == po.Id
+                                 && r.Id != vReturn.Id
+                                 && r.Status == VendorReturnStatus.Posted
+                                 && (r.ReturnType == VendorReturnType.PaymentOnly || r.ReturnType == VendorReturnType.Both))
+                        .SumAsync(r => r.TotalAmount);
+                    decimal maxRefundableForeign = Math.Max(0, approvedCashPaidForeign - priorRefundedForeign);
+
+                    if (vReturn.TotalAmount <= 0)
+                        return "Posting Aborted: Cash refund amount must be greater than zero.";
+                    if (vReturn.TotalAmount > maxRefundableForeign + 0.0001m)
+                        return $"Posting Aborted: Cash refund ({vReturn.TotalAmount:N4}) exceeds the remaining cash actually paid ({maxRefundableForeign:N4}). The limit is net of withholding tax.";
+
+                    decimal cashRefundBase = Math.Round(vReturn.TotalAmount * rate, 4);
 
                     if (cashRefundBase > 0)
                     {
@@ -483,6 +522,7 @@ namespace Primafit_ERP.Services
                 return "Cannot edit locked records.";
 
             existing.Date = vReturn.Date;
+            existing.TransactionDateTime = vReturn.TransactionDateTime;
             existing.Reason = vReturn.Reason;
             existing.ReturnType = vReturn.ReturnType;
             existing.BankAccountId = vReturn.BankAccountId;
@@ -502,6 +542,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     PurchaseOrderLineId = line.PurchaseOrderLineId,
                     Quantity = line.Quantity,
                     UnitCost = line.UnitCost
@@ -525,19 +568,32 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<CashRefundSummaryDto> GetCashRefundSummaryAsync(Guid orderId, Guid currentReturnId)
+        public async Task<VendorCashRefundSummaryDto> GetCashRefundSummaryAsync(Guid orderId, Guid currentReturnId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             var po = await ctx.PurchaseOrders.FindAsync(orderId);
             decimal rate = po?.ExchangeRate > 0 ? po.ExchangeRate : 1;
 
-            decimal totalPaidBase = await (from p in ctx.Set<VendorPayment>()
-                                           join b in ctx.VendorBills on p.VendorBillId equals b.Id
-                                           where b.PurchaseOrderId == orderId && b.IsPosted && p.Amount > 0
-                                           select p.Amount).SumAsync();
+            var approvedPaymentTotals = await (from p in ctx.Set<VendorPayment>()
+                                               join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                               join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                               from batch in paymentBatches.DefaultIfEmpty()
+                                               where b.PurchaseOrderId == orderId
+                                                     && b.IsPosted
+                                                     && p.Amount > 0
+                                                     && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
+                                               group p by b.PurchaseOrderId into g
+                                               select new
+                                               {
+                                                   CashPaidBase = g.Sum(x => x.Amount),
+                                                   GrossSettledBase = g.Sum(x => x.Amount + x.WithholdingAmount),
+                                                   WithholdingPaidBase = g.Sum(x => x.WithholdingAmount)
+                                               }).FirstOrDefaultAsync();
 
-            decimal totalPaidForeign = Math.Round(totalPaidBase / rate, 2);
+            decimal totalPaidForeign = Math.Round((approvedPaymentTotals?.CashPaidBase ?? 0) / rate, 4);
+            decimal grossSettledForeign = Math.Round((approvedPaymentTotals?.GrossSettledBase ?? 0) / rate, 4);
+            decimal withholdingPaidForeign = Math.Round((approvedPaymentTotals?.WithholdingPaidBase ?? 0) / rate, 4);
 
             decimal priorRefunded = await ctx.VendorReturns
                 .Where(r => r.PurchaseOrderId == orderId
@@ -546,12 +602,25 @@ namespace Primafit_ERP.Services
                          && (r.ReturnType == VendorReturnType.PaymentOnly || r.ReturnType == VendorReturnType.Both))
                 .SumAsync(r => r.TotalAmount);
 
-            return new CashRefundSummaryDto
+            return new VendorCashRefundSummaryDto
             {
                 TotalPaid = totalPaidForeign,
+                GrossSettlementPaid = grossSettledForeign,
+                WithholdingPaid = withholdingPaidForeign,
                 PriorCashRefunded = priorRefunded,
                 MaxRefundable = Math.Max(0, totalPaidForeign - priorRefunded)
             };
         }
+    }
+
+    // AP-only summary. This is deliberately separate from the AR/Sales
+    // receipt-refund summary so withholding-tax data cannot enter that module.
+    public class VendorCashRefundSummaryDto
+    {
+        public decimal TotalPaid { get; set; }
+        public decimal GrossSettlementPaid { get; set; }
+        public decimal WithholdingPaid { get; set; }
+        public decimal PriorCashRefunded { get; set; }
+        public decimal MaxRefundable { get; set; }
     }
 }

@@ -7,6 +7,7 @@
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.Globalization
 
 @inject VendorReturnService ReturnService
 @inject MasterDataService MasterService
@@ -164,7 +165,7 @@
 
                                     <tr class="hover:bg-slate-50/60 transition-colors">
                                         <td class="px-6 py-4 font-mono font-bold text-slate-900">@vr.ReturnNumber</td>
-                                        <td class="px-6 py-4 text-slate-500 font-medium">@vr.Date.ToString("yyyy-MM-dd")</td>
+                                        <td class="px-6 py-4 text-slate-500 font-medium">@vr.TransactionDateTime.ToString("yyyy-MM-dd HH:mm")</td>
                                         <td class="px-6 py-4 font-bold text-slate-900">@(vr.Vendor?.Name ?? "Unknown Vendor")</td>
                                         <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(vr.PurchaseOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="px-6 py-4">
@@ -263,7 +264,7 @@
                                 <option value="@Guid.Empty">-- Select Document --</option>
                                 @foreach (var po in eligibleOrders)
                                 {
-                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd")) - Cash Refundable: @po.GrandTotalForeign.ToString("N4")</option>
+                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd HH:mm")) - Cash Refundable: @po.GrandTotalForeign.ToString("N4")</option>
                                 }
                             </select>
                             @if (_loadingOrders)
@@ -313,7 +314,7 @@
 
                         <div>
                             <label class="label">Execution Date</label>
-                            <input type="date" value="@currentReturn.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentReturn.Date = d; })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
+                            <input type="datetime-local" value="@currentReturn.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { currentReturn.TransactionDateTime = d; currentReturn.Date = DateOnly.FromDateTime(d); } })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
                         </div>
 
                         <div>
@@ -445,6 +446,7 @@
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
                                             <th class="px-4 py-3">Item Details</th>
+                                            <th class="px-4 py-3 text-center">UOM</th>
                                             <th class="px-4 py-3 text-center">Received</th>
                                             <th class="px-4 py-3 text-center">Prev. Returned</th>
                                             <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
@@ -457,19 +459,28 @@
                                         {
                                             <tr class="bg-white hover:bg-slate-50 transition-colors">
                                                 <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
-                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.OriginalReceivedQty.ToString("N4")</td>
-                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@line.PreviouslyReturnedQty.ToString("N4")</td>
-                                                <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@line.MaxReturnableQty.ToString("N4")</td>
+                                                <td class="px-4 py-3 text-center">
+                                                    <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class py-1.5 text-xs font-semibold">
+                                                        @foreach (var uom in GetItemUoms(line.Item))
+                                                        {
+                                                            <option value="@uom.Id">@uom.Name</option>
+                                                        }
+                                                    </select>
+                                                    <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                </td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@GetDisplayedQuantity(line.OriginalReceivedQty, line).ToString("N2")</td>
+                                                <td class="px-4 py-3 text-center font-mono text-slate-500">@GetDisplayedQuantity(line.PreviouslyReturnedQty, line).ToString("N2")</td>
+                                                <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@GetDisplayedQuantity(line.MaxReturnableQty, line).ToString("N2")</td>
                                                 <td class="px-4 py-3 text-right font-mono text-slate-500">
-                                                    @line.UnitCost.ToString("N4")
+                                                    @GetDisplayedUnitCost(line).ToString("N4")
                                                 </td>
                                                 <td class="px-4 py-3 text-right">
-                                                    <input type="number" step="0.0001" min="0" max="@line.MaxReturnableQty"
-                                                           value="@(line.Quantity == 0 ? "" : line.Quantity)"
+                                                    <input type="text" inputmode="decimal"
+                                                            value="@(line.Quantity == 0 ? "" : GetDisplayedQuantity(line.Quantity, line).ToString("0.00", CultureInfo.CurrentCulture))"
                                                            @oninput="@(e => ValidateLineQty(line, e.Value?.ToString()))"
                                                            disabled="@IsPosted"
-                                                           placeholder="0.0000"
-                                                           class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
+                                                           placeholder="0.00"
+                                                            class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 appearance-none outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                                 </td>
                                             </tr>
                                         }
@@ -493,34 +504,43 @@
                                         </div>
                                         <div class="mt-5 grid grid-cols-2 gap-3">
                                             <div class="rounded-xl border border-slate-200 bg-white p-3">
-                                                <div class="text-[9px] font-bold uppercase tracking-wider text-slate-400">Invoice amount paid</div>
-                                                <div class="mt-1 font-mono text-sm font-black text-slate-800">@cashSummary.TotalPaid.ToString("N4")</div>
+                                                <div class="text-[9px] font-bold uppercase tracking-wider text-slate-400">AP settlement</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-slate-800">@cashSummary.GrossSettlementPaid.ToString("N4") <span class="text-[10px] text-slate-400">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></div>
+                                            </div>
+                                            <div class="rounded-xl border border-violet-200 bg-violet-50 p-3">
+                                                <div class="text-[9px] font-bold uppercase tracking-wider text-violet-700">WHT withheld</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-violet-800">@cashSummary.WithholdingPaid.ToString("N4") <span class="text-[10px] text-violet-500">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></div>
+                                            </div>
+                                            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                                                <div class="text-[9px] font-bold uppercase tracking-wider text-emerald-700">Cash actually paid</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-emerald-800">@cashSummary.TotalPaid.ToString("N4") <span class="text-[10px] text-emerald-600">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></div>
                                             </div>
                                             <div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
                                                 <div class="text-[9px] font-bold uppercase tracking-wider text-amber-700">Max reversible</div>
-                                                <div class="mt-1 font-mono text-sm font-black text-amber-800">@cashSummary.MaxRefundable.ToString("N4")</div>
+                                                <div class="mt-1 font-mono text-sm font-black text-amber-800">@cashSummary.MaxRefundable.ToString("N4") <span class="text-[10px] text-amber-600">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></div>
                                             </div>
                                         </div>
                                         @if (cashSummary.PriorCashRefunded > 0)
                                         {
-                                            <div class="mt-3 text-[10px] font-semibold text-slate-500">Previously reversed: <span class="font-mono font-bold text-slate-700">@cashSummary.PriorCashRefunded.ToString("N4")</span></div>
+                                            <div class="mt-3 text-[10px] font-semibold text-slate-500">Previously reversed: <span class="font-mono font-bold text-slate-700">@cashSummary.PriorCashRefunded.ToString("N4") @(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></div>
                                         }
                                     </div>
 
                                     <div class="space-y-1.5">
                                         <div class="flex justify-between text-xs font-bold text-slate-500">
                                             <label class="label mb-0">Refund Cash Amount</label>
-                                            <span>Max reversible: <span class="font-mono text-slate-800">@cashSummary.MaxRefundable.ToString("N4")</span></span>
+                                            <span>Max reversible: <span class="font-mono text-slate-800">@cashSummary.MaxRefundable.ToString("N4") @(currentReturn.Currency?.CurrencyCode ?? "BASE")</span></span>
                                         </div>
                                         <div class="relative bg-white border-2 border-slate-200 rounded-xl focus-within:border-emerald-500 focus-within:ring-4 focus-within:ring-emerald-500/10 transition-all shadow-sm">
                                             <div class="absolute inset-y-0 left-4 flex items-center pointer-events-none">
                                                 <span class="text-xs font-black text-slate-300 font-mono uppercase">@(currentReturn.Currency?.CurrencyCode ?? "BASE")</span>
                                             </div>
-                                            <input type="number" step="0.0001" min="0" max="@cashSummary.MaxRefundable"
-                                                   @bind="currentReturn.TotalAmount"
+                                            <input type="text" inputmode="decimal"
+                                                   value="@FormatCashAmount(currentReturn.TotalAmount)"
+                                                   @onchange="OnCashRefundAmountChanged"
                                                    disabled="@IsPosted"
                                                    class="w-full bg-transparent pl-16 pr-4 py-3 font-mono font-black text-emerald-600 text-right text-2xl outline-none placeholder:text-slate-200 disabled:opacity-50"
-                                                   placeholder="0.0000" />
+                                                   placeholder="0.00" />
                                         </div>
                                     </div>
                                 </div>
@@ -749,6 +769,7 @@
     private List<PurchaseOrder> eligibleOrders = new();
     private List<Vendor> vendors = new();
     private List<Warehouse> warehouses = new();
+    private List<UnitOfMeasure> uoms = new();
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> bankAccounts = new();
 
@@ -759,7 +780,7 @@
     private Guid defaultInventoryAssetAccountId = Guid.Empty;
     private Guid defaultApAccountId = Guid.Empty;
 
-    private CashRefundSummaryDto cashSummary = new();
+    private VendorCashRefundSummaryDto cashSummary = new();
     private bool canConfigureRoute = false;
 
     private int pageSize = 15;
@@ -811,6 +832,7 @@
             }
 
             vendors = await MasterService.GetVendorsAsync(currentCompanyId);
+            uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
             warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
 
             var accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -878,6 +900,14 @@
 
         if (currentReturn != null)
         {
+            foreach (var line in currentReturn.Lines)
+            {
+                var item = line.Item;
+                if (item == null) continue;
+                line.UomId ??= item.UomId;
+                if (string.IsNullOrWhiteSpace(line.UomName)) line.UomName = uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.UoM;
+                if (line.UomConversionFactor <= 0) line.UomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m;
+            }
             await using var ctx = await DbFactory.CreateDbContextAsync();
             var batch = currentReturn.GlBatchId.HasValue
                 ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == currentReturn.GlBatchId.Value && b.CompanyId == currentCompanyId)
@@ -1024,11 +1054,11 @@
 
     private void ValidateLineQty(VendorReturnLine line, string? val)
     {
-        if (decimal.TryParse(val, out var parsed))
+        if (decimal.TryParse(val, NumberStyles.Number, CultureInfo.CurrentCulture, out var parsed))
         {
             if (parsed < 0) line.Quantity = 0;
-            else if (parsed > line.MaxReturnableQty) line.Quantity = line.MaxReturnableQty;
-            else line.Quantity = parsed;
+            else if (parsed > GetDisplayedQuantity(line.MaxReturnableQty, line)) line.Quantity = line.MaxReturnableQty;
+            else line.Quantity = UomConversion.ToBase(parsed, GetLineFactor(line));
         }
         else
         {
@@ -1036,14 +1066,56 @@
         }
     }
 
+    private string FormatCashAmount(decimal value) =>
+        Math.Round(Math.Max(0, value), 4).ToString("0.00", CultureInfo.CurrentCulture);
+
+    private void OnCashRefundAmountChanged(ChangeEventArgs e)
+    {
+        if (currentReturn == null) return;
+
+        if (!decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.CurrentCulture, out var parsed))
+        {
+            currentReturn.TotalAmount = 0;
+            return;
+        }
+
+        currentReturn.TotalAmount = Math.Round(Math.Max(0, parsed), 4);
+    }
+
+    private IEnumerable<UnitOfMeasure> GetItemUoms(Item? item)
+    {
+        if (item == null) return Enumerable.Empty<UnitOfMeasure>();
+        var result = new List<UnitOfMeasure>();
+        if (item.UomId.HasValue)
+            result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
+        else if (!string.IsNullOrWhiteSpace(item.UoM))
+            result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
+        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
+            result.Add(item.AlternateUom ?? uoms.FirstOrDefault(x => x.Id == item.AlternateUomId.Value) ?? new UnitOfMeasure { Id = item.AlternateUomId.Value, Name = "Alternate" });
+        return result;
+    }
+
+    private decimal GetLineFactor(VendorReturnLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
+    private decimal GetDisplayedQuantity(decimal baseQuantity, VendorReturnLine line) => UomConversion.FromBase(baseQuantity, GetLineFactor(line));
+    private decimal GetDisplayedUnitCost(VendorReturnLine line) => UomConversion.PriceFromBase(line.UnitCost, GetLineFactor(line));
+    private string GetUomConversionText(VendorReturnLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.UomName} = {GetLineFactor(line):N4} base units";
+
+    private void OnLineUomChanged(VendorReturnLine line, ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
+        line.UomId = selectedId;
+        line.UomName = uoms.FirstOrDefault(x => x.Id == selectedId)?.Name ?? line.Item.UoM;
+        line.UomConversionFactor = UomConversion.FactorFor(line.Item, selectedId);
+    }
+
     private async Task SaveDraftWorkspace()
     {
         if (currentReturn == null) return;
 
         if ((currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
-            && currentReturn.TotalAmount > cashSummary.MaxRefundable && cashSummary.MaxRefundable > 0)
+            && (currentReturn.TotalAmount < 0 || currentReturn.TotalAmount > cashSummary.MaxRefundable + 0.0001m))
         {
-                await JS.InvokeVoidAsync("alert", $"Cash recovery amount ({currentReturn.TotalAmount:N4}) cannot exceed the max reversible amount ({cashSummary.MaxRefundable:N4}).");
+            await JS.InvokeVoidAsync("alert", $"Cash recovery amount ({currentReturn.TotalAmount:N4}) cannot exceed the max reversible amount ({cashSummary.MaxRefundable:N4}).");
             return;
         }
 
@@ -1097,7 +1169,7 @@
                 return;
             }
 
-            if (currentReturn.TotalAmount > cashSummary.MaxRefundable + 0.01m)
+            if (currentReturn.TotalAmount > cashSummary.MaxRefundable + 0.0001m)
             {
                 await JS.InvokeVoidAsync("alert", $"Refund cash amount ({currentReturn.TotalAmount:N4}) exceeds remaining refundable balance ({cashSummary.MaxRefundable:N4}).");
                 return;

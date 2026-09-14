@@ -668,13 +668,13 @@
     private async Task FinalizeApprovedShipment(Guid batchId, string userId)
     {
         await using var ctx = await DbFactory.CreateDbContextAsync();
-        var shipmentId = await ctx.SalesShipments.AsNoTracking()
+        var shipmentIds = await ctx.SalesShipments.AsNoTracking()
             .Where(s => s.ShipmentBatchId == batchId)
-            .Select(s => (Guid?)s.Id)
-            .FirstOrDefaultAsync();
-        if (shipmentId.HasValue)
+            .Select(s => s.Id)
+            .ToListAsync();
+        foreach (var shipmentId in shipmentIds)
         {
-            var err = await ShipmentService.FinalizeApprovedShipmentAsync(shipmentId.Value, userId);
+            var err = await ShipmentService.FinalizeApprovedShipmentAsync(shipmentId, userId);
             if (!string.IsNullOrWhiteSpace(err))
                 await JS.InvokeVoidAsync("alert", $"Shipment finalization requires attention: {err}");
         }

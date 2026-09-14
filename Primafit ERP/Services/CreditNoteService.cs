@@ -177,6 +177,9 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = creditNote.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
+                        UomId = soLine.UomId,
+                        UomName = soLine.UomName,
+                        UomConversionFactor = soLine.UomConversionFactor,
                         SalesOrderLineId = soLine.Id,
                         Quantity = 0,
                         UnitPrice = soLine.UnitPrice,
@@ -500,6 +503,7 @@ namespace Primafit_ERP.Services
                 return "Cannot edit locked records.";
 
             existing.Date = note.Date;
+            existing.TransactionDateTime = note.TransactionDateTime;
             existing.Reason = note.Reason;
             existing.CustomTransactionTypeId = note.CustomTransactionTypeId;
             existing.OverrideRevenueGlAccountId = note.OverrideRevenueGlAccountId;
@@ -524,6 +528,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     SalesOrderLineId = line.SalesOrderLineId,
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice,

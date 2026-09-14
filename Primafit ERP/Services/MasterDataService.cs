@@ -86,7 +86,12 @@ namespace Primafit_ERP.Services
         public async Task<List<Item>> GetItemsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Items.Include(i => i.Category).Where(i => i.CompanyId == companyId).ToListAsync();
+            return await ctx.Items
+                .Include(i => i.Category)
+                .Include(i => i.PrimaryUom)
+                .Include(i => i.AlternateUom)
+                .Where(i => i.CompanyId == companyId)
+                .ToListAsync();
         }
 
         public async Task<string> SaveItemAsync(Item item)
@@ -99,6 +104,51 @@ namespace Primafit_ERP.Services
 
             if (!item.IsService && item.InventoryAssetAccountId == Guid.Empty)
                 return "Inventory Asset Account is required for physical goods.";
+
+            if (!item.IsService)
+            {
+                UnitOfMeasure? primaryUom = null;
+                if (item.UomId.HasValue)
+                {
+                    primaryUom = await ctx.UnitOfMeasures
+                        .FirstOrDefaultAsync(u => u.Id == item.UomId.Value && u.CompanyId == item.CompanyId);
+                    if (primaryUom == null) return "The selected primary UOM is invalid.";
+                    item.UoM = primaryUom.Name;
+                }
+                else if (string.IsNullOrWhiteSpace(item.UoM))
+                {
+                    item.UoM = "Each";
+                }
+
+                if (!item.AlternateUomId.HasValue && primaryUom?.ConversionUomId.HasValue == true)
+                {
+                    item.AlternateUomId = primaryUom.ConversionUomId;
+                    item.AlternateUomConversionFactor = primaryUom.ConversionFactorValue > 0 ? primaryUom.ConversionFactorValue : 1m;
+                }
+
+                if (item.AlternateUomId.HasValue)
+                {
+                    if (item.UomId.HasValue && item.AlternateUomId == item.UomId)
+                        return "Primary and alternate UOMs must be different.";
+
+                    var alternateUom = await ctx.UnitOfMeasures
+                        .FirstOrDefaultAsync(u => u.Id == item.AlternateUomId.Value && u.CompanyId == item.CompanyId);
+                    if (alternateUom == null) return "The selected alternate UOM is invalid.";
+                    if (item.AlternateUomConversionFactor <= 0)
+                        return "The alternate UOM conversion factor must be greater than zero.";
+                }
+                else
+                {
+                    item.AlternateUomConversionFactor = 1m;
+                }
+            }
+            else
+            {
+                item.UomId = null;
+                item.AlternateUomId = null;
+                item.AlternateUomConversionFactor = 1m;
+                item.UoM = string.Empty;
+            }
 
             if (item.SalesIncomeAccountId == Guid.Empty) return "Sales Income Account is required.";
             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return "COGS/Expense Account is required.";
@@ -245,6 +295,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.UnitOfMeasures
                 .AsNoTracking()
+                .Include(u => u.ConversionUom)
                 .Where(u => u.CompanyId == companyId)
                 .OrderBy(u => u.Name)
                 .ToListAsync();
@@ -256,7 +307,23 @@ namespace Primafit_ERP.Services
 
             if (uom.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(uom.Name)) return "UoM Name is required.";
-            if (string.IsNullOrWhiteSpace(uom.ConversionFactor)) return "Conversion Factor is required.";
+
+            if (uom.ConversionUomId.HasValue)
+            {
+                if (uom.ConversionUomId == uom.Id)
+                    return "A UOM cannot convert to itself.";
+
+                var target = await ctx.UnitOfMeasures.FirstOrDefaultAsync(x =>
+                    x.Id == uom.ConversionUomId.Value && x.CompanyId == uom.CompanyId);
+                if (target == null) return "The selected conversion UOM is invalid.";
+                if (uom.ConversionFactorValue <= 0) return "Conversion factor must be greater than zero.";
+                uom.ConversionFactor = $"{uom.ConversionFactorValue:N4} {target.Name}";
+            }
+            else
+            {
+                uom.ConversionFactorValue = 1m;
+                uom.ConversionFactor = string.IsNullOrWhiteSpace(uom.ConversionFactor) ? "1" : uom.ConversionFactor;
+            }
 
             // Duplicate Check
             bool isDuplicate = await ctx.UnitOfMeasures.AnyAsync(u => u.CompanyId == uom.CompanyId && u.Name.ToLower() == uom.Name.ToLower() && u.Id != uom.Id);
@@ -279,6 +346,10 @@ namespace Primafit_ERP.Services
         public async Task<string> DeleteUnitOfMeasureAsync(Guid id)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.Items.AnyAsync(i => i.UomId == id || i.AlternateUomId == id))
+                return "Cannot delete: this UOM is assigned to one or more inventory items.";
+            if (await ctx.UnitOfMeasures.AnyAsync(u => u.ConversionUomId == id))
+                return "Cannot delete: this UOM is used as a conversion target.";
             var uom = await ctx.UnitOfMeasures.FindAsync(id);
             if (uom != null)
             {

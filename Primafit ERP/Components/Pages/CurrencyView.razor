@@ -148,7 +148,7 @@
                         </div>
                         <div>
                             <label class="label text-indigo-900">Exchange Rate Multiplier <span class="text-rose-500">*</span></label>
-                            <InputNumber @bind-Value="currentRate.Rate" step="0.0001" class="input-class font-mono font-bold border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200 text-right" placeholder="1.000000" />
+                            <InputNumber @bind-Value="currentRate.Rate"   class="input-class font-mono font-bold border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200 text-right" placeholder="1.000000" />
                             <ValidationMessage For="@(() => currentRate.Rate)" class="text-rose-500 text-xs mt-1" />
                         </div>
                     </div>
