@@ -172,6 +172,18 @@ namespace PrimafitERP.Data
                 .WithOne(l => l.Header)
                 .HasForeignKey(l => l.HeaderId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // A refund line is linked to the original sales-order line for
+            // traceability. It must not be cascade-deleted through the sales
+            // order because the refund already has its own header cascade
+            // path. SQL Server rejects the resulting multiple cascade paths
+            // when a new database is created.
+            builder.Entity<ReceiptRefundLine>()
+                .HasOne(l => l.SalesOrderLine)
+                .WithMany()
+                .HasForeignKey(l => l.SalesOrderLineId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             // Credit Note Lines can cascade (if header dies, lines die)
             builder.Entity<CreditNoteLine>()
                    .HasOne(l => l.Header)
@@ -380,6 +392,7 @@ namespace PrimafitERP.Data
                 .WithMany() // Leave empty if SalesOrder doesn't have an explicit virtual collection property
                 .HasForeignKey(r => r.SalesOrderId)
                 .OnDelete(DeleteBehavior.Restrict);
+
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

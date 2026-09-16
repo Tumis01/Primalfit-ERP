@@ -12,9 +12,17 @@ namespace Primafit_ERP.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql(@"
-IF OBJECT_ID(N'dbo.BankStatementLines', N'U') IS NULL
+DECLARE @schema sysname;
+SELECT TOP (1) @schema = s.name
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = N'BankReconciliations';
+
+SET @schema = COALESCE(@schema, N'dbo');
+
+IF OBJECT_ID(QUOTENAME(@schema) + N'.BankStatementLines', N'U') IS NULL
 BEGIN
-    CREATE TABLE [dbo].[BankStatementLines](
+    DECLARE @createSql nvarchar(max) = N'CREATE TABLE ' + QUOTENAME(@schema) + N'.[BankStatementLines](
         [Id] UNIQUEIDENTIFIER NOT NULL,
         [ReconciliationId] UNIQUEIDENTIFIER NOT NULL,
         [Date] date NOT NULL,
@@ -25,42 +33,115 @@ BEGIN
         [IsMatched] bit NOT NULL,
         [MatchedGLTransactionId] UNIQUEIDENTIFIER NULL,
         CONSTRAINT [PK_BankStatementLines] PRIMARY KEY ([Id])
-    );
+    );';
+    EXEC sp_executesql @createSql;
 END
 ");
 
             // Now apply your intended schema changes safely:
             // Add BankReconciliationId if not exists
             migrationBuilder.Sql(@"
-IF COL_LENGTH('dbo.BankStatementLines', 'BankReconciliationId') IS NULL
+DECLARE @schema sysname;
+SELECT TOP (1) @schema = s.name
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = N'BankReconciliations';
+
+SET @schema = COALESCE(@schema, N'dbo');
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.columns c
+    JOIN sys.tables t ON t.object_id = c.object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    WHERE s.name = @schema
+      AND t.name = N'BankStatementLines'
+      AND c.name = N'BankReconciliationId'
+)
 BEGIN
-    ALTER TABLE dbo.BankStatementLines ADD BankReconciliationId UNIQUEIDENTIFIER NULL;
+    DECLARE @alterSql nvarchar(max) = N'ALTER TABLE ' + QUOTENAME(@schema) + N'.[BankStatementLines] ADD [BankReconciliationId] UNIQUEIDENTIFIER NULL;';
+    EXEC sp_executesql @alterSql;
 END
 ");
 
             // Create index if missing
             migrationBuilder.Sql(@"
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_BankStatementLines_BankReconciliationId' AND object_id = OBJECT_ID('dbo.BankStatementLines'))
+DECLARE @schema sysname;
+SELECT TOP (1) @schema = s.name
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = N'BankReconciliations';
+
+SET @schema = COALESCE(@schema, N'dbo');
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.indexes i
+    JOIN sys.tables t ON t.object_id = i.object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    WHERE i.name = N'IX_BankStatementLines_BankReconciliationId'
+      AND s.name = @schema
+      AND t.name = N'BankStatementLines'
+)
 BEGIN
-    CREATE INDEX [IX_BankStatementLines_BankReconciliationId] ON [dbo].[BankStatementLines]([BankReconciliationId]);
+    DECLARE @indexSql nvarchar(max) = N'CREATE INDEX [IX_BankStatementLines_BankReconciliationId] ON ' + QUOTENAME(@schema) + N'.[BankStatementLines]([BankReconciliationId]);';
+    EXEC sp_executesql @indexSql;
 END
 ");
 
             // Add FK if missing
             migrationBuilder.Sql(@"
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_BankStatementLines_BankReconciliations_BankReconciliationId')
+DECLARE @schema sysname;
+SELECT TOP (1) @schema = s.name
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = N'BankReconciliations';
+
+SET @schema = COALESCE(@schema, N'dbo');
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.foreign_keys fk
+    JOIN sys.tables t ON t.object_id = fk.parent_object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    WHERE fk.name = N'FK_BankStatementLines_BankReconciliations_BankReconciliationId'
+      AND s.name = @schema
+      AND t.name = N'BankStatementLines'
+)
 BEGIN
-    ALTER TABLE [dbo].[BankStatementLines]
+    DECLARE @fkSql nvarchar(max) = N'ALTER TABLE ' + QUOTENAME(@schema) + N'.[BankStatementLines]
     ADD CONSTRAINT [FK_BankStatementLines_BankReconciliations_BankReconciliationId]
-    FOREIGN KEY ([BankReconciliationId]) REFERENCES [dbo].[BankReconciliations]([Id]);
+    FOREIGN KEY ([BankReconciliationId]) REFERENCES ' + QUOTENAME(@schema) + N'.[BankReconciliations]([Id]);';
+    EXEC sp_executesql @fkSql;
 END
 ");
 
             // Add Type column to BankReconciliations if missing
             migrationBuilder.Sql(@"
-IF COL_LENGTH('dbo.BankReconciliations', 'Type') IS NULL
+DECLARE @schema sysname;
+SELECT TOP (1) @schema = s.name
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE t.name = N'BankReconciliations';
+
+SET @schema = COALESCE(@schema, N'dbo');
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.columns c
+    JOIN sys.tables t ON t.object_id = c.object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    WHERE s.name = @schema
+      AND t.name = N'BankReconciliations'
+      AND c.name = N'Type'
+)
 BEGIN
-    ALTER TABLE dbo.BankReconciliations ADD [Type] int NOT NULL CONSTRAINT DF_BankReconciliations_Type DEFAULT(0);
+    DECLARE @typeSql nvarchar(max) = N'ALTER TABLE ' + QUOTENAME(@schema) + N'.[BankReconciliations] ADD [Type] int NOT NULL CONSTRAINT [DF_BankReconciliations_Type] DEFAULT(0);';
+    EXEC sp_executesql @typeSql;
 END
 ");
         }
