@@ -4,6 +4,7 @@
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
 
 @inject InventoryService InvService
 @inject MasterDataService MasterService
@@ -15,6 +16,7 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+@inject IDbContextFactory<AppDbContext> DbFactory
 @rendermode InteractiveServer
 
 <div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -100,7 +102,7 @@
                             </div>
                         </div>
 
-                        <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-6">
 
                             <div class="md:col-span-2 relative z-30">
                                 <SearchableItem Label="Item Selection"
@@ -116,7 +118,18 @@
                             </div>
 
                             <div>
-                                <label class="label">Quantity</label>
+                                <label class="label">Transaction UOM</label>
+                                <select class="input-class font-bold" value="@selectedUomId" @onchange="OnUomChanged" disabled="@(selectedItemId == Guid.Empty)">
+                                    <option value="@Guid.Empty">-- Select UOM --</option>
+                                    @foreach (var option in GetUomOptions())
+                                    {
+                                        <option value="@option.Id">@option.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="label">Quantity (@GetSelectedUomName())</label>
                                 <InputNumber @bind-Value="qty" class="input-class font-bold" placeholder="0.0000" />
                             </div>
                         </div>
@@ -174,8 +187,8 @@
                             <th class="p-4">Date Shipped</th>
                             <th class="p-4">Route</th>
                             <th class="p-4">Item</th>
-                            <th class="p-4 text-right">Shipped Qty</th>
-                            <th class="p-4 text-right w-40">Confirm Qty</th>
+                            <th class="p-4 text-right">Shipped Qty / UOM</th>
+                            <th class="p-4 text-right w-40">Confirm Qty / UOM</th>
                             <th class="p-4 text-right">Action</th>
                         </tr>
                     </thead>
@@ -196,11 +209,11 @@
                                         </div>
                                     </td>
                                     <td class="p-4 font-bold text-slate-900">@t.Item?.Name</td>
-                                    <td class="p-4 text-right font-mono text-slate-500">@t.Quantity.ToString("N4")</td>
+                                    <td class="p-4 text-right font-mono text-slate-500">@GetTransferQuantityInUom(t).ToString("N4") @t.UomName</td>
 
                                     <td class="p-4 text-right">
                                         <input type="number"  
-                                               value="@GetReceiveQty(t.Id, t.Quantity)"
+                                               value="@GetReceiveQty(t.Id, GetTransferQuantityInUom(t))"
                                                @onchange="(e => UpdateReceiveQty(t.Id, e))"
                                                class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 focus:ring-slate-900 focus:border-slate-900 text-sm" />
                                     </td>
@@ -270,6 +283,9 @@
     // --- Data ---
     private List<Warehouse> warehouses = new();
     private List<Item> items = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private List<UnitOfMeasure> uoms = new();
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> transitAccounts = new();
     private string currentUserId = "";
@@ -280,6 +296,8 @@
     private Guid fromWhId;
     private Guid toWhId;
     private Guid selectedItemId;
+    private Guid selectedUomId;
+    private Guid lastUomItemId;
     private Guid transitSegCoaId;
     private decimal qty;
     private string reference = "";
@@ -317,6 +335,15 @@
 
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
         items = await MasterService.GetItemsAsync(selectedCompanyId);
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(selectedCompanyId, true);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(selectedCompanyId);
+        await using (var uomCtx = await DbFactory.CreateDbContextAsync())
+        {
+            uoms = await uomCtx.UnitOfMeasures.AsNoTracking()
+                .Where(u => u.CompanyId == selectedCompanyId)
+                .OrderBy(u => u.Name)
+                .ToListAsync();
+        }
 
         allAccounts = await GLService.GetSegmentedChartOfAccountsAsync(selectedCompanyId);
 
@@ -348,11 +375,64 @@
 
     private async Task CheckStock()
     {
+        if (selectedItemId != lastUomItemId)
+        {
+            selectedUomId = items.FirstOrDefault(x => x.Id == selectedItemId)?.UomId ?? Guid.Empty;
+            lastUomItemId = selectedItemId;
+        }
+
         if (selectedItemId != Guid.Empty && fromWhId != Guid.Empty)
             currentStockLevel = await InvService.GetStockLevel(selectedItemId, fromWhId);
         else
             currentStockLevel = 0;
     }
+
+    private IEnumerable<UomOption> GetUomOptions()
+    {
+        var item = items.FirstOrDefault(x => x.Id == selectedItemId);
+        if (item == null) yield break;
+
+        if (item.UomId.HasValue)
+            yield return new UomOption(item.UomId.Value,
+                uoms.FirstOrDefault(x => x.Id == item.UomId.Value)?.Name ?? item.UoM, 1m);
+
+        foreach (var line in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+        {
+            yield return new UomOption(line.UomId,
+                line.Uom?.Name ?? uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? "UOM",
+                1m / UomConversion.NormalizeFactor(line.ConversionFactorToBase));
+        }
+
+        if (item.UomId.HasValue)
+        {
+            var map = conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
+                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            {
+                if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
+                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, map);
+                if (factor.HasValue)
+                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+            }
+        }
+    }
+
+    private void OnUomChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && GetUomOptions().Any(x => x.Id == id))
+            selectedUomId = id;
+    }
+
+    private string GetSelectedUomName()
+        => GetUomOptions().FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? "Primary";
+
+    private decimal GetSelectedUomFactor()
+        => GetUomOptions().FirstOrDefault(x => x.Id == selectedUomId)?.Factor ?? 1m;
+
+    private decimal GetTransferQuantityInUom(StockTransfer transfer)
+        => transfer.QuantityInUom > 0 ? transfer.QuantityInUom : transfer.Quantity;
+
+    private record UomOption(Guid Id, string Name, decimal Factor);
     private async Task ProcessShipment()
     {
         if (fromWhId == Guid.Empty || toWhId == Guid.Empty || selectedItemId == Guid.Empty || qty <= 0 || transitSegCoaId == Guid.Empty)
@@ -373,7 +453,10 @@
                 qty,
                 transitSegCoaId,
                 reference,
-                currentUserId);
+                currentUserId,
+                selectedUomId,
+                GetSelectedUomName(),
+                GetSelectedUomFactor());
 
             if (string.IsNullOrEmpty(err))
             {

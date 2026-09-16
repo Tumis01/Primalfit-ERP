@@ -7,7 +7,7 @@
 
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <link rel="stylesheet" href="~/app.css" />
+    <link rel="stylesheet" href="~/app.css?v=20260916-2" />
     <HeadOutlet />
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
@@ -81,5 +81,20 @@
     <script src="/transaction-inputs.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/jss/chart-interop.js"></script>
+    <script>
+        // Setup-table actions remain visible and editing a table row returns the
+        // user to the page/form header, where the edit form is rendered.
+        document.addEventListener('click', function (event) {
+            const action = event.target.closest('button, a');
+            if (!action || !action.closest('table')) return;
+
+            const label = (action.textContent || '').trim().toLowerCase();
+            if (!/^edit(?:\s|$)/.test(label) && !label.includes('manage settings')) return;
+
+            window.setTimeout(function () {
+                window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+            }, 120);
+        });
+    </script>
 </body>
 </html>

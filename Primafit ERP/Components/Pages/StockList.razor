@@ -173,12 +173,17 @@
         // 1. Fetch ALL Items (Master Data is the Source of Truth now)
         var allItems = await ctx.Items
             .AsNoTracking()
+            .Include(i => i.PrimaryUom)
             .Where(i => i.CompanyId == currentCompanyId)
             .ToListAsync();
         var uomMap = await ctx.UnitOfMeasures
             .AsNoTracking()
             .Where(u => u.CompanyId == currentCompanyId)
             .ToDictionaryAsync(u => u.Id, u => u.Name);
+        var itemConversions = await ctx.ItemUomConversionLines.AsNoTracking()
+            .Where(x => x.IsActive && x.Item!.CompanyId == currentCompanyId)
+            .Include(x => x.Uom)
+            .ToListAsync();
 
         // 2. Fetch Ledger Data (Only for Physical Items)
         var ledgerData = await ctx.StockLedgers
@@ -219,8 +224,7 @@
                     Quantity = 0, // Placeholder
                     WarehouseName = "Global",
                     PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM,
-                    AlternateUomName = item.AlternateUomId.HasValue ? uomMap.GetValueOrDefault(item.AlternateUomId.Value, "") : "",
-                    AlternateUomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m
+                    ConversionDisplay = ""
                 });
             }
             else
@@ -243,8 +247,7 @@
                             WarehouseName = warehouseMap.ContainsKey(stock.WarehouseId) ? warehouseMap[stock.WarehouseId] : "Unknown",
                             Quantity = stock.TotalQty
                             ,PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM
-                            ,AlternateUomName = item.AlternateUomId.HasValue ? uomMap.GetValueOrDefault(item.AlternateUomId.Value, "") : ""
-                            ,AlternateUomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m
+                            ,ConversionDisplay = BuildConversionDisplay(item, itemConversions, stock.TotalQty)
                         });
                     }
                 }
@@ -270,12 +273,16 @@
         public decimal ReorderLevel { get; set; }
         public bool IsService { get; set; }
         public string PrimaryUomName { get; set; } = "Each";
-        public string AlternateUomName { get; set; } = "";
-        public decimal AlternateUomConversionFactor { get; set; } = 1m;
-        public decimal PrimaryQuantity => AlternateUomConversionFactor > 0 ? Quantity / AlternateUomConversionFactor : Quantity;
-        public string QuantityDisplay => string.IsNullOrWhiteSpace(AlternateUomName)
+        public string ConversionDisplay { get; set; } = "";
+        public string QuantityDisplay => string.IsNullOrWhiteSpace(ConversionDisplay)
             ? $"{Quantity:N2} {PrimaryUomName}"
-            : $"{PrimaryQuantity:N2} {PrimaryUomName} ({Quantity:N2} {AlternateUomName})";
-        public decimal StockValue => PrimaryQuantity * SellingPrice;
+            : $"{Quantity:N2} {PrimaryUomName} ({ConversionDisplay})";
+        public decimal StockValue => Quantity * SellingPrice;
+    }
+
+    private static string BuildConversionDisplay(Item item, List<ItemUomConversionLine> lines, decimal primaryQuantity)
+    {
+        return string.Join(", ", lines.Where(x => x.ItemId == item.Id && x.ConversionFactorToBase != 1m)
+            .Select(x => $"{(primaryQuantity * x.ConversionFactorToBase):N2} {x.Uom?.Name ?? "UOM"}"));
     }
 }

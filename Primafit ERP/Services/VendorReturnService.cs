@@ -272,6 +272,13 @@ namespace Primafit_ERP.Services
                 var po = vReturn.PurchaseOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = vReturn.ExchangeRate > 0 ? vReturn.ExchangeRate : 1;
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == vReturn.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == vReturn.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
 
                 TransactionGlMapping? customMapping = null;
                 if (vReturn.CustomTransactionTypeId.HasValue)
@@ -326,6 +333,20 @@ namespace Primafit_ERP.Services
                         var poLine = po.Lines.FirstOrDefault(pl => pl.Id == line.PurchaseOrderLineId);
                         if (poLine == null) return $"Line mapping error for product reference {line.Item.Name}.";
 
+                        var factorsForItem = itemFactors.Where(x => x.Key.ItemId == line.ItemId)
+                            .ToDictionary(x => x.Key.UomId, x => x.Value);
+                        if (line.UomId.HasValue && line.UomId != line.Item.UomId
+                            && !factorsForItem.ContainsKey(line.UomId.Value)
+                            && (!line.Item.UomId.HasValue || !UomConversion.FactorBetween(line.Item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                            return $"Posting Aborted: The selected UOM for '{line.Item.Name}' is not configured.";
+                        var expectedFactor = UomConversion.FactorFor(line.Item, line.UomId, factorsForItem, conversionMap);
+                        if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                            return $"Posting Aborted: Invalid UOM conversion selected for '{line.Item.Name}'. Reload the return and try again.";
+                        line.UomConversionFactor = expectedFactor;
+                        line.UomName = string.IsNullOrWhiteSpace(line.UomName)
+                            ? UomConversion.NameFor(line.Item, line.UomId)
+                            : line.UomName.Trim();
+
                         decimal totalRec = totalReceivedMap.TryGetValue(line.PurchaseOrderLineId, out var rQty) ? rQty : 0;
                         decimal alreadyRet = historicalQtyReturnsMap.TryGetValue(line.PurchaseOrderLineId, out var q) ? q : 0;
                         decimal maxAllowedReturn = totalRec - alreadyRet;
@@ -348,6 +369,10 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             WarehouseId = vReturn.WarehouseId.Value,
                             QuantityChanged = -line.Quantity,
+                            UomId = line.UomId,
+                            UomName = line.UomName,
+                            UomConversionFactor = line.UomConversionFactor,
+                            QuantityInUom = UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                             Type = StockMovementType.PurchaseReturn,
                             CostAtTime = poLine.UnitCost,
                             Reference = vReturn.ReturnNumber,

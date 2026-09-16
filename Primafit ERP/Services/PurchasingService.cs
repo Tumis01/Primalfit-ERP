@@ -186,6 +186,33 @@ namespace Primafit_ERP.Services
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
 
+            var itemIds = po.Lines.Where(x => x.ItemId != Guid.Empty).Select(x => x.ItemId).Distinct().ToList();
+            var itemMap = await ctx.Items.Where(x => itemIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+            var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                .Where(x => x.CompanyId == po.CompanyId && x.IsActive)
+                .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+            var itemUomMap = await ctx.ItemUomConversionLines.AsNoTracking()
+                .Where(x => x.Item!.CompanyId == po.CompanyId && x.IsActive)
+                .GroupBy(x => new { x.ItemId, x.UomId })
+                .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+            var companyUomIds = await ctx.UnitOfMeasures.AsNoTracking()
+                .Where(x => x.CompanyId == po.CompanyId).Select(x => x.Id).ToHashSetAsync();
+            foreach (var line in po.Lines.Where(x => itemMap.ContainsKey(x.ItemId)))
+            {
+                var item = itemMap[line.ItemId];
+                if (!line.UomId.HasValue) line.UomId = item.UomId;
+                if (line.UomId.HasValue && !companyUomIds.Contains(line.UomId.Value)) return "Selected line UOM is invalid.";
+                if (line.UomId.HasValue && line.UomId != item.UomId
+                    && !itemUomMap.ContainsKey((line.ItemId, line.UomId.Value))
+                    && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                    return $"The selected UOM for '{item.Name}' is not configured on this item.";
+                var itemFactors = itemUomMap.Where(x => x.Key.ItemId == line.ItemId)
+                    .ToDictionary(x => x.Key.UomId, x => x.Value);
+                var expected = UomConversion.FactorFor(item, line.UomId, itemFactors, conversionMap);
+                if (line.UomConversionFactor <= 0 || Math.Abs(line.UomConversionFactor - expected) > 0.0001m)
+                    line.UomConversionFactor = expected;
+            }
+
             bool isInvoiceDocument = po.Status == PurchaseOrderStatus.DraftInvoice
                 || po.Status == PurchaseOrderStatus.Invoiced
                 || po.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
@@ -704,6 +731,14 @@ namespace Primafit_ERP.Services
                 var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
                 if (po == null) return "STOP: PO not found.";
 
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == grn.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == grn.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+
                 // Validate Quantities to prevent over-receiving
                 var poLineIds = po.Lines.Select(l => l.Id).ToList();
                 var pastReceipts = await ctx.GoodsReceiptLines.Where(l => poLineIds.Contains(l.PurchaseOrderLineId)).ToListAsync();
@@ -716,8 +751,11 @@ namespace Primafit_ERP.Services
                     var item = await ctx.Items.FindAsync(poLine.ItemId);
                     if (item == null) return $"STOP: Item master reference is missing for purchase line {poLine.Id}.";
 
+                    var factorsForItem = itemFactors
+                        .Where(x => x.Key.ItemId == item.Id)
+                        .ToDictionary(x => x.Key.UomId, x => x.Value);
                     decimal expectedFactor = line.UomId.HasValue
-                        ? UomConversion.FactorFor(item, line.UomId)
+                        ? UomConversion.FactorFor(item, line.UomId, factorsForItem, conversionMap)
                         : UomConversion.NormalizeFactor(line.UomConversionFactor);
                     if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
                         return $"STOP: Invalid UOM conversion selected for item '{item.Name}'. Reload the receipt and try again.";
@@ -771,6 +809,7 @@ namespace Primafit_ERP.Services
                 decimal totalReceivedValueBase = 0;
 
                 // 3. Post Inventory & Financials
+                var receivedQtyByItem = new Dictionary<Guid, decimal>();
                 foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
@@ -785,6 +824,34 @@ namespace Primafit_ERP.Services
 
                     if (!item.IsService)
                     {
+                        // Inventory quantities and costs are maintained in the
+                        // item's primary UOM and company base currency.
+                        var priorQty = await ctx.StockLedgers
+                            .Where(s => s.ItemId == item.Id)
+                            .SumAsync(s => s.QuantityChanged);
+                        priorQty += receivedQtyByItem.GetValueOrDefault(item.Id);
+                        var oldWacc = item.WeightedAverageCost;
+                        var incomingUnitCostBase = grnLine.QuantityReceived > 0
+                            ? lineValueBase / grnLine.QuantityReceived
+                            : 0m;
+                        var newQty = priorQty + grnLine.QuantityReceived;
+                        if (newQty > 0)
+                        {
+                            item.WeightedAverageCost = Math.Round(
+                                ((priorQty * oldWacc) + lineValueBase) / newQty, 4);
+                            ctx.ItemCostHistories.Add(new ItemCostHistory
+                            {
+                                Id = Guid.NewGuid(), ItemId = item.Id,
+                                OldQty = priorQty, OldWacc = oldWacc,
+                                NewQtyIn = grnLine.QuantityReceived,
+                                NewCostIn = incomingUnitCostBase,
+                                ResultingWacc = item.WeightedAverageCost,
+                                Reference = grn.GrnNumber,
+                                DateChanged = DateTime.UtcNow
+                            });
+                        }
+                        receivedQtyByItem[item.Id] = receivedQtyByItem.GetValueOrDefault(item.Id) + grnLine.QuantityReceived;
+
                         // A. Physical Stock Increase
                         ctx.StockLedgers.Add(new StockLedger
                         {
@@ -795,14 +862,14 @@ namespace Primafit_ERP.Services
                             Date = grn.DateReceived,
                             Reference = grn.GrnNumber,
                             Type = StockMovementType.Purchase,
-                            // QuantityChanged is the canonical physical/base
-                            // quantity used by valuation, WACC and stock checks.
+                            // QuantityChanged is the canonical physical quantity in
+                            // the item's primary/reference UOM.
                             QuantityChanged = grnLine.QuantityReceived,
                             UomId = grnLine.UomId,
                             UomName = string.IsNullOrWhiteSpace(grnLine.UomName) ? item.UoM : grnLine.UomName,
                             UomConversionFactor = UomConversion.NormalizeFactor(grnLine.UomConversionFactor),
                             QuantityInUom = UomConversion.FromBase(grnLine.QuantityReceived, grnLine.UomConversionFactor),
-                            CostAtTime = poLine.UnitCost
+                            CostAtTime = incomingUnitCostBase
                         });
 
                         // B. Debit: Inventory Stock Asset
@@ -1644,7 +1711,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 2. GOODS RECEIPT NOTE (GRN) LOG (INVOICED ONLY)
+        // 2. GOODS RECEIPT NOTE (GRN) LOG
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateGRNLogReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1668,16 +1735,6 @@ namespace Primafit_ERP.Services
                 .Where(p => poIds.Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id);
 
-            var poNumbers = poDict.Values.Select(p => p.OrderNumber).ToList();
-
-            // Extract downstream mapped invoices
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
             var itemIds = poDict.Values
                 .SelectMany(p => p.Lines)
                 .Select(l => l.ItemId)
@@ -1685,64 +1742,92 @@ namespace Primafit_ERP.Services
                 .ToList();
 
             var items = await ctx.Items
+                .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
-                .ToDictionaryAsync(i => i.Id, i => i.Name);
+                .ToDictionaryAsync(i => i.Id);
 
             var vendorIds = poDict.Values.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
+                .AsNoTracking()
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
+            var batchIds = grns
+                .Where(g => g.GLBatchId.HasValue)
+                .Select(g => g.GLBatchId!.Value)
+                .Distinct()
+                .ToList();
+            var batchStatuses = await ctx.GLBatches
+                .AsNoTracking()
+                .Where(b => b.CompanyId == companyId && batchIds.Contains(b.Id))
+                .ToDictionaryAsync(b => b.Id, b => b.Status);
+
             var reportData = new StandardReportData
             {
-                ReportName = "Goods Receipt Note (GRN) Log (Invoiced Orders)",
+                ReportName = "Goods Receipt Note (GRN) Log",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "GRN Number", "Invoice Order Number", "Vendor", "Date Received",
-                    "Item", "Qty Received", "Unit Cost", "Line Value (Base)"
+                    "GRN Number", "Invoice Number", "Vendor", "Date Received",
+                    "Item", "Transaction UOM", "Qty Received (UOM)", "Qty Received (Primary)",
+                    "Unit Cost (Transaction UOM)", "Line Value (Base)", "GL Status"
                 },
                 Rows = new List<List<string>>()
             };
 
             decimal grandValue = 0;
-            decimal grandQty = 0;
+            decimal grandQtyPrimary = 0;
 
             foreach (var grn in grns)
             {
                 var po = poDict.GetValueOrDefault(grn.PurchaseOrderId);
-                if (po == null || !invoices.ContainsKey(po.OrderNumber)) continue; // FILTER OUT NON-INVOICED POs
+                if (po == null) continue;
 
-                string invoiceNumber = invoices[po.OrderNumber];
                 string vendorName = vendors.GetValueOrDefault(po.VendorId, "Unknown");
+                string glStatus = grn.GLBatchId.HasValue && batchStatuses.TryGetValue(grn.GLBatchId.Value, out var status)
+                    ? status.ToString()
+                    : "Not posted";
 
                 foreach (var line in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
-                    decimal unitCost = poLine?.UnitCost ?? 0;
-                    decimal rate = po.ExchangeRate;
-                    decimal lineValue = Math.Round(line.QuantityReceived * unitCost * rate, 2);
-                    string itemName = poLine != null ? items.GetValueOrDefault(poLine.ItemId, "Unknown") : "Unknown";
+                    var item = poLine != null ? items.GetValueOrDefault(poLine.ItemId) : null;
+                    decimal unitCostPrimary = poLine?.UnitCost ?? 0m;
+                    decimal factor = UomConversion.NormalizeFactor(line.UomConversionFactor);
+                    decimal quantityInUom = UomConversion.FromBase(line.QuantityReceived, factor);
+                    decimal unitCostInUom = UomConversion.PriceFromBase(unitCostPrimary, factor);
+                    decimal rate = po.ExchangeRate > 0 ? po.ExchangeRate : 1m;
+                    decimal lineValue = Math.Round(line.QuantityReceived * unitCostPrimary * rate, 2);
+                    string itemName = item?.Name ?? "Unknown";
+                    string uomName = string.IsNullOrWhiteSpace(line.UomName)
+                        ? item?.UoM ?? "Primary"
+                        : line.UomName;
 
                     reportData.Rows.Add(new List<string>
                     {
                         grn.GrnNumber,
-                        invoiceNumber, // Displays just the invoice order number
+                        po.OrderNumber,
                         vendorName,
                         grn.DateReceived.ToString("MMM dd, yyyy"),
                         itemName,
-                        line.QuantityReceived.ToString("N2"),
-                        unitCost.ToString("N2"),
-                        lineValue.ToString("N2")
+                        uomName,
+                        quantityInUom.ToString("N4"),
+                        line.QuantityReceived.ToString("N4"),
+                        unitCostInUom.ToString("N4"),
+                        lineValue.ToString("N2"),
+                        glStatus
                     });
 
                     grandValue += lineValue;
-                    grandQty += line.QuantityReceived;
+                    grandQtyPrimary += line.QuantityReceived;
                 }
             }
 
             reportData.Rows.Add(new List<string>
-                { "GRAND TOTAL", "", "", "", "", grandQty.ToString("N2"), "", grandValue.ToString("N2") });
+                {
+                    "GRAND TOTAL", "", "", "", "", "", "",
+                    grandQtyPrimary.ToString("N4"), "", grandValue.ToString("N2"), ""
+                });
 
             return reportData;
         }

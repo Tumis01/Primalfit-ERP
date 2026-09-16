@@ -78,8 +78,8 @@
                                 <th class="px-6 py-4 w-[26%]">Item Name</th>
                                 <th class="px-6 py-4">Warehouse</th>
                                 <th class="px-6 py-4 text-center">Entry / Primary UOM</th>
-                                <th class="px-6 py-4 text-center">Qty Change (Primary / Base)</th>
-                                <th class="px-6 py-4 text-right">Cost (WACC)</th>
+                                <th class="px-6 py-4 text-center">Qty Change (Transaction UOM)</th>
+                                <th class="px-6 py-4 text-right">Unit Cost (Transaction UOM)</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
@@ -103,7 +103,7 @@
                                         }
                                         else if (ledger.Type == StockMovementType.Sale || ledger.Type == StockMovementType.TransferOut)
                                         {
-                                            <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider">Issue/Out</span>
+                                            <span class="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider">Shipment</span>
                                         }
                                         else
                                         {
@@ -114,25 +114,25 @@
                                     <td class="px-6 py-4 text-slate-600 text-xs font-bold uppercase tracking-wider">@whName</td>
                                     <td class="px-6 py-4 text-center text-xs font-semibold text-slate-500">
                                         <div>@GetLedgerUomName(ledger, item)</div>
-                                        <div class="mt-1 text-[10px] text-slate-400">Primary: @GetPrimaryUomName(item) / Base: @GetBaseUomName(item)</div>
+                                        <div class="mt-1 text-[10px] text-slate-400">Primary/reference: @GetPrimaryUomName(item)</div>
                                     </td>
                                     <td class="px-6 py-4 text-center">
                                         @if (ledger.QuantityChanged > 0)
                                         {
-                                            <span class="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">+@GetLedgerPrimaryQuantity(ledger, item).ToString("N2") @GetPrimaryUomName(item)</span>
-                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(+@ledger.QuantityChanged.ToString("N2") @GetBaseUomName(item))</div>
+                                            <span class="font-mono font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">+@GetLedgerTransactionQuantity(ledger, item).ToString("N2") @GetLedgerUomName(ledger, item)</span>
+                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(+@ledger.QuantityChanged.ToString("N2") @GetPrimaryUomName(item) primary quantity)</div>
                                         }
                                         else if (ledger.QuantityChanged < 0)
                                         {
-                                            <span class="font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">@GetLedgerPrimaryQuantity(ledger, item).ToString("N2") @GetPrimaryUomName(item)</span>
-                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(@ledger.QuantityChanged.ToString("N2") @GetBaseUomName(item))</div>
+                                            <span class="font-mono font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-100">@GetLedgerTransactionQuantity(ledger, item).ToString("N2") @GetLedgerUomName(ledger, item)</span>
+                                            <div class="mt-1 text-[10px] font-mono text-slate-400">(@ledger.QuantityChanged.ToString("N2") @GetPrimaryUomName(item) primary quantity)</div>
                                         }
                                         else
                                         {
                                             <span class="font-mono font-bold text-slate-400">0</span>
                                         }
                                     </td>
-                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">@ledger.CostAtTime.ToString("N4")</td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">@GetLedgerTransactionUnitCost(ledger).ToString("N4")</td>
                                 </tr>
                             }
                             @if (!PaginatedHistory.Any())
@@ -245,7 +245,7 @@
                                                 <option value="@uom.Id">@uom.Name</option>
                                             }
                                         </select>
-                                        <p class="text-[10px] text-slate-500 mt-1">The entered quantity is recorded in this UOM and posted in normalized stock units.</p>
+                                        <p class="text-[10px] text-slate-500 mt-1">The entered quantity is recorded in the selected UOM and converted to the item&apos;s primary/reference UOM for stock.</p>
                                     </div>
                                 }
                                 @if (IsServiceItem)
@@ -387,6 +387,11 @@
     private List<Vendor> vendors = new();
     private List<Warehouse> warehouses = new();
     private List<Item> items = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UnitOfMeasure> uoms = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<StockLedger> stockLedgerHistory = new();
 
     private StockEntryType entryType = StockEntryType.DirectReceipt;
@@ -403,7 +408,9 @@
 
     private bool IsServiceItem => items.FirstOrDefault(i => i.Id == selectedItemId)?.IsService ?? false;
     private Item? SelectedItem => items.FirstOrDefault(i => i.Id == selectedItemId);
-    private decimal SelectedUomFactor => SelectedItem == null ? 1m : UomConversion.FactorFor(SelectedItem, selectedUomId);
+    private decimal SelectedUomFactor => SelectedItem == null ? 1m : UomConversion.FactorFor(
+        SelectedItem, selectedUomId,
+        itemUomLines.Where(x => x.ItemId == SelectedItem.Id).ToDictionary(x => x.UomId, x => x.ConversionFactorToBase), ConversionMap);
 
     // --- DYNAMIC UI BINDINGS & MATH ---
     private StockEntryType EntryType
@@ -484,14 +491,20 @@
         var t1 = MasterService.GetVendorsAsync(selectedCompanyId);
         var t2 = WhService.GetWarehousesAsync(selectedCompanyId);
         var t3 = MasterService.GetItemsAsync(selectedCompanyId);
+        var t5 = MasterService.GetItemUomConversionLinesAsync(selectedCompanyId, true);
+        var t6 = MasterService.GetUomConversionRulesAsync(selectedCompanyId);
+        var t7 = MasterService.GetUnitOfMeasuresAsync(selectedCompanyId);
         var t4 = ctx.StockLedgers.Where(s => s.CompanyId == selectedCompanyId).OrderByDescending(s => s.Date).ToListAsync();
 
-        await Task.WhenAll(t1, t2, t3, t4);
+        await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7);
 
         vendors = t1.Result;
         warehouses = t2.Result;
         items = t3.Result;
         stockLedgerHistory = t4.Result;
+        itemUomLines = t5.Result;
+        conversionRules = t6.Result;
+        uoms = t7.Result;
     }
 
     // Pagination Methods
@@ -533,8 +546,12 @@
             result.Add(item.PrimaryUom ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
         else if (!string.IsNullOrWhiteSpace(item.UoM))
             result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
-        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
-            result.Add(item.AlternateUom ?? new UnitOfMeasure { Id = item.AlternateUomId.Value, Name = "Alternate" });
+        foreach (var line in itemUomLines.Where(x => x.ItemId == item.Id && result.All(r => r.Id != x.UomId)))
+            result.Add(line.Uom ?? new UnitOfMeasure { Id = line.UomId, Name = "UOM" });
+        if (item.UomId.HasValue)
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value, conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId) && UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap).HasValue)
+                    result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
         return result;
     }
 
@@ -552,21 +569,26 @@
     private string GetLedgerUomName(StockLedger ledger, Item? item)
     {
         if (!string.IsNullOrWhiteSpace(ledger.UomName)) return ledger.UomName;
-        if (item?.AlternateUom != null) return item.AlternateUom.Name;
         return item?.PrimaryUom?.Name ?? item?.UoM ?? "Each";
     }
 
     private string GetPrimaryUomName(Item? item) => item?.PrimaryUom?.Name ?? item?.UoM ?? "Each";
 
-    private string GetBaseUomName(Item? item) => item?.AlternateUom?.Name ?? GetPrimaryUomName(item);
+    private string GetBaseUomName(Item? item) => GetPrimaryUomName(item);
 
     private decimal GetLedgerPrimaryQuantity(StockLedger ledger, Item? item)
     {
-        var primaryFactor = item?.UomId.HasValue == true && item.AlternateUomId.HasValue
-            ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor)
-            : 1m;
-        return UomConversion.FromBase(ledger.QuantityChanged, primaryFactor);
+        return ledger.QuantityChanged;
     }
+
+    private decimal GetLedgerTransactionQuantity(StockLedger ledger, Item? item)
+    {
+        var factor = UomConversion.NormalizeFactor(ledger.UomConversionFactor);
+        return ledger.QuantityInUom != 0m ? ledger.QuantityInUom : UomConversion.FromBase(ledger.QuantityChanged, factor);
+    }
+
+    private decimal GetLedgerTransactionUnitCost(StockLedger ledger) =>
+        ledger.CostAtTime * UomConversion.NormalizeFactor(ledger.UomConversionFactor);
 
     private void Recalculate()
     {

@@ -34,6 +34,8 @@ namespace PrimafitERP.Data
         // --- SUPPLY CHAIN ---
         public DbSet<Item> Items { get; set; }
         public DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
+        public DbSet<UomConversionRule> UomConversionRules { get; set; }
+        public DbSet<ItemUomConversionLine> ItemUomConversionLines { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
@@ -123,6 +125,24 @@ namespace PrimafitERP.Data
                     relationship.DeleteBehavior = DeleteBehavior.Restrict;
                 }
             }
+
+            builder.Entity<UomConversionRule>()
+                .HasIndex(x => new { x.CompanyId, x.FromUomId, x.ToUomId })
+                .IsUnique();
+            builder.Entity<UomConversionRule>()
+                .HasOne(x => x.FromUom).WithMany().HasForeignKey(x => x.FromUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<UomConversionRule>()
+                .HasOne(x => x.ToUom).WithMany().HasForeignKey(x => x.ToUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ItemUomConversionLine>()
+                .HasIndex(x => new { x.ItemId, x.UomId }).IsUnique();
+            builder.Entity<ItemUomConversionLine>()
+                .HasOne(x => x.Uom).WithMany().HasForeignKey(x => x.UomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ItemUomConversionLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
 
 
             builder.Entity<CreditNote>(entity =>

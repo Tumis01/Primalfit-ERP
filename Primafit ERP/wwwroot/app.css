@@ -18,3 +18,8 @@ input[type="number"]::-webkit-outer-spin-button {
 input[type="number"] {
     -moz-appearance: textfield;
 }
+/* Actions must be available without relying on pointer hover. This covers all
+   Tailwind action variants used by setup and transaction tables. */
+[class~="group-hover:opacity-100"] {
+    opacity: 1 !important;
+}

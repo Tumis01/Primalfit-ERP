@@ -224,9 +224,12 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         SalesOrderLineId = line.Id,
                         ItemId = line.ItemId ?? Guid.Empty,
-                        UomId = line.UomId,
-                        UomName = line.UomName,
-                        UomConversionFactor = line.UomConversionFactor,
+                        // Shipment quantities are stored in the item's primary
+                        // (internal stock) UOM. The operator can choose another
+                        // display UOM on the shipment page before submitting.
+                        UomId = line.Item?.UomId,
+                        UomName = line.Item?.PrimaryUom?.Name ?? line.Item?.UoM ?? "primary",
+                        UomConversionFactor = 1m,
                         QtyOrdered = line.Quantity - alreadyCredited,
                         QtyShipped = remainingToShip
                     });
@@ -313,6 +316,14 @@ namespace Primafit_ERP.Services
 
                 var postedShipmentQuantitiesMap = await GetPostedShipmentQuantitiesAsync(ctx, new[] { shipment.SalesOrderId });
 
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == shipment.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == shipment.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+
                 // Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
                 if (shipment.CustomTransactionTypeId.HasValue && shipment.CustomTransactionTypeId.Value != Guid.Empty)
@@ -350,9 +361,16 @@ namespace Primafit_ERP.Services
                     var freshItem = await ctx.Items.FindAsync(dbLine.ItemId);
                     if (freshItem == null) return $"Product master ID reference broken for item ID {dbLine.ItemId}.";
 
-                    // QtyShipped is normalized/base quantity. Retain and validate the
+                    // QtyShipped is normalized to the item's primary/reference quantity. Retain and validate the
                     // selected UOM snapshot for accurate dispatch history.
-                    decimal expectedFactor = UomConversion.FactorFor(freshItem, inputLine.UomId);
+                    var factorsForItem = itemFactors
+                        .Where(x => x.Key.ItemId == freshItem.Id)
+                        .ToDictionary(x => x.Key.UomId, x => x.Value);
+                    if (inputLine.UomId.HasValue && inputLine.UomId != freshItem.UomId
+                        && !factorsForItem.ContainsKey(inputLine.UomId.Value)
+                        && (!freshItem.UomId.HasValue || !UomConversion.FactorBetween(freshItem.UomId.Value, inputLine.UomId.Value, conversionMap).HasValue))
+                        return $"Validation Error: The selected UOM for '{freshItem.Name}' is not configured.";
+                    decimal expectedFactor = UomConversion.FactorFor(freshItem, inputLine.UomId, factorsForItem, conversionMap);
                     if (inputLine.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(inputLine.UomConversionFactor) - expectedFactor) > 0.0001m)
                         return $"Validation Error: The selected UOM conversion for '{freshItem.Name}' is invalid or outdated. Reload the shipment and try again.";
 

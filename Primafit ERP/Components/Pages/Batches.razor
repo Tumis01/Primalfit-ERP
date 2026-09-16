@@ -115,7 +115,11 @@
                         </span>
                     </div>
                     <p class="text-xs text-slate-300 mt-1">
-                        @selectedBatch.Description | Created: @selectedBatch.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")
+                        @selectedBatch.Description | Created: @selectedBatch.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm") by @UserDisplay(selectedBatch.CreatedByUserId)
+                        @if (!string.IsNullOrWhiteSpace(selectedBatch.ReleasedByUserId))
+                        {
+                            <span> | Submitted for review by @UserDisplay(selectedBatch.ReleasedByUserId)</span>
+                        }
                     </p>
                 </div>
 
@@ -160,7 +164,7 @@
                     {
                         <span class="text-xs text-emerald-300 font-bold bg-emerald-950/60 border border-emerald-800 px-3 py-1 rounded-lg flex items-center gap-1.5">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
-                            Committed by @(selectedBatch.PostedByUserId ?? "System") at @selectedBatch.PostedAt?.ToLocalTime().ToString("MMM dd, HH:mm")
+                            Committed by @UserDisplay(selectedBatch.PostedByUserId) at @selectedBatch.PostedAt?.ToLocalTime().ToString("MMM dd, HH:mm")
                         </span>
                     }
                 </div>
@@ -346,8 +350,8 @@
                             <th class="p-4 w-[25%]">Batch Details</th>
                             <th class="p-4 w-[10%]">Type</th>
                             <th class="p-4 w-[12%] text-center">Status</th>
-                            <th class="p-4 w-[15%]">Created</th>
-                            <th class="p-4 w-[15%]">Posted</th>
+                            <th class="p-4 w-[15%]">Created </th>
+                            <th class="p-4 w-[15%]">Review / Posted</th>
                             <th class="p-4 w-[23%] text-right pr-6">Actions</th>
                         </tr>
                     </thead>
@@ -383,12 +387,14 @@
 
                                 <td class="p-4">
                                     <div class="font-medium text-slate-700">@b.CreatedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</div>
+                                    <div class="text-[10px] text-slate-500 mt-1">Created by: <span class="font-bold">@UserDisplay(b.CreatedByUserId)</span></div>
                                 </td>
 
                                 <td class="p-4">
                                     @if (b.PostedAt.HasValue)
                                     {
                                         <div class="font-medium text-emerald-700">@b.PostedAt.Value.ToLocalTime().ToString("MMM dd, yyyy HH:mm")</div>
+                                        <div class="text-[10px] text-emerald-700 mt-1">Committed by: <span class="font-bold">@UserDisplay(b.PostedByUserId)</span></div>
                                     }
                                     else
                                     {
@@ -504,6 +510,7 @@
 
     // In-memory Datasets
     private List<GLBatch> batches = new();
+    private Dictionary<string, string> userNames = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, SegChartOfAccount> accountMap = new();
 
     // Active Selection State
@@ -587,6 +594,13 @@
             }
 
             batches = await q.OrderByDescending(b => b.CreatedAt).ToListAsync();
+            var userIds = batches.SelectMany(b => new[] { b.CreatedByUserId, b.ReleasedByUserId, b.PostedByUserId })
+                .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+            var users = await ctx.Users.AsNoTracking().Where(u => userIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.FirstName, u.LastName, u.UserName }).ToListAsync();
+            userNames = users.ToDictionary(u => u.Id,
+                u => string.IsNullOrWhiteSpace($"{u.FirstName} {u.LastName}".Trim()) ? (u.UserName ?? u.Id) : $"{u.FirstName} {u.LastName}".Trim(),
+                StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
@@ -663,6 +677,12 @@
         {
             busy = false;
         }
+    }
+
+    private string UserDisplay(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return "System";
+        return userNames.TryGetValue(userId, out var name) ? name : userId;
     }
 
     private async Task FinalizeApprovedShipment(Guid batchId, string userId)

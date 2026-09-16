@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PrimafitERP.Data;
 
@@ -11,9 +12,11 @@ using PrimafitERP.Data;
 namespace Primafit_ERP.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260914122100_UomMultipleConversions")]
+    partial class UomMultipleConversions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2057,34 +2060,6 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("ItemCostHistories");
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemUomConversionLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("ConversionFactorToBase")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("UomId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UomId");
-
-                    b.HasIndex("ItemId", "UomId")
-                        .IsUnique();
-
-                    b.ToTable("ItemUomConversionLines");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.JobRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3555,9 +3530,6 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Quantity")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<decimal>("QuantityInUom")
-                        .HasColumnType("decimal(18, 4)");
-
                     b.Property<decimal?>("QuantityReceived")
                         .HasColumnType("decimal(18, 4)");
 
@@ -3573,16 +3545,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<Guid>("TransitGLAccountId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("UomConversionFactor")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid?>("UomId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("UomName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("ValueAtShipment")
                         .HasColumnType("decimal(18, 4)");
@@ -3707,39 +3669,6 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("ConversionUomId");
 
                     b.ToTable("UnitOfMeasures");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.UomConversionRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("ConversionFactor")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<Guid>("FromUomId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("ToUomId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FromUomId");
-
-                    b.HasIndex("ToUomId");
-
-                    b.HasIndex("CompanyId", "FromUomId", "ToUomId")
-                        .IsUnique();
-
-                    b.ToTable("UomConversionRules");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.UserSystemRole", b =>
@@ -4782,25 +4711,6 @@ namespace Primafit_ERP.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemUomConversionLine", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.Item", "Item")
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.UnitOfMeasure", "Uom")
-                        .WithMany()
-                        .HasForeignKey("UomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Item");
-
-                    b.Navigation("Uom");
-                });
-
             modelBuilder.Entity("Primafit_ERP.Components.Models.JobRole", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.Department", "Department")
@@ -5199,25 +5109,6 @@ namespace Primafit_ERP.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("ConversionUom");
-                });
-
-            modelBuilder.Entity("Primafit_ERP.Components.Models.UomConversionRule", b =>
-                {
-                    b.HasOne("Primafit_ERP.Components.Models.UnitOfMeasure", "FromUom")
-                        .WithMany()
-                        .HasForeignKey("FromUomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Primafit_ERP.Components.Models.UnitOfMeasure", "ToUom")
-                        .WithMany()
-                        .HasForeignKey("ToUomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("FromUom");
-
-                    b.Navigation("ToUom");
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.UserSystemRole", b =>

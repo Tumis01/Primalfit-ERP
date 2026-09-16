@@ -89,7 +89,6 @@ namespace Primafit_ERP.Services
             return await ctx.Items
                 .Include(i => i.Category)
                 .Include(i => i.PrimaryUom)
-                .Include(i => i.AlternateUom)
                 .Where(i => i.CompanyId == companyId)
                 .ToListAsync();
         }
@@ -120,33 +119,10 @@ namespace Primafit_ERP.Services
                     item.UoM = "Each";
                 }
 
-                if (!item.AlternateUomId.HasValue && primaryUom?.ConversionUomId.HasValue == true)
-                {
-                    item.AlternateUomId = primaryUom.ConversionUomId;
-                    item.AlternateUomConversionFactor = primaryUom.ConversionFactorValue > 0 ? primaryUom.ConversionFactorValue : 1m;
-                }
-
-                if (item.AlternateUomId.HasValue)
-                {
-                    if (item.UomId.HasValue && item.AlternateUomId == item.UomId)
-                        return "Primary and alternate UOMs must be different.";
-
-                    var alternateUom = await ctx.UnitOfMeasures
-                        .FirstOrDefaultAsync(u => u.Id == item.AlternateUomId.Value && u.CompanyId == item.CompanyId);
-                    if (alternateUom == null) return "The selected alternate UOM is invalid.";
-                    if (item.AlternateUomConversionFactor <= 0)
-                        return "The alternate UOM conversion factor must be greater than zero.";
-                }
-                else
-                {
-                    item.AlternateUomConversionFactor = 1m;
-                }
             }
             else
             {
                 item.UomId = null;
-                item.AlternateUomId = null;
-                item.AlternateUomConversionFactor = 1m;
                 item.UoM = string.Empty;
             }
 
@@ -170,6 +146,19 @@ namespace Primafit_ERP.Services
                 var existingItem = await ctx.Items.FindAsync(item.Id);
                 if (existingItem != null)
                 {
+                    // Item conversion factors are defined relative to the
+                    // primary UOM. Once the primary UOM changes, the previous
+                    // conversion rows are no longer valid for this item.
+                    // Remove them before saving the new item setup rows so
+                    // reports cannot display historical conversions.
+                    if (existingItem.UomId != item.UomId)
+                    {
+                        var obsoleteConversions = await ctx.ItemUomConversionLines
+                            .Where(x => x.ItemId == existingItem.Id)
+                            .ToListAsync();
+                        ctx.ItemUomConversionLines.RemoveRange(obsoleteConversions);
+                    }
+
                     item.WeightedAverageCost = existingItem.WeightedAverageCost;
                     item.MostRecentCost = existingItem.MostRecentCost;
 
@@ -301,6 +290,128 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
+        public async Task<List<UomConversionRule>> GetUomConversionRulesAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.UomConversionRules.AsNoTracking()
+                .Include(x => x.FromUom).Include(x => x.ToUom)
+                .Where(x => x.CompanyId == companyId && x.IsActive)
+                .OrderBy(x => x.FromUom!.Name).ThenBy(x => x.ToUom!.Name)
+                .ToListAsync();
+        }
+
+        public async Task<string> SaveUomConversionRuleAsync(UomConversionRule rule)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (rule.CompanyId == Guid.Empty || rule.FromUomId == Guid.Empty || rule.ToUomId == Guid.Empty)
+                return "Both UOMs are required.";
+            if (rule.FromUomId == rule.ToUomId) return "A UOM cannot convert to itself.";
+            if (rule.ConversionFactor <= 0) return "Conversion factor must be greater than zero.";
+            var valid = await ctx.UnitOfMeasures.CountAsync(x => x.CompanyId == rule.CompanyId && (x.Id == rule.FromUomId || x.Id == rule.ToUomId)) == 2;
+            if (!valid) return "The selected UOMs are invalid.";
+            if (await ctx.UomConversionRules.AnyAsync(x => x.CompanyId == rule.CompanyId && x.FromUomId == rule.FromUomId && x.ToUomId == rule.ToUomId && x.Id != rule.Id))
+                return "This conversion already exists.";
+            // Persist only scalar/FK values. The rule may have been loaded with
+            // detached FromUom/ToUom navigation objects; attaching that graph can
+            // make EF try to INSERT an already-existing UnitOfMeasure.
+            var existingRule = rule.Id == Guid.Empty
+                ? null
+                : await ctx.UomConversionRules.FirstOrDefaultAsync(x => x.Id == rule.Id && x.CompanyId == rule.CompanyId);
+            if (existingRule == null)
+            {
+                ctx.UomConversionRules.Add(new UomConversionRule
+                {
+                    Id = rule.Id == Guid.Empty ? Guid.NewGuid() : rule.Id,
+                    CompanyId = rule.CompanyId,
+                    FromUomId = rule.FromUomId,
+                    ToUomId = rule.ToUomId,
+                    ConversionFactor = rule.ConversionFactor,
+                    IsActive = rule.IsActive
+                });
+            }
+            else
+            {
+                existingRule.FromUomId = rule.FromUomId;
+                existingRule.ToUomId = rule.ToUomId;
+                existingRule.ConversionFactor = rule.ConversionFactor;
+                existingRule.IsActive = rule.IsActive;
+            }
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteUomConversionRuleAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var rule = await ctx.UomConversionRules.FindAsync(id);
+            if (rule == null) return string.Empty;
+            ctx.UomConversionRules.Remove(rule);
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<List<ItemUomConversionLine>> GetItemUomConversionLinesAsync(Guid itemId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.ItemUomConversionLines.AsNoTracking().Include(x => x.Uom)
+                .Where(x => x.ItemId == itemId && x.IsActive).OrderBy(x => x.Uom!.Name).ToListAsync();
+        }
+
+        public async Task<List<ItemUomConversionLine>> GetItemUomConversionLinesAsync(Guid companyId, bool byCompany)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.ItemUomConversionLines.AsNoTracking().Include(x => x.Uom)
+                .Where(x => x.IsActive && x.Item!.CompanyId == companyId)
+                .ToListAsync();
+        }
+
+        public async Task<string> SaveItemUomConversionLineAsync(ItemUomConversionLine line, Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty || line.ConversionFactorToBase <= 0)
+                return "Select a UOM and enter a conversion factor greater than zero.";
+            var item = await ctx.Items.AsNoTracking().FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
+            var uom = await ctx.UnitOfMeasures.AsNoTracking().FirstOrDefaultAsync(x => x.Id == line.UomId && x.CompanyId == companyId);
+            if (item == null || uom == null) return "The selected item or UOM is invalid.";
+            if (item.UomId == line.UomId)
+                return "The primary UOM is already configured on the item.";
+            if (await ctx.ItemUomConversionLines.AnyAsync(x => x.ItemId == line.ItemId && x.UomId == line.UomId && x.Id != line.Id))
+                return "This UOM is already configured for the item.";
+            // Never pass the detached Uom/Item navigation graph to Add/Update.
+            // Item setup loads Uom for display, but this service owns only the
+            // conversion line's scalar values and foreign keys.
+            var existingLine = line.Id == Guid.Empty
+                ? null
+                : await ctx.ItemUomConversionLines.FirstOrDefaultAsync(x => x.Id == line.Id && x.ItemId == line.ItemId);
+            if (existingLine == null)
+            {
+                ctx.ItemUomConversionLines.Add(new ItemUomConversionLine
+                {
+                    Id = line.Id == Guid.Empty ? Guid.NewGuid() : line.Id,
+                    ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    ConversionFactorToBase = line.ConversionFactorToBase,
+                    IsActive = line.IsActive
+                });
+            }
+            else
+            {
+                existingLine.UomId = line.UomId;
+                existingLine.ConversionFactorToBase = line.ConversionFactorToBase;
+                existingLine.IsActive = line.IsActive;
+            }
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> DeleteItemUomConversionLineAsync(Guid id)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var line = await ctx.ItemUomConversionLines.FindAsync(id);
+            if (line != null) { ctx.ItemUomConversionLines.Remove(line); await ctx.SaveChangesAsync(); }
+            return string.Empty;
+        }
+
         public async Task<string> SaveUnitOfMeasureAsync(UnitOfMeasure uom)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -329,14 +440,27 @@ namespace Primafit_ERP.Services
             bool isDuplicate = await ctx.UnitOfMeasures.AnyAsync(u => u.CompanyId == uom.CompanyId && u.Name.ToLower() == uom.Name.ToLower() && u.Id != uom.Id);
             if (isDuplicate) return $"The UoM '{uom.Name}' already exists.";
 
-            if (uom.Id == Guid.Empty || !await ctx.UnitOfMeasures.AnyAsync(x => x.Id == uom.Id))
+            var existingUom = uom.Id == Guid.Empty
+                ? null
+                : await ctx.UnitOfMeasures.FirstOrDefaultAsync(x => x.Id == uom.Id && x.CompanyId == uom.CompanyId);
+            if (existingUom == null)
             {
-                if (uom.Id == Guid.Empty) uom.Id = Guid.NewGuid();
-                ctx.UnitOfMeasures.Add(uom);
+                ctx.UnitOfMeasures.Add(new UnitOfMeasure
+                {
+                    Id = uom.Id == Guid.Empty ? Guid.NewGuid() : uom.Id,
+                    CompanyId = uom.CompanyId,
+                    Name = uom.Name,
+                    ConversionFactor = uom.ConversionFactor,
+                    ConversionUomId = uom.ConversionUomId,
+                    ConversionFactorValue = uom.ConversionFactorValue
+                });
             }
             else
             {
-                ctx.UnitOfMeasures.Update(uom);
+                existingUom.Name = uom.Name;
+                existingUom.ConversionFactor = uom.ConversionFactor;
+                existingUom.ConversionUomId = uom.ConversionUomId;
+                existingUom.ConversionFactorValue = uom.ConversionFactorValue;
             }
 
             await ctx.SaveChangesAsync();
@@ -348,6 +472,10 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (await ctx.Items.AnyAsync(i => i.UomId == id || i.AlternateUomId == id))
                 return "Cannot delete: this UOM is assigned to one or more inventory items.";
+            if (await ctx.ItemUomConversionLines.AnyAsync(x => x.UomId == id))
+                return "Cannot delete: this UOM is used by one or more item conversion lines.";
+            if (await ctx.UomConversionRules.AnyAsync(x => x.FromUomId == id || x.ToUomId == id))
+                return "Cannot delete: this UOM is used by one or more conversion rules.";
             if (await ctx.UnitOfMeasures.AnyAsync(u => u.ConversionUomId == id))
                 return "Cannot delete: this UOM is used as a conversion target.";
             var uom = await ctx.UnitOfMeasures.FindAsync(id);

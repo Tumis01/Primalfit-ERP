@@ -67,7 +67,8 @@ namespace Primafit_ERP.Services
                     if (headerUpper.Contains("AMOUNT") || headerUpper.Contains("BALANCE") ||
                         headerUpper.Contains("VALUE") || headerUpper.Contains("DEBIT") ||
                         headerUpper.Contains("CREDIT") || headerUpper.Contains("TOTAL") ||
-                        headerUpper.Contains("QTY"))
+                        headerUpper.Contains("QTY") || headerUpper.Contains("QUANTITY") ||
+                        headerUpper.Contains("PRICE") || headerUpper.Contains("COST"))
                     {
                         isNumericColumn[i] = true;
                         columnWidths[i] = 2.5f;
@@ -210,7 +211,8 @@ namespace Primafit_ERP.Services
                     isNumericColumn[i] = h.Contains("AMOUNT") || h.Contains("BALANCE") ||
                                          h.Contains("VALUE") || h.Contains("DEBIT") ||
                                          h.Contains("CREDIT") || h.Contains("TOTAL") ||
-                                         h.Contains("QTY");
+                                         h.Contains("QTY") || h.Contains("QUANTITY") ||
+                                         h.Contains("PRICE") || h.Contains("COST");
 
                     var cell = worksheet.Cell(currentRow, i + 1);
                     cell.Value = data.Headers[i];

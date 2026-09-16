@@ -159,6 +159,30 @@ namespace Primafit_ERP.Services
 
             var lineItemIds = order.Lines.Where(l => l.ItemId.HasValue).Select(l => l.ItemId!.Value).Distinct().ToList();
             var itemsMap = await ctx.Items.Where(i => lineItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
+            var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                .Where(x => x.CompanyId == order.CompanyId && x.IsActive)
+                .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+            var itemUomMap = await ctx.ItemUomConversionLines.AsNoTracking()
+                .Where(x => x.Item!.CompanyId == order.CompanyId && x.IsActive)
+                .GroupBy(x => new { x.ItemId, x.UomId })
+                .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+            var companyUomIds = await ctx.UnitOfMeasures.AsNoTracking()
+                .Where(x => x.CompanyId == order.CompanyId).Select(x => x.Id).ToHashSetAsync();
+            foreach (var line in order.Lines.Where(x => x.ItemId.HasValue && itemsMap.ContainsKey(x.ItemId.Value)))
+            {
+                var item = itemsMap[line.ItemId!.Value];
+                if (!line.UomId.HasValue) line.UomId = item.UomId;
+                if (line.UomId.HasValue && !companyUomIds.Contains(line.UomId.Value)) return "Selected line UOM is invalid.";
+                if (line.UomId.HasValue && line.UomId != item.UomId
+                    && !itemUomMap.ContainsKey((line.ItemId.Value, line.UomId.Value))
+                    && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                    return $"The selected UOM for '{item.Name}' is not configured on this item.";
+                var itemFactors = itemUomMap.Where(x => x.Key.ItemId == line.ItemId!.Value)
+                    .ToDictionary(x => x.Key.UomId, x => x.Value);
+                var expected = UomConversion.FactorFor(item, line.UomId, itemFactors, conversionMap);
+                if (line.UomConversionFactor <= 0 || Math.Abs(line.UomConversionFactor - expected) > 0.0001m)
+                    line.UomConversionFactor = expected;
+            }
 
             bool hasPhysicalItems = order.Lines.Any(l => l.ItemId.HasValue && itemsMap.ContainsKey(l.ItemId.Value) && !itemsMap[l.ItemId.Value].IsService);
 

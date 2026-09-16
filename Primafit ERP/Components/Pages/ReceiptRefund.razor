@@ -393,7 +393,7 @@
                                                 <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class py-1.5 text-xs font-semibold">
                                                     @foreach (var uom in GetItemUoms(line.Item))
                                                     {
-                                                        <option value="@uom.Id">@uom.Name</option>
+                                                        <option value="@uom.Id">@GetUomOptionLabel(line.Item, uom)</option>
                                                     }
                                                 </select>
                                                 <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
@@ -752,6 +752,10 @@
     private string selectedInvoiceNumberDisplay = "-- Choose Eligible Source Invoice --";
     private string currencyCode = "Base";
     private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
 
     private bool isBusy = false;
     private string _errMsg = string.Empty;
@@ -816,7 +820,7 @@
                     if (item == null) continue;
                     line.UomId ??= item.UomId;
                     if (string.IsNullOrWhiteSpace(line.UomName)) line.UomName = uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.UoM;
-                    if (line.UomConversionFactor <= 0) line.UomConversionFactor = item.AlternateUomId.HasValue ? UomConversion.NormalizeFactor(item.AlternateUomConversionFactor) : 1m;
+                    if (line.UomConversionFactor <= 0) line.UomConversionFactor = GetItemFactor(item, line.UomId);
                 }
                 await using var ctx = await DbFactory.CreateDbContextAsync();
                 var batch = record.GlBatchId.HasValue
@@ -857,6 +861,8 @@
         warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
         customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
         uoms = await MasterService.GetUnitOfMeasuresAsync(companyId);
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(companyId, true);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(companyId);
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(companyId);
@@ -1025,22 +1031,42 @@
             result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
         else if (!string.IsNullOrWhiteSpace(item.UoM))
             result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
-        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
-            result.Add(item.AlternateUom ?? uoms.FirstOrDefault(x => x.Id == item.AlternateUomId.Value) ?? new UnitOfMeasure { Id = item.AlternateUomId.Value, Name = "Alternate" });
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+            result.Add(conversion.Uom ?? uoms.FirstOrDefault(x => x.Id == conversion.UomId) ?? new UnitOfMeasure { Id = conversion.UomId, Name = "UOM" });
+        if (item.UomId.HasValue)
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value, conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId) && UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap).HasValue)
+                    result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
         return result;
     }
 
     private decimal GetLineFactor(ReceiptRefundLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
     private decimal GetDisplayedQuantity(decimal baseQuantity, ReceiptRefundLine line) => UomConversion.FromBase(baseQuantity, GetLineFactor(line));
     private decimal GetDisplayedUnitPrice(ReceiptRefundLine line) => UomConversion.PriceFromBase(line.UnitPrice, GetLineFactor(line));
-    private string GetUomConversionText(ReceiptRefundLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.UomName} = {GetLineFactor(line):N4} base units";
+    private string GetUomConversionText(ReceiptRefundLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.Item?.PrimaryUom?.Name ?? line.Item?.UoM ?? "primary"} = {1m / GetLineFactor(line):N4} {line.UomName}";
+
+    private string GetUomOptionLabel(Item? item, UnitOfMeasure uom)
+    {
+        if (item == null || item.UomId == uom.Id) return $"{uom.Name} (Primary)";
+        var conversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == uom.Id);
+        return conversion == null
+            ? uom.Name
+            : $"{uom.Name} (1 {item.PrimaryUom?.Name ?? item.UoM} = {conversion.ConversionFactorToBase:N4} {uom.Name})";
+    }
+
+    private decimal GetItemFactor(Item item, Guid? selectedId)
+    {
+        var factors = itemUomLines.Where(x => x.ItemId == item.Id)
+            .ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
+        return UomConversion.FactorFor(item, selectedId, factors, ConversionMap);
+    }
 
     private void OnLineUomChanged(ReceiptRefundLine line, ChangeEventArgs e)
     {
         if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
         line.UomId = selectedId;
         line.UomName = UomConversion.NameFor(line.Item, selectedId);
-        line.UomConversionFactor = UomConversion.FactorFor(line.Item, selectedId);
+        line.UomConversionFactor = GetItemFactor(line.Item, selectedId);
     }
 
     private async Task SaveDraft()

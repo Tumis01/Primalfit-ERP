@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Identity
 
 @inject ShipmentService ShipmentService
+@inject MasterDataService MasterService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
 @inject SegCoaService SegCoaService
@@ -404,6 +405,10 @@
     private List<SalesShipment> history = new();
     private Dictionary<Guid, decimal> postedShippedByOrderLine = new();
     private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private Dictionary<Guid, BatchStatus> shipmentBatchStatuses = new();
     private Guid expandedShipmentId = Guid.Empty;
     private string currentUserId = "";
@@ -459,6 +464,8 @@
                 .OrderBy(u => u.Name)
                 .ToListAsync();
         }
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(companyId, true);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(companyId);
         shipments = await ShipmentService.GetPendingShipmentsAsync(companyId);
         foreach (var shipmentLine in shipments.SelectMany(s => s.Lines))
         {
@@ -466,7 +473,7 @@
             {
                 shipmentLine.UomId = primaryUomId;
                 shipmentLine.UomName = uoms.FirstOrDefault(u => u.Id == primaryUomId)?.Name ?? shipmentLine.Item.UoM;
-                shipmentLine.UomConversionFactor = UomConversion.NormalizeFactor(shipmentLine.Item.AlternateUomConversionFactor);
+                shipmentLine.UomConversionFactor = 1m;
             }
             else if (shipmentLine.UomConversionFactor <= 0)
             {
@@ -602,16 +609,28 @@
         if (item.UomId.HasValue)
         {
             var primaryName = uoms.FirstOrDefault(u => u.Id == item.UomId.Value)?.Name ?? item.UoM;
-            yield return new UomOption(item.UomId.Value, primaryName, UomConversion.NormalizeFactor(item.AlternateUomConversionFactor));
+            yield return new UomOption(item.UomId.Value, primaryName, 1m);
         }
 
-        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
         {
-            var alternateName = uoms.FirstOrDefault(u => u.Id == item.AlternateUomId.Value)?.Name ?? "Base";
-            yield return new UomOption(item.AlternateUomId.Value, alternateName, 1m);
+            var name = conversion.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == conversion.UomId)?.Name ?? "UOM";
+            yield return new UomOption(conversion.UomId, name, 1m / UomConversion.NormalizeFactor(conversion.ConversionFactorToBase));
         }
 
-        if (line.UomId.HasValue && line.UomId != item.UomId && line.UomId != item.AlternateUomId)
+        if (item.UomId.HasValue)
+        {
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
+                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            {
+                if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
+                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap);
+                if (factor.HasValue)
+                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+            }
+        }
+
+        if (line.UomId.HasValue && line.UomId != item.UomId && !itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == line.UomId))
             yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
     }
 

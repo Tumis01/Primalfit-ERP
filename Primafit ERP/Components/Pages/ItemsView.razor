@@ -102,34 +102,6 @@
                             <p class="text-[10px] text-slate-400 mt-1">The item price is defined in this UOM.</p>
                         </div>
                         <div>
-                            <label class="label">Alternate / Stock UOM</label>
-                            <InputSelect @bind-Value="currentItem.AlternateUomId" class="input-class">
-                                <option value="">-- None / 1:1 --</option>
-                                @foreach (var u in uoms.Where(x => x.Id != currentItem.UomId))
-                                {
-                                    <option value="@u.Id">@u.Name</option>
-                                }
-                            </InputSelect>
-                        </div>
-                        @if (currentItem.AlternateUomId.HasValue)
-                        {
-                            <div>
-                                <label class="label">Units per Primary UOM</label>
-                                <InputNumber @bind-Value="currentItem.AlternateUomConversionFactor" class="input-class font-mono" min="0.0001"   />
-                                <p class="text-[10px] text-indigo-600 mt-1 font-semibold">
-                                    1 @(uoms.FirstOrDefault(x => x.Id == currentItem.UomId)?.Name ?? "primary") = @currentItem.AlternateUomConversionFactor:N4> @(uoms.FirstOrDefault(x => x.Id == currentItem.AlternateUomId)?.Name ?? "alternate")
-                                </p>
-                            </div>
-                        }
-                        else if (uoms.FirstOrDefault(x => x.Id == currentItem.UomId)?.ConversionUomId is Guid inheritedUomId)
-                        {
-                            var inheritedPrimary = uoms.FirstOrDefault(x => x.Id == currentItem.UomId);
-                            var inheritedTarget = uoms.FirstOrDefault(x => x.Id == inheritedUomId);
-                            <div class="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-xs font-semibold text-indigo-700">
-                                Inherited conversion: 1 @(inheritedPrimary?.Name ?? "primary") = @((inheritedPrimary?.ConversionFactorValue > 0 ? inheritedPrimary.ConversionFactorValue : 1m).ToString("N4")) @(inheritedTarget?.Name ?? "alternate")
-                            </div>
-                        }
-                        <div>
                             <label class="label">Reorder Level</label>
                             <InputNumber @bind-Value="currentItem.ReorderLevel" class="input-class font-mono" />
                         </div>
@@ -160,6 +132,34 @@
                                     <label class="label text-indigo-700">Standard Cost</label>
                                     <InputNumber @bind-Value="currentItem.StandardCost" class="input-class font-mono text-indigo-700 font-bold border-indigo-200" placeholder="0.0000" />
                                 </div>
+                            }
+                        </div>
+
+                        <div class="md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div>
+                                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Additional Item UOMs</h4>
+                                    <p class="text-[10px] text-slate-500">Add UOMs that may be selected during sales and purchases. Each line is expressed in the configured direction from the primary UOM.</p>
+                                </div>
+                            </div>
+                            @if (currentItem.Id == Guid.Empty)
+                            {
+                                <p class="text-xs text-slate-500">Save the item first, then add additional UOM conversion lines.</p>
+                            }
+                            else
+                            {
+                                <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                                    <div><label class="label">Transaction UOM</label><SearchableUom Units="@uoms.Where(x => x.Id != currentItem.UomId).ToList()" @bind-Value="itemLineUomId" /></div>
+                                    <div><label class="label">Units per Primary UOM</label><InputNumber @bind-Value="itemLineFactor" class="input-class font-mono" min="0.0001" /></div>
+                                    <button type="button" @onclick="SaveItemUomLine" class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">@(editingItemLineId.HasValue ? "Update" : "Add")</button>
+                                </div>
+                                @foreach (var line in itemUomLines)
+                                {
+                                    <div class="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                                        <span class="font-medium">1 @(uoms.FirstOrDefault(x => x.Id == currentItem.UomId)?.Name ?? "primary") = <b>@line.ConversionFactorToBase.ToString("N4")</b> @(line.Uom?.Name ?? uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name)</span>
+                                        <span><button type="button" @onclick="() => EditItemUomLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => DeleteItemUomLine(line)" class="text-rose-600 font-bold">Delete</button></span>
+                                    </div>
+                                }
                             }
                         </div>
                     }
@@ -342,6 +342,7 @@
 @code {
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
     private List<ItemCategory> categories = new();
 
     private List<SegChartOfAccount> allAccounts = new();
@@ -356,6 +357,9 @@
     private bool isImporting = false;
     private Guid currentCompanyId;
     private string itemSearch = string.Empty;
+    private Guid? itemLineUomId;
+    private decimal itemLineFactor = 1m;
+    private Guid? editingItemLineId;
 
     private IEnumerable<Item> FilteredItems => items
         .Where(i => string.IsNullOrWhiteSpace(itemSearch)
@@ -363,7 +367,6 @@
                  || i.Name.Contains(itemSearch, StringComparison.OrdinalIgnoreCase)
                  || (i.UoM?.Contains(itemSearch, StringComparison.OrdinalIgnoreCase) ?? false)
                  || (i.PrimaryUom?.Name.Contains(itemSearch, StringComparison.OrdinalIgnoreCase) ?? false)
-                 || (i.AlternateUom?.Name.Contains(itemSearch, StringComparison.OrdinalIgnoreCase) ?? false)
                  || (categories.FirstOrDefault(c => c.Id == i.CategoryId)?.Name.Contains(itemSearch, StringComparison.OrdinalIgnoreCase) ?? false)
                  || i.CostingType.ToString().Contains(itemSearch, StringComparison.OrdinalIgnoreCase));
 
@@ -409,11 +412,12 @@
     private void CreateNew()
     {
         currentItem = new Item { CompanyId = currentCompanyId, CostingType = CostingMethod.WACC };
+        itemUomLines = new(); itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
         showForm = true;
         isEditing = false;
     }
 
-    private void Edit(Item i)
+    private async Task Edit(Item i)
     {
         currentItem = new Item
         {
@@ -426,8 +430,6 @@
             SellingPrice = i.SellingPrice,
             UoM = i.UoM,
             UomId = i.UomId ?? uoms.FirstOrDefault(u => u.Name.Equals(i.UoM, StringComparison.OrdinalIgnoreCase))?.Id,
-            AlternateUomId = i.AlternateUomId,
-            AlternateUomConversionFactor = i.AlternateUomConversionFactor <= 0 ? 1m : i.AlternateUomConversionFactor,
             ReorderLevel = i.ReorderLevel,
             CostingType = i.CostingType,
             WeightedAverageCost = i.WeightedAverageCost,
@@ -441,17 +443,16 @@
         };
         showForm = true;
         isEditing = true;
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(i.Id);
+        itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
     }
 
     private void OnPrimaryUomChanged(ChangeEventArgs e)
     {
+        var previousPrimaryId = currentItem.UomId;
         currentItem.UomId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
-        var primary = uoms.FirstOrDefault(x => x.Id == currentItem.UomId);
-        if (currentItem.AlternateUomId == null && primary?.ConversionUomId is Guid targetId)
-        {
-            currentItem.AlternateUomId = targetId;
-            currentItem.AlternateUomConversionFactor = primary.ConversionFactorValue > 0 ? primary.ConversionFactorValue : 1m;
-        }
+        if (previousPrimaryId != currentItem.UomId)
+            itemUomLines = new();
     }
 
     private void OnCategorySelected(ChangeEventArgs e)
@@ -478,8 +479,6 @@
                     currentItem.AdjustmentExpenseAccountId = Guid.Empty;
                     currentItem.UoM = "";
                     currentItem.UomId = null;
-                    currentItem.AlternateUomId = null;
-                    currentItem.AlternateUomConversionFactor = 1m;
                     currentItem.ReorderLevel = 0;
                 }
             }
@@ -521,6 +520,21 @@
         var err = await MasterService.SaveItemAsync(currentItem);
         if (string.IsNullOrEmpty(err))
         {
+            var persistedLines = currentItem.Id == Guid.Empty
+                ? new List<ItemUomConversionLine>()
+                : await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
+            foreach (var stale in persistedLines.Where(x => itemUomLines.All(line => line.Id != x.Id)))
+                await MasterService.DeleteItemUomConversionLineAsync(stale.Id);
+
+            // Persist inherited/edited item conversion lines after the item has
+            // an ID. Global UOM rules remain unchanged.
+            foreach (var line in itemUomLines)
+            {
+                line.ItemId = currentItem.Id;
+                await MasterService.SaveItemUomConversionLineAsync(line, currentCompanyId);
+            }
+            if (currentItem.Id != Guid.Empty)
+                itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
             showForm = false;
             items = await MasterService.GetItemsAsync(currentCompanyId);
         }
@@ -528,6 +542,35 @@
         {
             await JS.InvokeVoidAsync("alert", err);
         }
+    }
+
+    private async Task SaveItemUomLine()
+    {
+        if (currentItem.Id == Guid.Empty || !itemLineUomId.HasValue || itemLineFactor <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Select an additional UOM and enter a factor greater than zero.");
+            return;
+        }
+        var err = await MasterService.SaveItemUomConversionLineAsync(new ItemUomConversionLine
+        {
+            Id = editingItemLineId ?? Guid.NewGuid(), ItemId = currentItem.Id, UomId = itemLineUomId.Value,
+            ConversionFactorToBase = itemLineFactor
+        }, currentCompanyId);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
+        itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
+    }
+
+    private void EditItemUomLine(ItemUomConversionLine line)
+    {
+        editingItemLineId = line.Id; itemLineUomId = line.UomId; itemLineFactor = line.ConversionFactorToBase;
+    }
+
+    private async Task DeleteItemUomLine(ItemUomConversionLine line)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete this item UOM conversion?")) return;
+        await MasterService.DeleteItemUomConversionLineAsync(line.Id);
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
     }
 
     // --- CSV EXPORT LOGIC ---

@@ -24,7 +24,7 @@
     <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Budget Management</h1>
-            <p class="text-sm text-slate-500">Manage fiscal plans, period limits, and transfer configurations.</p>
+            <p class="text-sm text-slate-500">Manage fiscal plans and period limits.</p>
         </div>
 
         @if (!showForm)
@@ -149,7 +149,13 @@
                                         <table class="w-full text-sm min-w-[620px]">
                                             <thead>
                                                 <tr class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                                                    <th class="py-2 text-left font-bold">Period</th>
+                                                    <th class="py-2 text-left font-bold">
+                                                        <div>Period</div>
+                                                        <div class="flex gap-1 mt-2 normal-case tracking-normal">
+                                                            <button type="button" @onclick="() => ApplyBudgetToAllPeriods(line)" class="text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1 hover:bg-indigo-100 whitespace-nowrap">Apply budget to all</button>
+                                                            <button type="button" @onclick="() => ApplyForecastToAllPeriods(line)" class="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 hover:bg-amber-100 whitespace-nowrap">Apply forecast to all</button>
+                                                        </div>
+                                                    </th>
                                                     <th class="py-2 text-right font-bold">Budget Amount</th>
                                                     <th class="py-2 text-right font-bold">Forecast Amount</th>
                                                 </tr>
@@ -185,7 +191,9 @@
                     </div>
                 </div>
 
-                <div class="mt-8 border-t border-slate-100 pt-6 transition-all duration-300">
+                @* Reappropriation/transfer rules have been removed from the budget workflow. *@
+                @* The legacy transfer tables remain in the database for compatibility. *@
+                @* <div class="mt-8 border-t border-slate-100 pt-6 transition-all duration-300">
                     <div class="flex justify-between items-center mb-4 cursor-pointer group" @onclick="() => showTransferRules = !showTransferRules">
                         <div>
                             <h3 class="font-bold text-slate-800 flex items-center gap-2 group-hover:text-indigo-600 transition-colors">
@@ -268,7 +276,7 @@
                             }
                         </div>
                     }
-                </div>
+                </div> *@
 
                 <div class="flex justify-end gap-3 mt-8 pt-6 border-t border-slate-100">
                     <button @onclick="CancelEdit" class="px-5 py-2.5 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors">
@@ -313,7 +321,6 @@
                             <th class="px-6 py-4">Status</th>
                             <th class="px-6 py-4">Budget Name</th>
                             <th class="px-6 py-4 text-center">Accounts Configured</th>
-                            <th class="px-6 py-4 text-center">Transfer Rules</th>
                             <th class="px-6 py-4 text-right">Total Limit</th>
                             <th class="px-6 py-4 text-right">Actions</th>
                         </tr>
@@ -342,10 +349,6 @@
                                     <span class="bg-slate-100 px-2.5 py-1 rounded-lg">@(b.Lines?.Count ?? 0)</span>
                                 </td>
 
-                                <td class="px-6 py-4 text-center font-bold text-slate-500">
-                                    <span class="bg-slate-100 px-2.5 py-1 rounded-lg">@(b.TransferLines?.Count ?? 0)</span>
-                                </td>
-
                                 <td class="px-6 py-4 text-right font-mono font-bold text-slate-700">
                                     @(b.Lines != null && b.Lines.Any() ? b.Lines.Sum(l => l.LimitAmount).ToString("N4") : "0.00")
                                 </td>
@@ -367,7 +370,7 @@
                         }
                         @if (!existingBudgets.Any())
                         {
-                            <tr><td colspan="6" class="p-8 text-center text-slate-400 italic">No budget history found.</td></tr>
+                            <tr><td colspan="5" class="p-8 text-center text-slate-400 italic">No budget history found.</td></tr>
                         }
                     </tbody>
                 </table>
@@ -411,6 +414,7 @@
     private List<AccountingPeriod> openPeriods = new();
 
     private Guid currentCompanyId;
+    private string currentUserId = "system";
     private bool showForm = false;
     private bool isNewBudget = true; // Added flag to correctly track Create vs Edit status
     private bool showTransferRules = false;
@@ -418,6 +422,7 @@
     private bool isLoadingForm = false;
     private bool isSaving = false;
     private bool isImporting = false;
+    private string? originalBudgetSnapshot;
 
     protected override async Task OnInitializedAsync()
     {
@@ -426,6 +431,7 @@
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
         if (user?.CompanyDetailsId != null)
         {
+            currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -449,6 +455,67 @@
         existingBudgets = await BudgetService.GetAllBudgetsAsync(currentCompanyId);
     }
 
+    /// <summary>
+    /// Rehydrates the period grid for an existing budget. Period allocation rows are
+    /// persisted only when a line is saved, so a period that was left blank may not
+    /// have a database row. The editor must still show that period, otherwise an
+    /// edit/save cycle makes the budget appear to lose periods.
+    /// </summary>
+    private void EnsureAllBudgetPeriods()
+    {
+        if (openPeriods.Count == 0) return;
+
+        foreach (var line in budget.Lines ?? new List<BudgetLine>())
+        {
+            line.PeriodAllocations ??= new List<BudgetPeriodAllocation>();
+
+            foreach (var period in openPeriods)
+            {
+                var allocation = line.PeriodAllocations
+                    .FirstOrDefault(x => x.AccountingPeriodId == period.Id);
+
+                if (allocation == null)
+                {
+                    line.PeriodAllocations.Add(new BudgetPeriodAllocation
+                    {
+                        AccountingPeriodId = period.Id,
+                        PeriodName = period.PeriodName
+                    });
+                }
+                else
+                {
+                    allocation.PeriodName = period.PeriodName;
+                }
+            }
+        }
+
+        // Keep the legacy transfer structure consistent as well, even though its
+        // editing UI is currently hidden.
+        foreach (var line in budget.TransferLines ?? new List<BudgetTransferLine>())
+        {
+            line.PeriodAllocations ??= new List<BudgetTransferPeriodAllocation>();
+
+            foreach (var period in openPeriods)
+            {
+                var allocation = line.PeriodAllocations
+                    .FirstOrDefault(x => x.AccountingPeriodId == period.Id);
+
+                if (allocation == null)
+                {
+                    line.PeriodAllocations.Add(new BudgetTransferPeriodAllocation
+                    {
+                        AccountingPeriodId = period.Id,
+                        PeriodName = period.PeriodName
+                    });
+                }
+                else
+                {
+                    allocation.PeriodName = period.PeriodName;
+                }
+            }
+        }
+    }
+
     private void CreateNew()
     {
         isNewBudget = true;
@@ -462,10 +529,14 @@
         showForm = true;
         isLoadingForm = true;
 
-        var result = await BudgetService.GetBudgetByIdAsync(id);
+        var result = await BudgetService.GetBudgetByIdAsync(id, currentCompanyId);
         if (result != null)
         {
             budget = result;
+
+            // A blank period may have no persisted allocation row. Add those
+            // rows back before rendering so every edit shows the complete grid.
+            EnsureAllBudgetPeriods();
 
             if (budget.TransferLines != null && budget.TransferLines.Any()) showTransferRules = true;
             else showTransferRules = false;
@@ -497,6 +568,10 @@
                     }
                 }
             }
+
+            // Keep a normalized snapshot so clicking Save without changing
+            // anything does not rewrite the allocation rows.
+            originalBudgetSnapshot = SerializeBudgetSnapshot(budget);
         }
 
         isLoadingForm = false;
@@ -511,6 +586,7 @@
     private void ResetForm()
     {
         budget = new BudgetHeader { CompanyId = currentCompanyId };
+        originalBudgetSnapshot = null;
         budget.Lines = new List<BudgetLine>();
         budget.TransferLines = new List<BudgetTransferLine>();
         showTransferRules = false;
@@ -525,6 +601,37 @@
             newLine.PeriodAllocations.Add(new BudgetPeriodAllocation { AccountingPeriodId = p.Id, PeriodName = p.PeriodName });
         }
         budget.Lines.Add(newLine);
+    }
+
+    private void ApplyBudgetToAllPeriods(BudgetLine line)
+    {
+        EnsureAllBudgetPeriods();
+
+        var source = line.PeriodAllocations
+            .OrderBy(x => openPeriods.FirstOrDefault(p => p.Id == x.AccountingPeriodId)?.StartDate)
+            .FirstOrDefault();
+        if (source == null) return;
+
+        foreach (var allocation in line.PeriodAllocations)
+            allocation.Amount = source.Amount;
+    }
+
+    private void ApplyForecastToAllPeriods(BudgetLine line)
+    {
+        EnsureAllBudgetPeriods();
+
+        var source = line.PeriodAllocations
+            .OrderBy(x => openPeriods.FirstOrDefault(p => p.Id == x.AccountingPeriodId)?.StartDate)
+            .FirstOrDefault();
+        if (source == null) return;
+
+        foreach (var allocation in line.PeriodAllocations)
+            allocation.ForecastAmount = source.ForecastAmount;
+    }
+
+    private static string SerializeBudgetSnapshot(BudgetHeader value)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(value);
     }
 
     private void AddTransferLine()
@@ -767,7 +874,23 @@
         isSaving = true;
         try
         {
-            var err = await BudgetService.SaveBudgetAsync(budget);
+            // Normalize before persistence as well as before display. This keeps
+            // blank periods available after the next edit/save cycle.
+            EnsureAllBudgetPeriods();
+
+            // A no-op edit must not delete and recreate the budget's period rows.
+            // This protects the original values even if the browser submits no
+            // value for an untouched nullable number input.
+            if (!isNewBudget &&
+                !string.IsNullOrEmpty(originalBudgetSnapshot) &&
+                string.Equals(originalBudgetSnapshot, SerializeBudgetSnapshot(budget), StringComparison.Ordinal))
+            {
+                showForm = false;
+                await RefreshList();
+                return;
+            }
+
+            var err = await BudgetService.SaveBudgetAsync(budget, currentUserId);
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Budget Saved Successfully!");
@@ -792,7 +915,7 @@
         try
         {
             // Assuming your BudgetService has a standard Delete method
-            var err = await BudgetService.DeleteBudgetAsync(id);
+            var err = await BudgetService.DeleteBudgetAsync(id, currentCompanyId, currentUserId);
             if (string.IsNullOrEmpty(err))
             {
                 await RefreshList();

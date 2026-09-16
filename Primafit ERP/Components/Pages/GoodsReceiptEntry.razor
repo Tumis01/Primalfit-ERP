@@ -149,7 +149,7 @@
                                 <td class="p-4">
                                     @if (uomOptions.Count > 0)
                                     {
-                                        <select value="@(line.UomId?.ToString() ?? "")" @onchange="e => OnUomChanged(line, e, item)"
+                                        <select value="@(line.UomId?.ToString() ?? "")" @onfocus="RefreshUomCatalogAsync" @onchange="e => OnUomChanged(line, e, item)"
                                                 class="input-class text-xs font-bold" aria-label="Receipt unit of measure">
                                             @foreach (var option in uomOptions)
                                             {
@@ -468,6 +468,10 @@
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
@@ -509,13 +513,17 @@
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
             var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
             var t6 = SegCoaService.GetAccountTypesAsync();
+            var t7 = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
+            var t8 = MasterService.GetUomConversionRulesAsync(currentCompanyId);
 
-            await Task.WhenAll(t1, t2, t3, t4, t5, t6);
+            await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7, t8);
 
             vendors = t1.Result;
             warehouses = t2.Result;
             openPOs = t3.Result;
             items = t4.Result;
+            itemUomLines = t7.Result;
+            conversionRules = t8.Result;
 
             await using (var uomCtx = await DbFactory.CreateDbContextAsync())
             {
@@ -565,6 +573,9 @@
     {
         if (Guid.TryParse(e.Value?.ToString(), out Guid parsedId))
         {
+            // The item setup screen may have changed UOMs/conversions while this
+            // page was open. Refresh the catalog before building GRN lines.
+            await RefreshUomCatalogAsync();
             selectedPO = openPOs.FirstOrDefault(p => p.Id == parsedId);
             if (selectedPO != null)
             {
@@ -620,7 +631,7 @@
                             UomName = string.IsNullOrWhiteSpace(line.UomName) ? (itemForLine?.PrimaryUom?.Name ?? itemForLine?.UoM ?? "base") : line.UomName,
                             UomConversionFactor = line.UomId.HasValue
                                 ? UomConversion.NormalizeFactor(line.UomConversionFactor)
-                                : (itemForLine?.AlternateUomId.HasValue == true ? UomConversion.NormalizeFactor(itemForLine.AlternateUomConversionFactor) : 1m),
+                                : 1m,
                             QuantityReceived = remainingToReceive,
                             MaxAllowed = remainingToReceive
                         });
@@ -628,6 +639,25 @@
                 }
             }
         }
+    }
+
+    private async Task RefreshUomCatalogAsync()
+    {
+        var itemsTask = MasterService.GetItemsAsync(currentCompanyId);
+        var itemUomLinesTask = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
+        var conversionRulesTask = MasterService.GetUomConversionRulesAsync(currentCompanyId);
+
+        await using var uomCtx = await DbFactory.CreateDbContextAsync();
+        var uomsTask = uomCtx.UnitOfMeasures.AsNoTracking()
+            .Where(u => u.CompanyId == currentCompanyId)
+            .OrderBy(u => u.Name)
+            .ToListAsync();
+
+        await Task.WhenAll(itemsTask, itemUomLinesTask, conversionRulesTask, uomsTask);
+        items = itemsTask.Result;
+        itemUomLines = itemUomLinesTask.Result;
+        conversionRules = conversionRulesTask.Result;
+        uoms = uomsTask.Result;
     }
 
     private decimal GetLineFactor(GoodsReceiptLine line) => UomConversion.NormalizeFactor(line.UomConversionFactor);
@@ -643,12 +673,27 @@
 
         if (item.UomId.HasValue)
             yield return new UomOption(item.UomId.Value, uoms.FirstOrDefault(u => u.Id == item.UomId.Value)?.Name ?? item.UoM,
-                UomConversion.NormalizeFactor(item.AlternateUomConversionFactor));
+                1m);
 
-        if (item.AlternateUomId.HasValue && item.AlternateUomId != item.UomId)
-            yield return new UomOption(item.AlternateUomId.Value, uoms.FirstOrDefault(u => u.Id == item.AlternateUomId.Value)?.Name ?? "base", 1m);
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+        {
+            var name = conversion.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == conversion.UomId)?.Name ?? "UOM";
+                yield return new UomOption(conversion.UomId, name, 1m / UomConversion.NormalizeFactor(conversion.ConversionFactorToBase));
+        }
 
-        if (line.UomId.HasValue && line.UomId != item.UomId && line.UomId != item.AlternateUomId)
+        if (item.UomId.HasValue)
+        {
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
+                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            {
+                if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
+                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap);
+                if (factor.HasValue)
+                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+            }
+        }
+
+        if (line.UomId.HasValue && !itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == line.UomId) && line.UomId != item.UomId)
             yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
     }
 

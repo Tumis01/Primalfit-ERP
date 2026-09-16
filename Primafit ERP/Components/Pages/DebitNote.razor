@@ -398,11 +398,11 @@
                                             <td class="px-4 py-3 text-center font-mono text-slate-600">@((line.UomConversionFactor > 0 ? line.OriginalPurchasedQty / line.UomConversionFactor : line.OriginalPurchasedQty).ToString("N2"))</td>
                                             <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@((line.UomConversionFactor > 0 ? line.MaxReturnableQty / line.UomConversionFactor : line.MaxReturnableQty).ToString("N2"))</td>
                                             <td class="px-4 py-3 text-right font-mono text-slate-500">
-                                                @line.UnitCost.ToString("N4")
+                                                @GetDisplayedUnitCost(line).ToString("N4")
                                                 @if (currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m)
                                                 {
                                                     <div class="text-[10px] text-slate-400 font-semibold">
-                                                        (@((line.UnitCost * currentDebitNote.ExchangeRate).ToString("N4")) @companyBaseCurrency)
+                                                        (@((GetDisplayedUnitCost(line) * currentDebitNote.ExchangeRate).ToString("N4")) @companyBaseCurrency)
                                                     </div>
                                                 }
                                             </td>
@@ -896,6 +896,11 @@
             line.Quantity = 0;
         }
     }
+
+    // Debit-note quantities and stored costs remain normalized to the
+    // primary UOM. Display the cost in the invoice line's transaction UOM.
+    private decimal GetDisplayedUnitCost(DebitNoteLineModel line) =>
+        line.UnitCost * (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m);
 
     private async Task SaveDraftWorkspace()
     {

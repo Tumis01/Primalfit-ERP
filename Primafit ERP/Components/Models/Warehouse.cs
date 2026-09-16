@@ -35,6 +35,15 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
 
+        // Quantity is stored in the item's primary UOM. These fields preserve
+        // the UOM used by the transfer transaction.
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal QuantityInUom { get; set; }
+
         [Column(TypeName = "decimal(18,4)")]
         public decimal? QuantityReceived {get; set; }
 

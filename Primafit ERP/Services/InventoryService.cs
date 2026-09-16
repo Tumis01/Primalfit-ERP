@@ -133,6 +133,11 @@ namespace Primafit_ERP.Services
 
             var (stockGlError, stockBatchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
             if (!string.IsNullOrWhiteSpace(stockGlError)) return $"GL staging failed: {stockGlError}";
+            if (stockBatchId.HasValue)
+            {
+                var postError = await _glOps.PostBatchAsync(companyId, stockBatchId.Value, userId);
+                if (!string.IsNullOrWhiteSpace(postError)) return $"GL posting failed: {postError}";
+            }
             ledgerEntry.GLBatchId = stockBatchId;
 
             // 6. Save Everything
@@ -178,7 +183,7 @@ namespace Primafit_ERP.Services
         }
 
         // 3. SHIP TRANSFER (Auto-Posting to GL)
-        public async Task<string> ShipTransferAsync(Guid companyId, Guid itemId, Guid fromWhId, Guid toWhId, decimal qty, Guid transitAccountId, string note, string userId)
+        public async Task<string> ShipTransferAsync(Guid companyId, Guid itemId, Guid fromWhId, Guid toWhId, decimal qtyInUom, Guid transitAccountId, string note, string userId, Guid? uomId = null, string? uomName = null, decimal uomConversionFactor = 1m)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync(); // Added Transaction Safety
@@ -188,8 +193,31 @@ namespace Primafit_ERP.Services
                 var item = await ctx.Items.FindAsync(itemId);
                 if (item == null) return "Item not found.";
 
+                var itemUomFactors = await ctx.ItemUomConversionLines
+                    .Where(x => x.ItemId == itemId && x.IsActive)
+                    .ToDictionaryAsync(x => x.UomId, x => x.ConversionFactorToBase);
+                var conversionMap = await ctx.UomConversionRules
+                    .Where(x => x.CompanyId == companyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+
+                if (uomId.HasValue && uomId != item.UomId
+                    && !itemUomFactors.ContainsKey(uomId.Value)
+                    && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, uomId.Value, conversionMap).HasValue))
+                    return "The selected UOM is not configured for this item.";
+
+                decimal expectedFactor = UomConversion.FactorFor(item, uomId, itemUomFactors, conversionMap);
+                if (uomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(uomConversionFactor) - expectedFactor) > 0.0001m)
+                    return "The selected UOM conversion is invalid or outdated. Reload the item and try again.";
+
+                decimal qty = UomConversion.ToBase(qtyInUom, expectedFactor);
+                if (qty <= 0) return "Transfer quantity must be greater than zero.";
+
                 decimal available = await GetStockLevel(itemId, fromWhId);
-                if (available < qty) return $"Insufficient stock. Available: {available}";
+                if (available < qty) return $"Insufficient stock. Available: {available} {item.UoM}";
+
+                string resolvedUomName = string.IsNullOrWhiteSpace(uomName)
+                    ? (uomId == item.UomId ? item.UoM : "UOM")
+                    : uomName.Trim();
 
                 var transfer = new StockTransfer
                 {
@@ -198,6 +226,10 @@ namespace Primafit_ERP.Services
                     FromWarehouseId = fromWhId,
                     ToWarehouseId = toWhId,
                     Quantity = qty,
+                    UomId = uomId ?? item.UomId,
+                    UomName = resolvedUomName,
+                    UomConversionFactor = expectedFactor,
+                    QuantityInUom = qtyInUom,
                     Status = TransferStatus.InTransit,
                     DateShipped = DateTime.UtcNow,
                     TransitGLAccountId = transitAccountId,
@@ -212,6 +244,10 @@ namespace Primafit_ERP.Services
                     ItemId = itemId,
                     WarehouseId = fromWhId,
                     QuantityChanged = -qty,
+                    UomId = transfer.UomId,
+                    UomName = transfer.UomName,
+                    UomConversionFactor = transfer.UomConversionFactor,
+                    QuantityInUom = -transfer.QuantityInUom,
                     Type = StockMovementType.TransferOut,
                     CostAtTime = item.WeightedAverageCost,
                     Reference = $"SHIP: {note}"
@@ -257,23 +293,40 @@ namespace Primafit_ERP.Services
                 var transfer = await ctx.StockTransfers.Include(t => t.Item).FirstOrDefaultAsync(t => t.Id == transferId);
                 if (transfer == null) return "Transfer not found.";
 
+                if (transfer.Status != TransferStatus.InTransit) return "This transfer has already been received or cancelled.";
+                if (actualQtyReceived <= 0) return "Receipt quantity must be greater than zero.";
+
+                decimal transactionQty = transfer.QuantityInUom > 0 ? transfer.QuantityInUom : transfer.Quantity;
+                if (actualQtyReceived > transactionQty)
+                    return $"Cannot receive more than shipped ({transactionQty:N4} {transfer.UomName}).";
+
+                decimal transferFactor = UomConversion.NormalizeFactor(transfer.UomConversionFactor);
+                decimal actualBaseQty = UomConversion.ToBase(actualQtyReceived, transferFactor);
+
                 transfer.Status = TransferStatus.Received;
                 transfer.DateReceived = DateTime.UtcNow;
-                transfer.QuantityReceived = actualQtyReceived;
+                transfer.QuantityReceived = actualBaseQty;
 
                 ctx.StockLedgers.Add(new StockLedger
                 {
                     CompanyId = transfer.CompanyId,
                     ItemId = transfer.ItemId,
                     WarehouseId = transfer.ToWarehouseId,
-                    QuantityChanged = actualQtyReceived,
+                    QuantityChanged = actualBaseQty,
+                    UomId = transfer.UomId,
+                    UomName = transfer.UomName,
+                    UomConversionFactor = transferFactor,
+                    QuantityInUom = actualQtyReceived,
                     Type = StockMovementType.TransferIn,
-                    CostAtTime = transfer.Item.WeightedAverageCost,
+                    CostAtTime = transfer.Quantity > 0 ? transfer.ValueAtShipment / transfer.Quantity : transfer.Item.WeightedAverageCost,
                     Reference = $"RECV: {transfer.Reference}"
                 });
 
                 decimal totalShippedValue = transfer.ValueAtShipment;
-                decimal receivedValue = actualQtyReceived * transfer.Item.WeightedAverageCost;
+                decimal shipmentUnitCost = transfer.Quantity > 0
+                    ? transfer.ValueAtShipment / transfer.Quantity
+                    : transfer.Item.WeightedAverageCost;
+                decimal receivedValue = actualBaseQty * shipmentUnitCost;
                 decimal lostValue = totalShippedValue - receivedValue;
 
                 var glLines = new List<GLJournalLine>
