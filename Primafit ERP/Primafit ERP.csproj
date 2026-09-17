@@ -8,6 +8,15 @@
     <AssemblyName>$(AssemblyName.Replace(' ', '_'))</AssemblyName>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
 	  <NoWarn>$(NoWarn);NU1903</NoWarn>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <!-- Plesk hosts this application on Windows/IIS. Publish Release as a
+       self-contained package so the server does not need to provide the
+       exact .NET runtime assemblies used by the application. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
