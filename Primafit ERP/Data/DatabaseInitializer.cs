@@ -28,18 +28,14 @@ public static class DatabaseInitializer
         """;
 
     public static async Task InitializeAsync(
-        AppDbContext context,
-        RoleManager<ApplicationRole> roleManager,
-        CancellationToken cancellationToken = default)
+    AppDbContext context,
+    RoleManager<ApplicationRole> roleManager,
+    CancellationToken cancellationToken = default)
     {
         var existingSchema = await FindApplicationSchemaAsync(context, cancellationToken);
 
         if (existingSchema is null)
         {
-            // The database was created by the hosting provider but contains
-            // no ERP tables. EnsureCreated builds the current model directly,
-            // so old, historically inconsistent migrations cannot break a
-            // brand-new deployment.
             var defaultSchema = await GetDefaultSchemaAsync(context, cancellationToken);
             await RemoveOrphanedHistoryTableAsync(context, defaultSchema, cancellationToken);
             await context.Database.EnsureCreatedAsync(cancellationToken);
@@ -47,29 +43,65 @@ public static class DatabaseInitializer
         }
         else
         {
-            // Existing databases retain their data and are upgraded normally.
-            // A previous failed bootstrap can leave the tables in place while
-            // the migration history is empty. Never replay migration zero in
-            // that situation because it attempts to recreate identity tables.
-            if (!await HasMigrationHistoryAsync(context, existingSchema, cancellationToken))
-            {
-                if (!await HasCompleteCurrentSchemaAsync(context, existingSchema, cancellationToken))
-                {
-                    throw new InvalidOperationException(
-                        $"ERP tables were found in schema '{existingSchema}', but the schema is incomplete and has no usable migration history. " +
-                        "Restore the database backup or repair the migration history before starting the application.");
-                }
+            var defaultSchema = await GetDefaultSchemaAsync(context, cancellationToken);
 
-                var defaultSchema = await GetDefaultSchemaAsync(context, cancellationToken);
-                await MarkCurrentModelAsBaselineAsync(context, defaultSchema, cancellationToken);
-            }
-            else
-            {
-                await context.Database.MigrateAsync(cancellationToken);
-            }
+            // Synchronize legacy migrations if their columns/tables already exist
+            await SyncExistingSchemaMigrationsAsync(context, existingSchema, defaultSchema, cancellationToken);
+
+            // Now run any genuinely new migrations safely
+            await context.Database.MigrateAsync(cancellationToken);
         }
 
         await Primafit_ERP.Data.Seed.RbacSeeder.SeedAsync(context, roleManager);
+    }
+    private static async Task SyncExistingSchemaMigrationsAsync(
+    AppDbContext context,
+    string existingSchema,
+    string defaultSchema,
+    CancellationToken cancellationToken)
+    {
+        var connection = context.Database.GetDbConnection();
+        var wasClosed = connection.State == System.Data.ConnectionState.Closed;
+        if (wasClosed) await connection.OpenAsync(cancellationToken);
+
+        try
+        {
+            // 1. Check if the CurrencyId column already exists on PurchaseOrders
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+            SELECT COUNT(*) 
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_SCHEMA = @schema 
+              AND TABLE_NAME = 'PurchaseOrders' 
+              AND COLUMN_NAME = 'CurrencyId';
+            """;
+            var param = cmd.CreateParameter();
+            param.ParameterName = "@schema";
+            param.Value = existingSchema;
+            cmd.Parameters.Add(param);
+
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken));
+
+            // 2. If CurrencyId already exists, mark initial migrations so EF Core skips them
+            if (count > 0)
+            {
+                var initialMigrations = new[]
+                {
+                "20260207180643_InitialSetu",
+                "20260207185754_Initial",
+                "20260207201304_exchange"
+            };
+
+                foreach (var mig in initialMigrations)
+                {
+                    await EnsureMigrationMarkedAsync(context, defaultSchema, mig, cancellationToken);
+                }
+            }
+        }
+        finally
+        {
+            if (wasClosed) await connection.CloseAsync();
+        }
     }
 
     private static async Task<string?> FindApplicationSchemaAsync(
@@ -252,5 +284,88 @@ public static class DatabaseInitializer
             "DECLARE @schema sysname = {0}; DECLARE @history nvarchar(517) = QUOTENAME(@schema) + N'.[__EFMigrationsHistory]'; DECLARE @sql nvarchar(max); IF OBJECT_ID(@history, N'U') IS NOT NULL BEGIN SET @sql = N'DROP TABLE ' + @history; EXEC sp_executesql @sql; END;",
             [schema],
             cancellationToken);
+    }
+    private static async Task EnsureMigrationMarkedAsync(
+    AppDbContext context,
+    string schema,
+    string migrationId,
+    CancellationToken cancellationToken)
+    {
+        const string sql = """
+        DECLARE @schema sysname = {1};
+        DECLARE @history nvarchar(517) = QUOTENAME(@schema) + N'.[__EFMigrationsHistory]';
+        DECLARE @sql nvarchar(max);
+        
+        IF OBJECT_ID(@history, N'U') IS NULL
+        BEGIN
+            SET @sql = N'CREATE TABLE ' + @history + N'
+            (
+                [MigrationId] nvarchar(150) NOT NULL,
+                [ProductVersion] nvarchar(32) NOT NULL,
+                CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+            )';
+            EXEC sp_executesql @sql;
+        END;
+
+        SET @sql = N'IF NOT EXISTS (SELECT 1 FROM ' + @history + N' WHERE [MigrationId] = @migId)
+                    INSERT INTO ' + @history + N' ([MigrationId], [ProductVersion]) VALUES (@migId, @prodVer)';
+        EXEC sp_executesql @sql,
+            N'@migId nvarchar(150), @prodVer nvarchar(32)',
+            @migId = {0}, @prodVer = N'8.0.0';
+        """;
+
+        await context.Database.ExecuteSqlRawAsync(sql, [migrationId, schema], cancellationToken);
+    }
+    private static async Task MarkAllMigrationsAsAppliedAsync(
+    AppDbContext context,
+    string schema,
+    CancellationToken cancellationToken)
+    {
+        var migrations = context.Database.GetMigrations().ToList();
+        if (migrations.Count == 0) return;
+
+        var productVersion = typeof(DbContext).Assembly.GetName().Version?.ToString(3) ?? "8.0.0";
+
+        const string tableCheckSql = @"
+        DECLARE @schema sysname = @schemaName;
+        DECLARE @history nvarchar(517) = QUOTENAME(@schema) + N'.[__EFMigrationsHistory]';
+        DECLARE @sql nvarchar(max);
+        IF OBJECT_ID(@history, N'U') IS NULL
+        BEGIN
+            SET @sql = N'CREATE TABLE ' + @history + N'
+            (
+                [MigrationId] nvarchar(150) NOT NULL,
+                [ProductVersion] nvarchar(32) NOT NULL,
+                CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+            )';
+            EXEC sp_executesql @sql;
+        END;";
+
+        await context.Database.ExecuteSqlRawAsync(
+            tableCheckSql,
+            [new Microsoft.Data.SqlClient.SqlParameter("@schemaName", schema)],
+            cancellationToken);
+
+        const string insertSql = @"
+        DECLARE @schema sysname = @schemaName;
+        DECLARE @history nvarchar(517) = QUOTENAME(@schema) + N'.[__EFMigrationsHistory]';
+        DECLARE @sql nvarchar(max) = N'IF NOT EXISTS (SELECT 1 FROM ' + @history + N' WHERE [MigrationId] = @migId)
+                                     INSERT INTO ' + @history + N' ([MigrationId], [ProductVersion]) VALUES (@migId, @prodVer)';
+        EXEC sp_executesql @sql, 
+            N'@migId nvarchar(150), @prodVer nvarchar(32)', 
+            @migId = @migrationId, 
+            @prodVer = @version;";
+
+        foreach (var migration in migrations)
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                insertSql,
+                [
+                    new Microsoft.Data.SqlClient.SqlParameter("@migrationId", migration),
+                new Microsoft.Data.SqlClient.SqlParameter("@schemaName", schema),
+                new Microsoft.Data.SqlClient.SqlParameter("@version", productVersion)
+                ],
+                cancellationToken);
+        }
     }
 }
