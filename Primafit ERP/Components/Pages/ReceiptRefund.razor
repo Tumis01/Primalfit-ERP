@@ -1,4 +1,4 @@
-﻿@page "/sales/receipt-refunds/entry/{Id:guid?}"
+@page "/sales/receipt-refunds/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -8,6 +8,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject ReceiptRefundService RefundService
+@inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject TransactionMappingService MappingService
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -36,6 +37,9 @@
                     <span class="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border-indigo-200">
                         @currentRefund.RefundType.ToString()
                     </span>
+                    <span class="inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider @(IsPosted ? "bg-emerald-50 text-emerald-700 border-emerald-200" : (IsRejected ? "bg-rose-50 text-rose-700 border-rose-200" : "bg-amber-50 text-amber-700 border-amber-200"))">
+                        @(IsPosted ? "Posted" : (IsRejected ? "Returned for Correction" : "Pending GL Review"))
+                    </span>
                 }
             </div>
         </div>
@@ -43,15 +47,18 @@
         <div class="flex items-center justify-end gap-3 flex-wrap">
             @if (!IsNew)
             {
-                <!-- Configure Route Button -->
-                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    <span>Configure Route</span>
-                    @if (currentRefund.CustomTransactionTypeId.HasValue)
-                    {
-                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                    }
-                </button>
+                @if (canConfigureRoute)
+                {
+                    <!-- Configure Route Button -->
+                    <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>Configure Route</span>
+                        @if (currentRefund.CustomTransactionTypeId.HasValue)
+                        {
+                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                        }
+                    </button>
+                }
 
                 <button type="button" @onclick="ResetToDashboard" class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-600 font-bold hover:bg-slate-50 transition-all shadow-sm">
                     Cancel &amp; Exit
@@ -71,11 +78,18 @@
                     {
                         <span class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
                     }
-                    <span>Post Voucher to Ledger</span>
+                    <span>Submit Voucher for GL Review</span>
                 </button>
             }
         </div>
     </div>
+
+    @if (IsRejected && !string.IsNullOrWhiteSpace(currentBatchRejectionReason))
+    {
+        <div class="p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
+            <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @currentBatchRejectionReason
+        </div>
+    }
 
     @if (IsNew)
     {
@@ -117,19 +131,30 @@
                             <tbody class="divide-y divide-slate-100">
                                 @foreach (var rfd in PagedRefunds)
                                 {
+                                    var batchStatus = GetBatchStatus(rfd.GlBatchId, rfd.Status == ReceiptRefundStatus.Posted);
+                                    bool isRejected = batchStatus == BatchStatus.Rejected;
+                                    bool isPosted = batchStatus == BatchStatus.Posted;
                                     <tr class="hover:bg-slate-50/80 transition-all align-middle">
                                         <td class="p-4 font-mono font-bold text-indigo-700">@rfd.RefundNumber</td>
-                                        <td class="p-4 font-mono text-slate-600 text-xs">@rfd.Date.ToString("dd MMM, yyyy")</td>
+                                        <td class="p-4 font-mono text-slate-600 text-xs">@rfd.TransactionDateTime.ToString("dd MMM, yyyy HH:mm")</td>
                                         <td class="p-4 font-mono font-bold text-slate-700">@(rfd.SalesOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="p-4 font-medium text-slate-900">@(rfd.Customer?.Name ?? "Unknown")</td>
                                         <td class="p-4 text-xs font-bold text-slate-500">
                                             <span class="px-2 py-0.5 bg-slate-100 rounded border border-slate-200">@rfd.RefundType.ToString()</span>
                                         </td>
-                                        <td class="p-4 text-right font-mono font-black text-rose-600">@rfd.TotalAmount.ToString("N2")</td>
+                                        <td class="p-4 text-right font-mono font-black text-rose-600">@rfd.TotalAmount.ToString("N4")</td>
                                         <td class="p-4 text-center">
-                                            @if (rfd.Status == ReceiptRefundStatus.Posted)
+                                            @if (isPosted)
                                             {
                                                 <span class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Posted</span>
+                                            }
+                                            else if (isRejected)
+                                            {
+                                                <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider animate-pulse">Rejected - Edit Required</span>
+                                            }
+                                            else if (batchStatus == BatchStatus.Ready)
+                                            {
+                                                <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Pending GL Review</span>
                                             }
                                             else
                                             {
@@ -138,7 +163,7 @@
                                         </td>
                                         <td class="p-4 text-center">
                                             <button @onclick="() => LoadExistingRefund(rfd.Id)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
-                                                @(rfd.Status == ReceiptRefundStatus.Posted ? "View" : "Edit")
+                                                @(isRejected ? "Edit & Resubmit" : (isPosted ? "View" : "Edit"))
                                             </button>
                                         </td>
                                     </tr>
@@ -225,7 +250,7 @@
                                     @foreach (var inv in FilteredInvoices)
                                     {
                                         <div @onclick="() => SelectInvoice(inv)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900 rounded-lg transition-colors cursor-pointer">
-                                            @inv.OrderNumber (Dated: @inv.Date.ToString("yyyy-MM-dd"))
+                                            @inv.OrderNumber (Dated: @inv.TransactionDateTime.ToString("yyyy-MM-dd HH:mm"))
                                         </div>
                                     }
                                     @if (!FilteredInvoices.Any())
@@ -277,7 +302,7 @@
 
                     <div>
                         <label class="label">Adjustment Posting Date</label>
-                        <input type="date" value="@currentRefund.Date.ToString("yyyy-MM-dd")" @onchange="OnDateChanged" class="input-class font-bold" disabled="@IsPosted" />
+                        <input type="datetime-local" value="@currentRefund.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="OnDateChanged" class="input-class font-bold" disabled="@IsPosted" />
                     </div>
 
                     <div>
@@ -346,7 +371,8 @@
                             <table class="w-full text-left text-sm whitespace-nowrap min-w-[640px]">
                                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th class="p-4 pl-6 w-[35%]">Item Name</th>
+                                        <th class="p-4 pl-6 w-[28%]">Item Name</th>
+                                        <th class="p-4 text-center">UOM</th>
                                         <th class="p-4 text-center">Unit Price</th>
                                         <th class="p-4 text-center bg-amber-50/40 text-amber-700">Total Shipped</th>
                                         <th class="p-4 text-center bg-rose-50/40 text-rose-700">Max Returnable</th>
@@ -363,33 +389,42 @@
                                                 <div class="font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Item")</div>
                                                 <div class="text-[10px] text-slate-400 font-mono mt-0.5">@(line.Item?.SKU ?? "")</div>
                                             </td>
-                                            <td class="p-4 text-center font-mono text-slate-500 text-xs">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="p-4 text-center">
+                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class py-1.5 text-xs font-semibold">
+                                                    @foreach (var uom in GetItemUoms(line.Item))
+                                                    {
+                                                        <option value="@uom.Id">@GetUomOptionLabel(line.Item, uom)</option>
+                                                    }
+                                                </select>
+                                                <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                            </td>
+                                            <td class="p-4 text-center font-mono text-slate-500 text-xs">@GetDisplayedUnitPrice(line).ToString("N4")</td>
                                             <td class="p-4 text-center bg-amber-50/30">
                                                 <span class="inline-block px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg font-mono font-bold text-amber-700 text-sm">
-                                                    @line.OriginalShippedQty.ToString("G29")
+                                                     @GetDisplayedQuantity(line.OriginalShippedQty, line).ToString("N2")
                                                 </span>
                                             </td>
                                             <td class="p-4 text-center bg-rose-50/20">
                                                 <div class="inline-flex flex-col items-center">
                                                     <span class="inline-block px-2.5 py-1 bg-rose-50 border border-rose-200 rounded-lg font-mono font-bold text-rose-700 text-sm">
-                                                        @line.MaxAdjustableQty.ToString("G29")
+                                                         @GetDisplayedQuantity(line.MaxAdjustableQty, line).ToString("N2")
                                                     </span>
                                                     @if (line.PreviouslyReturnedQty > 0)
                                                     {
-                                                        <span class="text-[9px] text-slate-400 mt-1 font-mono">@line.PreviouslyReturnedQty prev. returned</span>
+                                                         <span class="text-[9px] text-slate-400 mt-1 font-mono">@GetDisplayedQuantity(line.PreviouslyReturnedQty, line).ToString("N2") prev. returned</span>
                                                     }
                                                 </div>
                                             </td>
                                             <td class="p-4">
-                                                <input type="number" step="0.01" min="0" max="@line.MaxAdjustableQty"
-                                                       value="@line.Quantity"
+                                                <input type="number"   min="0" max="@line.MaxAdjustableQty"
+                                                        value="@GetDisplayedQuantity(line.Quantity, line).ToString("N2")"
                                                        @oninput="@(e => ValidateLineQuantity(line, e.Value?.ToString()))"
                                                        disabled="@IsPosted"
-                                                       class="w-full text-center font-mono font-black border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 transition-all text-sm
+                                                        class="w-full text-center font-mono font-black border rounded-lg px-2 py-1.5 appearance-none focus:outline-none focus:ring-2 transition-all text-sm
                                                 @(atMax ? "border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500 focus:ring-rose-100" : "border-slate-200 bg-white text-slate-800 focus:border-indigo-500 focus:ring-indigo-100")" />
                                             </td>
                                             <td class="p-4 pr-6 text-right font-mono font-black text-slate-700">
-                                                @((line.Quantity * line.UnitPrice).ToString("N2"))
+                                                @((line.Quantity * line.UnitPrice).ToString("N4"))
                                             </td>
                                         </tr>
                                     }
@@ -405,7 +440,7 @@
                             </div>
                             <div class="text-right">
                                 <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Gross Stock Return Value</div>
-                                <div class="text-2xl font-mono font-black text-slate-900">@currencyCode @currentRefund.Lines.Sum(l => l.Quantity * l.UnitPrice).ToString("N2")</div>
+                                <div class="text-2xl font-mono font-black text-slate-900">@currencyCode @currentRefund.Lines.Sum(l => l.Quantity * l.UnitPrice).ToString("N4")</div>
                             </div>
                         </div>
                     </div>
@@ -431,17 +466,17 @@
                         <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 border-b border-slate-100">
                             <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-1.5">
                                 <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Amount Paid by Customer</span>
-                                <div class="text-xl font-black font-mono text-slate-800">@currencyCode @cashSummary.TotalPaid.ToString("N2")</div>
+                                <div class="text-xl font-black font-mono text-slate-800">@currencyCode @cashSummary.TotalPaid.ToString("N4")</div>
                             </div>
 
                             <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 space-y-1.5">
                                 <span class="text-[10px] font-extrabold text-rose-500 uppercase tracking-wider block">Prior Refunds Issued</span>
-                                <div class="text-xl font-black font-mono text-rose-700">@currencyCode @cashSummary.PriorCashRefunded.ToString("N2")</div>
+                                <div class="text-xl font-black font-mono text-rose-700">@currencyCode @cashSummary.PriorCashRefunded.ToString("N4")</div>
                             </div>
 
                             <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1.5">
                                 <span class="text-[10px] font-extrabold text-emerald-600 uppercase tracking-wider block">Maximum Refundable</span>
-                                <div class="text-xl font-black font-mono text-emerald-700">@currencyCode @cashSummary.MaxRefundable.ToString("N2")</div>
+                                <div class="text-xl font-black font-mono text-emerald-700">@currencyCode @cashSummary.MaxRefundable.ToString("N4")</div>
                             </div>
                         </div>
 
@@ -453,7 +488,7 @@
                                     </label>
                                     <div class="relative">
                                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">@currencyCode</span>
-                                        <input type="number" step="0.01" min="0" max="@cashSummary.MaxRefundable"
+                                        <input type="number"   min="0" max="@cashSummary.MaxRefundable"
                                                value="@currentRefund.TotalAmount"
                                                @oninput="OnCashRefundAmountChanged"
                                                disabled="@IsPosted"
@@ -464,7 +499,7 @@
                                     @if (currentRefund.TotalAmount > cashSummary.MaxRefundable && cashSummary.MaxRefundable > 0)
                                     {
                                         <div class="mt-2 flex items-center gap-1.5 text-xs text-rose-600 font-bold">
-                                            Amount exceeds the refundable ceiling of @currencyCode @cashSummary.MaxRefundable.ToString("N2"). Posting will be blocked.
+                                            Amount exceeds the refundable ceiling of @currencyCode @cashSummary.MaxRefundable.ToString("N4"). Posting will be blocked.
                                         </div>
                                     }
                                 </div>
@@ -716,12 +751,30 @@
     private string selectedCustomerName = "-- Click to Search Customer Directory --";
     private string selectedInvoiceNumberDisplay = "-- Choose Eligible Source Invoice --";
     private string currencyCode = "Base";
+    private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
 
     private bool isBusy = false;
     private string _errMsg = string.Empty;
 
     private bool IsNew => Id == null;
-    private bool IsPosted => currentRefund.Status == ReceiptRefundStatus.Posted;
+    private BatchStatus? currentBatchStatus;
+    private string? currentBatchRejectionReason;
+    private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private bool IsRejected => currentBatchStatus == BatchStatus.Rejected;
+    private bool IsPosted => currentRefund.Status == ReceiptRefundStatus.Posted
+        && currentBatchStatus != BatchStatus.Ready
+        && currentBatchStatus != BatchStatus.Rejected
+        && currentBatchStatus != BatchStatus.Draft;
+
+    private BatchStatus GetBatchStatus(Guid? batchId, bool legacyPosted) =>
+        batchId.HasValue && batchStatuses.TryGetValue(batchId.Value, out var status)
+            ? status
+            : (legacyPosted ? BatchStatus.Posted : BatchStatus.Draft);
+    private bool canConfigureRoute = false;
 
     private CashRefundSummaryDto cashSummary = new();
 
@@ -761,6 +814,20 @@
             if (record != null)
             {
                 currentRefund = record;
+                foreach (var line in currentRefund.Lines)
+                {
+                    var item = line.Item;
+                    if (item == null) continue;
+                    line.UomId ??= item.UomId;
+                    if (string.IsNullOrWhiteSpace(line.UomName)) line.UomName = uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.UoM;
+                    if (line.UomConversionFactor <= 0) line.UomConversionFactor = GetItemFactor(item, line.UomId);
+                }
+                await using var ctx = await DbFactory.CreateDbContextAsync();
+                var batch = record.GlBatchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == record.GlBatchId.Value && b.CompanyId == record.CompanyId)
+                    : null;
+                currentBatchStatus = batch?.Status;
+                currentBatchRejectionReason = batch?.RejectionReason;
                 currencyCode = record.Currency?.CurrencyCode ?? "Base";
 
                 var customer = customers.FirstOrDefault(c => c.Id == currentRefund.CustomerId);
@@ -790,8 +857,12 @@
         currentUserId = user.Id;
         Guid companyId = user.CompanyDetailsId.Value;
 
+        canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(companyId);
         warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
         customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
+        uoms = await MasterService.GetUnitOfMeasuresAsync(companyId);
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(companyId, true);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(companyId);
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(companyId);
@@ -816,6 +887,9 @@
             .Include(r => r.SalesOrder)
             .Where(r => r.CompanyId == companyId)
             .ToListAsync();
+        batchStatuses = await ctx.GLBatches
+            .Where(b => b.CompanyId == companyId)
+            .ToDictionaryAsync(b => b.Id, b => b.Status);
     }
 
     private void ToggleCustomerDropdown() => isCustomerDropdownOpen = !isCustomerDropdownOpen;
@@ -921,7 +995,11 @@
 
     private void OnDateChanged(ChangeEventArgs e)
     {
-        if (DateOnly.TryParse(e.Value?.ToString(), out var d)) currentRefund.Date = d;
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            currentRefund.TransactionDateTime = d;
+            currentRefund.Date = DateOnly.FromDateTime(d);
+        }
     }
 
     private void OnCashRefundAmountChanged(ChangeEventArgs e)
@@ -938,11 +1016,57 @@
         if (decimal.TryParse(val, out decimal res))
         {
             if (res < 0) line.Quantity = 0;
-            else if (res > line.MaxAdjustableQty) line.Quantity = line.MaxAdjustableQty;
-            else line.Quantity = res;
+            else if (res > GetDisplayedQuantity(line.MaxAdjustableQty, line)) line.Quantity = line.MaxAdjustableQty;
+            else line.Quantity = UomConversion.ToBase(res, GetLineFactor(line));
         }
         else line.Quantity = 0;
         StateHasChanged();
+    }
+
+    private IEnumerable<UnitOfMeasure> GetItemUoms(Item? item)
+    {
+        if (item == null) return Enumerable.Empty<UnitOfMeasure>();
+        var result = new List<UnitOfMeasure>();
+        if (item.UomId.HasValue)
+            result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
+        else if (!string.IsNullOrWhiteSpace(item.UoM))
+            result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+            result.Add(conversion.Uom ?? uoms.FirstOrDefault(x => x.Id == conversion.UomId) ?? new UnitOfMeasure { Id = conversion.UomId, Name = "UOM" });
+        if (item.UomId.HasValue)
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value, conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId) && UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap).HasValue)
+                    result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
+        return result;
+    }
+
+    private decimal GetLineFactor(ReceiptRefundLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
+    private decimal GetDisplayedQuantity(decimal baseQuantity, ReceiptRefundLine line) => UomConversion.FromBase(baseQuantity, GetLineFactor(line));
+    private decimal GetDisplayedUnitPrice(ReceiptRefundLine line) => UomConversion.PriceFromBase(line.UnitPrice, GetLineFactor(line));
+    private string GetUomConversionText(ReceiptRefundLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.Item?.PrimaryUom?.Name ?? line.Item?.UoM ?? "primary"} = {1m / GetLineFactor(line):N4} {line.UomName}";
+
+    private string GetUomOptionLabel(Item? item, UnitOfMeasure uom)
+    {
+        if (item == null || item.UomId == uom.Id) return $"{uom.Name} (Primary)";
+        var conversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == uom.Id);
+        return conversion == null
+            ? uom.Name
+            : $"{uom.Name} (1 {item.PrimaryUom?.Name ?? item.UoM} = {conversion.ConversionFactorToBase:N4} {uom.Name})";
+    }
+
+    private decimal GetItemFactor(Item item, Guid? selectedId)
+    {
+        var factors = itemUomLines.Where(x => x.ItemId == item.Id)
+            .ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
+        return UomConversion.FactorFor(item, selectedId, factors, ConversionMap);
+    }
+
+    private void OnLineUomChanged(ReceiptRefundLine line, ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
+        line.UomId = selectedId;
+        line.UomName = UomConversion.NameFor(line.Item, selectedId);
+        line.UomConversionFactor = GetItemFactor(line.Item, selectedId);
     }
 
     private async Task SaveDraft()
@@ -972,7 +1096,7 @@
             }
             if (currentRefund.TotalAmount > cashSummary.MaxRefundable + 0.01m)
             {
-                await JS.InvokeVoidAsync("alert", $"Cash refund amount ({currentRefund.TotalAmount:N2}) exceeds the refundable ceiling ({cashSummary.MaxRefundable:N2}).");
+                await JS.InvokeVoidAsync("alert", $"Cash refund amount ({currentRefund.TotalAmount:N4}) exceeds the refundable ceiling ({cashSummary.MaxRefundable:N4}).");
                 return;
             }
         }
@@ -988,7 +1112,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Receipt Refund Posted and Balanced Successfully!");
+            await JS.InvokeVoidAsync("alert", "Receipt refund submitted for GL review.");
             ResetToDashboard();
         }
         else await JS.InvokeVoidAsync("alert", err);

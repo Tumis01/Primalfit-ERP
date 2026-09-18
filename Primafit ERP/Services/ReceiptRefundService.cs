@@ -46,6 +46,7 @@ namespace Primafit_ERP.Services
             var paymentsMap = await (from pa in ctx.PaymentApplications
                                      join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
                                      where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
+                                        && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                      group pa by pa.InvoiceId into g
                                      select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
                                     .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
@@ -53,13 +54,15 @@ namespace Primafit_ERP.Services
             var historicalCashRefundsMap = await ctx.ReceiptRefunds
                 .Where(r => invoiceIds.Contains(r.SalesOrderId)
                          && r.Status == ReceiptRefundStatus.Posted
+                         && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId.Value && b.Status == BatchStatus.Posted))
                          && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both))
                 .GroupBy(r => r.SalesOrderId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
 
             var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                 .Include(l => l.Header)
-                .Where(l => invoiceIds.Contains(l.Header!.SalesOrderId) && l.Header.Status == ReceiptRefundStatus.Posted)
+                .Where(l => invoiceIds.Contains(l.Header!.SalesOrderId) && l.Header.Status == ReceiptRefundStatus.Posted
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
                 .GroupBy(l => l.SalesOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -99,7 +102,8 @@ namespace Primafit_ERP.Services
 
             var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                 .Include(l => l.Header)
-                .Where(l => l.Header!.SalesOrderId == orderId && l.Header.Status == ReceiptRefundStatus.Posted)
+                .Where(l => l.Header!.SalesOrderId == orderId && l.Header.Status == ReceiptRefundStatus.Posted
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
                 .GroupBy(l => l.SalesOrderLineId)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -135,6 +139,9 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = refund.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
+                        UomId = soLine.UomId,
+                        UomName = soLine.UomName,
+                        UomConversionFactor = soLine.UomConversionFactor,
                         SalesOrderLineId = soLine.Id,
                         Quantity = 0,
                         UnitPrice = soLine.UnitPrice,
@@ -170,7 +177,8 @@ namespace Primafit_ERP.Services
                     .Include(l => l.Header)
                     .Where(l => l.Header!.SalesOrderId == refund.SalesOrderId
                              && l.Header.Id != refund.Id
-                             && l.Header.Status == ReceiptRefundStatus.Posted)
+                         && l.Header.Status == ReceiptRefundStatus.Posted
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
                     .GroupBy(l => l.SalesOrderLineId)
                     .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -196,9 +204,14 @@ namespace Primafit_ERP.Services
             var existing = await ctx.ReceiptRefunds.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == refund.Id);
 
             if (existing == null) return "Receipt return document path missing.";
-            if (existing.Status == ReceiptRefundStatus.Posted) return "Cannot modify posted accounting entries.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == ReceiptRefundStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot modify posted accounting entries.";
 
             existing.Date = refund.Date;
+            existing.TransactionDateTime = refund.TransactionDateTime;
             existing.Reason = refund.Reason;
             existing.RefundType = refund.RefundType;
             existing.BankAccountId = refund.BankAccountId;
@@ -217,6 +230,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     SalesOrderLineId = line.SalesOrderLineId,
                     Quantity = line.Quantity,
                     UnitPrice = line.UnitPrice
@@ -253,12 +269,26 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(r => r.Id == refundId);
 
                 if (refund == null) return "Refund parameters not found.";
-                if (refund.Status == ReceiptRefundStatus.Posted) return "Document is already posted and locked.";
+                if (refund.Status == ReceiptRefundStatus.Posted)
+                {
+                    var existingBatch = refund.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == refund.GlBatchId.Value && b.CompanyId == refund.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (refund.SalesOrder == null) return "Parent sales order reference mapping is missing.";
 
                 var so = refund.SalesOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = refund.ExchangeRate > 0 ? refund.ExchangeRate : 1;
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == refund.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == refund.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
 
                 TransactionGlMapping? customMapping = null;
                 if (refund.CustomTransactionTypeId.HasValue)
@@ -280,7 +310,8 @@ namespace Primafit_ERP.Services
                         .Include(l => l.Header)
                         .Where(l => l.Header!.SalesOrderId == so.Id
                                  && l.Header.Id != refund.Id
-                                 && l.Header.Status == ReceiptRefundStatus.Posted)
+                                 && l.Header.Status == ReceiptRefundStatus.Posted
+                                 && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
                         .GroupBy(l => l.SalesOrderLineId)
                         .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
@@ -291,6 +322,20 @@ namespace Primafit_ERP.Services
 
                         var soLine = so.Lines.FirstOrDefault(sl => sl.Id == line.SalesOrderLineId);
                         if (soLine == null) return $"Line mapping error for product reference {line.Item.Name}.";
+
+                        var factorsForItem = itemFactors.Where(x => x.Key.ItemId == line.ItemId)
+                            .ToDictionary(x => x.Key.UomId, x => x.Value);
+                        if (line.UomId.HasValue && line.UomId != line.Item.UomId
+                            && !factorsForItem.ContainsKey(line.UomId.Value)
+                            && (!line.Item.UomId.HasValue || !UomConversion.FactorBetween(line.Item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                            return $"Posting Aborted: The selected UOM for '{line.Item.Name}' is not configured.";
+                        var expectedFactor = UomConversion.FactorFor(line.Item, line.UomId, factorsForItem, conversionMap);
+                        if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                            return $"Posting Aborted: Invalid UOM conversion selected for '{line.Item.Name}'. Reload the refund and try again.";
+                        line.UomConversionFactor = expectedFactor;
+                        line.UomName = string.IsNullOrWhiteSpace(line.UomName)
+                            ? UomConversion.NameFor(line.Item, line.UomId)
+                            : line.UomName.Trim();
 
                         decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId, out var q) ? q : 0;
                         decimal maxAllowedReturnQty = soLine.QtyShipped - alreadyReturnedQty;
@@ -315,6 +360,10 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             WarehouseId = refund.DestinationWarehouseId.Value,
                             QuantityChanged = line.Quantity,
+                            UomId = line.UomId,
+                            UomName = line.UomName,
+                            UomConversionFactor = line.UomConversionFactor,
+                            QuantityInUom = UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                             Type = StockMovementType.SalesReturn,
                             CostAtTime = resolvedUnitCost,
                             Reference = refund.RefundNumber,
@@ -413,7 +462,7 @@ namespace Primafit_ERP.Services
                     return $"Posting Aborted: Ledger imbalance. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
                 }
 
-                var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString());
+                var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString(), existingBatchId: refund.GlBatchId);
                 if (!string.IsNullOrEmpty(err1)) throw new Exception(err1);
                 if (b1.HasValue) await _glOps.PostBatchAsync(refund.CompanyId, b1.Value, userId.ToString());
 
@@ -445,6 +494,7 @@ namespace Primafit_ERP.Services
                 .Where(r => r.SalesOrderId == orderId
                          && r.Id != currentRefundId
                          && r.Status == ReceiptRefundStatus.Posted
+                         && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId.Value && b.Status == BatchStatus.Posted))
                          && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both))
                 .SumAsync(r => r.TotalAmount);
 

@@ -255,6 +255,20 @@ namespace Primafit_ERP.Services
                     && cn.Date <= endDate)
                 .ToListAsync();
 
+            // Customer receipt refunds restore the customer's AR balance when
+            // cash is paid back (DR AR / CR bank). Quantity-only returns only
+            // affect inventory and COGS, so only PaymentOnly and Both belong on
+            // the customer statement.
+            var receiptRefunds = await ctx.ReceiptRefunds
+                .AsNoTracking()
+                .Include(r => r.SalesOrder)
+                .Where(r => r.CompanyId == companyId
+                    && customerIds.Contains(r.CustomerId)
+                    && r.Status == ReceiptRefundStatus.Posted
+                    && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both)
+                    && r.Date <= endDate)
+                .ToListAsync();
+
             var arAccountIds = customers
                 .Where(c => c.ReceivablesAccountId.HasValue)
                 .Select(c => c.ReceivablesAccountId!.Value)
@@ -356,6 +370,31 @@ namespace Primafit_ERP.Services
                         Type = "Credit Note",
                         Description = string.IsNullOrWhiteSpace(creditNote.Reason) ? "Credit note" : creditNote.Reason,
                         Credit = Math.Round(creditNote.TotalAmount * rate, 2)
+                    });
+                }
+
+                foreach (var receiptRefund in receiptRefunds.Where(rr => rr.CustomerId == customer.Id))
+                {
+                    decimal rate = receiptRefund.ExchangeRate > 0 ? receiptRefund.ExchangeRate : 1m;
+                    decimal amountBase = Math.Round(receiptRefund.TotalAmount * rate, 2);
+                    if (amountBase <= 0) continue;
+
+                    string invoiceReference = receiptRefund.SalesOrder?.OrderNumber ?? "sales invoice";
+                    activity.Add(new CustomerStatementLine
+                    {
+                        CustomerId = customer.Id,
+                        CustomerName = customer.Name,
+                        CustomerAddress = customer.Address ?? "",
+                        Date = receiptRefund.Date,
+                        DocumentNumber = receiptRefund.RefundNumber,
+                        Type = "Receipt Refund - Cash",
+                        Description = string.IsNullOrWhiteSpace(receiptRefund.Reason)
+                            ? $"Cash refund paid to customer against {invoiceReference}"
+                                + (receiptRefund.RefundType == ReceiptRefundType.Both
+                                    ? "; stock return recorded separately in inventory/COGS"
+                                    : "")
+                            : receiptRefund.Reason,
+                        Debit = amountBase
                     });
                 }
 
@@ -633,7 +672,33 @@ namespace Primafit_ERP.Services
                     && b.BillDate <= endDate.ToDateTime(TimeOnly.MaxValue))
                 .ToListAsync();
 
-            
+            // Debit notes reduce the vendor AP balance. TotalAmount is stored in
+            // the document currency, so convert it to the same base currency used
+            // by VendorBill.TotalAmount and VendorPayment.Amount in this report.
+            var debitNotes = await ctx.DebitNotes
+                .AsNoTracking()
+                .Include(d => d.PurchaseOrder)
+                .Where(d => d.CompanyId == companyId
+                    && vendorIds.Contains(d.VendorId)
+                    && d.Status == DebitNoteStatus.Posted
+                    && d.Date <= endDate)
+                .ToListAsync();
+
+            // Vendor returns have two possible AP effects:
+            //   - physical stock return: DR AP (debit / liability reduction)
+            //   - cash refund: CR AP (credit / liability restoration)
+            // For Both, a single statement line carries both sides so the row
+            // remains visible while the net AP movement stays faithful to the GL.
+            var vendorReturns = await ctx.VendorReturns
+                .AsNoTracking()
+                .Include(r => r.Lines)
+                .Include(r => r.PurchaseOrder)
+                    .ThenInclude(po => po!.Lines)
+                .Where(r => r.CompanyId == companyId
+                    && vendorIds.Contains(r.VendorId)
+                    && r.Status == VendorReturnStatus.Posted
+                    && r.Date <= endDate)
+                .ToListAsync();
 
             var apAccountIds = vendors
                 .Where(v => v.PayablesAccountId.HasValue)
@@ -716,7 +781,84 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                
+                foreach (var debitNote in debitNotes.Where(d => d.VendorId == vendor.Id))
+                {
+                    decimal rate = debitNote.ExchangeRate > 0 ? debitNote.ExchangeRate : 1m;
+                    decimal amountBase = Math.Round(debitNote.TotalAmount * rate, 2);
+                    if (amountBase <= 0) continue;
+
+                    string invoiceReference = debitNote.PurchaseOrder?.OrderNumber ?? "purchase invoice";
+                    activity.Add(new VendorStatementLine
+                    {
+                        VendorId = vendor.Id,
+                        VendorName = vendor.Name,
+                        VendorAddress = vendor.Address ?? "",
+                        Date = debitNote.Date,
+                        DocumentNumber = debitNote.DebitNoteNumber,
+                        Type = "Debit Note",
+                        Description = string.IsNullOrWhiteSpace(debitNote.Reason)
+                            ? $"Debit note against {invoiceReference}"
+                            : debitNote.Reason,
+                        Debit = amountBase
+                    });
+                }
+
+                foreach (var vendorReturn in vendorReturns.Where(r => r.VendorId == vendor.Id))
+                {
+                    decimal rate = vendorReturn.ExchangeRate > 0 ? vendorReturn.ExchangeRate : 1m;
+                    decimal stockReturnForeign = 0m;
+
+                    if (vendorReturn.ReturnType == VendorReturnType.QuantityOnly
+                        || vendorReturn.ReturnType == VendorReturnType.Both)
+                    {
+                        // Match VendorReturnService.PostVendorReturnAsync: line.Quantity
+                        // is normalized to the primary UOM and the PO line UnitCost is
+                        // the primary-UOM cost used in the GL posting.
+                        stockReturnForeign = vendorReturn.Lines.Sum(line =>
+                        {
+                            var purchaseLine = vendorReturn.PurchaseOrder?.Lines
+                                .FirstOrDefault(poLine => poLine.Id == line.PurchaseOrderLineId);
+                            return line.Quantity * (purchaseLine?.UnitCost ?? line.UnitCost);
+                        });
+                    }
+
+                    decimal stockReturnBase = Math.Round(stockReturnForeign * rate, 2);
+                    decimal cashRefundBase = vendorReturn.ReturnType == VendorReturnType.PaymentOnly
+                        || vendorReturn.ReturnType == VendorReturnType.Both
+                        ? Math.Round(vendorReturn.TotalAmount * rate, 2)
+                        : 0m;
+
+                    if (stockReturnBase <= 0 && cashRefundBase <= 0) continue;
+
+                    string returnType = vendorReturn.ReturnType switch
+                    {
+                        VendorReturnType.QuantityOnly => "Vendor Return - Stock",
+                        VendorReturnType.PaymentOnly => "Vendor Return - Payment Refund",
+                        _ => "Vendor Return - Stock & Payment Refund"
+                    };
+
+                    string defaultDescription = vendorReturn.ReturnType switch
+                    {
+                        VendorReturnType.QuantityOnly => "Physical stock returned to vendor",
+                        VendorReturnType.PaymentOnly => "Cash refund received from vendor",
+                        _ => "Physical stock returned and cash refund received from vendor"
+                    };
+
+                    activity.Add(new VendorStatementLine
+                    {
+                        VendorId = vendor.Id,
+                        VendorName = vendor.Name,
+                        VendorAddress = vendor.Address ?? "",
+                        Date = vendorReturn.Date,
+                        DocumentNumber = vendorReturn.ReturnNumber,
+                        Type = returnType,
+                        Description = string.IsNullOrWhiteSpace(vendorReturn.Reason)
+                            ? defaultDescription
+                            : vendorReturn.Reason,
+                        Debit = stockReturnBase,
+                        Credit = cashRefundBase
+                    });
+                }
 
                 foreach (var adj in glAdjustments.Where(a => IsVendorAdjustmentFor(a.Narration, vendor.Name)))
                 {

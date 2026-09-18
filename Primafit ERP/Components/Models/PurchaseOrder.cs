@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -19,13 +19,13 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid VendorId { get; set; }
         public string OrderNumber { get; set; } = string.Empty; // Holds REQ-..., PO-..., or INV-...
-        public DateTime OrderDate { get; set; } = DateTime.Today;
+        public DateTime OrderDate { get; set; } = DateTime.Now;
         public Guid? LinkedSalesOrderId { get; set; }
 
         [Required]
         public Guid CurrencyId { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
         public PurchaseOrderStatus Status { get; set; } = PurchaseOrderStatus.Open;
@@ -35,10 +35,22 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; } 
 
-        [Column(TypeName = "decimal(18,2)")]
+        // Withholding is available only for invoice documents. These fields are
+        // also copied to VendorBill as an immutable posting snapshot.
+        public Guid? WithholdingTaxId { get; set; }
+        public string? WithholdingTaxName { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingPercentage { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmountForeign { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmount { get; set; }
+        public Guid? WithholdingGlAccountId { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountAmount { get; set; } = 0;
 
         public Guid? DiscountGlAccountId { get; set; }
@@ -48,6 +60,7 @@ namespace Primafit_ERP.Components.Models
 
         public Guid? AccountsPayableGlAccountId { get; set; }
         public Guid? GoodsReceiptClearingGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
 
         public List<PurchaseOrderLine> Lines { get; set; } = new();
         public bool HasReceipt { get; set; } = false;
@@ -63,10 +76,21 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid PurchaseOrderId { get; set; }
         public Guid ItemId { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
         public decimal QuantityOrdered { get; set; }
         public decimal UnitCost { get; set; } 
         public decimal QuantityReceived { get; set; } = 0; 
         public decimal QuantityBilled { get; set; } = 0;  
+
+        // Purchase amounts are currency values.  The stored base-unit cost can
+        // contain a four-decimal conversion residual (for example, 400 / 24
+        // becomes 16.6667), so line totals must be rounded before they are
+        // carried into invoice, tax, and ledger calculations.
+        [NotMapped]
+        public decimal LineTotal => Math.Round(QuantityOrdered * UnitCost, 2, MidpointRounding.AwayFromZero);
     }
 
     // =================================────────────────================
@@ -82,8 +106,9 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid PurchaseOrderId { get; set; }
         public string GrnNumber { get; set; } = string.Empty;
-        public DateTime DateReceived { get; set; } = DateTime.Today;
+        public DateTime DateReceived { get; set; } = DateTime.Now;
         public Guid InventoryGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
         public Guid? CustomTransactionTypeId { get; set; }
         [ForeignKey(nameof(CustomTransactionTypeId))]
         public virtual CustomTransactionType? CustomTransactionType { get; set; }
@@ -98,6 +123,10 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid GoodsReceiptId { get; set; }
         public Guid PurchaseOrderLineId { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
         public decimal QuantityReceived { get; set; }
         [NotMapped] public decimal MaxAllowed { get; set; }
     }
@@ -125,18 +154,18 @@ namespace Primafit_ERP.Components.Models
         public Guid AccountsPayableGlId { get; set; }
         public bool IsDirectBill { get; set; } = false;
         public string ExternalInvoiceNumber { get; set; } = string.Empty;
-        public DateTime BillDate { get; set; } = DateTime.Today;
+        public DateTime BillDate { get; set; } = DateTime.Now;
         public Guid CurrencyId { get; set; }
         [ForeignKey(nameof(CurrencyId))]
         public virtual Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmountForeign { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmount { get; set; }
 
         public BillMatchStatus MatchStatus { get; set; } = BillMatchStatus.Pending;
@@ -144,6 +173,18 @@ namespace Primafit_ERP.Components.Models
         public string? Description { get; set; }
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
+
+        // Invoice-level withholding snapshot. The payment engine uses this
+        // snapshot so historical bills remain stable if setup is later changed.
+        public Guid? WithholdingTaxId { get; set; }
+        public string? WithholdingTaxName { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingPercentage { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmountForeign { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmount { get; set; }
+        public Guid? WithholdingGlAccountId { get; set; }
 
         public Guid? CustomTransactionTypeId { get; set; }
         [ForeignKey(nameof(CustomTransactionTypeId))]
@@ -155,9 +196,10 @@ namespace Primafit_ERP.Components.Models
         public List<VendorBillLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
+        public Guid? GLBatchId { get; set; }
         public virtual List<VendorPayment> Payments { get; set; } = new();
 
-        [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount) ?? 0;
+        [NotMapped] public decimal AmountPaid => Payments?.Sum(p => p.Amount + p.WithholdingAmount) ?? 0;
         [NotMapped] public decimal BalanceDue => TotalAmount - AmountPaid;
         [NotMapped] public bool IsFullyPaid => IsPosted && TotalAmount > 0 && BalanceDue <= 0.01m;
         [NotMapped]
@@ -165,7 +207,7 @@ namespace Primafit_ERP.Components.Models
         {
             get
             {
-                decimal totalPaid = Payments?.Sum(p => p.Amount) ?? 0;
+                decimal totalPaid = Payments?.Sum(p => p.Amount + p.WithholdingAmount) ?? 0;
                 if (totalPaid <= 0) return "Unpaid";
                 if (totalPaid >= TotalAmount - 0.01m) return "Paid in Full";
                 return "Partially Paid";
@@ -187,17 +229,22 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(ItemId))]
         public virtual Item? Item { get; set; }
 
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
+
         public Guid ExpenseGlAccountId { get; set; }
         public string? Description { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal QuantityBilled { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal UnitCostBilled { get; set; }
 
         [NotMapped]
-        public decimal LineTotal => QuantityBilled * UnitCostBilled;
+        public decimal LineTotal => Math.Round(QuantityBilled * UnitCostBilled, 2, MidpointRounding.AwayFromZero);
     }
 
     // =================================================================
@@ -213,10 +260,22 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(VendorBillId))]
         public virtual VendorBill? VendorBill { get; set; }
 
-        public DateTime Date { get; set; } = DateTime.Today;
+        public DateTime Date { get; set; } = DateTime.Now;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Amount { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmountForeign { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmount { get; set; }
+
+        public Guid? WithholdingTaxId { get; set; }
+        public string? WithholdingTaxName { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingPercentage { get; set; }
+        public Guid? WithholdingGlAccountId { get; set; }
 
         public Guid BankGlAccountId { get; set; }
         public string Reference { get; set; } = string.Empty;
@@ -228,6 +287,7 @@ namespace Primafit_ERP.Components.Models
 
         public Guid? OverrideDebitApGlAccountId { get; set; }
         public Guid? OverrideCreditBankGlAccountId { get; set; }
+        public Guid? GLBatchId { get; set; }
     }
 
     public class ItemCostHistory
@@ -235,9 +295,9 @@ namespace Primafit_ERP.Components.Models
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid ItemId { get; set; }
         public DateTime DateChanged { get; set; } = DateTime.UtcNow;
-        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
-        [Column(TypeName = "decimal(18,2)")] public decimal NewQtyIn { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal NewQtyIn { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal NewCostIn { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal ResultingWacc { get; set; }
         public string Reference { get; set; } = string.Empty;
@@ -249,9 +309,9 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         public DateTime DateChanged { get; set; } = DateTime.UtcNow;
         public string Reference { get; set; } = "";
-        [Column(TypeName = "decimal(18,2)")] public decimal OldQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal OldQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal OldWacc { get; set; }
-        [Column(TypeName = "decimal(18,2)")] public decimal IncomingQty { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal IncomingQty { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal IncomingCost { get; set; }
         [Column(TypeName = "decimal(18,4)")] public decimal NewWacc { get; set; }
     }

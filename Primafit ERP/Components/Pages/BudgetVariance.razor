@@ -73,6 +73,19 @@
             <label class="label text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 block">End Date</label>
             <input type="date" @bind="FilterEndDate" class="border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono w-40 outline-none focus:border-indigo-500" />
         </div>
+        @if (availableBudgets.Any())
+        {
+            <div>
+                <label class="label text-xs font-bold text-slate-500 uppercase tracking-wide mb-1 block">Budget</label>
+                <select @bind="selectedBudgetId" class="border border-slate-200 rounded-lg px-3 py-2 text-sm w-56 outline-none focus:border-indigo-500">
+                    <option value="">All active budgets</option>
+                    @foreach (var availableBudget in availableBudgets)
+                    {
+                        <option value="@availableBudget.Id">@availableBudget.BudgetName @(availableBudget.IsActive ? "" : "(Inactive)")</option>
+                    }
+                </select>
+            </div>
+        }
         <button @onclick="GenerateReport" class="px-6 py-2 bg-indigo-600 text-white font-bold text-sm rounded-lg hover:bg-indigo-700 transition-colors shadow-sm active:scale-95">
             Apply Filters
         </button>
@@ -95,11 +108,13 @@
                             <th class="px-6 py-4 w-24">@reportData.Headers[0]</th>
                             <th class="px-6 py-4 w-[25%]">@reportData.Headers[1]</th>
                             <th class="px-6 py-4 text-right">@reportData.Headers[2]</th>
-                            <th class="px-6 py-4 text-right text-indigo-600 bg-indigo-50/30">@reportData.Headers[3]</th>
-                            <th class="px-6 py-4 text-right text-amber-600 bg-amber-50/30">@reportData.Headers[4]</th>
-                            <th class="px-6 py-4 text-right">@reportData.Headers[5]</th>
+                            <th class="px-6 py-4 text-right text-amber-600 bg-amber-50/30">@reportData.Headers[3]</th>
+                            <th class="px-6 py-4 text-right text-indigo-600 bg-indigo-50/30">@reportData.Headers[4]</th>
+                            <th class="px-6 py-4 text-right text-amber-600 bg-amber-50/30">@reportData.Headers[5]</th>
                             <th class="px-6 py-4 text-right">@reportData.Headers[6]</th>
-                            <th class="px-6 py-4 text-center">@reportData.Headers[7]</th>
+                            <th class="px-6 py-4 text-right">@reportData.Headers[7]</th>
+                            <th class="px-6 py-4 text-right">@reportData.Headers[8]</th>
+                            <th class="px-6 py-4 text-center">@reportData.Headers[9]</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -116,18 +131,20 @@
                                     @row[1]
                                 </td>
                                 <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold text-slate-800" : "text-slate-500")">@row[2]</td>
-                                <td class="px-6 py-3 text-right font-mono text-indigo-700 bg-indigo-50/30">@row[3]</td>
-                                <td class="px-6 py-3 text-right font-mono text-amber-700 bg-amber-50/30">@row[4]</td>
-                                <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold" : "") text-slate-600">@row[5]</td>
-                                <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold" : "") @(row[6].Contains("(") || row[6].Contains("-") ? "text-rose-600" : "text-emerald-600")">@row[6]</td>
+                                <td class="px-6 py-3 text-right font-mono text-amber-700 bg-amber-50/30">@row[3]</td>
+                                <td class="px-6 py-3 text-right font-mono text-indigo-700 bg-indigo-50/30">@row[4]</td>
+                                <td class="px-6 py-3 text-right font-mono text-amber-700 bg-amber-50/30">@row[5]</td>
+                                <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold" : "") text-slate-600">@row[6]</td>
+                                <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold" : "") @(row[7].Contains("(") || row[7].Contains("-") ? "text-rose-600" : "text-emerald-600")">@row[7]</td>
+                                <td class="px-6 py-3 text-right font-mono @(!isSubRow ? "font-bold" : "") @(row[8].Contains("(") || row[8].Contains("-") ? "text-rose-600" : "text-emerald-600")">@row[8]</td>
                                 <td class="px-6 py-3 text-center text-xs font-bold">
                                     @{
-                                        bool isOver = decimal.TryParse(row[7].Replace("%", ""), out decimal pct) && pct > 100;
+                                        bool isOver = decimal.TryParse(row[9].Replace("%", ""), out decimal pct) && pct > 100;
                                     }
-                                    @if (!string.IsNullOrWhiteSpace(row[7]))
+                                    @if (!string.IsNullOrWhiteSpace(row[9]))
                                     {
                                         <span class="px-2 py-1 rounded-lg @(isOver ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600")">
-                                            @row[7]
+                                            @row[9]
                                         </span>
                                     }
                                 </td>
@@ -136,7 +153,7 @@
                         
                         @if (reportData.Rows.Count <= 1)
                         {
-                            <tr><td colspan="8" class="p-16 text-center text-slate-400">No active budget data found for this period and filter.</td></tr>
+                            <tr><td colspan="10" class="p-16 text-center text-slate-400">No active budget data found for this period and filter.</td></tr>
                         }
                     </tbody>
                     
@@ -147,11 +164,13 @@
                             <tr>
                                 <td colspan="2" class="px-6 py-4 text-right font-black text-slate-700 uppercase text-xs tracking-wider">GRAND TOTAL</td>
                                 <td class="px-6 py-4 text-right font-mono font-black text-slate-900 text-sm">@grandTotalRow[2]</td>
-                                <td class="px-6 py-4 text-right font-mono font-black text-indigo-700 bg-indigo-100 text-sm">@grandTotalRow[3]</td>
-                                <td class="px-6 py-4 text-right font-mono font-black text-amber-700 bg-amber-100 text-sm">@grandTotalRow[4]</td>
-                                <td class="px-6 py-4 text-right font-mono font-black text-slate-800 text-sm">@grandTotalRow[5]</td>
-                                <td class="px-6 py-4 text-right font-mono font-black @(grandTotalRow[6].Contains("(") || grandTotalRow[6].Contains("-") ? "text-rose-600" : "text-emerald-600") text-sm">@grandTotalRow[6]</td>
-                                <td class="px-6 py-4 text-center font-bold text-slate-900">@grandTotalRow[7]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black text-amber-700 bg-amber-100 text-sm">@grandTotalRow[3]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black text-indigo-700 bg-indigo-100 text-sm">@grandTotalRow[4]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black text-amber-700 bg-amber-100 text-sm">@grandTotalRow[5]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black text-slate-800 text-sm">@grandTotalRow[6]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black @(grandTotalRow[7].Contains("(") || grandTotalRow[7].Contains("-") ? "text-rose-600" : "text-emerald-600") text-sm">@grandTotalRow[7]</td>
+                                <td class="px-6 py-4 text-right font-mono font-black @(grandTotalRow[8].Contains("(") || grandTotalRow[8].Contains("-") ? "text-rose-600" : "text-emerald-600") text-sm">@grandTotalRow[8]</td>
+                                <td class="px-6 py-4 text-center font-bold text-slate-900">@grandTotalRow[9]</td>
                             </tr>
                         </tfoot>
                     }
@@ -170,6 +189,8 @@
     private bool isExportingExcel = false;
 
     private StandardReportData? reportData;
+    private List<BudgetHeader> availableBudgets = new();
+    private Guid? selectedBudgetId;
 
     // Filters
     private string AccountFilter { get; set; } = "";
@@ -190,6 +211,7 @@
             var company = await CompanyService.GetCompanyByIdAsync(companyId);
             if (company != null) companyName = company.CompanyName;
 
+            availableBudgets = await BudgetService.GetAllBudgetsAsync(companyId);
             await GenerateReport();
         }
     }
@@ -211,7 +233,7 @@
         var end = DateOnly.FromDateTime(FilterEndDate);
 
         // Fetch using the new method with the optional AccountFilter string
-        reportData = await BudgetService.GeneratePeriodicVarianceReportAsync(companyId, start, end, AccountFilter);
+        reportData = await BudgetService.GeneratePeriodicVarianceReportAsync(companyId, start, end, AccountFilter, selectedBudgetId);
 
         isLoading = false;
         await InvokeAsync(StateHasChanged);

@@ -1,4 +1,4 @@
-﻿@page "/assets/register"
+@page "/assets/register"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -107,8 +107,8 @@
                                     @GetMethodName(asset.DepreciationMethod)
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-right font-mono font-medium">@asset.PurchaseCost.ToString("N2")</td>
-                            <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@asset.CurrentBookValue.ToString("N2")</td>
+                            <td class="px-6 py-4 text-right font-mono font-medium">@asset.PurchaseCost.ToString("N4")</td>
+                            <td class="px-6 py-4 text-right font-mono font-bold text-slate-900">@asset.CurrentBookValue.ToString("N4")</td>
                             <td class="px-6 py-4 text-center">
                                 @if (asset.Status == AssetStatus.Active)
                                 {
@@ -355,7 +355,7 @@
                                     <td class="p-4 text-center font-mono text-slate-500">
                                         @(h.UnitsUsed.HasValue? h.UnitsUsed.Value.ToString("N0") : "-")
                                     </td>
-                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@h.Amount.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-rose-600">@h.Amount.ToString("N4")</td>
                                     <td class="p-4 text-center text-xs font-mono text-slate-400" title="@h.GlBatchId">
                                         ...@h.GlBatchId.ToString().Substring(h.GlBatchId.ToString().Length - 8)
                                     </td>

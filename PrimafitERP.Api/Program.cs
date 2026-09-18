@@ -13,7 +13,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Connect to the Database Instance
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sql => sql.EnableRetryOnFailure()));
 
 // 2. Register Core & Sub-Ledger Transaction Services
 builder.Services.AddScoped<SalesService>();

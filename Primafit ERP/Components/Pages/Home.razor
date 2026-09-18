@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
@@ -627,9 +627,9 @@
                                     <tr>
                                         <td class="font-semibold text-slate-800">@item.ItemName</td>
                                         <td class="mono text-slate-500 text-xs">@item.SKU</td>
-                                        <td class="mono text-right @(item.CurrentQty <= 0 ? "text-rose-600 font-bold" : "text-slate-700")">@item.CurrentQty.ToString("N2")</td>
-                                        <td class="mono text-right text-slate-500">@item.ReorderLevel.ToString("N2")</td>
-                                        <td class="mono font-bold text-right text-amber-600">@shortfall.ToString("N2")</td>
+                                        <td class="mono text-right @(item.CurrentQty <= 0 ? "text-rose-600 font-bold" : "text-slate-700")">@item.CurrentQty.ToString("N4")</td>
+                                        <td class="mono text-right text-slate-500">@item.ReorderLevel.ToString("N4")</td>
+                                        <td class="mono font-bold text-right text-amber-600">@shortfall.ToString("N4")</td>
                                         <td>
                                             @if (item.CurrentQty <= 0)
                                             {
@@ -745,8 +745,8 @@
                                             <td class="p-3 pl-5 mono text-xs text-slate-400">@item.Date.ToString("yyyy-MM-dd")</td>
                                             <td class="p-3 font-semibold text-slate-800">@item.AccountName</td>
                                             <td class="p-3 text-xs text-slate-500 max-w-[200px] truncate" title="@item.Reference">@item.Reference</td>
-                                            <td class="p-3 text-right mono text-xs text-slate-500">@(item.Debit > 0 ? item.Debit.ToString("N2") : "—")</td>
-                                            <td class="p-3 text-right mono text-xs text-slate-500">@(item.Credit > 0 ? item.Credit.ToString("N2") : "—")</td>
+                                            <td class="p-3 text-right mono text-xs text-slate-500">@(item.Debit > 0 ? item.Debit.ToString("N4") : "—")</td>
+                                            <td class="p-3 text-right mono text-xs text-slate-500">@(item.Credit > 0 ? item.Credit.ToString("N4") : "—")</td>
                                             <td class="p-3 text-right pr-5 mono font-bold @(item.NetBalanceEffect >= 0 ? "text-emerald-600" : "text-rose-600")">
                                                 @FormatAccounting(item.NetBalanceEffect)
                                             </td>

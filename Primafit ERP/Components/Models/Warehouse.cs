@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -32,14 +32,24 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))] public Item? Item { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        // Quantity is stored in the item's primary UOM. These fields preserve
+        // the UOM used by the transfer transaction.
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal QuantityInUom { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? QuantityReceived {get; set; }
 
         // Transit Tracking
         public TransferStatus Status { get; set; } = TransferStatus.InTransit;
+        public Guid? GLBatchId { get; set; }
 
         public DateTime DateShipped { get; set; } = DateTime.UtcNow;
         public DateTime? DateReceived { get; set; }

@@ -1,4 +1,4 @@
-﻿@page "/procurement/purchase-orders"
+@page "/procurement/purchase-orders"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -71,6 +71,7 @@
                             <button @onclick="CreateNew" class="flex-1 lg:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
                                 New PO
                             </button>
+                            
                         </Authorized>
                     </PermissionGate>
                 </div>
@@ -110,7 +111,7 @@
                                 var vendorName = vendors.FirstOrDefault(v => v.Id == req.VendorId)?.Name ?? "Unknown";
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4"><div class="font-mono font-bold text-slate-900">@req.OrderNumber</div></td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@req.OrderDate.ToString("MMM dd, yyyy")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@req.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4"><div class="font-bold text-slate-800 truncate max-w-[200px]" title="@vendorName">@vendorName</div></td>
                                     <td class="px-6 py-4">
                                         @if (req.Lines != null && req.Lines.Any())
@@ -132,11 +133,11 @@
                                         }
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <div class="font-mono font-bold text-slate-900">@req.GrandTotalForeign.ToString("N2")</div>
+                                        <div class="font-mono font-bold text-slate-900">@req.GrandTotalForeign.ToString("N4")</div>
                                         <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@req.Currency?.CurrencyCode</div>
                                     </td>
                                     <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                        <div class="font-mono font-bold text-emerald-700">@((req.GrandTotalForeign * (req.ExchangeRate > 0 ? req.ExchangeRate : 1)).ToString("N2"))</div>
+                                        <div class="font-mono font-bold text-emerald-700">@((req.GrandTotalForeign * (req.ExchangeRate > 0 ? req.ExchangeRate : 1)).ToString("N4"))</div>
                                         <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
                                     </td>
                                     <td class="px-6 py-4 text-center">
@@ -211,7 +212,7 @@
                                             <div class="text-[9px] text-slate-400 font-mono mt-1">From: @po.ConvertedFromRequestNumber</div>
                                         }
                                     </td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@po.OrderDate.ToString("MMM dd, yyyy")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@po.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4"><div class="font-bold text-slate-800 truncate max-w-[200px]" title="@vendorName">@vendorName</div></td>
                                     <td class="px-6 py-4">
                                         @if (po.Lines != null && po.Lines.Any())
@@ -233,11 +234,11 @@
                                         }
                                     </td>
                                     <td class="px-6 py-4 text-right">
-                                        <div class="font-mono font-bold text-slate-900">@po.GrandTotalForeign.ToString("N2")</div>
+                                        <div class="font-mono font-bold text-slate-900">@po.GrandTotalForeign.ToString("N4")</div>
                                         <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@po.Currency?.CurrencyCode</div>
                                     </td>
                                     <td class="px-6 py-4 text-right border-l border-slate-100 bg-slate-50/30">
-                                        <div class="font-mono font-bold text-emerald-700">@((po.GrandTotalForeign * (po.ExchangeRate > 0 ? po.ExchangeRate : 1)).ToString("N2"))</div>
+                                        <div class="font-mono font-bold text-emerald-700">@((po.GrandTotalForeign * (po.ExchangeRate > 0 ? po.ExchangeRate : 1)).ToString("N4"))</div>
                                         <div class="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">@companyBaseCurrency</div>
                                     </td>
                                     <td class="px-6 py-4 text-right">
@@ -305,8 +306,11 @@
                             {
                                 var vendorName = vendors.FirstOrDefault(v => v.Id == inv.VendorId)?.Name ?? "Unknown";
                                 bool hasAnyReceipt = inv.HasReceipt || inv.IsFullyReceived;
-                                bool isPosted = inv.IsInvoicePosted || inv.Status == PurchaseOrderStatus.Invoiced;
-                                bool isLockedFromEdit = hasAnyReceipt || isPosted;
+                                var invoiceBatchInfo = inv.GLBatchId.HasValue && batchMap.TryGetValue(inv.GLBatchId.Value, out var mappedBatch) ? mappedBatch : null;
+                                bool isRejected = invoiceBatchInfo?.Status == BatchStatus.Rejected;
+                                bool isReviewEditable = invoiceBatchInfo?.Status is BatchStatus.Ready or BatchStatus.Rejected or BatchStatus.Draft;
+                                bool isPosted = !isReviewEditable && (inv.IsInvoicePosted || inv.Status == PurchaseOrderStatus.Invoiced);
+                                bool isLockedFromEdit = !isReviewEditable && ((hasAnyReceipt && !isRejected) || isPosted);
 
                                 decimal debitNoteAmt = debitNotesMap.TryGetValue(inv.Id, out var dn) ? dn : 0;
                                 
@@ -317,7 +321,7 @@
                                 decimal grossPaidBase = 0;
                                 if (linkedBillsMap.TryGetValue(inv.Id, out var billObj))
                                 {
-                                    grossPaidBase = billObj.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount) ?? 0;
+                                     grossPaidBase = billObj.Payments?.Where(p => p.Amount > 0).Sum(p => p.Amount + p.WithholdingAmount) ?? 0;
                                 }
 
                                 decimal remainingBalanceBase = Math.Max(0, netInvoiceBase - grossPaidBase);
@@ -325,17 +329,17 @@
 
                                 <tr class="hover:bg-slate-50/80 transition-colors group align-top">
                                     <td class="px-6 py-4 font-mono font-bold text-emerald-800">@inv.OrderNumber</td>
-                                    <td class="px-6 py-4 font-mono text-xs text-slate-400">@(inv.ConvertedFromPONumber ?? "Direct Expense")</td>
-                                    <td class="px-6 py-4 text-slate-500 font-medium">@inv.OrderDate.ToString("MMM dd, yyyy")</td>
+                                    <td class="px-6 py-4 font-mono text-xs text-slate-400">@(inv.ConvertedFromPONumber ?? "-")</td>
+                                <td class="px-6 py-4 text-slate-500 font-medium">@inv.OrderDate.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="px-6 py-4 font-bold text-slate-800">@vendorName</td>
                                     <td class="px-6 py-4 text-right">
                                         <div class="font-mono font-bold text-emerald-700">
-                                            @invoiceTotalBase.ToString("N2")
+                                            @invoiceTotalBase.ToString("N4")
                                         </div>
                                         @if (debitNoteAmt > 0)
                                         {
                                             <div class="text-[10px] font-mono font-bold text-rose-600">
-                                                Debit Note: (@debitNoteAmt.ToString("N2"))
+                                                Debit Note: (@debitNoteAmt.ToString("N4"))
                                             </div>
                                         }
                                     </td>
@@ -352,19 +356,31 @@
                                                 Partial GRN
                                             </span>
                                         }
-                                        else
-                                        {
+                                         else
+                                         {
                                             <span class="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                                 Unreceived
-                                            </span>
-                                        }
-                                    </td>
+                                             </span>
+                                         }
+                                         @if (inv.WithholdingAmount > 0)
+                                         {
+                                             <div class="mt-1 text-[10px] font-bold text-amber-700">WHT @inv.WithholdingPercentage.ToString("0.####")% · @inv.WithholdingAmount.ToString("N4")</div>
+                                         }
+                                     </td>
                                     <td class="px-6 py-4 text-center">
                                         @if (isPosted)
                                         {
                                             <span class="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
                                                 Posted
                                             </span>
+                                        }
+                                        else if (isRejected)
+                                        {
+                                            <span class="inline-flex items-center rounded-full bg-rose-50 border border-rose-200 px-2.5 py-1 text-[10px] font-bold text-rose-700 uppercase tracking-wider animate-pulse" title="@invoiceBatchInfo?.RejectionReason">Rejected</span>
+                                        }
+                                        else if (invoiceBatchInfo?.Status == BatchStatus.Ready)
+                                        {
+                                            <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">In Review</span>
                                         }
                                         else
                                         {
@@ -399,7 +415,7 @@
                                                 <button @onclick="() => ExecuteInvoicePostFromList(inv)"
                                                         disabled="@(isPostingId == inv.Id)"
                                                         class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                                                    @(isPostingId == inv.Id ? "Posting..." : "Post Invoice")
+                                                @(isPostingId == inv.Id ? "Submitting..." : (isRejected ? "Resubmit for Review" : invoiceBatchInfo?.Status == BatchStatus.Ready ? "Update Staging" : "Submit for Review"))
                                                 </button>
                                             }
                                             else
@@ -459,6 +475,12 @@
         else
         {
             <!-- WORKSPACE EDITOR -->
+            @if (IsCurrentOrderRejected)
+            {
+                <div class="mb-4 p-4 bg-rose-50 border border-rose-200 rounded-xl text-sm text-rose-800">
+                    <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @CurrentOrderRejectionReason
+                </div>
+            }
             <div class="bg-white border border-slate-200 rounded-2xl shadow-xl animate-in fade-in slide-in-from-bottom-4 overflow-visible flex flex-col h-full">
 
                 <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
@@ -471,14 +493,17 @@
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            <span>Configure Route</span>
-                            @if (currentOrder.CustomTransactionTypeId.HasValue)
-                            {
-                                <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                            }
-                        </button>
+                        @if (canConfigureRoute)
+                        {
+                            <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                <span>Configure Route</span>
+                                @if (currentOrder.CustomTransactionTypeId.HasValue)
+                                {
+                                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                                }
+                            </button>
+                        }
 
                         @if (!IsLocked)
                         {
@@ -520,33 +545,16 @@
 
                             <div>
                                 <label class="label">Order Date</label>
-                                <input type="date" @bind="currentOrder.OrderDate" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" @bind="currentOrder.OrderDate" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
-                            <div>
-                                <div class="flex items-center gap-2 mb-1.5">
-                                    <label class="label text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-0">
-                                        Currency &amp; Rate
-                                    </label>
-                                    @if (IsLocked)
-                                    {
-                                        <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 bg-slate-100 border border-slate-200 rounded-md px-1.5 py-0.5">
-                                            <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                            Locked
-                                        </span>
-                                    }
-                                </div>
-
-                                <div class="flex items-stretch rounded-xl border @(IsLocked ? "border-slate-200 opacity-60" : "border-slate-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100") overflow-hidden transition-all bg-white">
-                                    <div class="flex items-center gap-1 px-3 bg-slate-50 border-r border-slate-200 shrink-0">
-                                        <span class="text-xs font-bold text-slate-500 font-mono tracking-wide">
-                                            @(currencies.FirstOrDefault(c => c.Id == currentOrder.CurrencyId)?.CurrencyCode ?? "N/A")
-                                        </span>
-                                    </div>
-                                    <input type="number" step="0.0001" @bind="currentOrder.ExchangeRate" @bind:after="RecalculatePrices" disabled="@IsLocked" placeholder="1.0000"
-                                           class="flex-1 min-w-0 px-3 py-2 text-right font-mono text-sm font-bold text-indigo-700 bg-transparent border-none outline-none disabled:text-slate-400 disabled:cursor-not-allowed" />
-                                </div>
-                            </div>
+                            <ExchangeRatePicker CompanyId="@currentCompanyId"
+                                                 CurrencyId="@currentOrder.CurrencyId"
+                                                 CurrencyCode="@GetCurrencyCode(currentOrder.CurrencyId)"
+                                                 CompanyBaseCurrency="@companyBaseCurrency"
+                                                 CurrentRate="@currentOrder.ExchangeRate"
+                                                 CurrentRateChanged="OnExchangeRateChanged"
+                                                 Disabled="@IsLocked" />
 
                             <div>
                                 <label class="label">Tax / VAT</label>
@@ -558,6 +566,24 @@
                                     }
                                 </select>
                             </div>
+                            <div>
+                                <label class="label text-amber-700">Withholding Tax</label>
+                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@(!IsInvoiceDocument || IsLocked)">
+                                    <option value="">No Withholding Tax</option>
+                                    @foreach (var wht in withholdingTaxes)
+                                    {
+                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
+                                    }
+                                </select>
+                                @if (IsInvoiceDocument)
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-amber-700">Attached to this invoice; withheld only when the vendor payment is posted.</p>
+                                }
+                                else
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-slate-400">Available when the document type is Invoice.</p>
+                                }
+                            </div>
                         </div>
                     </div>
 
@@ -566,10 +592,11 @@
                             <table class="w-full text-sm text-left overflow-visible">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
                                     <tr>
-                                        <th class="p-3 pl-4 w-[40%]">Item</th>
-                                        <th class="p-3 w-[15%] text-center">Qty</th>
-                                        <th class="p-3 w-[20%] text-right">Unit Price / Cost (@currencySymbol)</th>
-                                        <th class="p-3 w-[20%] text-right pr-4">Total</th>
+                                        <th class="p-3 pl-4 w-[32%]">Item</th>
+                                        <th class="p-3 w-[14%]">UOM</th>
+                                        <th class="p-3 w-[14%] text-center">Qty</th>
+                                        <th class="p-3 w-[18%] text-right">Unit Cost (@currencySymbol)</th>
+                                        <th class="p-3 w-[17%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
                                     </tr>
                                 </thead>
@@ -589,14 +616,26 @@
                                                     <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineItem(line))" IsInvalid="@(line.ItemId == Guid.Empty)" />
                                                 }
                                             </td>
+                                            <td class="p-2 align-top">
+                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" class="input-class py-2 text-xs font-semibold" disabled="@(IsLocked || line.ItemId == Guid.Empty)">
+                                                    @foreach (var uom in GetItemUoms(line.ItemId))
+                                                    {
+                                                            <option value="@uom.Id">@GetUomOptionLabel(line.ItemId, uom)</option>
+                                                    }
+                                                </select>
+                                                @if (line.ItemId != Guid.Empty)
+                                                {
+                                                    <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                }
+                                            </td>
                                             <td class="p-2 align-top pt-3 text-center">
-                                                <input type="number" @bind="line.QuantityOrdered" class="input-class py-2 text-center font-bold" placeholder="1" disabled="@IsLocked" />
+                                                <input type="number"   value="@GetDisplayedQuantity(line)" @onchange="@(e => OnLineQuantityChanged(line, e.Value?.ToString()))" class="input-class py-2 text-center font-bold appearance-none" placeholder="1.00" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" @bind="line.UnitCost" class="input-class py-2 text-right font-mono @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@IsLocked" />
+                                                <input type="number"   value="@GetDisplayedUnitCost(line)" @onchange="@(e => OnLineCostChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono appearance-none @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-4 text-right font-mono font-bold text-slate-700">
-                                                @((line.QuantityOrdered * line.UnitCost).ToString("N2"))
+                                                @line.LineTotal.ToString("N4")
                                             </td>
                                             <td class="p-2 text-center align-top pt-4">
                                                 @if (!IsLocked)
@@ -627,26 +666,37 @@
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="label text-[10px]">Percentage (%)</label>
-                                    <input type="number" @bind="currentOrder.DiscountPercentage" @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }" class="input-class text-center font-bold text-emerald-700 border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
+                                    <input type="number"   @bind="currentOrder.DiscountPercentage" @bind:after="() => { if (currentOrder.DiscountPercentage > 0) currentOrder.DiscountAmount = 0; }" class="input-class text-center font-bold text-emerald-700 border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                                 <div>
                                     <label class="label text-[10px]">Flat Value Amount (@currencySymbol)</label>
-                                    <input type="number" @bind="currentOrder.DiscountAmount" @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }" class="input-class text-right font-mono border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
+                                    <input type="number"   @bind="currentOrder.DiscountAmount" @bind:after="() => { if (currentOrder.DiscountAmount > 0) currentOrder.DiscountPercentage = 0; }" class="input-class text-right font-mono border-emerald-200 focus:border-emerald-500" disabled="@IsLocked" />
                                 </div>
                             </div>
                         </div>
 
                         <div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm">
-                            <div class="flex justify-between"><span>Subtotal:</span><span class="font-mono font-bold">@SubTotal.ToString("N2")</span></div>
-                            <div class="flex justify-between items-center text-emerald-600 border-b border-slate-200 pb-2"><span>Discount:</span><span class="font-mono font-bold">- @DiscountValue.ToString("N2")</span></div>
-                            <div class="flex justify-between items-center pt-1"><span>Net Subtotal:</span><span class="font-mono font-bold">@DiscountedSubTotal.ToString("N2")</span></div>
-                            <div class="flex justify-between items-center"><span>Tax (@TaxPercentage%):</span><span class="font-mono font-bold">+ @TaxAmount.ToString("N2")</span></div>
+                            <div class="flex justify-between"><span>Subtotal:</span><span class="font-mono font-bold">@SubTotal.ToString("N4")</span></div>
+                            <div class="flex justify-between items-center text-emerald-600 border-b border-slate-200 pb-2"><span>Discount:</span><span class="font-mono font-bold">- @DiscountValue.ToString("N4")</span></div>
+                            <div class="flex justify-between items-center pt-1"><span>Net Subtotal:</span><span class="font-mono font-bold">@DiscountedSubTotal.ToString("N4")</span></div>
+                            <div class="flex justify-between items-center"><span>Tax (@TaxPercentage%):</span><span class="font-mono font-bold">+ @TaxAmount.ToString("N4")</span></div>
                             <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                <span class="font-bold">Total (@currencySymbol):</span>
-                                <span class="font-mono font-black text-indigo-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                                <span class="">@(IsInvoiceDocument ? "Total Amount " : "Total Amount") (@currencySymbol):</span>
+                                <span class="font-mono font-black text-indigo-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                             </div>
+                            @if (IsInvoiceDocument && WithholdingAmountForeign > 0)
+                            {
+                                <div class="flex justify-between items-center text-amber-700 border-t border-amber-100 pt-2">
+                                    <span>Withholding Tax (@currentOrder.WithholdingPercentage.ToString("0.####")%):</span>
+                                    <span class="font-mono font-bold">- @currencySymbol@WithholdingAmountForeign.ToString("N4")</span>
+                                </div>
+                                <div class="flex justify-between items-center text-slate-900 font-semibold">
+                                    <span>Net Amount Payable :</span>
+                                    <span class="font-mono font-black text-emerald-700">@currencySymbol@NetAmountPayableForeign.ToString("N4")</span>
+                                </div>
+                            }
                             <div class="flex justify-between text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">
-                                <span>Ledger Base Value:</span><span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                <span>Ledger Base Value:</span><span class="font-mono text-slate-500">@GrandTotalBase.ToString("N4")</span>
                             </div>
                         </div>
                     </div>
@@ -684,7 +734,7 @@
 
                                         <button type="button" @onclick="SaveAndPostFormInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
                                             @if (isBusy) { <span class="animate-spin">↻</span> }
-                                            <span>Post Invoice to GL</span>
+                                            <span>@(IsCurrentOrderRejected ? "Resubmit Invoice for GL Review" : CurrentOrderBatchInfo?.Status == BatchStatus.Ready ? "Update Invoice Staging" : "Submit Invoice for GL Review")</span>
                                         </button>
                                     }
                                     else
@@ -950,13 +1000,20 @@
     private bool isLoading = true;
     private int activeTab = 2;
 
+    private record BatchSummary(BatchStatus Status, string? RejectionReason);
+    private Dictionary<Guid, BatchSummary> batchMap = new();
+    private BatchSummary? CurrentOrderBatchInfo => currentOrder.GLBatchId.HasValue && batchMap.TryGetValue(currentOrder.GLBatchId.Value, out var batch) ? batch : null;
+    private bool IsCurrentOrderRejected => CurrentOrderBatchInfo?.Status == BatchStatus.Rejected;
+    private string? CurrentOrderRejectionReason => CurrentOrderBatchInfo?.RejectionReason;
+
+    private bool IsReviewEditable => CurrentOrderBatchInfo?.Status is BatchStatus.Ready or BatchStatus.Rejected or BatchStatus.Draft;
+
     private bool IsLocked =>
-        currentOrder.HasReceipt ||
-        currentOrder.IsFullyReceived ||
-        currentOrder.IsInvoicePosted ||
-        currentOrder.Status == PurchaseOrderStatus.Invoiced ||
+        !IsReviewEditable && (((currentOrder.HasReceipt || currentOrder.IsFullyReceived) && !IsCurrentOrderRejected) ||
+        (currentOrder.IsInvoicePosted && !IsCurrentOrderRejected) ||
+        (currentOrder.Status == PurchaseOrderStatus.Invoiced && !IsCurrentOrderRejected) ||
         (currentOrder.Status == PurchaseOrderStatus.Request && orders.Any(o => o.ConvertedFromRequestNumber == currentOrder.OrderNumber)) ||
-        (currentOrder.Status == PurchaseOrderStatus.Open && orders.Any(o => o.ConvertedFromPONumber == currentOrder.OrderNumber));
+        (currentOrder.Status == PurchaseOrderStatus.Open && orders.Any(o => o.ConvertedFromPONumber == currentOrder.OrderNumber)));
 
     private int pageSize = 15;
     private int currentOrderPage = 1;
@@ -989,8 +1046,14 @@
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new();
+    private List<UomConversionRule> conversionRules = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
+    private List<WithholdingTax> withholdingTaxes = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
@@ -1020,15 +1083,22 @@
     private string emailSubject = "";
     private string customEmailMessage = "";
 
-    private decimal SubTotal => currentOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+    private decimal SubTotal => currentOrder.Lines.Sum(l => l.LineTotal);
     private decimal DiscountValue => currentOrder.DiscountPercentage > 0 ? SubTotal * (currentOrder.DiscountPercentage / 100) : currentOrder.DiscountAmount;
     private decimal DiscountedSubTotal => SubTotal - DiscountValue;
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
     private decimal TaxAmount => DiscountedSubTotal * (TaxPercentage / 100);
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
+    private decimal WithholdingAmountForeign => IsInvoiceDocument && currentOrder.WithholdingTaxId.HasValue
+        ? DiscountedSubTotal * (currentOrder.WithholdingPercentage / 100m)
+        : 0m;
+    private decimal NetAmountPayableForeign => Math.Max(0, GrandTotalForeign - WithholdingAmountForeign);
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
+    private bool IsInvoiceDocument => currentOrder.Status is PurchaseOrderStatus.DraftInvoice or PurchaseOrderStatus.Invoiced
+        || currentOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
     private Dictionary<Guid, VendorBill> linkedBillsMap = new();
     private Dictionary<Guid, decimal> debitNotesMap = new();
+    private bool canConfigureRoute = false;
 
     private IEnumerable<PurchaseOrder> FilteredRequests => orders
         .Where(o => o.OrderNumber.StartsWith("REQ", StringComparison.OrdinalIgnoreCase))
@@ -1077,6 +1147,7 @@
         {
             currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
+            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
             var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             if (company != null)
             {
@@ -1095,13 +1166,17 @@
         vendors = await MasterService.GetVendorsAsync(currentCompanyId);
         currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
         items = await MasterService.GetItemsAsync(currentCompanyId);
+        uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
+        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
         warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToListAsync();
+        withholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking().Where(t => t.CompanyId == currentCompanyId).OrderBy(t => t.PercentageValue).ToListAsync();
 
         var rawOrders = await PurchService.GetPOsAsync(currentCompanyId);
         foreach (var po in rawOrders)
         {
-            decimal st = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+            decimal st = po.Lines.Sum(l => l.LineTotal);
             decimal disc = po.DiscountPercentage > 0 ? st * (po.DiscountPercentage / 100) : po.DiscountAmount;
             decimal net = st - disc;
             decimal txAmount = 0;
@@ -1113,6 +1188,12 @@
             po.GrandTotalForeign = net + txAmount;
         }
         orders = rawOrders;
+        var batchIds = orders.Where(o => o.GLBatchId.HasValue).Select(o => o.GLBatchId!.Value).Distinct().ToList();
+        var batchRows = await ctx.GLBatches.AsNoTracking()
+            .Where(b => b.CompanyId == currentCompanyId && batchIds.Contains(b.Id))
+            .Select(b => new { b.Id, b.Status, b.RejectionReason })
+            .ToListAsync();
+        batchMap = batchRows.ToDictionary(b => b.Id, b => new BatchSummary(b.Status, b.RejectionReason));
 
         accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
@@ -1172,7 +1253,22 @@
 
     private void CreateNew()
     {
-        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Today, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
+        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Now, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
+        currencySymbol = "";
+        selectedCurrencyCode = "";
+        currentOrder.Lines.Add(new PurchaseOrderLine());
+        activeTab = 1;
+    }
+
+    private void CreateNewInvoice()
+    {
+        currentOrder = new PurchaseOrder
+        {
+            CompanyId = currentCompanyId,
+            OrderDate = DateTime.Now,
+            ExchangeRate = 1,
+            Status = PurchaseOrderStatus.DraftInvoice
+        };
         currencySymbol = "";
         selectedCurrencyCode = "";
         currentOrder.Lines.Add(new PurchaseOrderLine());
@@ -1194,6 +1290,7 @@
         {
             Id = po.Id,
             CompanyId = po.CompanyId,
+            GLBatchId = po.GLBatchId,
             VendorId = po.VendorId,
             OrderDate = po.OrderDate,
             OrderNumber = po.OrderNumber,
@@ -1204,6 +1301,12 @@
             ExchangeRate = po.ExchangeRate,
             TaxId = po.TaxId,
             TaxGLAccountId = po.TaxGLAccountId,
+            WithholdingTaxId = po.WithholdingTaxId,
+            WithholdingTaxName = po.WithholdingTaxName,
+            WithholdingPercentage = po.WithholdingPercentage,
+            WithholdingAmountForeign = po.WithholdingAmountForeign,
+            WithholdingAmount = po.WithholdingAmount,
+            WithholdingGlAccountId = po.WithholdingGlAccountId,
             DiscountAmount = po.DiscountAmount,
             DiscountPercentage = po.DiscountPercentage,
             DiscountGlAccountId = po.DiscountGlAccountId,
@@ -1220,9 +1323,22 @@
                 PurchaseOrderId = po.Id,
                 ItemId = l.ItemId,
                 QuantityOrdered = l.QuantityOrdered,
-                UnitCost = l.UnitCost
+                UnitCost = l.UnitCost,
+                UomId = l.UomId,
+                UomName = l.UomName,
+                UomConversionFactor = l.UomConversionFactor
             }).ToList()
         };
+        foreach (var line in currentOrder.Lines)
+        {
+            var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+            if (item == null) continue;
+            line.UomId ??= item.UomId;
+            line.UomName = GetItemUoms(item.Id).FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.PrimaryUom?.Name ?? item.UoM;
+            var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id)
+                .ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
+            line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId, itemFactors, ConversionMap);
+        }
         activeTab = 1;
     }
 
@@ -1293,7 +1409,7 @@
 
             if (!showPopupToggle)
             {
-                await JS.InvokeVoidAsync("alert", "Invoice Posted Successfully!");
+                await JS.InvokeVoidAsync("alert", "Invoice submitted for GL review.");
                 showEmailPopup = false;
                 SetActiveTab(3);
                 return;
@@ -1304,7 +1420,7 @@
             emailVendorName = vendor?.Name ?? "Vendor";
             emailVendorAddress = vendor?.Email ?? "";
             emailSubject = $"Purchase Order Processing - {inv.OrderNumber}";
-            customEmailMessage = $"Dear {emailVendorName},\n\nWe have successfully posted the invoice against Purchase Order {inv.OrderNumber}.\n\nPlease find the referenced Purchase Order document attached for your records.\n\nBest Regards,\n{companyName} Procurement Team";
+                customEmailMessage = $"Dear {emailVendorName},\n\nWe have submitted the invoice against Purchase Order {inv.OrderNumber} for accounting review.\n\nPlease find the referenced Purchase Order document attached for your records.\n\nBest Regards,\n{companyName} Procurement Team";
 
             showEmailPopup = true;
         }
@@ -1360,6 +1476,14 @@
         }
     }
 
+    private void OnExchangeRateChanged(decimal rate)
+    {
+        currentOrder.ExchangeRate = Math.Round(rate, 4);
+        RecalculatePrices();
+    }
+
+    private string GetCurrencyCode(Guid currencyId) => currencies.FirstOrDefault(c => c.Id == currencyId)?.CurrencyCode ?? "";
+
     private void OnTaxChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var taxId))
@@ -1375,7 +1499,128 @@
     }
 
     private void AddLine() => currentOrder.Lines.Add(new PurchaseOrderLine());
-    private void UpdateLineItem(PurchaseOrderLine line) { }
+
+    private void UpdateLineItem(PurchaseOrderLine line)
+    {
+        var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+        if (item == null) return;
+
+        line.UomId = item.UomId;
+        line.UomName = item.PrimaryUom?.Name ?? item.UoM;
+        var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id).ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
+        line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId, itemFactors, ConversionMap);
+    }
+
+    private void OnWithholdingChanged(ChangeEventArgs e)
+    {
+        if (!IsInvoiceDocument) return;
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
+        {
+            var selected = withholdingTaxes.FirstOrDefault(x => x.Id == id);
+            currentOrder.WithholdingTaxId = selected?.Id;
+            currentOrder.WithholdingTaxName = selected?.Name;
+            currentOrder.WithholdingPercentage = selected?.PercentageValue ?? 0;
+            currentOrder.WithholdingGlAccountId = selected?.WithholdingGlAccountId;
+        }
+        else
+        {
+            currentOrder.WithholdingTaxId = null;
+            currentOrder.WithholdingTaxName = null;
+            currentOrder.WithholdingPercentage = 0;
+            currentOrder.WithholdingGlAccountId = null;
+        }
+        currentOrder.WithholdingAmountForeign = 0;
+        currentOrder.WithholdingAmount = 0;
+    }
+
+    private IEnumerable<UnitOfMeasure> GetItemUoms(Guid itemId)
+    {
+        var item = items.FirstOrDefault(x => x.Id == itemId);
+        if (item == null) return Enumerable.Empty<UnitOfMeasure>();
+
+        var result = new List<UnitOfMeasure>();
+        if (item.UomId.HasValue)
+            result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
+        else if (!string.IsNullOrWhiteSpace(item.UoM))
+            result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
+
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && result.All(r => r.Id != x.UomId)))
+            result.Add(conversion.Uom ?? uoms.FirstOrDefault(x => x.Id == conversion.UomId) ?? new UnitOfMeasure { Id = conversion.UomId, Name = "UOM" });
+
+        // Global UOM conversion rules also define valid transaction UOMs. Walk
+        // the conversion graph so indirect conversions are available too.
+        if (item.UomId.HasValue)
+        {
+            var reachable = new HashSet<Guid> { item.UomId.Value };
+            var pending = new Queue<Guid>();
+            pending.Enqueue(item.UomId.Value);
+            while (pending.Count > 0)
+            {
+                var current = pending.Dequeue();
+                foreach (var rule in conversionRules.Where(x => x.FromUomId == current || x.ToUomId == current))
+                {
+                    var next = rule.FromUomId == current ? rule.ToUomId : rule.FromUomId;
+                    if (reachable.Add(next)) pending.Enqueue(next);
+                }
+            }
+
+            foreach (var uomId in reachable.Where(x => result.All(r => r.Id != x) && x != item.UomId.Value))
+                result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
+        }
+
+
+        return result;
+    }
+
+    private decimal GetLineFactor(PurchaseOrderLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
+    private decimal GetDisplayedQuantity(PurchaseOrderLine line) => UomConversion.FromBase(line.QuantityOrdered, GetLineFactor(line));
+    private decimal GetDisplayedUnitCost(PurchaseOrderLine line) => UomConversion.PriceFromBase(line.UnitCost, GetLineFactor(line));
+    private string GetUomConversionText(PurchaseOrderLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {GetPrimaryUomName(line.ItemId)} = {1m / GetLineFactor(line):N4} {line.UomName}";
+
+    private string GetUomOptionLabel(Guid itemId, UnitOfMeasure uom)
+    {
+        var item = items.FirstOrDefault(x => x.Id == itemId);
+        if (item == null || item.UomId == uom.Id) return $"{uom.Name} (Primary)";
+        var conversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == uom.Id);
+        var factor = conversion?.ConversionFactorToBase
+            ?? (item.UomId.HasValue ? UomConversion.FactorBetween(item.UomId.Value, uom.Id, ConversionMap) : null);
+        return factor.HasValue
+            ? $"{uom.Name} (1 {GetPrimaryUomName(itemId)} = {factor.Value:N4} {uom.Name})"
+            : uom.Name;
+    }
+
+    private string GetPrimaryUomName(Guid itemId) =>
+        items.FirstOrDefault(x => x.Id == itemId)?.PrimaryUom?.Name
+        ?? items.FirstOrDefault(x => x.Id == itemId)?.UoM
+        ?? "primary";
+
+    private void OnLineUomChanged(PurchaseOrderLine line, ChangeEventArgs e)
+    {
+        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
+        var item = items.FirstOrDefault(x => x.Id == line.ItemId);
+        if (item == null) return;
+
+        line.UomId = selectedId;
+        var baseQuantity = line.QuantityOrdered;
+        var baseCost = line.UnitCost;
+        line.UomName = GetItemUoms(line.ItemId).FirstOrDefault(x => x.Id == selectedId)?.Name ?? UomConversion.NameFor(item, selectedId);
+        var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id).ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
+        line.UomConversionFactor = UomConversion.FactorFor(item, selectedId, itemFactors, ConversionMap);
+        line.QuantityOrdered = baseQuantity;
+        line.UnitCost = baseCost;
+    }
+
+    private void OnLineQuantityChanged(PurchaseOrderLine line, string? value)
+    {
+        if (decimal.TryParse(value, out var quantity) && quantity >= 0)
+            line.QuantityOrdered = UomConversion.ToBase(quantity, GetLineFactor(line));
+    }
+
+    private void OnLineCostChanged(PurchaseOrderLine line, string? value)
+    {
+        if (decimal.TryParse(value, out var cost) && cost >= 0)
+            line.UnitCost = UomConversion.PriceToBase(cost, GetLineFactor(line));
+    }
     private void RecalculatePrices() { StateHasChanged(); }
 
     private async Task OpenRouteModal()
@@ -1431,7 +1676,7 @@
         var vendor = vendors.FirstOrDefault(v => v.Id == printOrder.VendorId);
         var itemNamesMap = items.ToDictionary(i => i.Id, i => i.Name);
 
-        decimal st = printOrder.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+        decimal st = printOrder.Lines.Sum(l => l.LineTotal);
         decimal disc = printOrder.DiscountPercentage > 0 ? st * (printOrder.DiscountPercentage / 100) : printOrder.DiscountAmount;
         decimal taxP = taxes.FirstOrDefault(t => t.Id == printOrder.TaxId)?.Per ?? 0;
         printOrder.GrandTotalForeign = (st - disc) + ((st - disc) * (taxP / 100));

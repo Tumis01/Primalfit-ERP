@@ -1,0 +1,71 @@
+@using Primafit_ERP.Components.Models
+
+<div class="relative">
+    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">@Label</label>
+    @if (SelectedUom != null && !isSearching)
+    {
+        <div class="w-full flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 text-left hover:border-slate-300 transition-colors cursor-pointer" @onclick="EnableSearch">
+            <span class="text-sm font-bold text-slate-900">@SelectedUom.Name</span>
+            <div class="flex items-center gap-2">
+                <button type="button" class="text-xs font-bold text-slate-400 hover:text-rose-600" @onclick="Clear" @onclick:stopPropagation="true">Clear</button>
+                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" /></svg>
+            </div>
+        </div>
+    }
+    else
+    {
+        <input @bind="searchTerm" @bind:event="oninput" @onfocus="() => showDropdown = true" @onblur="OnBlur" class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-100" placeholder="Search unit of measure..." />
+        @if (showDropdown)
+        {
+            <div class="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                @foreach (var uom in FilteredUoms)
+                {
+                    <button type="button" class="block w-full border-b border-slate-50 px-4 py-2 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50" @onmousedown="() => Select(uom)">@uom.Name</button>
+                }
+                @if (!FilteredUoms.Any())
+                {
+                    <div class="p-4 text-center text-xs italic text-slate-400">No matching units found.</div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Conversion Target";
+    [Parameter] public List<UnitOfMeasure> Units { get; set; } = new();
+    [Parameter] public Guid? Value { get; set; }
+    [Parameter] public EventCallback<Guid?> ValueChanged { get; set; }
+
+    private string searchTerm = string.Empty;
+    private bool isSearching;
+    private bool showDropdown;
+    private UnitOfMeasure? SelectedUom => Value.HasValue ? Units.FirstOrDefault(x => x.Id == Value.Value) : null;
+    private IEnumerable<UnitOfMeasure> FilteredUoms => string.IsNullOrWhiteSpace(searchTerm)
+        ? Units.Take(20)
+        : Units.Where(x => x.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+
+    private void EnableSearch()
+    {
+        isSearching = true;
+        showDropdown = true;
+        searchTerm = string.Empty;
+    }
+
+    private async Task Select(UnitOfMeasure uom)
+    {
+        await ValueChanged.InvokeAsync(uom.Id);
+        searchTerm = string.Empty;
+        isSearching = false;
+        showDropdown = false;
+    }
+
+    private async Task Clear() => await ValueChanged.InvokeAsync(null);
+
+    private async Task OnBlur()
+    {
+        await Task.Delay(150);
+        showDropdown = false;
+        isSearching = false;
+    }
+}

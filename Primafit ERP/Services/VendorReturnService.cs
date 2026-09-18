@@ -53,9 +53,14 @@ namespace Primafit_ERP.Services
 
             var paymentsMap = await (from p in ctx.Set<VendorPayment>()
                                      join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                     join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                     from batch in paymentBatches.DefaultIfEmpty()
                                      where b.PurchaseOrderId.HasValue
                                            && orderIds.Contains(b.PurchaseOrderId.Value)
                                            && b.IsPosted
+                                           // New payments become refundable only after their
+                                           // review batch is approved. Null batch supports legacy data.
+                                           && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
                                            && p.Amount > 0
                                      group p by b.PurchaseOrderId!.Value into g
                                      select new { OrderId = g.Key, TotalPaidBase = g.Sum(x => x.Amount) })
@@ -173,6 +178,9 @@ namespace Primafit_ERP.Services
                         Id = Guid.NewGuid(),
                         HeaderId = vendorReturn.Id,
                         ItemId = poLine.ItemId,
+                        UomId = poLine.UomId,
+                        UomName = poLine.UomName,
+                        UomConversionFactor = poLine.UomConversionFactor,
                         PurchaseOrderLineId = poLine.Id,
                         Quantity = 0,
                         UnitCost = poLine.UnitCost,
@@ -251,12 +259,26 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(r => r.Id == returnId);
 
                 if (vReturn == null) return "Vendor return parameters not found.";
-                if (vReturn.Status == VendorReturnStatus.Posted) return "Document is already posted and locked.";
+                if (vReturn.Status == VendorReturnStatus.Posted)
+                {
+                    var existingBatch = vReturn.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == vReturn.GlBatchId.Value && b.CompanyId == vReturn.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (vReturn.PurchaseOrder == null) return "Parent purchase order reference mapping is missing.";
 
                 var po = vReturn.PurchaseOrder;
                 var glLines = new List<GLJournalLine>();
                 decimal rate = vReturn.ExchangeRate > 0 ? vReturn.ExchangeRate : 1;
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == vReturn.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == vReturn.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
 
                 TransactionGlMapping? customMapping = null;
                 if (vReturn.CustomTransactionTypeId.HasValue)
@@ -311,6 +333,20 @@ namespace Primafit_ERP.Services
                         var poLine = po.Lines.FirstOrDefault(pl => pl.Id == line.PurchaseOrderLineId);
                         if (poLine == null) return $"Line mapping error for product reference {line.Item.Name}.";
 
+                        var factorsForItem = itemFactors.Where(x => x.Key.ItemId == line.ItemId)
+                            .ToDictionary(x => x.Key.UomId, x => x.Value);
+                        if (line.UomId.HasValue && line.UomId != line.Item.UomId
+                            && !factorsForItem.ContainsKey(line.UomId.Value)
+                            && (!line.Item.UomId.HasValue || !UomConversion.FactorBetween(line.Item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                            return $"Posting Aborted: The selected UOM for '{line.Item.Name}' is not configured.";
+                        var expectedFactor = UomConversion.FactorFor(line.Item, line.UomId, factorsForItem, conversionMap);
+                        if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                            return $"Posting Aborted: Invalid UOM conversion selected for '{line.Item.Name}'. Reload the return and try again.";
+                        line.UomConversionFactor = expectedFactor;
+                        line.UomName = string.IsNullOrWhiteSpace(line.UomName)
+                            ? UomConversion.NameFor(line.Item, line.UomId)
+                            : line.UomName.Trim();
+
                         decimal totalRec = totalReceivedMap.TryGetValue(line.PurchaseOrderLineId, out var rQty) ? rQty : 0;
                         decimal alreadyRet = historicalQtyReturnsMap.TryGetValue(line.PurchaseOrderLineId, out var q) ? q : 0;
                         decimal maxAllowedReturn = totalRec - alreadyRet;
@@ -333,6 +369,10 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             WarehouseId = vReturn.WarehouseId.Value,
                             QuantityChanged = -line.Quantity,
+                            UomId = line.UomId,
+                            UomName = line.UomName,
+                            UomConversionFactor = line.UomConversionFactor,
+                            QuantityInUom = UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                             Type = StockMovementType.PurchaseReturn,
                             CostAtTime = poLine.UnitCost,
                             Reference = vReturn.ReturnNumber,
@@ -398,7 +438,38 @@ namespace Primafit_ERP.Services
                     if (creditApAccount == Guid.Empty)
                         return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
-                    decimal cashRefundBase = Math.Round(vReturn.TotalAmount * rate, 2);
+                    // Recalculate the cash ceiling from approved payments at posting time.
+                    // The UI value is only a convenience and must not be trusted for accounting.
+                    var approvedPaymentTotals = await (from p in ctx.Set<VendorPayment>()
+                                                       join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                                       join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                                       from batch in paymentBatches.DefaultIfEmpty()
+                                                       where b.PurchaseOrderId == po.Id
+                                                             && b.IsPosted
+                                                             && p.Amount > 0
+                                                             && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
+                                                       group p by b.PurchaseOrderId into g
+                                                       select new
+                                                       {
+                                                           CashPaidBase = g.Sum(x => x.Amount),
+                                                           GrossSettledBase = g.Sum(x => x.Amount + x.WithholdingAmount)
+                                                       }).FirstOrDefaultAsync();
+
+                    decimal approvedCashPaidForeign = Math.Round((approvedPaymentTotals?.CashPaidBase ?? 0) / rate, 4);
+                    decimal priorRefundedForeign = await ctx.VendorReturns
+                        .Where(r => r.PurchaseOrderId == po.Id
+                                 && r.Id != vReturn.Id
+                                 && r.Status == VendorReturnStatus.Posted
+                                 && (r.ReturnType == VendorReturnType.PaymentOnly || r.ReturnType == VendorReturnType.Both))
+                        .SumAsync(r => r.TotalAmount);
+                    decimal maxRefundableForeign = Math.Max(0, approvedCashPaidForeign - priorRefundedForeign);
+
+                    if (vReturn.TotalAmount <= 0)
+                        return "Posting Aborted: Cash refund amount must be greater than zero.";
+                    if (vReturn.TotalAmount > maxRefundableForeign + 0.0001m)
+                        return $"Posting Aborted: Cash refund ({vReturn.TotalAmount:N4}) exceeds the remaining cash actually paid ({maxRefundableForeign:N4}). The limit is net of withholding tax.";
+
+                    decimal cashRefundBase = Math.Round(vReturn.TotalAmount * rate, 4);
 
                     if (cashRefundBase > 0)
                     {
@@ -437,7 +508,8 @@ namespace Primafit_ERP.Services
                     "Vendor Return",
                     vReturn.ReturnNumber,
                     glLines,
-                    userId.ToString());
+                    userId.ToString(),
+                    existingBatchId: vReturn.GlBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(vReturn.CompanyId, batchId.Value, userId.ToString());
@@ -468,9 +540,14 @@ namespace Primafit_ERP.Services
             var existing = await ctx.VendorReturns.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == vReturn.Id);
 
             if (existing == null) return "Vendor return tracking record not found.";
-            if (existing.Status == VendorReturnStatus.Posted) return "Cannot edit locked records.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == VendorReturnStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot edit locked records.";
 
             existing.Date = vReturn.Date;
+            existing.TransactionDateTime = vReturn.TransactionDateTime;
             existing.Reason = vReturn.Reason;
             existing.ReturnType = vReturn.ReturnType;
             existing.BankAccountId = vReturn.BankAccountId;
@@ -490,6 +567,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     PurchaseOrderLineId = line.PurchaseOrderLineId,
                     Quantity = line.Quantity,
                     UnitCost = line.UnitCost
@@ -513,19 +593,32 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<CashRefundSummaryDto> GetCashRefundSummaryAsync(Guid orderId, Guid currentReturnId)
+        public async Task<VendorCashRefundSummaryDto> GetCashRefundSummaryAsync(Guid orderId, Guid currentReturnId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             var po = await ctx.PurchaseOrders.FindAsync(orderId);
             decimal rate = po?.ExchangeRate > 0 ? po.ExchangeRate : 1;
 
-            decimal totalPaidBase = await (from p in ctx.Set<VendorPayment>()
-                                           join b in ctx.VendorBills on p.VendorBillId equals b.Id
-                                           where b.PurchaseOrderId == orderId && b.IsPosted && p.Amount > 0
-                                           select p.Amount).SumAsync();
+            var approvedPaymentTotals = await (from p in ctx.Set<VendorPayment>()
+                                               join b in ctx.VendorBills on p.VendorBillId equals b.Id
+                                               join batch in ctx.GLBatches on p.GLBatchId equals batch.Id into paymentBatches
+                                               from batch in paymentBatches.DefaultIfEmpty()
+                                               where b.PurchaseOrderId == orderId
+                                                     && b.IsPosted
+                                                     && p.Amount > 0
+                                                     && (!p.GLBatchId.HasValue || batch.Status == BatchStatus.Posted)
+                                               group p by b.PurchaseOrderId into g
+                                               select new
+                                               {
+                                                   CashPaidBase = g.Sum(x => x.Amount),
+                                                   GrossSettledBase = g.Sum(x => x.Amount + x.WithholdingAmount),
+                                                   WithholdingPaidBase = g.Sum(x => x.WithholdingAmount)
+                                               }).FirstOrDefaultAsync();
 
-            decimal totalPaidForeign = Math.Round(totalPaidBase / rate, 2);
+            decimal totalPaidForeign = Math.Round((approvedPaymentTotals?.CashPaidBase ?? 0) / rate, 4);
+            decimal grossSettledForeign = Math.Round((approvedPaymentTotals?.GrossSettledBase ?? 0) / rate, 4);
+            decimal withholdingPaidForeign = Math.Round((approvedPaymentTotals?.WithholdingPaidBase ?? 0) / rate, 4);
 
             decimal priorRefunded = await ctx.VendorReturns
                 .Where(r => r.PurchaseOrderId == orderId
@@ -534,12 +627,25 @@ namespace Primafit_ERP.Services
                          && (r.ReturnType == VendorReturnType.PaymentOnly || r.ReturnType == VendorReturnType.Both))
                 .SumAsync(r => r.TotalAmount);
 
-            return new CashRefundSummaryDto
+            return new VendorCashRefundSummaryDto
             {
                 TotalPaid = totalPaidForeign,
+                GrossSettlementPaid = grossSettledForeign,
+                WithholdingPaid = withholdingPaidForeign,
                 PriorCashRefunded = priorRefunded,
                 MaxRefundable = Math.Max(0, totalPaidForeign - priorRefunded)
             };
         }
+    }
+
+    // AP-only summary. This is deliberately separate from the AR/Sales
+    // receipt-refund summary so withholding-tax data cannot enter that module.
+    public class VendorCashRefundSummaryDto
+    {
+        public decimal TotalPaid { get; set; }
+        public decimal GrossSettlementPaid { get; set; }
+        public decimal WithholdingPaid { get; set; }
+        public decimal PriorCashRefunded { get; set; }
+        public decimal MaxRefundable { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-﻿@page "/reports/customer-statement"
+@page "/reports/customer-statement"
 
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
@@ -232,7 +232,7 @@
     private string FormatMoney(decimal value)
     {
         return value < 0
-            ? $"({Math.Abs(value):N2})"
-            : value.ToString("N2");
+            ? $"({Math.Abs(value):N4})"
+            : value.ToString("N4");
     }
 }

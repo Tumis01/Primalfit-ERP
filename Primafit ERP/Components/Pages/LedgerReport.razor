@@ -1,4 +1,4 @@
-﻿@page "/reports/general-ledger"
+@page "/reports/general-ledger"
 @using Microsoft.EntityFrameworkCore
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -155,7 +155,7 @@
                                         <td colspan="2" class="p-3 pr-6 text-right font-bold text-slate-600 text-xs uppercase tracking-wider">
                                             Opening Balance:
                                             <span class="font-mono text-sm ml-2 text-slate-800">
-                                                @(opBal < 0 ? $"({Math.Abs(opBal):N2})" : opBal.ToString("N2"))
+                                                @(opBal < 0 ? $"({Math.Abs(opBal):N4})" : opBal.ToString("N4"))
                                             </span>
                                         </td>
                                     }
@@ -168,10 +168,10 @@
                                         <td class="p-3 font-mono text-xs text-indigo-600 font-bold">@r.JournalNumber</td>
                                         <td class="p-3 text-slate-700">@r.Narration</td>
                                         <td class="p-3 text-right font-mono text-slate-600">
-                                            @(r.Debit > 0 ? r.Debit.ToString("N2") : "-")
+                                            @(r.Debit > 0 ? r.Debit.ToString("N4") : "-")
                                         </td>
                                         <td class="p-3 pr-6 text-right font-mono text-slate-600">
-                                            @(r.Credit > 0 ? r.Credit.ToString("N2") : "-")
+                                            @(r.Credit > 0 ? r.Credit.ToString("N4") : "-")
                                         </td>
                                     </tr>
                                 }
@@ -181,10 +181,10 @@
                                         Period Movement (@group.Key.AccountCode)
                                     </td>
                                     <td class="p-2 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
-                                        @totalDr.ToString("N2")
+                                        @totalDr.ToString("N4")
                                     </td>
                                     <td class="p-2 pr-6 text-right font-mono font-bold text-slate-800 text-xs border-t border-slate-100">
-                                        @totalCr.ToString("N2")
+                                        @totalCr.ToString("N4")
                                     </td>
                                 </tr>
 
@@ -195,7 +195,7 @@
                                             Closing Balance (@group.Key.AccountName)
                                         </td>
                                         <td colspan="2" class="p-3 pr-6 text-right font-mono font-black text-slate-900 text-sm border-t border-slate-200">
-                                            @(closeBal < 0 ? $"({Math.Abs(closeBal):N2})" : closeBal.ToString("N2"))
+                                            @(closeBal < 0 ? $"({Math.Abs(closeBal):N4})" : closeBal.ToString("N4"))
                                         </td>
                                     </tr>
                                 }
@@ -206,10 +206,10 @@
                                     Grand Total Movement
                                 </td>
                                 <td class="p-4 text-right font-mono font-bold text-slate-900 text-sm">
-                                    @rows.Sum(x => x.Debit).ToString("N2")
+                                    @rows.Sum(x => x.Debit).ToString("N4")
                                 </td>
                                 <td class="p-4 pr-6 text-right font-mono font-bold text-slate-900 text-sm">
-                                    @rows.Sum(x => x.Credit).ToString("N2")
+                                    @rows.Sum(x => x.Credit).ToString("N4")
                                 </td>
                             </tr>
                         }

@@ -67,7 +67,8 @@ namespace Primafit_ERP.Services
                     if (headerUpper.Contains("AMOUNT") || headerUpper.Contains("BALANCE") ||
                         headerUpper.Contains("VALUE") || headerUpper.Contains("DEBIT") ||
                         headerUpper.Contains("CREDIT") || headerUpper.Contains("TOTAL") ||
-                        headerUpper.Contains("QTY"))
+                        headerUpper.Contains("QTY") || headerUpper.Contains("QUANTITY") ||
+                        headerUpper.Contains("PRICE") || headerUpper.Contains("COST"))
                     {
                         isNumericColumn[i] = true;
                         columnWidths[i] = 2.5f;
@@ -210,7 +211,8 @@ namespace Primafit_ERP.Services
                     isNumericColumn[i] = h.Contains("AMOUNT") || h.Contains("BALANCE") ||
                                          h.Contains("VALUE") || h.Contains("DEBIT") ||
                                          h.Contains("CREDIT") || h.Contains("TOTAL") ||
-                                         h.Contains("QTY");
+                                         h.Contains("QTY") || h.Contains("QUANTITY") ||
+                                         h.Contains("PRICE") || h.Contains("COST");
 
                     var cell = worksheet.Cell(currentRow, i + 1);
                     cell.Value = data.Headers[i];
@@ -569,7 +571,7 @@ namespace Primafit_ERP.Services
                 // FIXED: Use the dictionary to look up the item name safely!
                 string itemName = itemNames.ContainsKey(line.ItemId) ? itemNames[line.ItemId] : "Unknown Item";
 
-                decimal lineTotal = line.QuantityOrdered * line.UnitCost;
+                decimal lineTotal = line.LineTotal;
                 subTotal += lineTotal;
 
                 itemTable.AddCell(new Cell().Add(new Paragraph(itemName)).SetPadding(5));
@@ -660,7 +662,7 @@ namespace Primafit_ERP.Services
                 // FIX: Look at the line description directly, since it was moved from the header
                 string lineDescription = string.IsNullOrWhiteSpace(line.Description) ? "Expense / Ad-Hoc Service" : line.Description;
 
-                decimal lineTotal = line.QuantityBilled * line.UnitCostBilled;
+                decimal lineTotal = line.LineTotal;
                 subTotal += lineTotal;
 
                 itemTable.AddCell(new Cell().Add(new Paragraph(lineDescription)).SetPadding(5));

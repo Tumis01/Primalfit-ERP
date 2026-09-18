@@ -1,4 +1,4 @@
-﻿@page "/hr/master-data"
+@page "/hr/master-data"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -173,10 +173,10 @@
                             {
                                 <tr class="hover:bg-slate-50 transition-colors group">
                                     <td class="p-3 pl-4 font-bold text-slate-900">@s.Name</td>
-                                    <td class="p-3 font-bold text-emerald-600">@s.GrossMonthlyPay.ToString("N2")</td>
-                                    <td class="p-3 text-right font-mono text-slate-600">@s.BasicSalary.ToString("N2")</td>
-                                    <td class="p-3 text-right font-mono text-slate-600">@s.HousingAllowance.ToString("N2")</td>
-                                    <td class="p-3 text-right font-mono text-slate-600">@s.TransportAllowance.ToString("N2")</td>
+                                    <td class="p-3 font-bold text-emerald-600">@s.GrossMonthlyPay.ToString("N4")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.BasicSalary.ToString("N4")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.HousingAllowance.ToString("N4")</td>
+                                    <td class="p-3 text-right font-mono text-slate-600">@s.TransportAllowance.ToString("N4")</td>
                                     <td class="p-3 text-center">
                                         <div class="flex flex-col items-center gap-1 text-[10px] uppercase font-bold">
                                             @if(s.IsTaxable) { <span class="text-rose-500">PAYE ✓</span> } else { <span class="text-slate-300">NO PAYE</span> }

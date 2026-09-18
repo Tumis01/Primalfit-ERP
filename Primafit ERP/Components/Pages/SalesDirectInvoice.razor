@@ -1,4 +1,4 @@
-﻿@page "/ar/direct-invoices"
+@page "/ar/direct-invoices"
 
 @using Microsoft.EntityFrameworkCore
 @using PrimafitERP.Data
@@ -61,20 +61,27 @@
                         {
                             <span class="px-2.5 py-1 bg-slate-200 text-slate-700 font-mono text-xs rounded-lg font-bold">@invoice.OrderNumber</span>
                         }
-                        @if (IsLocked)
+                        @if (IsCurrentOrderPosted)
                         {
-                            <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded uppercase tracking-wider">Posted (Read-Only)</span>
+                            <span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-lg uppercase tracking-wider">Posted (Read-Only)</span>
+                        }
+                        else if (IsCurrentOrderRejected)
+                        {
+                            <span class="px-2.5 py-1 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-lg uppercase tracking-wider animate-pulse">Rejected</span>
+                        }
+                        else if (IsCurrentOrderStaged)
+                        {
+                            <span class="px-2.5 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-lg uppercase tracking-wider">Staged (Review)</span>
                         }
                         else
                         {
-                            <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded uppercase tracking-wider">Draft</span>
+                            <span class="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-lg uppercase tracking-wider">Draft</span>
                         }
                     </div>
 
                     <div class="flex items-center gap-3">
-                        @if (!IsLocked)
+                        @if (!IsLocked && canConfigureRoute)
                         {
-                            <!-- Configure Route Button -->
                             <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                                 <span>Configure Route</span>
@@ -86,6 +93,22 @@
                         }
                     </div>
                 </div>
+
+                <!-- Rejection Alert Banner -->
+                @if (IsCurrentOrderRejected)
+                {
+                    <div class="mx-6 md:mx-8 mt-6 p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 animate-in fade-in">
+                        <svg class="w-5 h-5 text-rose-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-wider text-rose-800 block">Reviewer Rejection Notice</span>
+                            <p class="text-xs text-rose-700 mt-0.5 leading-relaxed">
+                                @(CurrentOrderBatchInfo?.RejectionReason ?? "This direct invoice was rejected by a reviewer. Please make adjustments and re-submit to the GL queue.")
+                            </p>
+                        </div>
+                    </div>
+                }
 
                 <EditForm Model="invoice">
                     <DataAnnotationsValidator />
@@ -105,22 +128,16 @@
 
                             <div>
                                 <label class="label">Invoice Date</label>
-                                <input type="date" value="@invoice.Date.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateOnly.TryParse(e.Value?.ToString(), out var d)) invoice.Date = d; })" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" value="@invoice.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { invoice.TransactionDateTime = d; invoice.Date = DateOnly.FromDateTime(d); } })" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
-                            <div>
-                                <label class="label">Currency & Rate</label>
-                                <div class="flex gap-2">
-                                    <select value="@invoice.CurrencyId" class="input-class w-1/3 bg-slate-100 text-slate-500 font-bold cursor-not-allowed px-2" disabled>
-                                        <option value="@Guid.Empty">N/A</option>
-                                        @foreach (var c in currencies)
-                                        {
-                                            <option value="@c.Id">@c.CurrencyCode</option>
-                                        }
-                                    </select>
-                                    <input type="number" step="0.01" @bind="invoice.ExchangeRate" class="input-class w-2/3 text-right font-mono font-bold bg-white" disabled="@IsLocked" />
-                                </div>
-                            </div>
+                            <ExchangeRatePicker CompanyId="@selectedCompanyId"
+                                                 CurrencyId="@invoice.CurrencyId"
+                                                 CurrencyCode="@GetCurrencyCode(invoice.CurrencyId)"
+                                                 CompanyBaseCurrency="@companyBaseCurrency"
+                                                 CurrentRate="@invoice.ExchangeRate"
+                                                 CurrentRateChanged="OnExchangeRateChanged"
+                                                 Disabled="@IsLocked" />
 
                             <div>
                                 <label class="label">Tax / VAT</label>
@@ -154,13 +171,13 @@
                                                 <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Monthly Retainer Services" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                                <input type="number"   min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number"   min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
-                                                @((line.Quantity * line.UnitPrice).ToString("N2"))
+                                                @((line.Quantity * line.UnitPrice).ToString("N4"))
                                             </td>
                                             <td class="p-2 text-center align-top pt-5">
                                                 @if (!IsLocked)
@@ -194,13 +211,13 @@
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="label text-[10px]">Percentage (%)</label>
-                                        <input type="number" min="0" max="100" @bind="invoice.DiscountPercentage"
+                                        <input type="number"   min="0" max="100" @bind="invoice.DiscountPercentage"
                                                @bind:after="() => { if (invoice.DiscountPercentage > 0) invoice.DiscountAmount = 0; }"
                                                class="input-class text-center font-bold text-rose-600 border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
                                     <div>
                                         <label class="label text-[10px]">Flat Amount (@currencySymbol)</label>
-                                        <input type="number" min="0" @bind="invoice.DiscountAmount"
+                                        <input type="number"   min="0" @bind="invoice.DiscountAmount"
                                                @bind:after="() => { if (invoice.DiscountAmount > 0) invoice.DiscountPercentage = 0; }"
                                                class="input-class text-right font-mono border-rose-200 focus:border-rose-500" disabled="@IsLocked" />
                                     </div>
@@ -210,23 +227,27 @@
                             <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
                                 <div class="flex justify-between">
                                     <span>Subtotal:</span>
-                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
+                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between items-center text-rose-600 border-b border-slate-200 pb-2">
                                     <span>Discount:</span>
-                                    <span class="font-mono font-bold">- @DiscountForeign.ToString("N2")</span>
+                                    <span class="font-mono font-bold">- @DiscountForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between items-center pt-1">
+                                    <span>Net Subtotal:</span>
+                                    <span class="font-mono font-bold">@DiscountedSubTotal.ToString("N4")</span>
+                                </div>
+                                <div class="flex justify-between items-center">
                                     <span>Tax (@TaxPercentage%):</span>
-                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
+                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
                                     <span class="font-bold">Total (@currencySymbol):</span>
-                                    <span class="font-mono font-black text-emerald-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                                    <span class="font-mono font-black text-emerald-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
                                     <span>Ledger Base Value:</span>
-                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N4")</span>
                                 </div>
                             </div>
                         </div>
@@ -277,7 +298,7 @@
                                             {
                                                 <span class="animate-spin">↻</span>
                                             }
-                                            <span>Post Invoice</span>
+                                            <span>@(IsCurrentOrderStaged ? "Update Staged Invoice" : (IsCurrentOrderRejected ? "Resubmit to GL Review" : "Submit Invoice to GL Queue"))</span>
                                         </button>
                                     </Authorized>
                                 </PermissionGate>
@@ -317,30 +338,53 @@
                         {
                             @foreach (var pInv in pastInvoices)
                             {
-                                bool isInvPosted = pInv.Status == OrderStatus.Invoiced || pInv.Status == OrderStatus.PartiallyInvoiced || pInv.InvoiceBatchId.HasValue;
+                                var batchInfo = pInv.InvoiceBatchId.HasValue && batchMap.TryGetValue(pInv.InvoiceBatchId.Value, out var b) ? b : null;
+                                bool isGlCommitted = batchInfo?.Status == BatchStatus.Posted;
+                                bool isRejected = batchInfo?.Status == BatchStatus.Rejected;
+                                bool isStaged = batchInfo?.Status == BatchStatus.Ready;
 
                                 <tr class="hover:bg-slate-50 transition-colors align-middle">
-                                    <td class="p-4 pl-6 whitespace-nowrap">@pInv.Date.ToString("MMM dd, yyyy")</td>
+                                    <td class="p-4 pl-6 whitespace-nowrap">@pInv.TransactionDateTime.ToString("MMM dd, yyyy HH:mm")</td>
                                     <td class="p-4 font-mono text-slate-600 font-semibold whitespace-nowrap">@pInv.OrderNumber</td>
                                     <td class="p-4 font-bold text-slate-800">@(pInv.Customer?.Name ?? "Unknown")</td>
                                     <td class="p-4 text-slate-500 max-w-xs truncate" title="@(pInv.Lines.FirstOrDefault()?.Description)">
                                         @(pInv.Lines.FirstOrDefault()?.Description ?? "Direct AR Invoice")
                                     </td>
                                     <td class="p-4 text-right font-mono font-bold text-slate-700">
-                                        @((pInv.GrandTotalForeign * (pInv.ExchangeRate > 0 ? pInv.ExchangeRate : 1)).ToString("N2"))
+                                        @((pInv.GrandTotalForeign * (pInv.ExchangeRate > 0 ? pInv.ExchangeRate : 1)).ToString("N4"))
                                     </td>
+
+                                    <!-- Status Column with Staging Support -->
                                     <td class="p-4 text-center">
-                                        @if (isInvPosted)
+                                        @if (isGlCommitted)
                                         {
-                                            <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded uppercase tracking-wider">Posted</span>
+                                            <span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                                Posted
+                                            </span>
+                                        }
+                                        else if (isRejected)
+                                        {
+                                            <span class="px-2.5 py-1 bg-rose-100 text-rose-800 text-[10px] font-bold rounded-full uppercase tracking-wider animate-pulse" title="@batchInfo?.RejectionReason">
+                                                Rejected
+                                            </span>
+                                        }
+                                        else if (isStaged)
+                                        {
+                                            <span class="px-2.5 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                                Staged (Review)
+                                            </span>
                                         }
                                         else
                                         {
-                                            <span class="px-2 py-1 bg-amber-100 text-amber-800 text-[10px] font-bold rounded uppercase tracking-wider">Draft</span>
+                                            <span class="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                                Draft
+                                            </span>
                                         }
                                     </td>
+
+                                    <!-- Actions Column -->
                                     <td class="p-4 pr-6 text-center space-x-2 whitespace-nowrap">
-                                        @if (isInvPosted)
+                                        @if (isGlCommitted)
                                         {
                                             <button type="button" @onclick="() => LoadInvoiceForView(pInv)" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 text-xs font-bold transition-colors">
                                                 View
@@ -375,7 +419,7 @@
                                             <PermissionGate Key="SALES_INVOICE_POST">
                                                 <Authorized>
                                                     <button type="button" @onclick="() => PostDraftFromList(pInv)" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-bold transition-colors shadow-sm">
-                                                        Post Invoice
+                                                        @(isStaged ? "Update Staging" : (isRejected ? "Resubmit Invoice" : "Submit Invoice"))
                                                     </button>
                                                 </Authorized>
                                             </PermissionGate>
@@ -666,7 +710,20 @@
     private Guid defaultDiscountAccountId = Guid.Empty;
 
     private string currencySymbol = "";
-    private bool IsLocked => invoice.Status == OrderStatus.Invoiced || invoice.Status == OrderStatus.PartiallyInvoiced || invoice.InvoiceBatchId.HasValue;
+    private string companyBaseCurrency = "BASE";
+
+    // Cache batch status and rejection details by batch ID
+    private record BatchSummary(BatchStatus Status, string? RejectionReason);
+    private Dictionary<Guid, BatchSummary> batchMap = new();
+
+    private BatchSummary? CurrentOrderBatchInfo =>
+        invoice.InvoiceBatchId.HasValue && batchMap.TryGetValue(invoice.InvoiceBatchId.Value, out var b) ? b : null;
+
+    private bool IsCurrentOrderPosted => CurrentOrderBatchInfo?.Status == BatchStatus.Posted;
+    private bool IsCurrentOrderStaged => CurrentOrderBatchInfo?.Status == BatchStatus.Ready;
+    private bool IsCurrentOrderRejected => CurrentOrderBatchInfo?.Status == BatchStatus.Rejected;
+
+    private bool IsLocked => IsCurrentOrderPosted;
 
     // Email Modal Backing Fields
     private bool showEmailPopup = false;
@@ -681,10 +738,12 @@
     private decimal SubTotalForeign => invoice.Lines.Sum(l => l.Quantity * l.UnitPrice);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == invoice.TaxId)?.Per ?? 0;
     private decimal DiscountForeign => invoice.DiscountPercentage > 0 ? SubTotalForeign * (invoice.DiscountPercentage / 100) : invoice.DiscountAmount;
-    private decimal TaxAmountForeign => (SubTotalForeign - DiscountForeign) * (TaxPercentage / 100);
-    private decimal GrandTotalForeign => (SubTotalForeign - DiscountForeign) + TaxAmountForeign;
+    private decimal DiscountedSubTotal => SubTotalForeign - DiscountForeign;
+    private decimal TaxAmountForeign => DiscountedSubTotal * (TaxPercentage / 100);
+    private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmountForeign;
     private decimal GrandTotalBase => invoice.ExchangeRate == 0 ? 0 : GrandTotalForeign * invoice.ExchangeRate;
     private string currentUserId = "";
+    private bool canConfigureRoute = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -697,6 +756,7 @@
         {
             currentUserId = user.Id;
             selectedCompanyId = user.CompanyDetailsId.Value;
+            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(selectedCompanyId);
             await LoadData();
         }
         isLoading = false;
@@ -705,6 +765,18 @@
     private async Task LoadData()
     {
         await using var ctx = await DbFactory.CreateDbContextAsync();
+
+        var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+        companyBaseCurrency = company?.BaseCurrency ?? "BASE";
+
+        // Populate Batch Status Map for all batches in the current company
+        var batches = await ctx.GLBatches
+            .AsNoTracking()
+            .Where(b => b.CompanyId == selectedCompanyId)
+            .Select(b => new { b.Id, b.Status, b.RejectionReason })
+            .ToListAsync();
+
+        batchMap = batches.ToDictionary(b => b.Id, b => new BatchSummary(b.Status, b.RejectionReason));
 
         customers = await ctx.Customers.Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
@@ -753,7 +825,8 @@
         invoice = new SalesOrder
         {
             CompanyId = selectedCompanyId,
-            Date = DateOnly.FromDateTime(DateTime.Today),
+            Date = DateOnly.FromDateTime(DateTime.Now),
+            TransactionDateTime = DateTime.Now,
             ExchangeRate = 1,
             Status = OrderStatus.Draft,
             IsDirectInvoice = true,
@@ -833,6 +906,13 @@
         }
     }
 
+    private void OnExchangeRateChanged(decimal rate)
+    {
+        invoice.ExchangeRate = Math.Round(rate, 4);
+    }
+
+    private string GetCurrencyCode(Guid currencyId) => currencies.FirstOrDefault(c => c.Id == currencyId)?.CurrencyCode ?? "";
+
     private void OnTaxChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var taxId) && taxId != Guid.Empty)
@@ -850,9 +930,37 @@
 
     private async Task SaveDraftInvoice()
     {
-        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
-        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
-        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "All lines must have a Description / Service Rendered."); return; }
+        // 1. Mandatory Input Validation
+        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Validation Error: Please select a Customer."); return; }
+        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Validation Error: Please add at least one line item."); return; }
+        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "Validation Error: All lines must have a Description / Service Rendered."); return; }
+        if (invoice.Lines.Any(l => l.Quantity <= 0)) { await JS.InvokeVoidAsync("alert", "Validation Error: All line quantities must be greater than zero."); return; }
+        if (invoice.Lines.Any(l => l.UnitPrice < 0)) { await JS.InvokeVoidAsync("alert", "Validation Error: Unit prices cannot be negative."); return; }
+        if (GrandTotalForeign <= 0) { await JS.InvokeVoidAsync("alert", "Validation Error: Total invoice amount must be greater than zero."); return; }
+
+        // A non-posted invoice with a linked batch is already in the review flow.
+        // Save Draft must refresh that batch, just like Update Staged Invoice.
+        if (invoice.InvoiceBatchId.HasValue && !IsCurrentOrderPosted)
+        {
+            isBusy = true;
+            StateHasChanged();
+            var stagingError = await SalesService.PostDirectInvoiceAsync(invoice, currentUserId);
+            if (string.IsNullOrEmpty(stagingError))
+            {
+                await LoadData();
+                showForm = false;
+                await JS.InvokeVoidAsync("alert", "Draft changes saved and the General Ledger review batch was updated.");
+                ResetForm(defaultIncomeGlAccountId);
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", stagingError);
+            }
+
+            isBusy = false;
+            StateHasChanged();
+            return;
+        }
 
         isBusy = true;
         StateHasChanged();
@@ -862,7 +970,6 @@
             await using var ctx = await DbFactory.CreateDbContextAsync();
 
             invoice.IsDirectInvoice = true;
-            invoice.Status = OrderStatus.Draft;
 
             if (string.IsNullOrWhiteSpace(invoice.OrderNumber))
             {
@@ -880,6 +987,7 @@
             if (existing == null)
             {
                 if (invoice.Id == Guid.Empty) invoice.Id = Guid.NewGuid();
+                invoice.Status = OrderStatus.Draft;
                 foreach (var line in invoice.Lines)
                 {
                     if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
@@ -889,13 +997,16 @@
             }
             else
             {
-                if (existing.Status == OrderStatus.Invoiced || existing.Status == OrderStatus.PartiallyInvoiced || existing.InvoiceBatchId.HasValue)
+                if (IsLocked)
                 {
-                    await JS.InvokeVoidAsync("alert", "Cannot edit an invoice that has already been posted.");
+                    await JS.InvokeVoidAsync("alert", "Cannot edit an invoice that has already been committed to the General Ledger.");
                     return;
                 }
 
+                // Preserve existing staging batch ID and keep state accurate
+                invoice.InvoiceBatchId = existing.InvoiceBatchId;
                 ctx.Entry(existing).CurrentValues.SetValues(invoice);
+
                 ctx.SalesOrderLines.RemoveRange(existing.Lines);
                 foreach (var line in invoice.Lines)
                 {
@@ -906,7 +1017,7 @@
             }
 
             await ctx.SaveChangesAsync();
-            await FetchPastInvoices();
+            await LoadData();
             await JS.InvokeVoidAsync("alert", "Draft invoice saved successfully!");
             showForm = false;
             ResetForm(defaultIncomeGlAccountId);
@@ -924,7 +1035,7 @@
 
     private async Task PostDraftFromList(SalesOrder draftInv)
     {
-        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Post invoice {draftInv.OrderNumber} directly to the General Ledger?");
+        bool confirm = await JS.InvokeAsync<bool>("confirm", $"Submit invoice {draftInv.OrderNumber} to the General Ledger review queue?");
         if (!confirm) return;
 
         isBusy = true;
@@ -933,8 +1044,8 @@
         var err = await SalesService.PostDirectInvoiceAsync(draftInv, currentUserId);
         if (string.IsNullOrEmpty(err))
         {
-            await FetchPastInvoices();
-            await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted to Ledger Successfully!");
+            await LoadData();
+            await JS.InvokeVoidAsync("alert", "Direct AR Invoice staged and submitted to the General Ledger review queue.");
         }
         else
         {
@@ -947,11 +1058,24 @@
 
     private async Task PostInvoice()
     {
-        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Customer."); return; }
-        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
-        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "All lines must have a Description / Service Rendered."); return; }
-        if (invoice.Lines.Any(l => l.Quantity <= 0)) { await JS.InvokeVoidAsync("alert", "Line quantity must be greater than zero."); return; }
-        if (invoice.Lines.Any(l => l.UnitPrice < 0)) { await JS.InvokeVoidAsync("alert", "Unit price cannot be negative."); return; }
+        // 1. Mandatory Input Validation
+        if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Validation Error: Please select a Customer."); return; }
+        if (!invoice.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Validation Error: Please add at least one line item."); return; }
+        if (invoice.Lines.Any(l => string.IsNullOrWhiteSpace(l.Description))) { await JS.InvokeVoidAsync("alert", "Validation Error: All lines must have a Description / Service Rendered."); return; }
+        if (invoice.Lines.Any(l => l.Quantity <= 0)) { await JS.InvokeVoidAsync("alert", "Validation Error: All line quantities must be greater than zero."); return; }
+        if (invoice.Lines.Any(l => l.UnitPrice < 0)) { await JS.InvokeVoidAsync("alert", "Validation Error: Unit prices cannot be negative."); return; }
+        if (GrandTotalForeign <= 0) { await JS.InvokeVoidAsync("alert", "Validation Error: Total invoice amount must be greater than zero."); return; }
+
+        // 2. Account Route Validation
+        var directRevAccount = invoice.DirectIncomeGlAccountId ?? defaultIncomeGlAccountId;
+        if (directRevAccount == Guid.Empty)
+        {
+            await JS.InvokeVoidAsync("alert", "Route Error: Revenue / Income GL account is not configured. Please assign it in 'Configure Route' before submitting.");
+            return;
+        }
+
+        bool confirm = await JS.InvokeAsync<bool>("confirm", "Submit this direct invoice to the General Ledger review queue?");
+        if (!confirm) return;
 
         isBusy = true;
         StateHasChanged();
@@ -960,7 +1084,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await FetchPastInvoices();
+            await LoadData();
 
             await using var ctx = await DbFactory.CreateDbContextAsync();
             var emailConfig = await ctx.CompanyEmailSettings.AsNoTracking().FirstOrDefaultAsync(s => s.CompanyId == selectedCompanyId);
@@ -968,7 +1092,7 @@
 
             if (!showPopupToggle)
             {
-                await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted Successfully!");
+                await JS.InvokeVoidAsync("alert", "Direct AR Invoice staged and submitted to the General Ledger review queue.");
                 showForm = false;
                 ResetForm(defaultIncomeGlAccountId);
                 isBusy = false;
@@ -983,13 +1107,13 @@
                 emailCustomerName = targetCustomer.Name;
                 emailCustomerAddress = targetCustomer.Email;
                 emailSubject = $"Invoice {invoice.OrderNumber}";
-                customEmailMessage = $"Dear {targetCustomer.Name},\n\nPlease find attached our official invoice {invoice.OrderNumber} issued regarding services rendered.\n\nTotal Due: {currencySymbol}{invoice.GrandTotalForeign:N2}.\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
+                customEmailMessage = $"Dear {targetCustomer.Name},\n\nPlease find attached our official invoice {invoice.OrderNumber} issued regarding services rendered.\n\nTotal Due: {currencySymbol}{invoice.GrandTotalForeign:N4}.\n\nThank you for your business!\n\nBest Regards,\nAccounts Receivable Team";
 
                 showEmailPopup = true;
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", "Direct AR Invoice Posted Successfully!\n(No email sent: Customer missing email address).");
+                await JS.InvokeVoidAsync("alert", "Direct AR Invoice submitted to General Ledger queue!\n(No email sent: Customer missing email address).");
                 showForm = false;
             }
             ResetForm(defaultIncomeGlAccountId);
@@ -1067,7 +1191,8 @@
             CustomerId = draftInvoice.CustomerId,
             Date = draftInvoice.Date,
             OrderNumber = draftInvoice.OrderNumber,
-            Status = OrderStatus.Draft,
+            Status = draftInvoice.Status,
+            InvoiceBatchId = draftInvoice.InvoiceBatchId,
             IsDirectInvoice = true,
             CurrencyId = draftInvoice.CurrencyId,
             ExchangeRate = draftInvoice.ExchangeRate,

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -39,7 +39,7 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal? DecliningFactor { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? EstimatedTotalUnits { get; set; }
 
         public string UnitOfMeasure { get; set; } = string.Empty; // e.g., "km", "hours"
@@ -60,15 +60,15 @@ namespace Primafit_ERP.Components.Models
         public string SerialNumber { get; set; } = string.Empty;
 
         // --- FINANCIALS ---
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal PurchaseCost { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal SalvageValue { get; set; }
 
         public int UsefulLifeMonths { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal CurrentBookValue { get; set; }
 
         public DateTime PurchaseDate { get; set; }
@@ -86,7 +86,7 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal? DecliningFactor { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? EstimatedTotalUnits { get; set; }
 
         // --- GL MAPPING ---
@@ -103,7 +103,7 @@ namespace Primafit_ERP.Components.Models
         public Guid FixedAssetId { get; set; }
         public DateTime PeriodDate { get; set; } // End of month date this applies to
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal UnitsUsed { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
@@ -115,13 +115,13 @@ namespace Primafit_ERP.Components.Models
         public Guid FixedAssetId { get; set; }
         public DateTime Date { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Amount { get; set; }
 
         public DepreciationMethod MethodUsed { get; set; }
         public Guid GlBatchId { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? UnitsUsed { get; set; } // For Units of Usage audit
         public string DetailsJson { get; set; } = string.Empty; // Audit trail of parameters used
     }

@@ -1,4 +1,4 @@
-﻿@page "/procurement/goods-receipt/{poId:guid?}"
+@page "/procurement/goods-receipt/{poId:guid?}"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -25,21 +25,24 @@
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Receive Goods (GRN)</h1>
-            <p class="text-sm text-slate-500">Acknowledge physical receipt and accrue temporary inventory liability to GR/IR Clearing.</p>
+            <p class="text-sm text-slate-500">Prepare physical receipt and GR/IR accrual for GL review before the receipt is posted.</p>
         </div>
 
         <div class="flex items-center gap-3">
             @if (!showLandedCostModal)
             {
-                <!-- Configure Route Button -->
-                <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    <span>Configure Route</span>
-                    @if (currentGrn.CustomTransactionTypeId.HasValue)
-                    {
-                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                    }
-                </button>
+                @if (canConfigureRoute)
+                {
+                    <!-- Configure Route Button -->
+                    <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>Configure Route</span>
+                        @if (currentGrn.CustomTransactionTypeId.HasValue)
+                        {
+                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                        }
+                    </button>
+                }
 
                 <button @onclick="SaveReceipt" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 active:scale-95 text-sm">
                     @if (isBusy)
@@ -49,7 +52,7 @@
                     else
                     {
                         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                        <span>Confirm Receipt</span>
+                        <span>Submit Receipt for GL Review</span>
                     }
                 </button>
             }
@@ -93,7 +96,7 @@
 
             <div>
                 <label class="label">Date Received</label>
-                <input type="date" @bind="currentGrn.DateReceived" class="input-class" />
+                <input type="datetime-local" @bind="currentGrn.DateReceived" class="input-class" />
             </div>
 
             <div class="bg-rose-50/40 border border-rose-200 p-3.5 rounded-xl md:col-span-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -126,6 +129,7 @@
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
                         <tr>
                             <th class="p-4">Item</th>
+                            <th class="p-4 text-center">Receipt UOM</th>
                             <th class="p-4 text-center">Ordered</th>
                             <th class="p-4 text-center text-amber-600">Max Allowed</th>
                             <th class="p-4 text-right w-40">Received Now</th>
@@ -135,23 +139,42 @@
                         @foreach (var line in currentGrn.Lines)
                         {
                             var poLine = selectedPO?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
+                            var item = items.FirstOrDefault(i => i.Id == poLine?.ItemId);
+                            var lineFactor = GetLineFactor(line);
+                            var uomOptions = GetUomOptions(line, item).ToList();
                             <tr class="hover:bg-slate-50">
                                 <td class="p-4 font-medium text-slate-900">
-                                    @(items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Unknown Item")
+                                    @(item?.Name ?? "Unknown Item")
+                                </td>
+                                <td class="p-4">
+                                    @if (uomOptions.Count > 0)
+                                    {
+                                        <select value="@(line.UomId?.ToString() ?? "")" @onfocus="RefreshUomCatalogAsync" @onchange="e => OnUomChanged(line, e, item)"
+                                                class="input-class text-xs font-bold" aria-label="Receipt unit of measure">
+                                            @foreach (var option in uomOptions)
+                                            {
+                                                <option value="@option.Id">@option.Name (@option.Factor.ToString("N4"))</option>
+                                            }
+                                        </select>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-xs font-bold text-slate-500">@GetLineUomName(line)</span>
+                                    }
                                 </td>
                                 <td class="p-4 text-center text-slate-500 font-mono">
-                                    @(poLine?.QuantityOrdered.ToString("N0") ?? "0")
+                                    @(poLine == null ? "0" : UomConversion.FromBase(poLine.QuantityOrdered, lineFactor).ToString("N2")) @GetLineUomName(line)
                                 </td>
                                 <td class="p-4 text-center font-bold text-amber-600 bg-amber-50/50 font-mono">
-                                    @line.MaxAllowed.ToString("G29")
+                                    @UomConversion.FromBase(line.MaxAllowed, lineFactor).ToString("N2") @GetLineUomName(line)
                                 </td>
                                 <td class="p-4">
                                     <div class="flex flex-col items-end">
-                                        <input type="number"
-                                               value="@line.QuantityReceived"
+                                         <input type="text" inputmode="decimal"
+                                               value="@UomConversion.FromBase(line.QuantityReceived, lineFactor).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
                                                @onchange="@(e => ValidateQuantity(line, e.Value?.ToString()))"
                                                class="w-full text-right font-bold text-emerald-700 border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                               min="0" max="@line.MaxAllowed" />
+                                               min="0" max="@UomConversion.FromBase(line.MaxAllowed, lineFactor)" />
                                     </div>
                                 </td>
                             </tr>
@@ -190,7 +213,7 @@
                         </div>
                         <div class="w-32">
                             <label class="label">Amount</label>
-                            <input type="number" @bind="newCostAmount" class="input-class font-bold" placeholder="0.00" />
+                            <input type="number"   @bind="newCostAmount" class="input-class font-bold" placeholder="0.0000" />
                         </div>
                         <div class="w-40">
                             <label class="label">Allocation</label>
@@ -221,7 +244,7 @@
                                     <tr class="border-b border-slate-50">
                                         <td class="py-2 font-medium">@FormatCostType(c.CostType)</td>
                                         <td class="py-2 text-xs text-slate-500">@c.AllocationMethod</td>
-                                        <td class="py-2 text-right font-mono font-bold text-slate-700">@c.Amount.ToString("N2")</td>
+                                        <td class="py-2 text-right font-mono font-bold text-slate-700">@c.Amount.ToString("N4")</td>
                                         <td class="py-2 text-right">
                                             <button @onclick="() => RemoveCost(c)" class="text-rose-500 hover:text-rose-700 text-xs font-bold">Remove</button>
                                         </td>
@@ -231,28 +254,32 @@
                             <tfoot class="border-t-2 border-slate-300 bg-slate-50">
                                 @{
                                     var exchangeRate = selectedPO?.ExchangeRate ?? 1m;
-                                    var goodsTotalBase = currentGrn.Lines.Sum(l => l.QuantityReceived * (selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId)?.UnitCost ?? 0)) * exchangeRate;
+                                    var goodsTotalBase = currentGrn.Lines.Sum(l =>
+                                    {
+                                        var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
+                                        return Math.Round(l.QuantityReceived * (poLine?.UnitCost ?? 0), 2, MidpointRounding.AwayFromZero);
+                                    }) * exchangeRate;
                                     var extrasTotal = addedCosts.Sum(x => x.Amount);
                                     var totalLandedValue = goodsTotalBase + extrasTotal;
                                 }
                                 <tr>
                                     <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Goods Value (Base Rate):</td>
                                     <td class="py-2 text-right font-mono font-bold text-slate-700">
-                                        @goodsTotalBase.ToString("N2")
+                                        @goodsTotalBase.ToString("N4")
                                     </td>
                                     <td></td>
                                 </tr>
                                 <tr>
                                     <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Extra Costs:</td>
                                     <td class="py-2 text-right font-mono font-bold text-rose-600">
-                                        @extrasTotal.ToString("N2")
+                                        @extrasTotal.ToString("N4")
                                     </td>
                                     <td></td>
                                 </tr>
                                 <tr class="bg-indigo-50 border-t border-indigo-100">
                                     <td colspan="2" class="py-3 font-black text-right text-indigo-900 uppercase text-xs pr-4">Total Landed Value:</td>
                                     <td class="py-3 text-right font-mono font-black text-indigo-700 text-lg">
-                                        @totalLandedValue.ToString("N2")
+                                        @totalLandedValue.ToString("N4")
                                     </td>
                                     <td></td>
                                 </tr>
@@ -440,9 +467,15 @@
     private List<Warehouse> warehouses = new();
     private List<PurchaseOrder> openPOs = new();
     private List<Item> items = new();
+    private List<UnitOfMeasure> uoms = new();
+    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
+    private bool canConfigureRoute = false;
 
     // Route Configuration Modal State
     private bool showRouteModal = false;
@@ -472,6 +505,7 @@
             currentUserId = user.Id;
             currentCompanyId = user.CompanyDetailsId.Value;
             currentGrn.CompanyId = currentCompanyId;
+            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
 
             var t1 = MasterService.GetVendorsAsync(currentCompanyId);
             var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId);
@@ -479,13 +513,25 @@
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
             var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
             var t6 = SegCoaService.GetAccountTypesAsync();
+            var t7 = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
+            var t8 = MasterService.GetUomConversionRulesAsync(currentCompanyId);
 
-            await Task.WhenAll(t1, t2, t3, t4, t5, t6);
+            await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7, t8);
 
             vendors = t1.Result;
             warehouses = t2.Result;
             openPOs = t3.Result;
             items = t4.Result;
+            itemUomLines = t7.Result;
+            conversionRules = t8.Result;
+
+            await using (var uomCtx = await DbFactory.CreateDbContextAsync())
+            {
+                uoms = await uomCtx.UnitOfMeasures.AsNoTracking()
+                    .Where(u => u.CompanyId == currentCompanyId)
+                    .OrderBy(u => u.Name)
+                    .ToListAsync();
+            }
 
             allAccounts = t5.Result;
             var accountTypes = t6.Result;
@@ -527,6 +573,9 @@
     {
         if (Guid.TryParse(e.Value?.ToString(), out Guid parsedId))
         {
+            // The item setup screen may have changed UOMs/conversions while this
+            // page was open. Refresh the catalog before building GRN lines.
+            await RefreshUomCatalogAsync();
             selectedPO = openPOs.FirstOrDefault(p => p.Id == parsedId);
             if (selectedPO != null)
             {
@@ -535,7 +584,7 @@
                     CompanyId = currentCompanyId,
                     PurchaseOrderId = selectedPO.Id,
                     GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}",
-                    DateReceived = DateTime.Today
+                    DateReceived = DateTime.Now
                 };
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
@@ -564,6 +613,7 @@
 
                 foreach (var line in selectedPO.Lines)
                 {
+                    var itemForLine = items.FirstOrDefault(i => i.Id == line.ItemId);
                     decimal alreadyReceived = await ctx.GoodsReceiptLines
                         .Where(x => x.PurchaseOrderLineId == line.Id)
                         .SumAsync(x => x.QuantityReceived);
@@ -577,6 +627,11 @@
                             Id = Guid.NewGuid(),
                             GoodsReceiptId = currentGrn.Id,
                             PurchaseOrderLineId = line.Id,
+                            UomId = line.UomId ?? itemForLine?.UomId,
+                            UomName = string.IsNullOrWhiteSpace(line.UomName) ? (itemForLine?.PrimaryUom?.Name ?? itemForLine?.UoM ?? "base") : line.UomName,
+                            UomConversionFactor = line.UomId.HasValue
+                                ? UomConversion.NormalizeFactor(line.UomConversionFactor)
+                                : 1m,
                             QuantityReceived = remainingToReceive,
                             MaxAllowed = remainingToReceive
                         });
@@ -586,20 +641,94 @@
         }
     }
 
+    private async Task RefreshUomCatalogAsync()
+    {
+        var itemsTask = MasterService.GetItemsAsync(currentCompanyId);
+        var itemUomLinesTask = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
+        var conversionRulesTask = MasterService.GetUomConversionRulesAsync(currentCompanyId);
+
+        await using var uomCtx = await DbFactory.CreateDbContextAsync();
+        var uomsTask = uomCtx.UnitOfMeasures.AsNoTracking()
+            .Where(u => u.CompanyId == currentCompanyId)
+            .OrderBy(u => u.Name)
+            .ToListAsync();
+
+        await Task.WhenAll(itemsTask, itemUomLinesTask, conversionRulesTask, uomsTask);
+        items = itemsTask.Result;
+        itemUomLines = itemUomLinesTask.Result;
+        conversionRules = conversionRulesTask.Result;
+        uoms = uomsTask.Result;
+    }
+
+    private decimal GetLineFactor(GoodsReceiptLine line) => UomConversion.NormalizeFactor(line.UomConversionFactor);
+
+    private string GetLineUomName(GoodsReceiptLine line) =>
+        string.IsNullOrWhiteSpace(line.UomName)
+            ? uoms.FirstOrDefault(u => u.Id == line.UomId)?.Name ?? "base"
+            : line.UomName;
+
+    private IEnumerable<UomOption> GetUomOptions(GoodsReceiptLine line, Item? item)
+    {
+        if (item == null) yield break;
+
+        if (item.UomId.HasValue)
+            yield return new UomOption(item.UomId.Value, uoms.FirstOrDefault(u => u.Id == item.UomId.Value)?.Name ?? item.UoM,
+                1m);
+
+        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+        {
+            var name = conversion.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == conversion.UomId)?.Name ?? "UOM";
+                yield return new UomOption(conversion.UomId, name, 1m / UomConversion.NormalizeFactor(conversion.ConversionFactorToBase));
+        }
+
+        if (item.UomId.HasValue)
+        {
+            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
+                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            {
+                if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
+                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap);
+                if (factor.HasValue)
+                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+            }
+        }
+
+        if (line.UomId.HasValue && !itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == line.UomId) && line.UomId != item.UomId)
+            yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
+    }
+
+    private void OnUomChanged(GoodsReceiptLine line, ChangeEventArgs e, Item? item)
+    {
+        if (item == null || !Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
+        var option = GetUomOptions(line, item).FirstOrDefault(x => x.Id == selectedId);
+        if (option == null) return;
+
+        line.UomId = option.Id;
+        line.UomName = option.Name;
+        line.UomConversionFactor = option.Factor;
+        StateHasChanged();
+    }
+
     private void ValidateQuantity(GoodsReceiptLine line, string? inputVal)
     {
-        if (decimal.TryParse(inputVal, out decimal val))
+        if (TryParseDecimal(inputVal, out decimal val))
         {
-            if (val < 0) line.QuantityReceived = 0;
-            else if (val > line.MaxAllowed)
+            decimal normalized = val < 0 ? 0 : UomConversion.ToBase(val, GetLineFactor(line));
+            if (normalized > line.MaxAllowed)
             {
                 line.QuantityReceived = line.MaxAllowed;
-                JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({line.MaxAllowed}).");
+                _ = JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({UomConversion.FromBase(line.MaxAllowed, GetLineFactor(line)):N2} {GetLineUomName(line)}).");
             }
-            else line.QuantityReceived = val;
+            else line.QuantityReceived = normalized;
         }
         else line.QuantityReceived = 0;
     }
+
+    private sealed record UomOption(Guid Id, string Name, decimal Factor);
+
+    private static bool TryParseDecimal(string? value, out decimal result) =>
+        decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out result)
+        || decimal.TryParse(value, out result);
 
     private async Task OpenRouteModal()
     {

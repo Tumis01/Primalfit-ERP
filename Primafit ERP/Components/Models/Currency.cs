@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -37,7 +37,7 @@ namespace Primafit_ERP.Components.Models
 
         public DateTime Date { get; set; } 
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Rate { get; set; }
     }
 

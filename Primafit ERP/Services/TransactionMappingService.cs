@@ -528,5 +528,25 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
+        public async Task<bool> IsRouteConfigVisibleAsync(Guid companyId)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var company = await ctx.CompanyDetails
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.CompanyDetailsId == companyId);
+
+            return company?.ShowRouteConfigButton ?? true;
+        }
+
+        public async Task<bool> ToggleRouteConfigVisibilityAsync(Guid companyId, bool isVisible)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var company = await ctx.CompanyDetails.FirstOrDefaultAsync(c => c.CompanyDetailsId == companyId);
+            if (company == null) return false;
+
+            company.ShowRouteConfigButton = isVisible;
+            await ctx.SaveChangesAsync();
+            return true;
+        }
     }
 }

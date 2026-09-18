@@ -1,4 +1,4 @@
-﻿@page "/hr/payslips"
+@page "/hr/payslips"
 @using Primafit_ERP.Components.Models 
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
@@ -62,7 +62,7 @@
                             <div class="font-bold text-slate-900 text-sm">@item.Employee?.FirstName @item.Employee?.LastName</div>
                             <div class="flex justify-between items-center mt-1">
                                 <span class="text-[10px] text-slate-500 font-mono">@item.Employee?.EmployeeCode</span>
-                                <span class="text-xs font-bold text-emerald-600">@item.NetPay.ToString("N2")</span>
+                                <span class="text-xs font-bold text-emerald-600">@item.NetPay.ToString("N4")</span>
                             </div>
                         </div>
                     }

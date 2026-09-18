@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -28,6 +28,7 @@ namespace Primafit_ERP.Components.Models
         public SalesOrder? SalesOrder { get; set; }
 
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
 
         [Required]
         public string Reason { get; set; } = string.Empty;
@@ -39,10 +40,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmount { get; set; }
 
         public bool ReturnToStock { get; set; } = false;
@@ -78,16 +79,21 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid ItemId { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
         // Link to the specific Order Line being returned
         public Guid SalesOrderLineId { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal UnitPrice { get; set; }
 
         [NotMapped]

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -19,18 +19,21 @@ namespace Primafit_ERP.Components.Models
         public string CreatedByUserId { get; set; } = "";
 
         // Balances
+        [Column(TypeName = "decimal(18,4)")]
         public decimal OpeningBalance { get; set; }
 
 
         // Sum of Debits (Money In)
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalDebits { get; set; }
 
         // Sum of Credits (Money Out)
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalCredits { get; set; }
         public bool IsForeignCurrency { get; set; } = false;
         public Guid? CurrencyId { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
         [NotMapped]
@@ -38,8 +41,10 @@ namespace Primafit_ERP.Components.Models
 
         public BatchStatus Status { get; set; } = BatchStatus.Draft;
         public Guid? PostedGLBatchId { get; set; }
+        public string? RejectionReason { get; set; }
 
         public bool ClearAfterPost { get; set; } = true;
+        public bool IsLocked { get; set; } = false;
         public virtual List<CashbookEntry> Entries { get; set; } = new();
     }
 
@@ -48,21 +53,21 @@ namespace Primafit_ERP.Components.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CashbookBatchId { get; set; }
-        public DateTime TransactionDate { get; set; } = DateTime.Today;
+        public DateTime TransactionDate { get; set; } = DateTime.Now;
 
         [Required]
         public string Description { get; set; } = "";
 
         // REPLACED Enum with explicit Accounting Columns
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Debit { get; set; }  // Money In
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Credit { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ForeignDebit { get; set; }
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ForeignCredit { get; set; }
         public Guid OffsetSegCoaId { get; set; } // was OffsetAccountId
 

@@ -17,15 +17,35 @@
 @rendermode InteractiveServer
 
 <div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
+    <!-- Header Section with Right-Aligned Action Buttons -->
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Transaction GL Mapping Router</h1>
             <p class="text-sm text-slate-500 mt-1">Configure global ledger control accounts and define transactional default account routes.</p>
         </div>
-        <button @onclick="OpenCreateModal" class="px-5 py-2.5 bg-slate-900 text-white font-bold text-sm rounded-xl hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95 shadow-sm">
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            <span>Add Transaction Type</span>
-        </button>
+
+        <div class="flex items-center gap-3 justify-end">
+            <!-- Settings Modal Button -->
+            <button type="button"
+                    @onclick="() => showSettingsModal = true"
+                    class="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition-all flex items-center gap-2 active:scale-95 shadow-sm">
+                <svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span>Settings</span>
+            </button>
+
+            <!-- Add Transaction Type Button -->
+            <button type="button"
+                    @onclick="OpenCreateModal"
+                    class="px-5 py-2.5 bg-slate-900 text-white font-bold text-sm rounded-xl hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95 shadow-sm">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Transaction Type</span>
+            </button>
+        </div>
     </div>
 
     @if (isLoading)
@@ -124,6 +144,69 @@
         </div>
     }
 </div>
+
+<!-- ========================================================= -->
+<!-- GLOBAL ROUTING SETTINGS POPUP MODAL -->
+<!-- ========================================================= -->
+@if (showSettingsModal)
+{
+    <div class="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden">
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-sm">Routing Engine Configuration</h3>
+                </div>
+                <button type="button" @onclick="() => showSettingsModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-4">
+                <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200/80 rounded-xl gap-4">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold text-slate-800 block">Configure Route Buttons</span>
+                        <p class="text-[11px] text-slate-500 leading-relaxed">
+                            Show or hide the "Configure Route" button across all transaction documents (Sales Orders, Direct Invoices, Adjustments, Bill Entries).
+                        </p>
+                    </div>
+
+                    <!-- Interactive Switch -->
+                    <button type="button"
+                            @onclick="ToggleGlobalRouteButton"
+                            disabled="@isTogglingRoute"
+                            class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none @(showRouteButtonGlobal ? "bg-emerald-600" : "bg-slate-300") disabled:opacity-50"
+                            role="switch"
+                            aria-checked="@showRouteButtonGlobal">
+                        <span aria-hidden="true"
+                              class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out @(showRouteButtonGlobal ? "translate-x-5" : "translate-x-0")">
+                        </span>
+                    </button>
+                </div>
+
+                <div class="text-[11px] text-slate-500 bg-indigo-50/50 border border-indigo-100 rounded-xl p-3 flex items-start gap-2">
+                    <svg class="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Status updates take effect instantly for all operators working within this organization.</span>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+                <button type="button"
+                        @onclick="() => showSettingsModal = false"
+                        class="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-all shadow-sm">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 @if (showModal)
 {
@@ -254,6 +337,7 @@
     private bool isLoading = true;
     private bool isSaving = false;
     private bool showModal = false;
+    private bool showSettingsModal = false;
     private bool isCreatingCustom = false;
 
     private List<TransactionGlMapping> mappings = new();
@@ -265,6 +349,8 @@
     private TransactionGlMapping? editingMap;
     private Guid? tempDebit;
     private Guid? tempCredit;
+    private bool showRouteButtonGlobal = true;
+    private bool isTogglingRoute = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -275,6 +361,7 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             currentUserId = user.Id;
+            showRouteButtonGlobal = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
             await RefreshDataset();
         }
         isLoading = false;
@@ -283,7 +370,6 @@
     private async Task RefreshDataset()
     {
         coaList = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
-
         await MappingService.GetMappingsAsync(currentCompanyId);
 
         using var ctx = await DbFactory.CreateDbContextAsync();
@@ -332,6 +418,24 @@
     }
 
     private void CloseModal() => showModal = false;
+
+    private async Task ToggleGlobalRouteButton()
+    {
+        isTogglingRoute = true;
+        try
+        {
+            bool newState = !showRouteButtonGlobal;
+            bool ok = await MappingService.ToggleRouteConfigVisibilityAsync(currentCompanyId, newState);
+            if (ok)
+            {
+                showRouteButtonGlobal = newState;
+            }
+        }
+        finally
+        {
+            isTogglingRoute = false;
+        }
+    }
 
     private async Task ApplyAndSaveModal()
     {
@@ -452,6 +556,7 @@
         var acc = coaList.FirstOrDefault(a => a.Id == accountId.Value);
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
+
     private string GetRowDescription(TransactionGlMapping map)
     {
         if (map.TransactionType == SystemTransactionType.CustomGlAdjustment)

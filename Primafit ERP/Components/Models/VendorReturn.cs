@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -49,6 +49,7 @@ namespace Primafit_ERP.Components.Models
         public string ReturnNumber { get; set; } = string.Empty;
 
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
 
         [StringLength(250)]
         public string Reason { get; set; } = string.Empty;
@@ -61,10 +62,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public virtual Currency? Currency { get; set; }
 
-        [Column(TypeName = "decimal(18,6)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ExchangeRate { get; set; } = 1;
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal TotalAmount { get; set; }
 
         public Guid? GlBatchId { get; set; }
@@ -100,6 +101,11 @@ namespace Primafit_ERP.Components.Models
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public virtual Item? Item { get; set; }
+
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }

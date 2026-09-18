@@ -12,11 +12,15 @@ var builder = WebApplication.CreateBuilder(args);
 ExcelPackage.License.SetNonCommercialPersonal("Primafit");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sql => sql.EnableRetryOnFailure()));
 
 // Factory for Blazor Components (Scoped to prevent concurrency issues)
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")),
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sql => sql.EnableRetryOnFailure()),
     ServiceLifetime.Scoped);
 
 // --- 2. IDENTITY CONFIGURATION ---
@@ -124,26 +128,22 @@ app.MapRazorComponents<App>()
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
     try
     {
-        // 1. Get the database context and role manager
-        var context = services.GetRequiredService<PrimafitERP.Data.AppDbContext>(); // Adjust namespace if needed
+        // Create the current schema for a genuinely empty database. Existing
+        // databases retain their data and are upgraded through migrations.
+        var context = services.GetRequiredService<PrimafitERP.Data.AppDbContext>();
         var roleManager = services.GetRequiredService<Microsoft.AspNetCore.Identity.RoleManager<Primafit_ERP.Components.Models.ApplicationRole>>();
-
-        // 2. Automatically apply any pending EF Core migrations
-        if (context.Database.GetPendingMigrations().Any())
-        {
-            context.Database.Migrate();
-        }
-
-        // 3. Execute your Seeder
-        await Primafit_ERP.Data.Seed.RbacSeeder.SeedAsync(context, roleManager);
+        await Primafit_ERP.Data.DatabaseInitializer.InitializeAsync(context, roleManager);
     }
     catch (Exception ex)
     {
-        // Log any errors that happen during seeding
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while seeding the database.");
+        // Do not start an app against a partially upgraded schema. This
+        // previously hid migration failures and left a deployment running
+        // without the columns/tables required by the current model.
+        logger.LogCritical(ex, "Database migration or seed failed. Application startup was stopped.");
+        throw;
     }
 }
 

@@ -1,4 +1,4 @@
-﻿@page "/ap/direct-bills"
+@page "/ap/direct-bills"
 
 @using Microsoft.EntityFrameworkCore
 @using PrimafitERP.Data
@@ -65,17 +65,33 @@
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <!-- Configure Route Button -->
-                        <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            <span>Configure Route</span>
-                            @if (bill.CustomTransactionTypeId.HasValue)
-                            {
-                                <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                            }
-                        </button>
+                        @if (bill.IsPosted)
+                        {
+                            <span class="px-2.5 py-1 text-[10px] font-bold rounded-lg uppercase tracking-wider @(currentBatchStatus == BatchStatus.Rejected ? "bg-rose-100 text-rose-800" : currentBatchStatus == BatchStatus.Ready ? "bg-indigo-100 text-indigo-800" : "bg-emerald-100 text-emerald-800")">
+                                @(currentBatchStatus == BatchStatus.Rejected ? "Rejected - Edit Required" : (currentBatchStatus == BatchStatus.Ready ? "In Review" : "Posted"))
+                            </span>
+                        }
+                        @if (!IsLocked && canConfigureRoute)
+                        {
+                            <!-- Configure Route Button -->
+                            <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                <span>Configure Route</span>
+                                @if (bill.CustomTransactionTypeId.HasValue)
+                                {
+                                    <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
+                                }
+                            </button>
+                        }
                     </div>
                 </div>
+
+                @if (currentBatchStatus == BatchStatus.Rejected && !string.IsNullOrWhiteSpace(currentBatchRejectionReason))
+                {
+                    <div class="px-6 py-3 bg-rose-50 border-b border-rose-200 text-xs text-rose-800">
+                        <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @currentBatchRejectionReason
+                    </div>
+                }
 
                 <EditForm Model="bill">
                     <DataAnnotationsValidator />
@@ -95,22 +111,16 @@
 
                             <div>
                                 <label class="label">Bill Date</label>
-                                <input type="date" value="@bill.BillDate.ToString("yyyy-MM-dd")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
+                                <input type="datetime-local" value="@bill.BillDate.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) bill.BillDate = d; })" class="input-class bg-white" disabled="@IsLocked" />
                             </div>
 
-                            <div>
-                                <label class="label">Currency & Rate</label>
-                                <div class="flex gap-2">
-                                    <select value="@bill.CurrencyId" class="input-class w-1/3 bg-slate-100 text-slate-500 font-bold cursor-not-allowed px-2" disabled>
-                                        <option value="@Guid.Empty">N/A</option>
-                                        @foreach (var c in currencies)
-                                        {
-                                            <option value="@c.Id">@c.CurrencyCode</option>
-                                        }
-                                    </select>
-                                    <input type="number" step="0.01" @bind="bill.ExchangeRate" class="input-class w-2/3 text-right font-mono font-bold bg-white" disabled="@IsLocked" />
-                                </div>
-                            </div>
+                            <ExchangeRatePicker CompanyId="@selectedCompanyId"
+                                                 CurrencyId="@bill.CurrencyId"
+                                                 CurrencyCode="@GetCurrencyCode(bill.CurrencyId)"
+                                                 CompanyBaseCurrency="@companyBaseCurrency"
+                                                 CurrentRate="@bill.ExchangeRate"
+                                                 CurrentRateChanged="OnExchangeRateChanged"
+                                                 Disabled="@IsLocked" />
 
                             <div>
                                 <label class="label">Tax / VAT</label>
@@ -121,6 +131,20 @@
                                         <option value="@t.Id">@t.TaxName (@t.Per%)</option>
                                     }
                                 </select>
+                            </div>
+                            <div>
+                                <label class="label text-amber-700">Withholding Tax</label>
+                                <select value="@(bill.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@IsLocked">
+                                    <option value="">No Withholding Tax</option>
+                                    @foreach (var wht in withholdingTaxes)
+                                    {
+                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
+                                    }
+                                </select>
+                                @if (bill.WithholdingAmountForeign > 0)
+                                {
+                                    <p class="mt-1 text-[10px] font-medium text-amber-700">Applied to the net bill amount before VAT.</p>
+                                }
                             </div>
                         </div>
 
@@ -144,13 +168,13 @@
                                                 <InputText @bind-Value="line.Description" class="input-class" placeholder="e.g. Office Electricity Bill" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
+                                                <input type="number"   @bind="line.QuantityBilled" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number" step="0.01" @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number"   @bind="line.UnitCostBilled" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
-                                                @((line.QuantityBilled * line.UnitCostBilled).ToString("N2"))
+                                                @line.LineTotal.ToString("N4")
                                             </td>
                                             <td class="p-2 text-center align-top pt-5">
                                                 @if (!IsLocked)
@@ -179,19 +203,30 @@
                             <div class="w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm space-y-2 text-sm text-slate-600">
                                 <div class="flex justify-between">
                                     <span>Subtotal:</span>
-                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N2")</span>
+                                    <span class="font-mono font-bold">@SubTotalForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between items-center pt-2">
                                     <span>Tax (@TaxPercentage%):</span>
-                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N2")</span>
+                                    <span class="font-mono font-bold">+ @TaxAmountForeign.ToString("N4")</span>
                                 </div>
                                 <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
-                                    <span class="font-bold">Total (@currencySymbol):</span>
-                                    <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N2")</span>
+                                    <span class="font-bold">Total Invoice Amount (Gross) (@currencySymbol):</span>
+                                    <span class="font-mono font-black text-rose-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                                 </div>
+                                @if (WithholdingAmountForeign > 0)
+                                {
+                                    <div class="flex justify-between items-center text-amber-700 border-t border-amber-100 pt-2">
+                                        <span>Less: Withholding Tax (@bill.WithholdingPercentage.ToString("0.####")%):</span>
+                                        <span class="font-mono font-bold">- @currencySymbol@WithholdingAmountForeign.ToString("N4")</span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-slate-900 font-semibold">
+                                        <span>Net Amount Payable to Vendor:</span>
+                                        <span class="font-mono font-black text-emerald-700">@currencySymbol@NetAmountPayableForeign.ToString("N4")</span>
+                                    </div>
+                                }
                                 <div class="flex justify-between text-[10px] text-slate-400 mt-2 uppercase font-bold tracking-wider pt-2">
                                     <span>Local Base Value:</span>
-                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N2")</span>
+                                    <span class="font-mono text-slate-500">@GrandTotalBase.ToString("N4")</span>
                                 </div>
                             </div>
                         </div>
@@ -233,7 +268,7 @@
                                         {
                                             <span class="animate-spin">↻</span>
                                         }
-                                        <span>Post AP Bill</span>
+                                        <span>@(currentBatchStatus == BatchStatus.Rejected ? "Resubmit AP Bill for GL Review" : currentBatchStatus == BatchStatus.Ready ? "Update AP Bill Staging" : "Submit AP Bill for GL Review")</span>
                                     </button>
                                 </Authorized>
                             </PermissionGate>
@@ -272,16 +307,27 @@
                         {
                             @foreach (var pBill in pastBills)
                             {
+                                var batchStatus = GetBatchStatus(pBill.GLBatchId, pBill.IsPosted);
+                                bool isRejected = batchStatus == BatchStatus.Rejected;
+                                bool isPosted = batchStatus == BatchStatus.Posted;
                                 <tr class="hover:bg-slate-50 transition-colors">
                                     <td class="p-4 pl-6 whitespace-nowrap">@pBill.BillDate.ToString("MMM dd, yyyy")</td>
                                     <td class="p-4 font-mono text-slate-600 font-semibold whitespace-nowrap">@pBill.ExternalInvoiceNumber</td>
                                     <td class="p-4 font-bold text-slate-800">@(vendors.FirstOrDefault(v => v.Id == pBill.VendorId)?.Name ?? "Unknown")</td>
                                     <td class="p-4 text-slate-500 max-w-xs truncate" title="@pBill.Description">@pBill.Description</td>
-                                    <td class="p-4 text-right font-mono font-bold text-slate-700">@pBill.TotalAmount.ToString("N2")</td>
+                                    <td class="p-4 text-right font-mono font-bold text-slate-700">@pBill.TotalAmount.ToString("N4")</td>
                                     <td class="p-4 text-center">
-                                        @if (pBill.IsPosted)
+                                        @if (isPosted)
                                         {
                                             <span class="px-2 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded uppercase tracking-wider">Posted</span>
+                                        }
+                                        else if (isRejected)
+                                        {
+                                            <span class="px-2 py-1 bg-rose-100 text-rose-800 text-[10px] font-bold rounded uppercase tracking-wider">Rejected - Edit Required</span>
+                                        }
+                                        else if (batchStatus == BatchStatus.Ready)
+                                        {
+                                            <span class="px-2 py-1 bg-indigo-100 text-indigo-800 text-[10px] font-bold rounded uppercase tracking-wider">In Review</span>
                                         }
                                         else
                                         {
@@ -290,8 +336,15 @@
                                     </td>
                                     <td class="p-4 pr-6 text-center space-x-2 whitespace-nowrap">
                                         <button type="button" @onclick="() => LoadBillForView(pBill)" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 text-xs font-bold transition-colors">
-                                            View
+                                            @(isRejected ? "Edit & Resubmit" : (isPosted ? "View" : batchStatus == BatchStatus.Ready ? "Edit" : "Edit Draft"))
                                         </button>
+
+                                        @if (batchStatus == BatchStatus.Ready)
+                                        {
+                                            <button type="button" @onclick="() => UpdateStagedBill(pBill)" class="px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 text-xs font-bold transition-colors">
+                                                Update Staging
+                                            </button>
+                                        }
 
                                         @if (pBill.IsFullyPaid)
                                         {
@@ -563,10 +616,12 @@
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<Tax> taxes = new();
+    private List<WithholdingTax> withholdingTaxes = new();
 
     private List<SegChartOfAccount> apAccounts = new();
     private List<SegChartOfAccount> expenseAccounts = new();
     private List<SegChartOfAccount> taxAccounts = new();
+    private bool canConfigureRoute = false;
 
     // Route Configuration Modal State
     private bool showRouteModal = false;
@@ -582,12 +637,28 @@
     private string emailSubject = "";
     private string customEmailMessage = "";
     private string currencySymbol = "";
-    private bool IsLocked => bill.IsPosted;
+    private string companyBaseCurrency = "BASE";
+    private BatchStatus? currentBatchStatus;
+    private string? currentBatchRejectionReason;
+    private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private bool IsLocked => bill.IsPosted
+        && currentBatchStatus != BatchStatus.Ready
+        && currentBatchStatus != BatchStatus.Rejected
+        && currentBatchStatus != BatchStatus.Draft;
 
-    private decimal SubTotalForeign => bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+    private BatchStatus GetBatchStatus(Guid? batchId, bool legacyPosted) =>
+        batchId.HasValue && batchStatuses.TryGetValue(batchId.Value, out var status)
+            ? status
+            : (legacyPosted ? BatchStatus.Posted : BatchStatus.Draft);
+
+    private decimal SubTotalForeign => bill.Lines.Sum(l => l.LineTotal);
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == bill.TaxId)?.Per ?? 0;
     private decimal TaxAmountForeign => SubTotalForeign * (TaxPercentage / 100);
     private decimal GrandTotalForeign => SubTotalForeign + TaxAmountForeign;
+    private decimal WithholdingAmountForeign => bill.WithholdingTaxId.HasValue
+        ? SubTotalForeign * (bill.WithholdingPercentage / 100m)
+        : 0m;
+    private decimal NetAmountPayableForeign => Math.Max(0, GrandTotalForeign - WithholdingAmountForeign);
     private decimal SubTotalBase => bill.ExchangeRate == 0 ? 0 : SubTotalForeign * bill.ExchangeRate;
     private decimal TaxAmountBase => bill.ExchangeRate == 0 ? 0 : TaxAmountForeign * bill.ExchangeRate;
     private decimal GrandTotalBase => SubTotalBase + TaxAmountBase;
@@ -607,6 +678,7 @@
         {
             currentUserId = user.Id;
             selectedCompanyId = user.CompanyDetailsId.Value;
+            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(selectedCompanyId);
             await LoadData();
         }
         isLoading = false;
@@ -616,9 +688,12 @@
     {
         await using var ctx = await DbFactory.CreateDbContextAsync();
 
-        vendors = await ctx.Vendors.Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
+        var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
+        companyBaseCurrency = company?.BaseCurrency ?? "BASE";
+        vendors = await ctx.Vendors.Include(v => v.DefaultCurrency).Where(c => c.CompanyId == selectedCompanyId).ToListAsync();
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
+        withholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking().Where(t => t.CompanyId == selectedCompanyId).OrderBy(t => t.PercentageValue).ToListAsync();
 
         var accountTypes = await SegCoaService.GetAccountTypesAsync();
         var allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
@@ -645,6 +720,9 @@
             selectedCompanyId, SystemTransactionType.DirectPurchaseInvoice, isDebit: true, defaultAccountId: expenseAccounts.FirstOrDefault()?.Id ?? Guid.Empty);
 
         pastBills = await PurchService.GetDirectBillsAsync(selectedCompanyId);
+        batchStatuses = await ctx.GLBatches
+            .Where(b => b.CompanyId == selectedCompanyId)
+            .ToDictionaryAsync(b => b.Id, b => b.Status);
         ResetForm();
     }
 
@@ -661,9 +739,11 @@
         bill = new VendorBill
         {
             CompanyId = selectedCompanyId,
-            BillDate = DateTime.Today,
+            BillDate = DateTime.Now,
             ExchangeRate = 1
         };
+        currentBatchStatus = null;
+        currentBatchRejectionReason = null;
         currencySymbol = "";
         AddLine();
     }
@@ -744,6 +824,13 @@
         }
     }
 
+    private void OnExchangeRateChanged(decimal rate)
+    {
+        bill.ExchangeRate = Math.Round(rate, 4);
+    }
+
+    private string GetCurrencyCode(Guid currencyId) => currencies.FirstOrDefault(c => c.Id == currencyId)?.CurrencyCode ?? "";
+
     private void OnTaxChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var taxId) && taxId != Guid.Empty)
@@ -782,7 +869,7 @@
 
             if (!showPopupToggle)
             {
-                await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!");
+                await JS.InvokeVoidAsync("alert", "Direct Bill submitted for AP/GL review.");
                 showForm = false;
                 ResetForm();
                 isBusy = false;
@@ -803,7 +890,7 @@
             }
             else
             {
-                await JS.InvokeVoidAsync("alert", "Direct Bill Posted to AP Successfully!\n(No remittance email sent: Vendor missing email address).");
+                await JS.InvokeVoidAsync("alert", "Direct Bill submitted for AP/GL review.\n(No remittance email sent: Vendor missing email address).");
                 showForm = false;
             }
             ResetForm();
@@ -813,6 +900,59 @@
             await JS.InvokeVoidAsync("alert", err);
         }
         isBusy = false;
+    }
+
+    private void OnWithholdingChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
+        {
+            var selected = withholdingTaxes.FirstOrDefault(x => x.Id == id);
+            bill.WithholdingTaxId = selected?.Id;
+            bill.WithholdingTaxName = selected?.Name;
+            bill.WithholdingPercentage = selected?.PercentageValue ?? 0;
+            bill.WithholdingGlAccountId = selected?.WithholdingGlAccountId;
+        }
+        else
+        {
+            bill.WithholdingTaxId = null;
+            bill.WithholdingTaxName = null;
+            bill.WithholdingPercentage = 0;
+            bill.WithholdingGlAccountId = null;
+        }
+        bill.WithholdingAmountForeign = 0;
+        bill.WithholdingAmount = 0;
+    }
+
+    private async Task UpdateStagedBill(VendorBill selectedBill)
+    {
+        var status = GetBatchStatus(selectedBill.GLBatchId, selectedBill.IsPosted);
+        if (status != BatchStatus.Ready)
+        {
+            await JS.InvokeVoidAsync("alert", "Only an invoice currently in review can update its staging batch.");
+            return;
+        }
+
+        await LoadBillForView(selectedBill);
+        isBusy = true;
+        try
+        {
+            var descriptions = bill.Lines.Select(l => l.Description).Where(d => !string.IsNullOrWhiteSpace(d));
+            bill.Description = string.Join(" | ", descriptions);
+            var err = await PurchService.PostDirectBillAsync(bill, currentUserId);
+            if (!string.IsNullOrEmpty(err))
+            {
+                await JS.InvokeVoidAsync("alert", err);
+                return;
+            }
+
+            await LoadData();
+            showForm = false;
+            await JS.InvokeVoidAsync("alert", "AP invoice staging updated and remains in GL review.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
     private async Task DispatchEmail()
@@ -882,9 +1022,15 @@
         }
     }
 
-    private void LoadBillForView(VendorBill selectedBill)
+    private async Task LoadBillForView(VendorBill selectedBill)
     {
         bill = selectedBill;
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+        var batch = bill.GLBatchId.HasValue
+            ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bill.GLBatchId.Value && b.CompanyId == selectedCompanyId)
+            : null;
+        currentBatchStatus = batch?.Status;
+        currentBatchRejectionReason = batch?.RejectionReason;
         var vendor = vendors.FirstOrDefault(v => v.Id == bill.VendorId);
         if (vendor != null)
         {

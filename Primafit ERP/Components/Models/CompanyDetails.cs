@@ -20,6 +20,7 @@ namespace Primafit_ERP.Components.Models
         public CompanyType Type { get; set; }
         public DateTime CreatedDate { get; set; }
         public DateTime ModifiedDate { get; set; }
+        public bool ShowRouteConfigButton { get; set; } = true;
         public string? CreatedByUserId { get; set; } 
 
         [ForeignKey("CreatedByUserId")]

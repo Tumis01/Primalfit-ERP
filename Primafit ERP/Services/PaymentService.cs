@@ -42,10 +42,26 @@ namespace Primafit_ERP.Services
                 var existing = await ctx.CustomerPayments.Include(p => p.Applications).FirstOrDefaultAsync(p => p.Id == pay.Id);
                 if (existing != null)
                 {
-                    if (existing.Status != PaymentStatus.Draft) return "Cannot edit a posted payment.";
+                    var batchId = pay.GLBatchId ?? existing.GLBatchId;
+                    var existingBatch = batchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId.Value && b.CompanyId == existing.CompanyId)
+                        : null;
+
+                    if (existingBatch?.Status == BatchStatus.Posted)
+                        return "This payment has already been committed to the General Ledger and cannot be modified.";
+
+                    if (existing.Status != PaymentStatus.Draft && existingBatch == null)
+                        return "Only draft payments or payments with an active review batch can be edited.";
+
+                    pay.GLBatchId = batchId;
                     ctx.Entry(existing).CurrentValues.SetValues(pay);
                     ctx.PaymentApplications.RemoveRange(existing.Applications);
-                    foreach (var app in pay.Applications) ctx.PaymentApplications.Add(app);
+                    foreach (var app in pay.Applications)
+                    {
+                        app.Id = Guid.NewGuid();
+                        app.CustomerPaymentId = pay.Id;
+                        ctx.PaymentApplications.Add(app);
+                    }
                 }
             }
 
@@ -65,7 +81,16 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(p => p.Id == paymentId);
 
                 if (pay == null) return "Payment not found.";
-                if (pay.Status != PaymentStatus.Draft) return "Only draft payments can be posted.";
+                if (pay.Status != PaymentStatus.Draft)
+                {
+                    var existingBatch = pay.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == pay.GLBatchId.Value && b.CompanyId == pay.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted)
+                        return "This payment has already been committed to the General Ledger and cannot be modified.";
+                    if (existingBatch == null)
+                        return "Only draft payments can be submitted for review.";
+                }
 
                 // 1. Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
@@ -152,18 +177,21 @@ namespace Primafit_ERP.Services
 
                     decimal totalPaidSoFar = await (from pa in ctx.PaymentApplications
                                                     join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
-                                                    where pa.InvoiceId == invoice.Id && p.Status == PaymentStatus.Posted
+                                                     where pa.InvoiceId == invoice.Id && p.Status == PaymentStatus.Posted
+                                                        && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
+                                                        && p.Id != pay.Id
                                                     select pa.AppliedAmount + pa.CashDiscountTaken).SumAsync();
 
-                    decimal totalCredited = await ctx.CreditNotes
-                        .Where(cn => cn.SalesOrderId == invoice.Id && cn.Status == CreditNoteStatus.Posted)
-                        .SumAsync(cn => cn.TotalAmount);
+                    decimal totalCredited = await (from cn in ctx.CreditNotes
+                                                   where cn.SalesOrderId == invoice.Id && cn.Status == CreditNoteStatus.Posted
+                                                      && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId.Value && b.Status == BatchStatus.Posted))
+                                                   select cn.TotalAmount).SumAsync();
 
                     decimal netBalanceDue = grandTotal - totalPaidSoFar - totalCredited;
 
                     if (app.AppliedAmount > netBalanceDue + 0.01m)
                     {
-                        return $"Post Error: Applied payment ({app.AppliedAmount:N2}) for invoice {invoice.OrderNumber} exceeds remaining balance ({netBalanceDue:N2}).";
+                    return $"Post Error: Applied payment ({app.AppliedAmount:N4}) for invoice {invoice.OrderNumber} exceeds remaining balance ({netBalanceDue:N4}).";
                     }
 
                     // Cash discount taken on receipt
@@ -218,7 +246,7 @@ namespace Primafit_ERP.Services
 
                 if (totalDebits != totalCredits)
                 {
-                    return $"Balance Error: Debits ({totalDebits:N2}) do not equal Credits ({totalCredits:N2}).";
+                    return $"Balance Error: Debits ({totalDebits:N4}) do not equal Credits ({totalCredits:N4}).";
                 }
 
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
@@ -227,13 +255,15 @@ namespace Primafit_ERP.Services
                     "Customer Receipt",
                     $"Rcpt {pay.Reference}",
                     glLines,
-                    userId);
+                    userId,
+                    existingBatchId: pay.GLBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(pay.CompanyId, batchId.Value, userId);
 
                 pay.DepositToGlAccountId = bankAccount;
                 pay.CreditGlAccountId = arAccount;
+                pay.GLBatchId = batchId;
                 pay.Status = PaymentStatus.Posted;
 
                 await ctx.SaveChangesAsync();

@@ -26,7 +26,7 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        public async Task<BudgetHeader?> GetBudgetByIdAsync(Guid id)
+        public async Task<BudgetHeader?> GetBudgetByIdAsync(Guid id, Guid? companyId = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.BudgetHeaders
@@ -35,10 +35,10 @@ namespace Primafit_ERP.Services
                 .Include(b => b.TransferLines) // NEW: Load Transfer Rules
                     .ThenInclude(t => t.PeriodAllocations)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(b => b.Id == id);
+                .FirstOrDefaultAsync(b => b.Id == id && (!companyId.HasValue || b.CompanyId == companyId.Value));
         }
 
-        public async Task<string> SaveBudgetAsync(BudgetHeader budget)
+        public async Task<string> SaveBudgetAsync(BudgetHeader budget, string userId = "system")
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -48,6 +48,9 @@ namespace Primafit_ERP.Services
                 .Include(b => b.Lines).ThenInclude(l => l.PeriodAllocations)
                 .Include(b => b.TransferLines).ThenInclude(t => t.PeriodAllocations)
                 .FirstOrDefaultAsync(b => b.Id == budget.Id);
+            var previousSummary = existing == null
+                ? "No previous version"
+                : $"Lines={existing.Lines.Count}, Budget={existing.Lines.Sum(l => l.LimitAmount):N4}, Forecast={existing.Lines.Sum(l => l.PeriodAllocations.Sum(p => p.ForecastAmount ?? 0)):N4}, Active={existing.IsActive}";
 
             if (existing == null)
             {
@@ -57,7 +60,7 @@ namespace Primafit_ERP.Services
                 {
                     if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                     line.BudgetHeaderId = budget.Id;
-                    // Use ?? 0 to safely sum nullable decimals
+                    NormalizeBudgetAllocations(line);
                     line.LimitAmount = line.PeriodAllocations.Sum(p => p.Amount ?? 0);
 
                     foreach (var period in line.PeriodAllocations)
@@ -71,7 +74,7 @@ namespace Primafit_ERP.Services
                 {
                     if (tLine.Id == Guid.Empty) tLine.Id = Guid.NewGuid();
                     tLine.BudgetHeaderId = budget.Id;
-                    // Use ?? 0 to safely sum nullable decimals
+                    NormalizeTransferAllocations(tLine);
                     tLine.LimitAmount = tLine.PeriodAllocations.Sum(p => p.Amount ?? 0);
 
                     foreach (var period in tLine.PeriodAllocations)
@@ -82,16 +85,23 @@ namespace Primafit_ERP.Services
                 }
                 ctx.BudgetHeaders.Add(budget);
             }
+
             else
             {
                 budget.CompanyId = existing.CompanyId;
                 ctx.Entry(existing).CurrentValues.SetValues(budget);
+
+                // The editor sends nullable decimal fields. If a user opens a
+                // budget and saves without changing it, a null sent by the form
+                // must not erase an amount already stored in the database.
+                RestoreExistingBudgetAllocations(budget, existing);
 
                 ctx.BudgetLines.RemoveRange(existing.Lines);
                 foreach (var line in budget.Lines)
                 {
                     line.Id = Guid.NewGuid();
                     line.BudgetHeaderId = existing.Id;
+                    NormalizeBudgetAllocations(line);
                     line.LimitAmount = line.PeriodAllocations.Sum(p => p.Amount ?? 0);
                     ctx.BudgetLines.Add(line);
 
@@ -108,6 +118,7 @@ namespace Primafit_ERP.Services
                 {
                     tLine.Id = Guid.NewGuid();
                     tLine.BudgetHeaderId = existing.Id;
+                    NormalizeTransferAllocations(tLine);
                     tLine.LimitAmount = tLine.PeriodAllocations.Sum(p => p.Amount ?? 0);
                     ctx.Set<BudgetTransferLine>().Add(tLine);
 
@@ -120,6 +131,16 @@ namespace Primafit_ERP.Services
                 }
             }
 
+            ctx.AuditLogs.Add(new AuditLog
+            {
+                CompanyId = budget.CompanyId,
+                UserId = string.IsNullOrWhiteSpace(userId) ? "system" : userId,
+                Action = existing == null ? "BudgetCreated" : "BudgetUpdated",
+                EntityType = nameof(BudgetHeader),
+                EntityId = budget.Id,
+                Details = $"Budget '{budget.BudgetName}' saved. Previous: {previousSummary}. New: Lines={budget.Lines.Count}, Budget={budget.Lines.Sum(l => l.LimitAmount):N4}, Forecast={budget.Lines.Sum(l => l.PeriodAllocations.Sum(p => p.ForecastAmount ?? 0)):N4}, Active={budget.IsActive}."
+            });
+
             try
             {
                 await ctx.SaveChangesAsync();
@@ -131,73 +152,59 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string> TransferBudgetAsync(Guid budgetId, Guid fromGlId, Guid toGlId, Guid periodId, decimal amount)
+        private static void RestoreExistingBudgetAllocations(BudgetHeader incoming, BudgetHeader existing)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var tx = await ctx.Database.BeginTransactionAsync();
-
-            try
+            foreach (var line in incoming.Lines ?? new List<BudgetLine>())
             {
-                var budget = await ctx.BudgetHeaders
-                    .Include(b => b.Lines).ThenInclude(l => l.PeriodAllocations)
-                    .Include(b => b.TransferLines).ThenInclude(t => t.PeriodAllocations)
-                    .FirstOrDefaultAsync(b => b.Id == budgetId);
+                var previousLine = existing.Lines.FirstOrDefault(x =>
+                    x.Id == line.Id || x.GlAccountId == line.GlAccountId);
 
-                if (budget == null) return "Budget not found.";
-                if (amount <= 0) return "Transfer amount must be greater than zero.";
-                if (fromGlId == toGlId) return "Cannot transfer to the same account.";
+                foreach (var allocation in line.PeriodAllocations ?? new List<BudgetPeriodAllocation>())
+                {
+                    var previousAllocation = previousLine?.PeriodAllocations
+                        .FirstOrDefault(x => x.AccountingPeriodId == allocation.AccountingPeriodId);
 
-                // 1. Check if the rule exists and permits this transfer
-                var transferRule = budget.TransferLines.FirstOrDefault(t => t.FromGlAccountId == fromGlId && t.ToGlAccountId == toGlId);
-                if (transferRule == null) return "No transfer rule exists permitting movement between these accounts.";
+                    if (!allocation.Amount.HasValue && previousAllocation?.Amount.HasValue == true)
+                        allocation.Amount = previousAllocation.Amount;
 
-                var rulePeriod = transferRule.PeriodAllocations.FirstOrDefault(p => p.AccountingPeriodId == periodId);
-                if (rulePeriod == null || rulePeriod.Amount == null || rulePeriod.Amount < amount)
-                    return "Transfer exceeds the maximum allowed reappropriation limit for this period.";
-
-                // 2. Locate the actual budget limits to modify
-                var fromLine = budget.Lines.FirstOrDefault(l => l.GlAccountId == fromGlId);
-                var toLine = budget.Lines.FirstOrDefault(l => l.GlAccountId == toGlId);
-
-                if (fromLine == null) return "Source account is not in this budget.";
-                if (toLine == null) return "Destination account is not in this budget.";
-
-                var fromPeriod = fromLine.PeriodAllocations.FirstOrDefault(p => p.AccountingPeriodId == periodId);
-                var toPeriod = toLine.PeriodAllocations.FirstOrDefault(p => p.AccountingPeriodId == periodId);
-
-                // Treat null as 0 for balance checks
-                decimal currentFromBalance = fromPeriod?.Amount ?? 0;
-                decimal currentToBalance = toPeriod?.Amount ?? 0;
-
-                if (fromPeriod == null || currentFromBalance < amount)
-                    return "Insufficient funds in the source account for the selected period.";
-                if (toPeriod == null)
-                    return "Destination account does not have this period configured.";
-
-                // 3. Execute the transfer on the actual budget limits
-                fromPeriod.Amount = currentFromBalance - amount;
-                toPeriod.Amount = currentToBalance + amount;
-
-                // 4. Deduct from the Transfer Rule allowable limit so they can't infinitely transfer
-                rulePeriod.Amount -= amount;
-
-                // 5. Update Header Limits
-                fromLine.LimitAmount = fromLine.PeriodAllocations.Sum(p => p.Amount ?? 0);
-                toLine.LimitAmount = toLine.PeriodAllocations.Sum(p => p.Amount ?? 0);
-                transferRule.LimitAmount = transferRule.PeriodAllocations.Sum(p => p.Amount ?? 0);
-
-                await ctx.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                return string.Empty;
+                    if (!allocation.ForecastAmount.HasValue && previousAllocation?.ForecastAmount.HasValue == true)
+                        allocation.ForecastAmount = previousAllocation.ForecastAmount;
+                }
             }
-            catch (Exception ex)
+
+            foreach (var line in incoming.TransferLines ?? new List<BudgetTransferLine>())
             {
-                await tx.RollbackAsync();
-                return $"Transfer failed: {ex.Message}";
+                var previousLine = existing.TransferLines.FirstOrDefault(x =>
+                    x.Id == line.Id ||
+                    (x.FromGlAccountId == line.FromGlAccountId && x.ToGlAccountId == line.ToGlAccountId));
+
+                foreach (var allocation in line.PeriodAllocations ?? new List<BudgetTransferPeriodAllocation>())
+                {
+                    var previousAllocation = previousLine?.PeriodAllocations
+                        .FirstOrDefault(x => x.AccountingPeriodId == allocation.AccountingPeriodId);
+
+                    if (!allocation.Amount.HasValue && previousAllocation?.Amount.HasValue == true)
+                        allocation.Amount = previousAllocation.Amount;
+                }
             }
         }
 
+        private static void NormalizeBudgetAllocations(BudgetLine line)
+        {
+            line.PeriodAllocations ??= new List<BudgetPeriodAllocation>();
+            foreach (var allocation in line.PeriodAllocations)
+            {
+                allocation.Amount ??= 0m;
+                allocation.ForecastAmount ??= 0m;
+            }
+        }
+
+        private static void NormalizeTransferAllocations(BudgetTransferLine line)
+        {
+            line.PeriodAllocations ??= new List<BudgetTransferPeriodAllocation>();
+            foreach (var allocation in line.PeriodAllocations)
+                allocation.Amount ??= 0m;
+        }
 
         // 2. CHECK FUNDS (The Core Logic)
         public async Task<string> ValidateFundsAsync(Guid companyId, List<(Guid SegCoaId, decimal Amount)> requests)
@@ -284,7 +291,7 @@ namespace Primafit_ERP.Services
                 .AsNoTracking() 
                 .FirstOrDefaultAsync(b => b.CompanyId == companyId && b.IsActive);
         }
-        public async Task<string> DeleteBudgetAsync(Guid budgetId)
+        public async Task<string> DeleteBudgetAsync(Guid budgetId, Guid companyId, string userId = "system")
         {
             try
             {
@@ -296,11 +303,20 @@ namespace Primafit_ERP.Services
                         .ThenInclude(l => l.PeriodAllocations)
                     .Include(b => b.TransferLines)
                         .ThenInclude(t => t.PeriodAllocations)
-                    .FirstOrDefaultAsync(b => b.Id == budgetId);
+                    .FirstOrDefaultAsync(b => b.Id == budgetId && b.CompanyId == companyId);
 
                 if (budget == null)
                     return "Budget not found.";
 
+                context.AuditLogs.Add(new AuditLog
+                {
+                    CompanyId = companyId,
+                    UserId = string.IsNullOrWhiteSpace(userId) ? "system" : userId,
+                    Action = "BudgetDeleted",
+                    EntityType = nameof(BudgetHeader),
+                    EntityId = budget.Id,
+                    Details = $"Budget '{budget.BudgetName}' deleted. Lines={budget.Lines.Count}, Budget={budget.Lines.Sum(l => l.LimitAmount):N4}."
+                });
                 context.BudgetHeaders.Remove(budget);
                 await context.SaveChangesAsync();
 
@@ -314,7 +330,7 @@ namespace Primafit_ERP.Services
         // ==========================================
         // PROPER PERIODIC BUDGET VARIANCE REPORT
         // ==========================================
-        public async Task<StandardReportData> GeneratePeriodicVarianceReportAsync(Guid companyId, DateOnly start, DateOnly end, string searchAccount = "")
+        public async Task<StandardReportData> GeneratePeriodicVarianceReportAsync(Guid companyId, DateOnly start, DateOnly end, string searchAccount = "", Guid? budgetId = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -322,22 +338,40 @@ namespace Primafit_ERP.Services
             DateTime globalPoStart = start.ToDateTime(TimeOnly.MinValue);
             DateTime globalPoEnd = end.ToDateTime(TimeOnly.MaxValue);
 
-            var activeBudget = await ctx.BudgetHeaders
+            var selectedBudgets = await ctx.BudgetHeaders
                 .Include(b => b.Lines)
                     .ThenInclude(l => l.PeriodAllocations)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(b => b.CompanyId == companyId && b.IsActive);
+                .Where(b => b.CompanyId == companyId &&
+                            (budgetId.HasValue ? b.Id == budgetId.Value : b.IsActive))
+                .OrderBy(b => b.BudgetName)
+                .ToListAsync();
+
+            // The variance report must not silently discard budgets when a company
+            // has more than one active budget. Flatten all selected budgets into
+            // one report set; the optional selector above still supports a single
+            // budget view when required.
+            var activeBudget = selectedBudgets.Count == 0
+                ? null
+                : new BudgetHeader
+                {
+                    BudgetName = selectedBudgets.Count == 1
+                        ? selectedBudgets[0].BudgetName
+                        : $"{selectedBudgets.Count} Active Budgets",
+                    IsActive = true,
+                    Lines = selectedBudgets.SelectMany(b => b.Lines ?? new List<BudgetLine>()).ToList()
+                };
 
             var report = new StandardReportData
             {
                 ReportName = "Detailed Budget Variance Report",
                 ReportingPeriod = $"{(activeBudget?.BudgetName ?? "No Active Budget")} | {start:MMM dd, yyyy} - {end:MMM dd, yyyy}",
-                Headers = new List<string> { "Account / Period", "Description", "Limit (Budget)", "Actuals (Posted)", "Encumbered (POs)", "Total Committed", "Available Balance", "% Used" }
+                Headers = new List<string> { "Account / Period", "Description", "Budget", "Forecast", "Actuals (Posted)", "Encumbered (POs)", "Total Committed", "Budget Variance", "Forecast Variance", "% Used" }
             };
 
             if (activeBudget == null || !activeBudget.Lines.Any())
             {
-                report.Rows.Add(new List<string> { "N/A", "No Active Budget found.", "", "", "", "", "", "" });
+                report.Rows.Add(new List<string> { "N/A", budgetId.HasValue ? "Selected budget not found." : "No active budget found.", "", "", "", "", "", "", "", "" });
                 return report;
             }
 
@@ -348,7 +382,7 @@ namespace Primafit_ERP.Services
 
             var validPeriodIds = validPeriods.Select(p => p.Id).ToList();
 
-            decimal grandBudget = 0, grandActuals = 0, grandEncumbered = 0, grandCommitted = 0, grandAvailable = 0;
+            decimal grandBudget = 0, grandForecast = 0, grandActuals = 0, grandEncumbered = 0, grandCommitted = 0;
 
             foreach (var line in activeBudget.Lines)
             {
@@ -367,6 +401,9 @@ namespace Primafit_ERP.Services
                 decimal targetLimit = line.PeriodAllocations
                     .Where(p => validPeriodIds.Contains(p.AccountingPeriodId))
                     .Sum(p => p.Amount ?? 0);
+                decimal targetForecast = line.PeriodAllocations
+                    .Where(p => validPeriodIds.Contains(p.AccountingPeriodId))
+                    .Sum(p => p.ForecastAmount ?? 0);
 
                 // 2. GLTransactions uses DateOnly! Compare directly to 'start' and 'end'
                 decimal actualSpent = await ctx.GLTransactions
@@ -398,26 +435,29 @@ namespace Primafit_ERP.Services
                 }
 
                 decimal totalCommitted = actualSpent + encumberedAmount;
-                decimal available = targetLimit - totalCommitted;
+                decimal budgetVariance = targetLimit - totalCommitted;
+                decimal forecastVariance = targetForecast - totalCommitted;
                 decimal percentUsed = targetLimit > 0 ? (totalCommitted / targetLimit) * 100 : 0;
 
                 report.Rows.Add(new List<string>
             {
-                account.AccountCode,
-                account.Description,
-                targetLimit.ToString("N2"),
-                actualSpent.ToString("N2"),
-                encumberedAmount.ToString("N2"),
-                totalCommitted.ToString("N2"),
-                available.ToString("N2"),
-                $"{percentUsed:N1}%"
-            });
+                    account.AccountCode,
+                    account.Description,
+                    targetLimit.ToString("N2"),
+                    targetForecast.ToString("N2"),
+                    actualSpent.ToString("N2"),
+                    encumberedAmount.ToString("N2"),
+                    totalCommitted.ToString("N2"),
+                    budgetVariance.ToString("N2"),
+                    forecastVariance.ToString("N2"),
+                    $"{percentUsed:N1}%"
+                });
 
                 // --- SUB-ROWS (Breakdown by Period) ---
                 foreach (var period in validPeriods.OrderBy(p => p.StartDate))
                 {
                     decimal periodLimit = line.PeriodAllocations.FirstOrDefault(pa => pa.AccountingPeriodId == period.Id)?.Amount ?? 0;
-                    if (periodLimit == 0) continue;
+                    decimal periodForecast = line.PeriodAllocations.FirstOrDefault(pa => pa.AccountingPeriodId == period.Id)?.ForecastAmount ?? 0;
 
                     // 4. Create DateTime versions of the Period dates for the PurchaseOrder query
                     DateTime periodPoStart = period.StartDate.ToDateTime(TimeOnly.MinValue);
@@ -447,7 +487,8 @@ namespace Primafit_ERP.Services
                     }
 
                     decimal pCommitted = pActual + pEncumbered;
-                    decimal pAvailable = periodLimit - pCommitted;
+                    decimal pBudgetVariance = periodLimit - pCommitted;
+                    decimal pForecastVariance = periodForecast - pCommitted;
                     decimal pPercent = periodLimit > 0 ? (pCommitted / periodLimit) * 100 : 0;
 
                     report.Rows.Add(new List<string>
@@ -455,19 +496,21 @@ namespace Primafit_ERP.Services
                     "",
                     $" ↳ {period.PeriodName}",
                     periodLimit.ToString("N2"),
+                    periodForecast.ToString("N2"),
                     pActual.ToString("N2"),
                     pEncumbered.ToString("N2"),
                     pCommitted.ToString("N2"),
-                    pAvailable.ToString("N2"),
+                    pBudgetVariance.ToString("N2"),
+                    pForecastVariance.ToString("N2"),
                     $"{pPercent:N1}%"
                 });
                 }
 
                 grandBudget += targetLimit;
+                grandForecast += targetForecast;
                 grandActuals += actualSpent;
                 grandEncumbered += encumberedAmount;
                 grandCommitted += totalCommitted;
-                grandAvailable += available;
             }
 
             decimal grandPercent = grandBudget > 0 ? (grandCommitted / grandBudget) * 100 : 0;
@@ -477,10 +520,12 @@ namespace Primafit_ERP.Services
             "TOTALS",
             "COMPANY WIDE",
             grandBudget.ToString("N2"),
+            grandForecast.ToString("N2"),
             grandActuals.ToString("N2"),
             grandEncumbered.ToString("N2"),
             grandCommitted.ToString("N2"),
-            grandAvailable.ToString("N2"),
+            (grandBudget - grandCommitted).ToString("N2"),
+            (grandForecast - grandCommitted).ToString("N2"),
             $"{grandPercent:N1}%"
         });
 

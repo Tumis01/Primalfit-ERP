@@ -1,4 +1,4 @@
-﻿@page "/supply-chain/issue-to-project"
+@page "/supply-chain/issue-to-project"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -20,7 +20,7 @@
 
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <h1 class="text-2xl font-bold text-slate-900">Issue to Project</h1>
-        <p class="text-sm text-slate-500">Consume inventory for a specific job. This will increase Project Costs.</p>
+        <p class="text-sm text-slate-500">Prepare an inventory issue for review before it increases Project Costs or becomes a posted transaction.</p>
     </div>
 
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
@@ -74,7 +74,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                         <label class="label">Quantity</label>
-                        <InputNumber @bind-Value="form.Quantity" class="input-class font-bold text-right" placeholder="0.00" />
+                        <InputNumber @bind-Value="form.Quantity" class="input-class font-bold text-right" placeholder="0.0000" />
                     </div>
                     <div class="md:col-span-2">
                         <label class="label">Reference / Note</label>
@@ -90,7 +90,7 @@
                                 {
                                     <span class="animate-spin">↻</span>
                                 }
-                                <span>Confirm Issue</span>
+                                <span>Submit Issue for GL Review</span>
                             </button>
                         </Authorized>
                     </PermissionGate>
@@ -207,7 +207,7 @@
 
         if (string.IsNullOrEmpty(err))
         {
-            await JS.InvokeVoidAsync("alert", "Stock Issued Successfully! Project Cost updated.");
+            await JS.InvokeVoidAsync("alert", "Stock issue submitted for GL review. Project cost updated.");
             form = new(); // Reset
             selectedItemStock = null;
             await LoadData(); // Refresh stock levels

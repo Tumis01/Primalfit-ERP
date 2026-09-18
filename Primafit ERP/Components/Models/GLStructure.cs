@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -33,6 +33,7 @@ namespace Primafit_ERP.Components.Models
 
         public BatchType Type { get; set; } = BatchType.Standard;
         public bool ClearAfterPost { get; set; } = true;
+        public bool IsLocked { get; set; } = false;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -98,10 +99,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(SegCoaId))]
         public SegChartOfAccount? SegCoa { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Debit { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Credit { get; set; }
 
         public string? Reference { get; set; }
@@ -133,10 +134,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(SegCoaId))]
         public SegChartOfAccount? SegCoa { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Debit { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal Credit { get; set; }
 
         public string? Narration { get; set; }

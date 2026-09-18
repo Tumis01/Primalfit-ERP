@@ -401,6 +401,7 @@
                                              
                                                 <div class="space-y-0.5 mb-2">
                                                     <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
+                                                    <NavLink href="reports/stock-by-uom" class="@NestedNavLink" activeClass="@NestedNavActive">Stock by UOM</NavLink>
                                                     <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
                                                     <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
                                                     <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
@@ -579,6 +580,9 @@
                         <NavLink href="tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
                             <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Tax Setup
                         </NavLink>
+                        <NavLink href="withholding-tax-setup" class="@SubNavBase" activeClass="@SubNavActive">
+                            <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Withholding Tax Setup
+                        </NavLink>
 
                         <PermissionGate Key="FISCAL_PERIODS_PAGE">
                              
@@ -732,7 +736,7 @@
         if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("supply-chain/issue-to-project") || path.StartsWith("wh/shipments"))
         { _inventoryMenuOpen = true; _inventoryTransOpen = true; }
 
-        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging") || path.StartsWith("reports/inventory-valuation"))
+        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/stock-by-uom") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging") || path.StartsWith("reports/inventory-valuation"))
         { _inventoryMenuOpen = true; _inventoryReportOpen = true; }
     
         if (path.StartsWith("hr/settings") || path.StartsWith("hr/employees"))

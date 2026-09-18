@@ -211,7 +211,7 @@ namespace Primafit_ERP.Services
             var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
             if (!string.IsNullOrEmpty(postErr)) return $"Depreciation saved, but GL posting failed: {postErr}";
 
-            return $"Successfully posted depreciation. Amount: {amount:N2}";
+            return $"Depreciation submitted for GL review. Amount: {amount:N4}";
         }
 
         // Added userId parameter

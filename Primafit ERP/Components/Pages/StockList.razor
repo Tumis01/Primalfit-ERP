@@ -1,4 +1,4 @@
-﻿@page "/sc/stock-list"
+@page "/sc/stock-list"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -101,13 +101,13 @@
                                     else
                                     {
                                         <span class="@(line.Quantity <= line.ReorderLevel ? "text-amber-600" : "text-slate-700")">
-                                            @line.Quantity.ToString("N2")
+                                            @line.QuantityDisplay
                                         </span>
                                     }
                                 </td>
 
                                 <td class="p-4 text-right font-mono text-slate-500">
-                                    @line.SellingPrice.ToString("N2")
+                                    @line.SellingPrice.ToString("N4")
                                 </td>
 
                                 <td class="p-4 text-right font-mono font-bold text-emerald-600">
@@ -117,7 +117,7 @@
                                     }
                                     else
                                     {
-                                        @((line.Quantity * line.SellingPrice).ToString("N2"))
+                                        @line.StockValue.ToString("N4")
                                     }
                                 </td>
 
@@ -143,7 +143,7 @@
     private List<StockSummaryRow> inventoryLines = new();
 
     // Sum only Physical items (Services are infinite, so we can't sum value)
-    private decimal GrandTotalValue => inventoryLines.Where(x => !x.IsService).Sum(x => x.Quantity * x.SellingPrice);
+    private decimal GrandTotalValue => inventoryLines.Where(x => !x.IsService).Sum(x => x.StockValue);
 
     protected override async Task OnInitializedAsync()
     {
@@ -173,7 +173,16 @@
         // 1. Fetch ALL Items (Master Data is the Source of Truth now)
         var allItems = await ctx.Items
             .AsNoTracking()
+            .Include(i => i.PrimaryUom)
             .Where(i => i.CompanyId == currentCompanyId)
+            .ToListAsync();
+        var uomMap = await ctx.UnitOfMeasures
+            .AsNoTracking()
+            .Where(u => u.CompanyId == currentCompanyId)
+            .ToDictionaryAsync(u => u.Id, u => u.Name);
+        var itemConversions = await ctx.ItemUomConversionLines.AsNoTracking()
+            .Where(x => x.IsActive && x.Item!.CompanyId == currentCompanyId)
+            .Include(x => x.Uom)
             .ToListAsync();
 
         // 2. Fetch Ledger Data (Only for Physical Items)
@@ -213,7 +222,9 @@
                     SellingPrice = item.SellingPrice,
                     IsService = true,
                     Quantity = 0, // Placeholder
-                    WarehouseName = "Global"
+                    WarehouseName = "Global",
+                    PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM,
+                    ConversionDisplay = ""
                 });
             }
             else
@@ -235,6 +246,8 @@
                             IsService = false,
                             WarehouseName = warehouseMap.ContainsKey(stock.WarehouseId) ? warehouseMap[stock.WarehouseId] : "Unknown",
                             Quantity = stock.TotalQty
+                            ,PrimaryUomName = item.UomId.HasValue ? uomMap.GetValueOrDefault(item.UomId.Value, item.UoM) : item.UoM
+                            ,ConversionDisplay = BuildConversionDisplay(item, itemConversions, stock.TotalQty)
                         });
                     }
                 }
@@ -259,5 +272,17 @@
         public decimal SellingPrice { get; set; }
         public decimal ReorderLevel { get; set; }
         public bool IsService { get; set; }
+        public string PrimaryUomName { get; set; } = "Each";
+        public string ConversionDisplay { get; set; } = "";
+        public string QuantityDisplay => string.IsNullOrWhiteSpace(ConversionDisplay)
+            ? $"{Quantity:N2} {PrimaryUomName}"
+            : $"{Quantity:N2} {PrimaryUomName} ({ConversionDisplay})";
+        public decimal StockValue => Quantity * SellingPrice;
+    }
+
+    private static string BuildConversionDisplay(Item item, List<ItemUomConversionLine> lines, decimal primaryQuantity)
+    {
+        return string.Join(", ", lines.Where(x => x.ItemId == item.Id && x.ConversionFactorToBase != 1m)
+            .Select(x => $"{(primaryQuantity * x.ConversionFactorToBase):N2} {x.Uom?.Name ?? "UOM"}"));
     }
 }

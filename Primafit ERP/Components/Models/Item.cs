@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -20,8 +20,18 @@ namespace Primafit_ERP.Components.Models
         [Required] public string SKU { get; set; } = string.Empty;
         [Required] public string Name { get; set; } = string.Empty;
         public bool IsService { get; set; }
-        public string UoM { get; set; } = "Each"; 
-        [Column(TypeName = "decimal(18,2)")]
+        public string UoM { get; set; } = "Each";
+
+        public Guid? UomId { get; set; }
+        [ForeignKey(nameof(UomId))]
+        public virtual UnitOfMeasure? PrimaryUom { get; set; }
+        public Guid? AlternateUomId { get; set; }
+        [ForeignKey(nameof(AlternateUomId))]
+        public virtual UnitOfMeasure? AlternateUom { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal AlternateUomConversionFactor { get; set; } = 1m;
+        [Column(TypeName = "decimal(18,4)")]
         public decimal ReorderLevel { get; set; } = 10;
         public CostingMethod CostingType { get; set; } = CostingMethod.WACC;
 
@@ -37,7 +47,7 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal MostRecentCost { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal SellingPrice { get; set; } 
         public Guid? CategoryId { get; set; }
         public virtual ItemCategory? Category { get; set; }

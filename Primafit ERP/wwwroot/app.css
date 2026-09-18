@@ -7,3 +7,19 @@ html, body {
 body {
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
+
+/* Keep numeric transaction inputs consistent across every module. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+}
+/* Actions must be available without relying on pointer hover. This covers all
+   Tailwind action variants used by setup and transaction tables. */
+[class~="group-hover:opacity-100"] {
+    opacity: 1 !important;
+}

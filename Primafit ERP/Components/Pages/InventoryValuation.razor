@@ -1,4 +1,4 @@
-﻿@page "/reports/inventory-valuation"
+@page "/reports/inventory-valuation"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Services
@@ -139,10 +139,10 @@
                         <tr>
                             <th class="px-6 py-4 w-32">Code</th>
                             <th class="px-6 py-4 w-[30%]">Item Description</th>
-                            <th class="px-6 py-4 text-center">UoM</th>
-                            <th class="px-6 py-4 text-center">Calculated Qty</th>
+                            <th class="px-6 py-4 text-center">Primary / Base UoM</th>
+                            <th class="px-6 py-4 text-center">Qty on Hand (Primary / Base)</th>
                             <th class="px-6 py-4 text-center">Costing Method</th>
-                            <th class="px-6 py-4 text-right">Unit Cost</th>
+                            <th class="px-6 py-4 text-right">Unit Cost (Primary UOM)</th>
                             <th class="px-6 py-4 text-right">Total Value</th>
                             <th class="px-6 py-4 text-center w-24">Actions</th>
                         </tr>
@@ -154,10 +154,10 @@
                                 <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.SKU</td>
                                 <td class="px-6 py-4 font-bold text-slate-900 truncate max-w-[250px]" title="@row.Name">@row.Name</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-400">@row.UoM</td>
-                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.Qty.ToString("N2")</td>
+                                <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.QtyDisplay</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-500 bg-slate-50/50">@row.CostingMethod</td>
-                                <td class="px-6 py-4 text-right font-mono text-slate-600">@row.UnitCost.ToString("N4")</td>
-                                <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N2")</td>
+                                <td class="px-6 py-4 text-right font-mono text-slate-600">@row.UnitCostDisplay.ToString("N4") / @row.PrimaryUomName</td>
+                                <td class="px-6 py-4 text-right font-mono font-bold text-slate-800">@row.TotalValue.ToString("N4")</td>
                                 <td class="px-6 py-4 text-center">
                                     <button @onclick="() => ViewHistory(row.ItemId)" class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-600 hover:text-white transition-colors">
                                         History
@@ -174,7 +174,7 @@
                         <tr>
                             <td colspan="6" class="px-6 py-4 text-right font-black text-slate-600 uppercase text-xs tracking-wider">Filtered Grand Total</td>
                             <td class="px-6 py-4 text-right font-mono font-black text-emerald-600 text-xl">
-                                @FilteredData.Sum(x => x.TotalValue).ToString("N2")
+                                @FilteredData.Sum(x => x.TotalValue).ToString("N4")
                             </td>
                             <td></td>
                         </tr>
@@ -237,11 +237,11 @@
                                 <tr class="hover:bg-slate-50">
                                     <td class="p-3 font-mono text-xs text-slate-500">@h.DateChanged.ToString("yyyy-MM-dd HH:mm")</td>
                                     <td class="p-3 font-bold text-xs text-slate-700">@h.Reference</td>
-                                    <td class="p-3 text-right font-mono">@h.OldQty.ToString("N2")</td>
+                                    <td class="p-3 text-right font-mono">@h.OldQty.ToString("N4")</td>
                                     <td class="p-3 text-right font-mono">@h.OldWacc.ToString("N4")</td>
 
                                     <td class="p-3 text-right font-mono font-bold @(h.NewQtyIn > 0 ? "text-emerald-600" : (h.NewQtyIn < 0 ? "text-rose-600" : "text-slate-400"))">
-                                        @(h.NewQtyIn > 0 ? "+" : "")@h.NewQtyIn.ToString("N2")
+                                        @(h.NewQtyIn > 0 ? "+" : "")@h.NewQtyIn.ToString("N4")
                                     </td>
                                     <td class="p-3 text-right font-mono font-bold text-slate-700">@h.NewCostIn.ToString("N4")</td>
 
@@ -307,11 +307,33 @@
         public string UoM { get; set; } = "";
         public decimal Qty { get; set; }
         public decimal UnitCost { get; set; }
+        public decimal PrimaryUomFactor { get; set; } = 1m;
+        public string BaseUomName { get; set; } = "base";
+        public string PrimaryUomName { get; set; } = "primary";
+        public string ConversionDisplay { get; set; } = "";
+        // Qty is always stored in the item's primary/reference UOM.
+        public decimal BaseQty => Qty;
+        public decimal PrimaryQty => PrimaryUomFactor > 0 ? BaseQty / PrimaryUomFactor : BaseQty;
+        public string QtyDisplay => string.IsNullOrWhiteSpace(ConversionDisplay)
+            ? $"{PrimaryQty:N2} {PrimaryUomName}"
+            : $"{PrimaryQty:N2} {PrimaryUomName} ({ConversionDisplay})";
+        // Every costing method is reported per the item's primary/reference UOM.
+        public bool CostStoredPerPrimaryUom { get; set; }
+        public decimal BaseUnitCost => CostStoredPerPrimaryUom
+            ? UnitCost / (PrimaryUomFactor > 0 ? PrimaryUomFactor : 1m)
+            : UnitCost;
+        public decimal UnitCostDisplay => CostStoredPerPrimaryUom
+            ? UnitCost
+            : UnitCost * (PrimaryUomFactor > 0 ? PrimaryUomFactor : 1m);
         public string CostingMethod { get; set; } = "";
-        public decimal TotalValue => Qty * UnitCost;
+        public decimal TotalValue => BaseQty * BaseUnitCost;
     }
 
     private List<Item> items = new();
+    private List<ItemUomConversionLine> itemConversions = new();
+    private List<UomConversionRule> conversionRules = new();
+    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
+        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<ValuationRow> rawData = new();
 
     // --- FILTERS ---
@@ -383,10 +405,17 @@
             if (company != null) companyName = company.CompanyName;
 
             using var ctx = await DbFactory.CreateDbContextAsync();
+            conversionRules = await ctx.UomConversionRules.AsNoTracking()
+                .Where(x => x.CompanyId == selectedCompanyId && x.IsActive).ToListAsync();
             items = await ctx.Items
                 .AsNoTracking()
                 .Where(i => i.CompanyId == selectedCompanyId && !i.IsService)
+                .Include(i => i.PrimaryUom)
                 .OrderBy(i => i.Name)
+                .ToListAsync();
+            itemConversions = await ctx.ItemUomConversionLines.AsNoTracking()
+                .Include(x => x.Uom)
+                .Where(x => x.IsActive && x.Item!.CompanyId == selectedCompanyId)
                 .ToListAsync();
 
             await ApplyFilters();
@@ -446,15 +475,28 @@
                     _ => item.WeightedAverageCost // Default for WACC, FIFO, LIFO
                 };
 
+                var primaryFactor = 1m;
+                var primaryName = item.PrimaryUom?.Name ?? item.UoM ?? "primary";
+                var baseName = primaryName;
+
                 rawData.Add(new ValuationRow
                 {
                     ItemId = item.Id,
                     SKU = item.SKU ?? "N/A",
                     Name = item.Name,
-                    UoM = item.UoM ?? "",
+                    UoM = primaryFactor == 1m || string.Equals(primaryName, baseName, StringComparison.OrdinalIgnoreCase)
+                        ? primaryName
+                        : $"{baseName} / {primaryName}",
+                    // The item cost is stored and reported per the selected
+                    // primary/reference UOM.
+                    PrimaryUomFactor = primaryFactor,
+                    BaseUomName = baseName,
+                    PrimaryUomName = primaryName,
                     CostingMethod = item.CostingType.ToString(),
                     UnitCost = activeCost,
-                    Qty = qty
+                    CostStoredPerPrimaryUom = true,
+                    Qty = qty,
+                    ConversionDisplay = BuildConversionDisplay(item.Id, qty)
                 });
             }
         }
@@ -463,6 +505,11 @@
         isLoading = false;
         await InvokeAsync(StateHasChanged); // Turn off spinner
     }
+
+    private string BuildConversionDisplay(Guid itemId, decimal primaryQuantity) =>
+        string.Join(", ", itemConversions
+            .Where(x => x.ItemId == itemId && x.ConversionFactorToBase != 1m)
+            .Select(x => $"{(primaryQuantity * x.ConversionFactorToBase):N2} {x.Uom?.Name ?? "UOM"}"));
 
     // --- HISTORY MODAL ---
     private async Task ViewHistory(Guid itemId)
@@ -494,7 +541,7 @@
             ReportingPeriod = FilterMode == "AsOf"
                 ? $"As of {FilterAsOfDate:MMM dd, yyyy}"
                 : $"{FilterStartDate:MMM dd, yyyy} to {FilterEndDate:MMM dd, yyyy}",
-            Headers = new List<string> { "SKU", "Item Description", "UoM", "Qty on Hand", "Costing Method", "Unit Cost", "Total Value" }
+            Headers = new List<string> { "SKU", "Item Description", "Primary / Base UoM", "Qty on Hand (Primary / Base)", "Costing Method", "Unit Cost (Primary UOM)", "Total Value" }
         };
 
         // Export ALL filtered rows (ignore pagination)
@@ -504,14 +551,14 @@
                 row.SKU,
                 row.Name,
                 row.UoM,
-                row.Qty.ToString("N2"),
+                row.QtyDisplay,
                 row.CostingMethod,
-                row.UnitCost.ToString("N4"),
-                row.TotalValue.ToString("N2")
+                $"{row.UnitCostDisplay:N4} / {row.PrimaryUomName}",
+                row.TotalValue.ToString("N4")
             });
         }
 
-        data.Rows.Add(new List<string> { "", "", "", "", "", "FILTERED GRAND TOTAL", FilteredData.Sum(x => x.TotalValue).ToString("N2") });
+        data.Rows.Add(new List<string> { "", "", "", "", "", "FILTERED GRAND TOTAL", FilteredData.Sum(x => x.TotalValue).ToString("N4") });
         return data;
     }
 

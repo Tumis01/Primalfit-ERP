@@ -1,4 +1,4 @@
-﻿@page "/projects/{Id:guid}"
+@page "/projects/{Id:guid}"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -44,7 +44,7 @@
                     <svg class="w-16 h-16 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 </div>
                 <div class="text-sm font-bold text-slate-500 uppercase tracking-wide">Actual Revenue</div>
-                <div class="text-2xl font-mono font-bold text-emerald-600 mt-1">@pl.ActualRevenue.ToString("N2")</div>
+                <div class="text-2xl font-mono font-bold text-emerald-600 mt-1">@pl.ActualRevenue.ToString("N4")</div>
 
                 <div class="mt-4">
                     <div class="flex justify-between text-xs mb-1">
@@ -62,7 +62,7 @@
                     <svg class="w-16 h-16 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" /></svg>
                 </div>
                 <div class="text-sm font-bold text-slate-500 uppercase tracking-wide">Actual Cost</div>
-                <div class="text-2xl font-mono font-bold text-rose-600 mt-1">@pl.ActualCost.ToString("N2")</div>
+                <div class="text-2xl font-mono font-bold text-rose-600 mt-1">@pl.ActualCost.ToString("N4")</div>
 
                 <div class="mt-4">
                     <div class="flex justify-between text-xs mb-1">
@@ -79,7 +79,7 @@
                 <div class="relative z-10">
                     <div class="text-sm font-bold text-slate-400 uppercase tracking-wide">Net Margin</div>
                     <div class="text-3xl font-mono font-bold mt-1 @(pl.Margin >= 0 ? "text-emerald-400" : "text-rose-400")">
-                        @pl.Margin.ToString("N2")
+                        @pl.Margin.ToString("N4")
                     </div>
                 </div>
                 <div class="relative z-10 mt-2">
@@ -118,10 +118,10 @@
                                     <td class="p-4 text-slate-500 font-mono text-xs">@t.PostingDate.ToString("yyyy-MM-dd")</td>
                                     <td class="p-4 font-medium text-slate-900">@t.Narration</td>
                                     <td class="p-4 text-right font-mono text-emerald-600 font-bold">
-                                        @((t.Credit > 0) ? t.Credit.ToString("N2") : "-")
+                                        @((t.Credit > 0) ? t.Credit.ToString("N4") : "-")
                                     </td>
                                     <td class="p-4 text-right font-mono text-rose-600 font-bold">
-                                        @((t.Debit > 0) ? t.Debit.ToString("N2") : "-")
+                                        @((t.Debit > 0) ? t.Debit.ToString("N4") : "-")
                                     </td>
                                 </tr>
                             }

@@ -69,11 +69,39 @@
                         <InputText @bind-Value="currentUom.Name" class="input-class font-bold text-slate-800" placeholder="e.g., Dozen, Box, Tons" />
                         <p class="text-[10px] text-slate-400 mt-1">The primary name of the unit.</p>
                     </div>
-                    <div>
-                        <label class="label">Conversion Factor / Base Unit <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentUom.ConversionFactor" class="input-class" placeholder="e.g., 12 Pieces, 1000 Kilograms" />
-                        <p class="text-[10px] text-slate-400 mt-1">What this unit breaks down into.</p>
+                </div>
+
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 mb-6">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <h4 class="font-bold text-slate-800">Conversion lines</h4>
+                            <p class="text-xs text-slate-500">Define as many conversions as needed. Example: 1 Bag = 50 Kilograms.</p>
+                        </div>
                     </div>
+                    @if (currentUom.Id != Guid.Empty)
+                    {
+                        <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                            <div><label class="label">Converts to</label><SearchableUom Units="@uoms.Where(x => x.Id != currentUom.Id).ToList()" @bind-Value="conversionToUomId" /></div>
+                            <div><label class="label">Factor</label><InputNumber @bind-Value="conversionFactor" class="input-class font-mono" min="0.0001" /></div>
+                            <button type="button" @onclick="SaveConversion" class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">@(editingConversionId.HasValue ? "Update" : "Add")</button>
+                        </div>
+                        @if (conversionRules.Where(x => x.FromUomId == currentUom.Id).Any())
+                        {
+                            <div class="mt-4 divide-y divide-slate-200 rounded-lg bg-white border border-slate-200">
+                                @foreach (var rule in conversionRules.Where(x => x.FromUomId == currentUom.Id))
+                                {
+                                    <div class="flex items-center justify-between px-3 py-2 text-sm">
+                                        <span class="font-medium">1 @currentUom.Name = <b>@rule.ConversionFactor.ToString("N4")</b> @(rule.ToUom?.Name ?? uoms.FirstOrDefault(x => x.Id == rule.ToUomId)?.Name)</span>
+                                        <span><button type="button" @onclick="() => EditConversion(rule)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => DeleteConversion(rule)" class="text-rose-600 font-bold">Delete</button></span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="text-xs text-slate-500">Save the UOM first, then add its conversion lines.</p>
+                    }
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -100,7 +128,7 @@
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="p-4 w-[40%]">Unit of Measure (Name)</th>
-                        <th class="p-4 w-[40%]">Conversion Factor</th>
+                        <th class="p-4 w-[40%]">Conversions</th>
                         <th class="p-4 text-right w-[20%]">Actions</th>
                     </tr>
                 </thead>
@@ -115,7 +143,11 @@
                                         @u.Name
                                     </div>
                                 </td>
-                                <td class="p-4 text-slate-600 font-medium">@u.ConversionFactor</td>
+                                <td class="p-4 text-slate-600 font-medium">
+                                    @(conversionRules.Where(x => x.FromUomId == u.Id).Any()
+                                        ? string.Join("; ", conversionRules.Where(x => x.FromUomId == u.Id).Select(x => $"1 {u.Name} = {x.ConversionFactor:N4} {(x.ToUom?.Name ?? uoms.FirstOrDefault(y => y.Id == x.ToUomId)?.Name)}"))
+                                        : "1:1")
+                                </td>
                                 <td class="p-4 text-right">
                                     <PermissionGate Key="INVENTORY_SETUP_MANAGE">
                                         <Authorized>
@@ -171,7 +203,11 @@
 
 @code {
     private List<UnitOfMeasure> uoms = new();
+    private List<UomConversionRule> conversionRules = new();
     private UnitOfMeasure currentUom = new();
+    private Guid? conversionToUomId;
+    private decimal conversionFactor = 1m;
+    private Guid? editingConversionId;
 
     private Guid currentCompanyId;
     private bool showForm = false;
@@ -194,11 +230,13 @@
     private async Task LoadData()
     {
         uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
+        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
     }
 
     private void CreateNew()
     {
         currentUom = new UnitOfMeasure { CompanyId = currentCompanyId };
+        conversionToUomId = null; conversionFactor = 1m; editingConversionId = null;
         showForm = true;
         isEditing = false;
     }
@@ -210,10 +248,13 @@
             Id = u.Id,
             CompanyId = u.CompanyId,
             Name = u.Name,
-            ConversionFactor = u.ConversionFactor
+            ConversionFactor = u.ConversionFactor,
+            ConversionUomId = u.ConversionUomId,
+            ConversionFactorValue = u.ConversionFactorValue <= 0 ? 1m : u.ConversionFactorValue
         };
         showForm = true;
         isEditing = true;
+        conversionToUomId = null; conversionFactor = 1m; editingConversionId = null;
     }
 
     private async Task Delete(UnitOfMeasure u)
@@ -237,10 +278,13 @@
         isBusy = true;
         try
         {
+            var wasNew = currentUom.Id == Guid.Empty;
             var err = await MasterService.SaveUnitOfMeasureAsync(currentUom);
             if (string.IsNullOrEmpty(err))
             {
-                showForm = false;
+                // Keep the editor open after creating a UOM so its conversion lines can be added.
+                showForm = wasNew;
+                isEditing = true;
                 await LoadData();
             }
             else
@@ -256,6 +300,36 @@
         {
             isBusy = false;
         }
+    }
+
+    private async Task SaveConversion()
+    {
+        if (currentUom.Id == Guid.Empty || !conversionToUomId.HasValue || conversionFactor <= 0)
+        {
+            await JS.InvokeVoidAsync("alert", "Select a target UOM and enter a factor greater than zero.");
+            return;
+        }
+        var err = await MasterService.SaveUomConversionRuleAsync(new UomConversionRule
+        {
+            Id = editingConversionId ?? Guid.NewGuid(), CompanyId = currentCompanyId,
+            FromUomId = currentUom.Id, ToUomId = conversionToUomId.Value, ConversionFactor = conversionFactor
+        });
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+        editingConversionId = null; conversionToUomId = null; conversionFactor = 1m;
+        await LoadData();
+    }
+
+    private void EditConversion(UomConversionRule rule)
+    {
+        editingConversionId = rule.Id; conversionToUomId = rule.ToUomId; conversionFactor = rule.ConversionFactor;
+    }
+
+    private async Task DeleteConversion(UomConversionRule rule)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete this conversion line?")) return;
+        var err = await MasterService.DeleteUomConversionRuleAsync(rule.Id);
+        if (!string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", err);
+        await LoadData();
     }
 
     // --- CSV EXPORT LOGIC ---

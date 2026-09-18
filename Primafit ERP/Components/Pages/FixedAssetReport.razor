@@ -1,4 +1,4 @@
-﻿@page "/reports/fixed-assets"
+@page "/reports/fixed-assets"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Services
@@ -114,10 +114,10 @@
                                 </td>
                                 <td class="px-4 py-4 text-slate-600 text-xs">@catName</td>
                                 
-                                <td class="px-4 py-4 text-right font-mono text-slate-600">@asset.PurchaseCost.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono text-rose-600">@accumDepreciation.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono font-bold text-slate-900 border-l border-slate-100 bg-slate-50/30">@asset.CurrentBookValue.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono text-slate-500">@asset.SalvageValue.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono text-slate-600">@asset.PurchaseCost.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono text-rose-600">@accumDepreciation.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono font-bold text-slate-900 border-l border-slate-100 bg-slate-50/30">@asset.CurrentBookValue.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono text-slate-500">@asset.SalvageValue.ToString("N4")</td>
                                 
                                 <td class="px-4 py-4 text-center">
                                     @if (asset.LastDepreciationDate.HasValue)
@@ -146,10 +146,10 @@
 
                             <tr class="bg-slate-50 border-t-2 border-slate-200">
                                 <td colspan="3" class="px-4 py-4 text-right font-bold text-slate-900 uppercase text-xs tracking-wider">Grand Total:</td>
-                                <td class="px-4 py-4 text-right font-mono font-black text-slate-900">@totalCost.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono font-black text-rose-600">@totalAccumDepr.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono font-black text-indigo-700 border-l border-slate-200">@totalBookValue.ToString("N2")</td>
-                                <td class="px-4 py-4 text-right font-mono font-black text-slate-600">@totalSalvage.ToString("N2")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-slate-900">@totalCost.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-rose-600">@totalAccumDepr.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-indigo-700 border-l border-slate-200">@totalBookValue.ToString("N4")</td>
+                                <td class="px-4 py-4 text-right font-mono font-black text-slate-600">@totalSalvage.ToString("N4")</td>
                                 <td></td>
                             </tr>
                         }
@@ -249,10 +249,10 @@
                 asset.AssetTag ?? "",
                 asset.AssetName ?? "",
                 catName,
-                asset.PurchaseCost.ToString("N2"),
-                accumDepreciation.ToString("N2"),
-                asset.CurrentBookValue.ToString("N2"),
-                asset.SalvageValue.ToString("N2"),
+                asset.PurchaseCost.ToString("N4"),
+                accumDepreciation.ToString("N4"),
+                asset.CurrentBookValue.ToString("N4"),
+                asset.SalvageValue.ToString("N4"),
                 lastDeprDate
             });
 
@@ -268,10 +268,10 @@
             "", 
             "GRAND TOTAL", 
             "", 
-            totalCost.ToString("N2"), 
-            totalAccumDepr.ToString("N2"), 
-            totalBookValue.ToString("N2"), 
-            totalSalvage.ToString("N2"),
+            totalCost.ToString("N4"),
+            totalAccumDepr.ToString("N4"),
+            totalBookValue.ToString("N4"),
+            totalSalvage.ToString("N4"),
             ""
         });
 

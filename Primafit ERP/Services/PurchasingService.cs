@@ -76,7 +76,11 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    if (existing.IsPosted) return "STOP: Cannot edit a bill that has already been posted.";
+                    var existingBatch = existing.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GLBatchId.Value && b.CompanyId == existing.CompanyId)
+                        : null;
+                    if (existing.IsPosted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                        return "STOP: Cannot edit a bill that has already been posted.";
 
                     bill.CompanyId = existing.CompanyId;
                     bill.IsPosted = existing.IsPosted;
@@ -182,6 +186,56 @@ namespace Primafit_ERP.Services
             if (po.VendorId == Guid.Empty) return "Vendor is required.";
             if (po.Lines.Count == 0) return "Order must have at least one line.";
 
+            var itemIds = po.Lines.Where(x => x.ItemId != Guid.Empty).Select(x => x.ItemId).Distinct().ToList();
+            var itemMap = await ctx.Items.Where(x => itemIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+            var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                .Where(x => x.CompanyId == po.CompanyId && x.IsActive)
+                .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+            var itemUomMap = await ctx.ItemUomConversionLines.AsNoTracking()
+                .Where(x => x.Item!.CompanyId == po.CompanyId && x.IsActive)
+                .GroupBy(x => new { x.ItemId, x.UomId })
+                .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+            var companyUomIds = await ctx.UnitOfMeasures.AsNoTracking()
+                .Where(x => x.CompanyId == po.CompanyId).Select(x => x.Id).ToHashSetAsync();
+            foreach (var line in po.Lines.Where(x => itemMap.ContainsKey(x.ItemId)))
+            {
+                var item = itemMap[line.ItemId];
+                if (!line.UomId.HasValue) line.UomId = item.UomId;
+                if (line.UomId.HasValue && !companyUomIds.Contains(line.UomId.Value)) return "Selected line UOM is invalid.";
+                if (line.UomId.HasValue && line.UomId != item.UomId
+                    && !itemUomMap.ContainsKey((line.ItemId, line.UomId.Value))
+                    && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                    return $"The selected UOM for '{item.Name}' is not configured on this item.";
+                var itemFactors = itemUomMap.Where(x => x.Key.ItemId == line.ItemId)
+                    .ToDictionary(x => x.Key.UomId, x => x.Value);
+                var expected = UomConversion.FactorFor(item, line.UomId, itemFactors, conversionMap);
+                if (line.UomConversionFactor <= 0 || Math.Abs(line.UomConversionFactor - expected) > 0.0001m)
+                    line.UomConversionFactor = expected;
+            }
+
+            bool isInvoiceDocument = po.Status == PurchaseOrderStatus.DraftInvoice
+                || po.Status == PurchaseOrderStatus.Invoiced
+                || po.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
+            if (isInvoiceDocument && po.WithholdingTaxId.HasValue)
+            {
+                var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                    .FirstOrDefaultAsync(w => w.Id == po.WithholdingTaxId.Value && w.CompanyId == po.CompanyId);
+                if (withholding == null) return "Selected withholding tax is not configured for this company.";
+                if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                po.WithholdingTaxName = withholding.Name;
+                po.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                po.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+            }
+            else if (!isInvoiceDocument)
+            {
+                po.WithholdingTaxId = null;
+                po.WithholdingTaxName = null;
+                po.WithholdingPercentage = 0;
+                po.WithholdingAmountForeign = 0;
+                po.WithholdingAmount = 0;
+                po.WithholdingGlAccountId = null;
+            }
+
             var existing = await ctx.PurchaseOrders
                 .Include(p => p.Lines)
                 .FirstOrDefaultAsync(p => p.Id == po.Id);
@@ -195,7 +249,12 @@ namespace Primafit_ERP.Services
                     // --- GENERATE NUMBER BASED ON STATUS WITH COLLISION LOOP ---
                     if (string.IsNullOrWhiteSpace(po.OrderNumber))
                     {
-                        string prefix = po.Status == PurchaseOrderStatus.Request ? "REQ" : "PO";
+                        string prefix = po.Status switch
+                        {
+                            PurchaseOrderStatus.Request => "REQ",
+                            PurchaseOrderStatus.DraftInvoice => "INV",
+                            _ => "PO"
+                        };
                         bool isDuplicate = true;
                         string generatedNumber = string.Empty;
 
@@ -217,7 +276,13 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    if (existing.IsInvoicePosted || existing.HasReceipt)
+                    var existingBatch = existing.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking()
+                            .FirstOrDefaultAsync(b => b.Id == existing.GLBatchId.Value && b.CompanyId == existing.CompanyId)
+                        : null;
+                    bool reviewEditable = existingBatch?.Status is BatchStatus.Ready or BatchStatus.Rejected or BatchStatus.Draft;
+
+                    if (!reviewEditable && (existing.IsInvoicePosted || existing.HasReceipt))
                         return "Cannot edit an order that has already been received or invoiced.";
 
                     if (existing.Status == PurchaseOrderStatus.Request)
@@ -282,7 +347,7 @@ namespace Primafit_ERP.Services
                 TaxId = req.TaxId,
                 TaxGLAccountId = req.TaxGLAccountId,
                 VendorId = req.VendorId,
-                OrderDate = DateTime.Today,
+                OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.Open,
                 CurrencyId = req.CurrencyId,
                 ExchangeRate = req.ExchangeRate,
@@ -300,7 +365,10 @@ namespace Primafit_ERP.Services
                     PurchaseOrderId = order.Id,
                     ItemId = line.ItemId,
                     QuantityOrdered = line.QuantityOrdered,
-                    UnitCost = line.UnitCost
+                    UnitCost = line.UnitCost,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor
                 });
             }
 
@@ -341,7 +409,7 @@ namespace Primafit_ERP.Services
                 TaxId = po.TaxId,
                 TaxGLAccountId = po.TaxGLAccountId,
                 VendorId = po.VendorId,
-                OrderDate = DateTime.Today,
+                OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.DraftInvoice, // Initial state inside the Invoice workspace
                 CurrencyId = po.CurrencyId,
                 ExchangeRate = po.ExchangeRate,
@@ -358,7 +426,10 @@ namespace Primafit_ERP.Services
                     PurchaseOrderId = invoice.Id,
                     ItemId = line.ItemId,
                     QuantityOrdered = line.QuantityOrdered,
-                    UnitCost = line.UnitCost
+                    UnitCost = line.UnitCost,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor
                 });
             }
 
@@ -379,7 +450,16 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(p => p.Id == invoiceOrderId);
 
                 if (invoiceOrder == null) return "Invoice record not found.";
-                if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced) return "This invoice has already been posted to the ledger.";
+                if (invoiceOrder.Status == PurchaseOrderStatus.Invoiced)
+                {
+                    var existingBatch = invoiceOrder.GLBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == invoiceOrder.GLBatchId.Value && b.CompanyId == invoiceOrder.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted)
+                        return "This invoice has already been committed to the General Ledger and cannot be modified.";
+                    if (existingBatch == null)
+                        return "This invoice is not linked to a review batch.";
+                }
 
                 bool isLegitDraft = invoiceOrder.Status == PurchaseOrderStatus.DraftInvoice ||
                                     invoiceOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
@@ -446,20 +526,28 @@ namespace Primafit_ERP.Services
                 if (resolvedApAccount == Guid.Empty)
                     return "Unable to resolve a valid Accounts Payable GL Account for this vendor invoice.";
 
+                var existingBill = await ctx.VendorBills
+                    .Include(b => b.Lines)
+                    .FirstOrDefaultAsync(b => b.PurchaseOrderId == invoiceOrder.Id && b.CompanyId == invoiceOrder.CompanyId);
+
                 var bill = new VendorBill
                 {
-                    Id = Guid.NewGuid(),
+                    Id = existingBill?.Id ?? Guid.NewGuid(),
                     CompanyId = invoiceOrder.CompanyId,
                     VendorId = invoiceOrder.VendorId,
                     PurchaseOrderId = invoiceOrder.Id,
                     AccountsPayableGlId = resolvedApAccount,
                     ExternalInvoiceNumber = invoiceOrder.OrderNumber,
-                    BillDate = DateTime.Today,
+                    BillDate = DateTime.Now,
                     CurrencyId = invoiceOrder.CurrencyId,
                     ExchangeRate = invoiceOrder.ExchangeRate,
                     IsPosted = true,
                     PostedDate = DateTime.Now,
-                    MatchStatus = BillMatchStatus.Matched
+                    MatchStatus = BillMatchStatus.Matched,
+                    WithholdingTaxId = invoiceOrder.WithholdingTaxId,
+                    WithholdingTaxName = invoiceOrder.WithholdingTaxName,
+                    WithholdingPercentage = invoiceOrder.WithholdingPercentage,
+                    WithholdingGlAccountId = invoiceOrder.WithholdingGlAccountId
                 };
 
                 decimal totalGrossForeign = 0;
@@ -475,9 +563,12 @@ namespace Primafit_ERP.Services
                             ItemId = line.ItemId,
                             QuantityBilled = line.QuantityOrdered,
                             UnitCostBilled = line.UnitCost,
+                            UomId = line.UomId,
+                            UomName = line.UomName,
+                            UomConversionFactor = line.UomConversionFactor,
                             ExpenseGlAccountId = resolvedClearingAccount
                         });
-                        totalGrossForeign += (line.QuantityOrdered * line.UnitCost);
+                        totalGrossForeign += line.LineTotal;
                         line.QuantityBilled = line.QuantityOrdered;
                     }
                 }
@@ -488,6 +579,38 @@ namespace Primafit_ERP.Services
                     discountForeign = totalGrossForeign * (invoiceOrder.DiscountPercentage / 100);
                 }
                 decimal netForeign = totalGrossForeign - discountForeign;
+
+                if (invoiceOrder.WithholdingTaxId.HasValue)
+                {
+                    var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.Id == invoiceOrder.WithholdingTaxId.Value && w.CompanyId == invoiceOrder.CompanyId);
+                    if (withholding == null) return "Selected withholding tax is no longer available.";
+                    if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                    invoiceOrder.WithholdingTaxName = withholding.Name;
+                    invoiceOrder.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                    invoiceOrder.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+                    invoiceOrder.WithholdingAmountForeign = Math.Round(netForeign * withholding.PercentageValue / 100m, 4);
+                    invoiceOrder.WithholdingAmount = Math.Round(invoiceOrder.WithholdingAmountForeign * invoiceOrder.ExchangeRate, 4);
+                    bill.WithholdingTaxName = invoiceOrder.WithholdingTaxName;
+                    bill.WithholdingPercentage = invoiceOrder.WithholdingPercentage;
+                    bill.WithholdingGlAccountId = invoiceOrder.WithholdingGlAccountId;
+                    bill.WithholdingAmountForeign = invoiceOrder.WithholdingAmountForeign;
+                    bill.WithholdingAmount = invoiceOrder.WithholdingAmount;
+                }
+                else
+                {
+                    invoiceOrder.WithholdingTaxName = null;
+                    invoiceOrder.WithholdingPercentage = 0;
+                    invoiceOrder.WithholdingAmountForeign = 0;
+                    invoiceOrder.WithholdingAmount = 0;
+                    invoiceOrder.WithholdingGlAccountId = null;
+                    bill.WithholdingTaxId = null;
+                    bill.WithholdingTaxName = null;
+                    bill.WithholdingPercentage = 0;
+                    bill.WithholdingAmountForeign = 0;
+                    bill.WithholdingAmount = 0;
+                    bill.WithholdingGlAccountId = null;
+                }
 
                 decimal taxForeign = 0;
                 if (invoiceOrder.TaxId.HasValue)
@@ -504,9 +627,6 @@ namespace Primafit_ERP.Services
                 decimal grandTotalBase = (grossBase - discountBase) + taxBase;
 
                 bill.TotalAmount = grandTotalBase;
-
-                ctx.VendorBills.Add(bill);
-                ctx.VendorBillLines.AddRange(bill.Lines);
 
                 var glLines = new List<GLJournalLine>();
 
@@ -550,9 +670,28 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = resolvedApAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId, existingBatchId: invoiceOrder.GLBatchId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
+                invoiceOrder.GLBatchId = batchId;
+                bill.GLBatchId = batchId;
+
+                if (existingBill == null)
+                {
+                    ctx.VendorBills.Add(bill);
+                    ctx.VendorBillLines.AddRange(bill.Lines);
+                }
+                else
+                {
+                    ctx.Entry(existingBill).CurrentValues.SetValues(bill);
+                    ctx.VendorBillLines.RemoveRange(existingBill.Lines);
+                    foreach (var line in bill.Lines)
+                    {
+                        line.Id = Guid.NewGuid();
+                        line.VendorBillId = existingBill.Id;
+                        ctx.VendorBillLines.Add(line);
+                    }
+                }
 
                 invoiceOrder.Status = PurchaseOrderStatus.Invoiced;
                 invoiceOrder.IsInvoicePosted = true;
@@ -592,6 +731,14 @@ namespace Primafit_ERP.Services
                 var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
                 if (po == null) return "STOP: PO not found.";
 
+                var conversionMap = await ctx.UomConversionRules.AsNoTracking()
+                    .Where(x => x.CompanyId == grn.CompanyId && x.IsActive)
+                    .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
+                    .Where(x => x.IsActive && x.Item!.CompanyId == grn.CompanyId)
+                    .GroupBy(x => new { x.ItemId, x.UomId })
+                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
+
                 // Validate Quantities to prevent over-receiving
                 var poLineIds = po.Lines.Select(l => l.Id).ToList();
                 var pastReceipts = await ctx.GoodsReceiptLines.Where(l => poLineIds.Contains(l.PurchaseOrderLineId)).ToListAsync();
@@ -600,6 +747,23 @@ namespace Primafit_ERP.Services
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
                     if (poLine == null) continue;
+
+                    var item = await ctx.Items.FindAsync(poLine.ItemId);
+                    if (item == null) return $"STOP: Item master reference is missing for purchase line {poLine.Id}.";
+
+                    var factorsForItem = itemFactors
+                        .Where(x => x.Key.ItemId == item.Id)
+                        .ToDictionary(x => x.Key.UomId, x => x.Value);
+                    decimal expectedFactor = line.UomId.HasValue
+                        ? UomConversion.FactorFor(item, line.UomId, factorsForItem, conversionMap)
+                        : UomConversion.NormalizeFactor(line.UomConversionFactor);
+                    if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                        return $"STOP: Invalid UOM conversion selected for item '{item.Name}'. Reload the receipt and try again.";
+
+                    line.UomConversionFactor = expectedFactor;
+                    line.UomName = string.IsNullOrWhiteSpace(line.UomName)
+                        ? UomConversion.NameFor(item, line.UomId)
+                        : line.UomName.Trim();
 
                     decimal pastQty = pastReceipts.Where(p => p.PurchaseOrderLineId == line.PurchaseOrderLineId).Sum(p => p.QuantityReceived);
                     decimal maxAllowed = poLine.QuantityOrdered - pastQty;
@@ -645,6 +809,7 @@ namespace Primafit_ERP.Services
                 decimal totalReceivedValueBase = 0;
 
                 // 3. Post Inventory & Financials
+                var receivedQtyByItem = new Dictionary<Guid, decimal>();
                 foreach (var grnLine in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == grnLine.PurchaseOrderLineId);
@@ -659,6 +824,34 @@ namespace Primafit_ERP.Services
 
                     if (!item.IsService)
                     {
+                        // Inventory quantities and costs are maintained in the
+                        // item's primary UOM and company base currency.
+                        var priorQty = await ctx.StockLedgers
+                            .Where(s => s.ItemId == item.Id)
+                            .SumAsync(s => s.QuantityChanged);
+                        priorQty += receivedQtyByItem.GetValueOrDefault(item.Id);
+                        var oldWacc = item.WeightedAverageCost;
+                        var incomingUnitCostBase = grnLine.QuantityReceived > 0
+                            ? lineValueBase / grnLine.QuantityReceived
+                            : 0m;
+                        var newQty = priorQty + grnLine.QuantityReceived;
+                        if (newQty > 0)
+                        {
+                            item.WeightedAverageCost = Math.Round(
+                                ((priorQty * oldWacc) + lineValueBase) / newQty, 4);
+                            ctx.ItemCostHistories.Add(new ItemCostHistory
+                            {
+                                Id = Guid.NewGuid(), ItemId = item.Id,
+                                OldQty = priorQty, OldWacc = oldWacc,
+                                NewQtyIn = grnLine.QuantityReceived,
+                                NewCostIn = incomingUnitCostBase,
+                                ResultingWacc = item.WeightedAverageCost,
+                                Reference = grn.GrnNumber,
+                                DateChanged = DateTime.UtcNow
+                            });
+                        }
+                        receivedQtyByItem[item.Id] = receivedQtyByItem.GetValueOrDefault(item.Id) + grnLine.QuantityReceived;
+
                         // A. Physical Stock Increase
                         ctx.StockLedgers.Add(new StockLedger
                         {
@@ -669,8 +862,14 @@ namespace Primafit_ERP.Services
                             Date = grn.DateReceived,
                             Reference = grn.GrnNumber,
                             Type = StockMovementType.Purchase,
+                            // QuantityChanged is the canonical physical quantity in
+                            // the item's primary/reference UOM.
                             QuantityChanged = grnLine.QuantityReceived,
-                            CostAtTime = poLine.UnitCost
+                            UomId = grnLine.UomId,
+                            UomName = string.IsNullOrWhiteSpace(grnLine.UomName) ? item.UoM : grnLine.UomName,
+                            UomConversionFactor = UomConversion.NormalizeFactor(grnLine.UomConversionFactor),
+                            QuantityInUom = UomConversion.FromBase(grnLine.QuantityReceived, grnLine.UomConversionFactor),
+                            CostAtTime = incomingUnitCostBase
                         });
 
                         // B. Debit: Inventory Stock Asset
@@ -723,10 +922,12 @@ namespace Primafit_ERP.Services
                         "Goods Receipt",
                         $"GRN {grn.GrnNumber}",
                         glLines,
-                        userId);
+                        userId,
+                        existingBatchId: grn.GLBatchId);
 
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                     if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                    grn.GLBatchId = batchId;
                 }
 
                 // Update PO Status Tracking
@@ -826,7 +1027,16 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == billId);
 
             if (bill == null) return "Bill not found.";
-            if (bill.IsPosted) return "STOP: This bill has already been posted.";
+            if (bill.IsPosted)
+            {
+                var existingBatch = bill.GLBatchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == bill.GLBatchId.Value && b.CompanyId == bill.CompanyId)
+                    : null;
+                if (existingBatch?.Status == BatchStatus.Posted)
+                    return "STOP: This bill has already been committed to the General Ledger.";
+                if (existingBatch == null)
+                    return "STOP: This bill is already locked and has no review batch.";
+            }
 
             // 1. Resolve Accounts Payable Liability via Mapping Router (Credit leg)
             Guid apAccount = await _mappingService.GetMappedAccountAsync(
@@ -864,7 +1074,7 @@ namespace Primafit_ERP.Services
 
                 if (expenseAccount == Guid.Empty) return "STOP: Line missing Expense Account.";
 
-                decimal lineTotalBase = Math.Round((line.QuantityBilled * line.UnitCostBilled) * bill.ExchangeRate, 2);
+                decimal lineTotalBase = Math.Round(line.LineTotal * bill.ExchangeRate, 2, MidpointRounding.AwayFromZero);
                 totalDebitsBase += lineTotalBase;
 
                 string glRef = !string.IsNullOrWhiteSpace(line.Description) ? line.Description : $"Bill: {bill.ExternalInvoiceNumber}";
@@ -884,7 +1094,7 @@ namespace Primafit_ERP.Services
                 var tax = await ctx.Taxes.FindAsync(bill.TaxId);
                 if (tax != null)
                 {
-                    decimal subTotalForeign = bill.Lines.Sum(l => l.QuantityBilled * l.UnitCostBilled);
+                    decimal subTotalForeign = bill.Lines.Sum(l => l.LineTotal);
                     decimal taxForeign = subTotalForeign * (tax.Per / 100);
                     decimal taxBase = Math.Round(taxForeign * bill.ExchangeRate, 2);
 
@@ -915,7 +1125,8 @@ namespace Primafit_ERP.Services
             // 5. Create and Post Journal Batch
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
-                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId
+                $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId,
+                existingBatchId: bill.GLBatchId
             );
 
             if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
@@ -926,6 +1137,7 @@ namespace Primafit_ERP.Services
                 if (!string.IsNullOrEmpty(postErr)) return $"GL Engine Rejected Posting: {postErr}";
             }
 
+            bill.GLBatchId = batchId;
             bill.IsPosted = true;
             bill.PostedDate = DateTime.Now;
 
@@ -944,6 +1156,19 @@ namespace Primafit_ERP.Services
             using var tx = await ctx.Database.BeginTransactionAsync();
             try
             {
+                var existingPayment = payment.Id != Guid.Empty
+                    ? await ctx.Set<VendorPayment>().FirstOrDefaultAsync(p => p.Id == payment.Id)
+                    : null;
+                var existingPaymentBatch = existingPayment?.GLBatchId.HasValue == true
+                    ? await ctx.GLBatches.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == existingPayment.GLBatchId!.Value && b.CompanyId == companyId)
+                    : null;
+
+                if (existingPaymentBatch?.Status == BatchStatus.Posted)
+                    return "This vendor payment has already been committed to the General Ledger and cannot be modified.";
+                if (existingPayment != null && existingPaymentBatch == null)
+                    return "Only draft payments or payments with an active review batch can be edited.";
+
                 var bill = await ctx.VendorBills
                     .Include(b => b.Payments)
                     .FirstOrDefaultAsync(b => b.Id == payment.VendorBillId && b.CompanyId == companyId);
@@ -955,7 +1180,14 @@ namespace Primafit_ERP.Services
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
 
                 // 1. Genuine Cash Payments already paid
-                decimal grossPaidBase = bill.Payments.Where(p => p.Amount > 0).Sum(p => p.Amount);
+                var postedBatchIds = await ctx.GLBatches.AsNoTracking()
+                    .Where(b => b.CompanyId == companyId && b.Status == BatchStatus.Posted)
+                    .Select(b => b.Id)
+                    .ToListAsync();
+                decimal grossPaidBase = bill.Payments
+                    .Where(p => p.Id != payment.Id && p.Amount > 0
+                        && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value)))
+                    .Sum(p => p.Amount + p.WithholdingAmount);
 
                 // 2. Query Debit Notes directly from DebitNotes table using the Invoice ID (PurchaseOrderId)
                 decimal debitNotesBase = 0;
@@ -964,7 +1196,8 @@ namespace Primafit_ERP.Services
                     var postedDebitNotes = await ctx.DebitNotes
                         .Where(d => d.PurchaseOrderId == bill.PurchaseOrderId.Value
                                  && d.CompanyId == companyId
-                                 && d.Status == DebitNoteStatus.Posted)
+                                 && d.Status == DebitNoteStatus.Posted
+                                 && (!d.GlBatchId.HasValue || postedBatchIds.Contains(d.GlBatchId.Value)))
                         .ToListAsync();
 
                     debitNotesBase = postedDebitNotes.Sum(d => Math.Round(d.TotalAmount * (d.ExchangeRate > 0 ? d.ExchangeRate : 1.0m), 2));
@@ -973,15 +1206,37 @@ namespace Primafit_ERP.Services
                 // 3. Net Invoice Liability = Bill Total - Debit Notes
                 decimal netBillTotalBase = Math.Max(0, bill.TotalAmount - debitNotesBase);
 
-                // 4. Remaining Balance Due = Net Invoice Liability - Cash Paid
+                // 4. Remaining AP liability includes both bank cash and withholding settlements.
                 decimal remainingBalanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
 
-                if (payment.Amount > remainingBalanceBase + 0.01m)
+                decimal withholdingRatio = bill.TotalAmount > 0 && bill.WithholdingAmount > 0
+                    ? Math.Min(0.999999m, bill.WithholdingAmount / bill.TotalAmount)
+                    : 0m;
+                decimal remainingWithholdingBase = Math.Min(
+                    Math.Max(0, bill.WithholdingAmount - bill.Payments
+                        .Where(p => p.Id != payment.Id && p.Amount > 0 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value)))
+                        .Sum(p => p.WithholdingAmount)),
+                    remainingBalanceBase * withholdingRatio);
+                decimal remainingBankBase = Math.Max(0, remainingBalanceBase - remainingWithholdingBase);
+
+                if (payment.Amount > remainingBankBase + 0.01m)
                 {
-                    decimal remainingForeign = Math.Round(remainingBalanceBase / rate, 2);
+                    decimal remainingForeign = Math.Round(remainingBankBase / rate, 2);
                     decimal paymentForeign = Math.Round(payment.Amount / rate, 2);
                     return $"Payment of {paymentForeign:N2} exceeds remaining payable balance of {remainingForeign:N2} (Invoice reduced by Debit Notes).";
                 }
+
+                payment.WithholdingAmount = Math.Round(payment.Amount <= 0 || withholdingRatio <= 0
+                    ? 0
+                    : payment.Amount * withholdingRatio / (1m - withholdingRatio), 4);
+                payment.WithholdingAmount = Math.Min(payment.WithholdingAmount, remainingWithholdingBase);
+                payment.WithholdingAmountForeign = Math.Round(payment.WithholdingAmount / rate, 4);
+                payment.WithholdingTaxId = bill.WithholdingTaxId;
+                payment.WithholdingTaxName = bill.WithholdingTaxName;
+                payment.WithholdingPercentage = bill.WithholdingPercentage;
+                payment.WithholdingGlAccountId = bill.WithholdingGlAccountId;
+                if (payment.WithholdingAmount > 0 && payment.WithholdingGlAccountId == null)
+                    return "Withholding tax GL account is missing on the invoice setup.";
 
                 TransactionGlMapping? customMapping = null;
                 if (payment.CustomTransactionTypeId.HasValue)
@@ -1018,14 +1273,25 @@ namespace Primafit_ERP.Services
 
                 payment.BankGlAccountId = creditBankAccountId;
                 if (payment.Id == Guid.Empty) payment.Id = Guid.NewGuid();
-                ctx.Set<VendorPayment>().Add(payment);
+
+                if (payment.WithholdingAmount > 0)
+                {
+                    bool withholdingAccountIsValid = payment.WithholdingGlAccountId.HasValue
+                        && await ctx.SegChartOfAccounts.AnyAsync(a =>
+                            a.Id == payment.WithholdingGlAccountId.Value
+                            && a.CompanyId == companyId
+                            && a.IsActive);
+
+                    if (!withholdingAccountIsValid)
+                        return "Configuration Error: The withholding tax GL account is missing or inactive.";
+                }
 
                 var glLines = new List<GLJournalLine>
         {
             new GLJournalLine
             {
                 SegCoaId = debitApAccountId,
-                Debit = payment.Amount,
+                Debit = payment.Amount + payment.WithholdingAmount,
                 Credit = 0,
                 Reference = $"Pay Bill: {bill.ExternalInvoiceNumber}"
             },
@@ -1037,6 +1303,21 @@ namespace Primafit_ERP.Services
                 Reference = $"Disbursement: {bill.ExternalInvoiceNumber}"
             }
         };
+                if (payment.WithholdingAmount > 0)
+                {
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = payment.WithholdingGlAccountId!.Value,
+                        Debit = 0,
+                        Credit = payment.WithholdingAmount,
+                        Reference = $"Withholding Tax: {bill.ExternalInvoiceNumber}"
+                    });
+                }
+
+                decimal totalDebits = Math.Round(glLines.Sum(l => l.Debit), 4, MidpointRounding.AwayFromZero);
+                decimal totalCredits = Math.Round(glLines.Sum(l => l.Credit), 4, MidpointRounding.AwayFromZero);
+                if (totalDebits != totalCredits)
+                    return $"Payment posting is not balanced. Debits: {totalDebits:N4}; Credits: {totalCredits:N4}.";
 
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                     companyId,
@@ -1044,12 +1325,27 @@ namespace Primafit_ERP.Services
                     "Vendor Payment",
                     string.IsNullOrWhiteSpace(payment.Reference) ? $"Pay {bill.ExternalInvoiceNumber}" : payment.Reference,
                     glLines,
-                    userId);
+                    userId,
+                    existingBatchId: payment.GLBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                payment.GLBatchId = batchId;
 
-                if (bill.PurchaseOrderId.HasValue && (grossPaidBase + payment.Amount) >= netBillTotalBase - 0.01m)
+                if (existingPayment == null)
+                {
+                    ctx.Set<VendorPayment>().Add(payment);
+                }
+                else
+                {
+                    ctx.Entry(existingPayment).CurrentValues.SetValues(payment);
+                }
+
+                var stagedBatch = batchId.HasValue
+                    ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == batchId.Value && b.CompanyId == companyId)
+                    : null;
+                if (bill.PurchaseOrderId.HasValue && stagedBatch?.Status == BatchStatus.Posted
+                    && (grossPaidBase + payment.Amount + payment.WithholdingAmount) >= netBillTotalBase - 0.01m)
                 {
                     var po = await ctx.PurchaseOrders.FindAsync(bill.PurchaseOrderId.Value);
                     if (po != null)
@@ -1117,6 +1413,20 @@ namespace Primafit_ERP.Services
                 var vendor = await ctx.Vendors.FindAsync(bill.VendorId);
                 if (vendor == null) return "Selected vendor does not exist.";
 
+                var existingBill = bill.Id != Guid.Empty
+                    ? await ctx.VendorBills.Include(b => b.Lines)
+                        .FirstOrDefaultAsync(b => b.Id == bill.Id && b.CompanyId == bill.CompanyId)
+                    : null;
+                var existingBillBatch = existingBill?.GLBatchId.HasValue == true
+                    ? await ctx.GLBatches.AsNoTracking()
+                        .FirstOrDefaultAsync(b => b.Id == existingBill.GLBatchId!.Value && b.CompanyId == bill.CompanyId)
+                    : null;
+
+                if (existingBillBatch?.Status == BatchStatus.Posted)
+                    return "This direct bill has already been committed to the General Ledger and cannot be modified.";
+                if (existingBill != null && existingBill.IsPosted && existingBillBatch == null)
+                    return "This direct bill has already been committed and cannot be modified.";
+
                 if (string.IsNullOrWhiteSpace(bill.ExternalInvoiceNumber))
                     bill.ExternalInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{new Random().Next(1000, 9999)}";
 
@@ -1168,7 +1478,7 @@ namespace Primafit_ERP.Services
 
                     line.ExpenseGlAccountId = lineExpenseAccount;
 
-                    decimal lineTotalForeign = line.QuantityBilled * line.UnitCostBilled;
+                    decimal lineTotalForeign = line.LineTotal;
                     totalGrossForeign += lineTotalForeign;
 
                     decimal lineTotalBase = Math.Round(lineTotalForeign * rate, 2);
@@ -1214,6 +1524,27 @@ namespace Primafit_ERP.Services
                 decimal actualCreditBase = grossBaseForLedger + taxBaseForLedger;
                 bill.TotalAmount = actualCreditBase;
 
+                if (bill.WithholdingTaxId.HasValue)
+                {
+                    var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                        .FirstOrDefaultAsync(w => w.Id == bill.WithholdingTaxId.Value && w.CompanyId == bill.CompanyId);
+                    if (withholding == null) return "Selected withholding tax is not available for this company.";
+                    if (withholding.WithholdingGlAccountId == Guid.Empty) return "Selected withholding tax has no GL account mapped.";
+                    bill.WithholdingTaxName = withholding.Name;
+                    bill.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                    bill.WithholdingGlAccountId = withholding.WithholdingGlAccountId;
+                    bill.WithholdingAmountForeign = Math.Round(totalGrossForeign * withholding.PercentageValue / 100m, 4);
+                    bill.WithholdingAmount = Math.Round(bill.WithholdingAmountForeign * rate, 4);
+                }
+                else
+                {
+                    bill.WithholdingTaxName = null;
+                    bill.WithholdingPercentage = 0;
+                    bill.WithholdingAmountForeign = 0;
+                    bill.WithholdingAmount = 0;
+                    bill.WithholdingGlAccountId = null;
+                }
+
                 glLines.Add(new GLJournalLine
                 {
                     SegCoaId = apAccount,
@@ -1240,7 +1571,8 @@ namespace Primafit_ERP.Services
                     "Direct Vendor Bill",
                     $"Bill {bill.ExternalInvoiceNumber}",
                     glLines,
-                    userId);
+                    userId,
+                    existingBatchId: bill.GLBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
@@ -1249,9 +1581,25 @@ namespace Primafit_ERP.Services
                     var postErr = await _glOps.PostBatchAsync(bill.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
                 }
+                bill.GLBatchId = batchId;
 
-                ctx.VendorBills.Add(bill);
-                ctx.VendorBillLines.AddRange(bill.Lines);
+                if (existingBill == null)
+                {
+                    ctx.VendorBills.Add(bill);
+                    ctx.VendorBillLines.AddRange(bill.Lines);
+                }
+                else
+                {
+                    bill.CompanyId = existingBill.CompanyId;
+                    ctx.Entry(existingBill).CurrentValues.SetValues(bill);
+                    ctx.VendorBillLines.RemoveRange(existingBill.Lines);
+                    foreach (var line in bill.Lines)
+                    {
+                        line.Id = Guid.NewGuid();
+                        line.VendorBillId = existingBill.Id;
+                        ctx.VendorBillLines.Add(line);
+                    }
+                }
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
@@ -1334,7 +1682,7 @@ namespace Primafit_ERP.Services
             foreach (var po in invoicedPOs)
             {
                 string invoiceNumber = invoices[po.OrderNumber]; // Guaranteed to exist via filter
-                decimal orderValue = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate;
+                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
                 int days = today.DayNumber - DateOnly.FromDateTime(po.OrderDate.Date).DayNumber;
 
                 string bucket = days <= 30 ? "Current (0–30 Days)"
@@ -1363,7 +1711,7 @@ namespace Primafit_ERP.Services
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 2. GOODS RECEIPT NOTE (GRN) LOG (INVOICED ONLY)
+        // 2. GOODS RECEIPT NOTE (GRN) LOG
         // ─────────────────────────────────────────────────────────────────
         public async Task<StandardReportData> GenerateGRNLogReportAsync(Guid companyId, DateOnly start, DateOnly end)
         {
@@ -1387,16 +1735,6 @@ namespace Primafit_ERP.Services
                 .Where(p => poIds.Contains(p.Id))
                 .ToDictionaryAsync(p => p.Id);
 
-            var poNumbers = poDict.Values.Select(p => p.OrderNumber).ToList();
-
-            // Extract downstream mapped invoices
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
             var itemIds = poDict.Values
                 .SelectMany(p => p.Lines)
                 .Select(l => l.ItemId)
@@ -1404,64 +1742,92 @@ namespace Primafit_ERP.Services
                 .ToList();
 
             var items = await ctx.Items
+                .AsNoTracking()
                 .Where(i => itemIds.Contains(i.Id))
-                .ToDictionaryAsync(i => i.Id, i => i.Name);
+                .ToDictionaryAsync(i => i.Id);
 
             var vendorIds = poDict.Values.Select(p => p.VendorId).Distinct().ToList();
             var vendors = await ctx.Vendors
+                .AsNoTracking()
                 .Where(v => vendorIds.Contains(v.Id))
                 .ToDictionaryAsync(v => v.Id, v => v.Name);
 
+            var batchIds = grns
+                .Where(g => g.GLBatchId.HasValue)
+                .Select(g => g.GLBatchId!.Value)
+                .Distinct()
+                .ToList();
+            var batchStatuses = await ctx.GLBatches
+                .AsNoTracking()
+                .Where(b => b.CompanyId == companyId && batchIds.Contains(b.Id))
+                .ToDictionaryAsync(b => b.Id, b => b.Status);
+
             var reportData = new StandardReportData
             {
-                ReportName = "Goods Receipt Note (GRN) Log (Invoiced Orders)",
+                ReportName = "Goods Receipt Note (GRN) Log",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "GRN Number", "Invoice Order Number", "Vendor", "Date Received",
-                    "Item", "Qty Received", "Unit Cost", "Line Value (Base)"
+                    "GRN Number", "Invoice Number", "Vendor", "Date Received",
+                    "Item", "Transaction UOM", "Qty Received (UOM)", "Qty Received (Primary)",
+                    "Unit Cost (Transaction UOM)", "Line Value (Base)", "GL Status"
                 },
                 Rows = new List<List<string>>()
             };
 
             decimal grandValue = 0;
-            decimal grandQty = 0;
+            decimal grandQtyPrimary = 0;
 
             foreach (var grn in grns)
             {
                 var po = poDict.GetValueOrDefault(grn.PurchaseOrderId);
-                if (po == null || !invoices.ContainsKey(po.OrderNumber)) continue; // FILTER OUT NON-INVOICED POs
+                if (po == null) continue;
 
-                string invoiceNumber = invoices[po.OrderNumber];
                 string vendorName = vendors.GetValueOrDefault(po.VendorId, "Unknown");
+                string glStatus = grn.GLBatchId.HasValue && batchStatuses.TryGetValue(grn.GLBatchId.Value, out var status)
+                    ? status.ToString()
+                    : "Not posted";
 
                 foreach (var line in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
-                    decimal unitCost = poLine?.UnitCost ?? 0;
-                    decimal rate = po.ExchangeRate;
-                    decimal lineValue = Math.Round(line.QuantityReceived * unitCost * rate, 2);
-                    string itemName = poLine != null ? items.GetValueOrDefault(poLine.ItemId, "Unknown") : "Unknown";
+                    var item = poLine != null ? items.GetValueOrDefault(poLine.ItemId) : null;
+                    decimal unitCostPrimary = poLine?.UnitCost ?? 0m;
+                    decimal factor = UomConversion.NormalizeFactor(line.UomConversionFactor);
+                    decimal quantityInUom = UomConversion.FromBase(line.QuantityReceived, factor);
+                    decimal unitCostInUom = UomConversion.PriceFromBase(unitCostPrimary, factor);
+                    decimal rate = po.ExchangeRate > 0 ? po.ExchangeRate : 1m;
+                    decimal lineValue = Math.Round(line.QuantityReceived * unitCostPrimary * rate, 2);
+                    string itemName = item?.Name ?? "Unknown";
+                    string uomName = string.IsNullOrWhiteSpace(line.UomName)
+                        ? item?.UoM ?? "Primary"
+                        : line.UomName;
 
                     reportData.Rows.Add(new List<string>
                     {
                         grn.GrnNumber,
-                        invoiceNumber, // Displays just the invoice order number
+                        po.OrderNumber,
                         vendorName,
                         grn.DateReceived.ToString("MMM dd, yyyy"),
                         itemName,
-                        line.QuantityReceived.ToString("N2"),
-                        unitCost.ToString("N2"),
-                        lineValue.ToString("N2")
+                        uomName,
+                        quantityInUom.ToString("N4"),
+                        line.QuantityReceived.ToString("N4"),
+                        unitCostInUom.ToString("N4"),
+                        lineValue.ToString("N2"),
+                        glStatus
                     });
 
                     grandValue += lineValue;
-                    grandQty += line.QuantityReceived;
+                    grandQtyPrimary += line.QuantityReceived;
                 }
             }
 
             reportData.Rows.Add(new List<string>
-                { "GRAND TOTAL", "", "", "", "", grandQty.ToString("N2"), "", grandValue.ToString("N2") });
+                {
+                    "GRAND TOTAL", "", "", "", "", "", "",
+                    grandQtyPrimary.ToString("N4"), "", grandValue.ToString("N2"), ""
+                });
 
             return reportData;
         }
@@ -1643,7 +2009,7 @@ namespace Primafit_ERP.Services
 
                 decimal remaining = qtyOrdered - qtyReceived;
                 decimal pct = qtyOrdered > 0 ? (qtyReceived / qtyOrdered) * 100 : 0;
-                decimal orderValue = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) * po.ExchangeRate;
+                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
 
                 reportData.Rows.Add(new List<string>
                 {
@@ -1918,7 +2284,7 @@ namespace Primafit_ERP.Services
             foreach (var po in invoicedPOs)
             {
                 string invoiceNumber = invoices[po.OrderNumber];
-                decimal grossForeign = po.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                decimal grossForeign = po.Lines.Sum(l => l.LineTotal);
                 decimal grossBase = Math.Round(grossForeign * po.ExchangeRate, 2);
 
                 decimal discountForeign = po.DiscountAmount;

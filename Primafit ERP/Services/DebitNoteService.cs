@@ -125,6 +125,9 @@ namespace Primafit_ERP.Services
                         HeaderId = dn.Id,
                         PurchaseOrderLineId = line.Id,
                         ItemId = line.ItemId,
+                        UomId = line.UomId,
+                        UomName = line.UomName,
+                        UomConversionFactor = line.UomConversionFactor,
                         Quantity = 0,
                         UnitCost = line.UnitCost,
                         OriginalPurchasedQty = line.QuantityOrdered,
@@ -193,7 +196,14 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(d => d.Id == dnId);
 
                 if (dn == null) return "Debit note parameters not found.";
-                if (dn.Status == DebitNoteStatus.Posted) return "Document is already posted and locked.";
+                if (dn.Status == DebitNoteStatus.Posted)
+                {
+                    var existingBatch = dn.GlBatchId.HasValue
+                        ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == dn.GlBatchId.Value && b.CompanyId == dn.CompanyId)
+                        : null;
+                    if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch == null) return "Document is already locked and has no review batch.";
+                }
                 if (dn.PurchaseOrder == null) return "Parent purchase invoice reference missing.";
 
                 var inv = dn.PurchaseOrder;
@@ -220,35 +230,12 @@ namespace Primafit_ERP.Services
                 if (apAccount == Guid.Empty)
                     return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
 
-                // Clearing / Inventory Account (Credit Leg)
-                var grns = await ctx.GoodsReceipts
-                    .AsNoTracking()
-                    .Where(g => g.PurchaseOrderId == inv.Id && g.CompanyId == dn.CompanyId)
-                    .ToListAsync();
-
-                Guid defaultClearing = grns.FirstOrDefault(g => g.InventoryGlAccountId != Guid.Empty)?.InventoryGlAccountId ?? Guid.Empty;
-
-                Guid clearingAccount = dn.OverrideGrIrClearingGlAccountId
-                    ?? customMapping?.OverrideCreditGlAccountId
-                    ?? (defaultClearing != Guid.Empty ? defaultClearing : Guid.Empty);
-
-                if (clearingAccount == Guid.Empty)
-                {
-                    clearingAccount = await _mappingService.GetMappedAccountAsync(
-                        dn.CompanyId,
-                        SystemTransactionType.DebitNote,
-                        isDebit: false,
-                        defaultAccountId: Guid.Empty);
-                }
-
-                if (clearingAccount == Guid.Empty)
-                {
-                    clearingAccount = await _mappingService.GetMappedAccountAsync(
-                        dn.CompanyId,
-                        SystemTransactionType.GoodsReceipt,
-                        isDebit: false,
-                        defaultAccountId: Guid.Empty);
-                }
+                // Debit notes reduce the vendor liability against the stock
+                // asset. They must not create a bank/cash leg. A line's item
+                // inventory account is therefore the default credit account;
+                // an explicit route override remains available.
+                Guid? clearingOverride = dn.OverrideGrIrClearingGlAccountId
+                    ?? customMapping?.OverrideCreditGlAccountId;
 
                 // Discount Rollback
                 bool hasDiscounts = inv.DiscountPercentage > 0 || inv.DiscountAmount > 0;
@@ -287,7 +274,7 @@ namespace Primafit_ERP.Services
                 var glLines = new List<GLJournalLine>();
                 decimal totalApReductionBase = 0;
                 decimal totalApReductionForeign = 0;
-                decimal originalSubTotalForeign = inv.Lines.Sum(l => l.QuantityOrdered * l.UnitCost);
+                decimal originalSubTotalForeign = inv.Lines.Sum(l => l.LineTotal);
                 decimal rate = dn.ExchangeRate > 0 ? dn.ExchangeRate : 1;
 
                 foreach (var line in dn.Lines)
@@ -297,9 +284,11 @@ namespace Primafit_ERP.Services
                     decimal lineGrossForeign = line.Quantity * line.UnitCost;
                     decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
 
-                    Guid targetReversalAccount = clearingAccount != Guid.Empty
-                        ? clearingAccount
-                        : (line.Item.InventoryAssetAccountId != Guid.Empty ? line.Item.InventoryAssetAccountId : defaultApAccount);
+                    Guid targetReversalAccount = clearingOverride
+                        ?? (line.Item.InventoryAssetAccountId != Guid.Empty ? line.Item.InventoryAssetAccountId : Guid.Empty);
+
+                    if (targetReversalAccount == Guid.Empty)
+                        return $"Posting Aborted: Item '{line.Item.Name}' is missing its Inventory Asset GL account.";
 
                     // Credit: Clearing/Expense/Inventory
                     glLines.Add(new GLJournalLine
@@ -389,7 +378,8 @@ namespace Primafit_ERP.Services
                     "Debit Note",
                     dn.DebitNoteNumber,
                     glLines,
-                    userId.ToString());
+                    userId.ToString(),
+                    existingBatchId: dn.GlBatchId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(dn.CompanyId, batchId.Value, userId.ToString());
@@ -425,9 +415,14 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(d => d.Id == note.Id);
 
             if (existing == null) return "Debit note tracking record not found.";
-            if (existing.Status == DebitNoteStatus.Posted) return "Cannot edit locked records.";
+            var existingBatch = existing.GlBatchId.HasValue
+                ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
+                : null;
+            if (existing.Status == DebitNoteStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
+                return "Cannot edit locked records.";
 
             existing.Date = note.Date;
+            existing.TransactionDateTime = note.TransactionDateTime;
             existing.Reason = note.Reason;
             existing.CustomTransactionTypeId = note.CustomTransactionTypeId;
             existing.OverrideAccountsPayableGlAccountId = note.OverrideAccountsPayableGlAccountId;
@@ -436,7 +431,7 @@ namespace Primafit_ERP.Services
             ctx.DebitNoteLines.RemoveRange(existing.Lines);
 
             decimal totalNetDebitForeign = 0;
-            decimal originalSubTotalForeign = existing.PurchaseOrder?.Lines.Sum(l => l.QuantityOrdered * l.UnitCost) ?? 0;
+            decimal originalSubTotalForeign = existing.PurchaseOrder?.Lines.Sum(l => l.LineTotal) ?? 0;
 
             decimal taxPer = 0;
             if (existing.PurchaseOrder?.TaxId != null)
@@ -452,6 +447,9 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
+                    UomId = line.UomId,
+                    UomName = line.UomName,
+                    UomConversionFactor = line.UomConversionFactor,
                     PurchaseOrderLineId = line.PurchaseOrderLineId,
                     Quantity = line.Quantity,
                     UnitCost = line.UnitCost,

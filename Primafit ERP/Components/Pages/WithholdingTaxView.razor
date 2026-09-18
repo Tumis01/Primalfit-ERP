@@ -1,0 +1,168 @@
+@page "/withholding-tax-setup"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject SegCoaService SegCoaService
+@inject CompanyApiService CompanyService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+            <div class="flex items-center gap-3">
+                <h1 class="text-2xl font-bold tracking-tight text-slate-900">Withholding Tax Setup</h1>
+                @if (!string.IsNullOrWhiteSpace(companyName))
+                { <span class="rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">@companyName</span> }
+            </div>
+            <p class="text-sm text-slate-500 mt-1">Configure purchase-invoice withholding rates and their GL accounts.</p>
+        </div>
+        @if (!showForm)
+        {
+            <PermissionGate Key="SYSTEM_SETUP_MANAGE">
+                <Authorized>
+                    <button type="button" @onclick="ShowAdd" disabled="@(!HasCompany)" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 disabled:opacity-50">
+                        <span class="text-lg leading-none">+</span> Add Withholding Tax
+                    </button>
+                </Authorized>
+            </PermissionGate>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading withholding taxes...</div>
+    }
+    else if (showForm)
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
+            <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
+                <div><h2 class="text-lg font-bold text-slate-900">@(configuringDefault ? "Configure Default GL Account" : (editing ? "Edit Withholding Tax" : "New Withholding Tax"))</h2><p class="text-xs text-slate-500 mt-1">The rate is applied to the invoice net amount before VAT.</p></div>
+                <button type="button" @onclick="Cancel" class="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-100">✕</button>
+            </div>
+            <EditForm Model="current" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+                    @if (configuringDefault)
+                    {
+                        <div class="md:col-span-6"><label class="label">Protected Withholding Tax</label><div class="input-class bg-slate-50 font-bold text-slate-700">@current.Name</div></div>
+                        <div class="md:col-span-3"><label class="label">Protected Rate</label><div class="input-class bg-slate-50 font-mono font-bold text-slate-700">@current.PercentageValue.ToString("0.####")%</div></div>
+                    }
+                    else
+                    {
+                        <div class="md:col-span-6"><label class="label">Name</label><InputText @bind-Value="current.Name" class="input-class" placeholder="e.g. WHT 10%" /><ValidationMessage For="@(() => current.Name)" /></div>
+                        <div class="md:col-span-3"><label class="label">Percentage Value (%)</label><input type="text" inputmode="decimal" value="@current.PercentageValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)" @onchange="OnPercentageChanged" class="input-class" placeholder="0.0000" /><ValidationMessage For="@(() => current.PercentageValue)" /></div>
+                    }
+                    <div class="md:col-span-12"><SearchableGlAccount Label="Withholding GL Account" Placeholder="Search liability / withholding account..." Accounts="@accountOptions" @bind-Value="current.WithholdingGlAccountId" IsInvalid="@(current.WithholdingGlAccountId == Guid.Empty)" /><p class="mt-1 text-xs text-slate-400">This account is Credited when the withholding amount is settled at vendor payment.</p></div>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(error)) { <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700">@error</div> }
+                <div class="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" @onclick="Cancel" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100">Cancel</button><button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-slate-800">@(configuringDefault ? "Save GL Account" : (editing ? "Update" : "Save"))</button></div>
+            </EditForm>
+        </div>
+    }
+
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-200 bg-slate-50 px-6 py-4"><h2 class="text-xs font-bold uppercase tracking-wider text-slate-600">Available withholding rates</h2></div>
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm text-slate-900"><thead class="bg-white text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200"><tr><th class="px-6 py-4">Name</th><th class="px-6 py-4">Rate</th><th class="px-6 py-4">Withholding GL Account</th><th class="px-6 py-4">Type</th><th class="px-6 py-4 text-right">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">
+            @foreach (var item in taxes.OrderBy(t => t.PercentageValue).ThenBy(t => t.Name))
+            {
+                var account = accounts.FirstOrDefault(a => a.Id == item.WithholdingGlAccountId);
+                <tr class="hover:bg-slate-50"><td class="px-6 py-4 font-semibold">@item.Name</td><td class="px-6 py-4"><span class="rounded border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">@item.PercentageValue.ToString("0.####")%</span></td><td class="px-6 py-4 font-mono text-xs">@(account == null ? "Not mapped" : $"{account.AccountCode} - {account.Description}")</td><td class="px-6 py-4">@if (item.IsSystemDefault) { <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase text-slate-600">System default</span> } else { <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase text-emerald-700">Custom</span> }</td><td class="px-6 py-4 text-right"><PermissionGate Key="SYSTEM_SETUP_MANAGE"><Authorized>@if (item.IsSystemDefault) { <button type="button" @onclick="() => ConfigureDefault(item)" class="font-bold text-indigo-700 hover:underline">Configure GL</button> } else { <button type="button" @onclick="() => Edit(item)" class="mr-3 font-bold text-indigo-700 hover:underline">Edit</button><button type="button" @onclick="() => Delete(item)" class="font-bold text-rose-600 hover:underline">Delete</button> }</Authorized></PermissionGate></td></tr>
+            }
+            @if (!taxes.Any()) { <tr><td colspan="5" class="px-6 py-12 text-center text-slate-400">No withholding tax has been configured.</td></tr> }
+        </tbody></table></div>
+    </div>
+</div>
+
+<style>
+    .label { display:block; font-size:.75rem; font-weight:700; color:#475569; text-transform:uppercase; margin-bottom:.35rem; letter-spacing:.025em; }
+    .input-class { width:100%; border-radius:.75rem; border:1px solid #e2e8f0; padding:.6rem .8rem; font-size:.875rem; background:#fff; color:#0f172a; }
+    .input-class:focus { border-color:#0f172a; outline:none; box-shadow:0 0 0 3px rgba(15,23,42,.1); }
+</style>
+
+@code {
+    private Guid companyId;
+    private string companyName = "";
+    private bool isLoading = true, showForm, editing, configuringDefault;
+    private string error = "";
+    private List<WithholdingTax> taxes = new();
+    private List<SegChartOfAccount> accounts = new();
+    private List<SegChartOfAccount> accountOptions = new();
+    private WithholdingTax current = new();
+    private bool HasCompany => companyId != Guid.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("SYSTEM_SETUP_PAGE")) { Nav.NavigateTo("/access-denied"); return; }
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(state.User);
+        if (user?.CompanyDetailsId is Guid id)
+        {
+            companyId = id;
+            var company = await CompanyService.GetCompanyByIdAsync(id);
+            companyName = company?.CompanyName ?? "";
+            accounts = await SegCoaService.GetCoaAsync(id);
+            var types = await SegCoaService.GetAccountTypesAsync();
+            accountOptions = accounts.Where(a => a.IsActive && types.Any(t => t.Id == a.SegAccountTypeId && t.IsBalanceSheet && !t.IsDebit)).OrderBy(a => a.AccountCode).ToList();
+            if (!accountOptions.Any()) accountOptions = accounts.Where(a => a.IsActive).OrderBy(a => a.AccountCode).ToList();
+            await EnsureDefaults();
+            await Load();
+        }
+        isLoading = false;
+    }
+
+    private async Task EnsureDefaults()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var defaults = new[] { ("WHT_2", "Withholding Tax 2%", 2m), ("WHT_5", "Withholding Tax 5%", 5m), ("WHT_10", "Withholding Tax 10%", 10m) };
+        foreach (var item in defaults)
+        {
+            var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.DefaultKey == item.Item1);
+            if (row == null) db.WithholdingTaxes.Add(new WithholdingTax { CompanyId = companyId, DefaultKey = item.Item1, Name = item.Item2, PercentageValue = item.Item3, WithholdingGlAccountId = Guid.Empty, IsSystemDefault = true });
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private async Task Load() { await using var db = await DbFactory.CreateDbContextAsync(); taxes = await db.WithholdingTaxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); }
+    private void ShowAdd() { error = ""; editing = false; configuringDefault = false; current = new WithholdingTax { CompanyId = companyId }; showForm = true; }
+    private void Edit(WithholdingTax item) { error = ""; editing = true; configuringDefault = false; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId }; showForm = true; }
+    private void ConfigureDefault(WithholdingTax item) { error = ""; editing = false; configuringDefault = true; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId, IsSystemDefault = true }; showForm = true; }
+    private void Cancel() { showForm = false; error = ""; configuringDefault = false; }
+    private void OnPercentageChanged(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString() ?? "";
+        if (!decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            decimal.TryParse(raw, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out value);
+        current.PercentageValue = Math.Round(Math.Max(0, value), 4);
+    }
+
+    private async Task Save()
+    {
+        error = "";
+        if (current.WithholdingGlAccountId == Guid.Empty) { error = "Select a withholding GL account."; return; }
+        if (!configuringDefault && (current.PercentageValue <= 0 || current.PercentageValue > 100)) { error = "Percentage must be greater than 0 and not more than 100."; return; }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (configuringDefault) { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && x.IsSystemDefault); if (row == null) { error = "The protected default withholding tax could not be found."; return; } row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
+        else if (!editing) { current.Id = Guid.NewGuid(); current.CreatedAt = DateTime.UtcNow; db.WithholdingTaxes.Add(current); }
+        else { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && !x.IsSystemDefault); if (row == null) { error = "Only custom withholding taxes can be edited."; return; } row.Name = current.Name.Trim(); row.PercentageValue = Math.Round(current.PercentageValue, 4); row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
+        await db.SaveChangesAsync(); showForm = false; configuringDefault = false; await Load();
+    }
+
+    private async Task Delete(WithholdingTax item)
+    {
+        if (item.IsSystemDefault) return;
+        if (!await JS.InvokeAsync<bool>("confirm", $"Delete {item.Name}?")) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == item.Id && x.CompanyId == companyId && !x.IsSystemDefault);
+        if (row != null) { db.WithholdingTaxes.Remove(row); await db.SaveChangesAsync(); await Load(); }
+    }
+}

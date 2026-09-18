@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -22,7 +22,7 @@ namespace Primafit_ERP.Components.Models
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid BudgetHeaderId { get; set; }
         public Guid GlAccountId { get; set; }
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal LimitAmount { get; set; }
         public List<BudgetPeriodAllocation> PeriodAllocations { get; set; } = new();
     }
@@ -33,10 +33,10 @@ namespace Primafit_ERP.Components.Models
         public Guid BudgetLineId { get; set; }
         public Guid AccountingPeriodId { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? Amount { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? ForecastAmount { get; set; }
 
         [NotMapped] public string PeriodName { get; set; } = "";
@@ -51,7 +51,7 @@ namespace Primafit_ERP.Components.Models
         public Guid FromGlAccountId { get; set; }
         public Guid ToGlAccountId { get; set; }  
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal LimitAmount { get; set; } 
 
         public List<BudgetTransferPeriodAllocation> PeriodAllocations { get; set; } = new();
@@ -63,7 +63,7 @@ namespace Primafit_ERP.Components.Models
         public Guid BudgetTransferLineId { get; set; }
         public Guid AccountingPeriodId { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
+        [Column(TypeName = "decimal(18,4)")]
         public decimal? Amount { get; set; }
         [NotMapped] public string PeriodName { get; set; } = "";
     }

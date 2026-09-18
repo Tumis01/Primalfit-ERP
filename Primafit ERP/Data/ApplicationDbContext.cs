@@ -15,6 +15,7 @@ namespace PrimafitERP.Data
         public DbSet<Currency> Currencies { get; set; }
         public DbSet<CurrencyManagement> CurrencyManagements { get; set; }
         public DbSet<Tax> Taxes { get; set; }
+        public DbSet<WithholdingTax> WithholdingTaxes { get; set; }
         public DbSet<Project> Projects { get; set; }
         public DbSet<Warehouse> Warehouses { get; set; }
 
@@ -33,6 +34,8 @@ namespace PrimafitERP.Data
         // --- SUPPLY CHAIN ---
         public DbSet<Item> Items { get; set; }
         public DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
+        public DbSet<UomConversionRule> UomConversionRules { get; set; }
+        public DbSet<ItemUomConversionLine> ItemUomConversionLines { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
@@ -111,7 +114,8 @@ namespace PrimafitERP.Data
                 .SelectMany(t => t.GetProperties())
                 .Where(p => p.ClrType == typeof(decimal) || p.ClrType == typeof(decimal?)))
             {
-                property.SetColumnType("decimal(18, 6)");
+                // Transactional amounts use four decimal places consistently.
+                property.SetColumnType("decimal(18, 4)");
             }
 
             foreach (var relationship in builder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
@@ -121,6 +125,24 @@ namespace PrimafitERP.Data
                     relationship.DeleteBehavior = DeleteBehavior.Restrict;
                 }
             }
+
+            builder.Entity<UomConversionRule>()
+                .HasIndex(x => new { x.CompanyId, x.FromUomId, x.ToUomId })
+                .IsUnique();
+            builder.Entity<UomConversionRule>()
+                .HasOne(x => x.FromUom).WithMany().HasForeignKey(x => x.FromUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<UomConversionRule>()
+                .HasOne(x => x.ToUom).WithMany().HasForeignKey(x => x.ToUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ItemUomConversionLine>()
+                .HasIndex(x => new { x.ItemId, x.UomId }).IsUnique();
+            builder.Entity<ItemUomConversionLine>()
+                .HasOne(x => x.Uom).WithMany().HasForeignKey(x => x.UomId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ItemUomConversionLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
 
 
             builder.Entity<CreditNote>(entity =>
@@ -150,6 +172,18 @@ namespace PrimafitERP.Data
                 .WithOne(l => l.Header)
                 .HasForeignKey(l => l.HeaderId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // A refund line is linked to the original sales-order line for
+            // traceability. It must not be cascade-deleted through the sales
+            // order because the refund already has its own header cascade
+            // path. SQL Server rejects the resulting multiple cascade paths
+            // when a new database is created.
+            builder.Entity<ReceiptRefundLine>()
+                .HasOne(l => l.SalesOrderLine)
+                .WithMany()
+                .HasForeignKey(l => l.SalesOrderLineId)
+                .OnDelete(DeleteBehavior.NoAction);
+
             // Credit Note Lines can cascade (if header dies, lines die)
             builder.Entity<CreditNoteLine>()
                    .HasOne(l => l.Header)
@@ -237,6 +271,24 @@ namespace PrimafitERP.Data
                 .HasOne(b => b.PurchaseOrder)
                 .WithMany()
                 .HasForeignKey(b => b.PurchaseOrderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<UnitOfMeasure>()
+                .HasOne(u => u.ConversionUom)
+                .WithMany()
+                .HasForeignKey(u => u.ConversionUomId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Item>()
+                .HasOne(i => i.PrimaryUom)
+                .WithMany()
+                .HasForeignKey(i => i.UomId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Item>()
+                .HasOne(i => i.AlternateUom)
+                .WithMany()
+                .HasForeignKey(i => i.AlternateUomId)
                 .OnDelete(DeleteBehavior.Restrict);
             builder.Entity<DebitNote>(entity =>
             {
@@ -340,6 +392,7 @@ namespace PrimafitERP.Data
                 .WithMany() // Leave empty if SalesOrder doesn't have an explicit virtual collection property
                 .HasForeignKey(r => r.SalesOrderId)
                 .OnDelete(DeleteBehavior.Restrict);
+
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
