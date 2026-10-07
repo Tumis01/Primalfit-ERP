@@ -106,6 +106,9 @@ namespace PrimafitERP.Data
         public DbSet<CustomTransactionType> CustomTransactionTypes { get; set; }
         public DbSet<ReceiptRefund> ReceiptRefunds { get; set; }
         public DbSet<ReceiptRefundLine> ReceiptRefundLines { get; set; }
+        public DbSet<SequenceDefinition> SequenceDefinitions => Set<SequenceDefinition>();
+        public DbSet<SequenceComponent> SequenceComponents => Set<SequenceComponent>();
+        public DbSet<SequenceTracker> SequenceTrackers => Set<SequenceTracker>();
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
@@ -132,6 +135,49 @@ namespace PrimafitERP.Data
             builder.Entity<UomConversionRule>()
                 .HasOne(x => x.FromUom).WithMany().HasForeignKey(x => x.FromUomId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<SequenceDefinition>()
+                .HasOne<CompanyDetails>()
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
+                .HasPrincipalKey(x => x.CompanyDetailsId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SequenceDefinition>()
+                .HasIndex(x => new { x.CompanyId, x.TargetType, x.Name })
+                .IsUnique();
+            builder.Entity<SequenceDefinition>()
+                .HasIndex(x => new { x.CompanyId, x.TargetType })
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
+            builder.Entity<SequenceDefinition>()
+                .HasMany(x => x.Components)
+                .WithOne(x => x.SequenceDefinition)
+                .HasForeignKey(x => x.SequenceDefinitionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<SequenceComponent>()
+                .HasIndex(x => new { x.SequenceDefinitionId, x.OrderIndex })
+                .IsUnique();
+            builder.Entity<SequenceTracker>()
+                .HasIndex(x => new { x.SequenceDefinitionId, x.ScopePeriodKey })
+                .IsUnique();
+            builder.Entity<SequenceDefinition>().Property(x => x.TargetType).HasConversion<int>();
+            builder.Entity<SequenceDefinition>().Property(x => x.ResetInterval).HasConversion<int>();
+            builder.Entity<SequenceComponent>().Property(x => x.ComponentType).HasConversion<int>();
+            builder.Entity<CustomerGroup>()
+                .HasOne(x => x.SequenceDefinition).WithMany().HasForeignKey(x => x.SequenceDefinitionId)
+                .OnDelete(DeleteBehavior.SetNull);
+            builder.Entity<VendorGroup>()
+                .HasOne(x => x.SequenceDefinition).WithMany().HasForeignKey(x => x.SequenceDefinitionId)
+                .OnDelete(DeleteBehavior.SetNull);
+            builder.Entity<ItemCategory>()
+                .HasOne(x => x.SequenceDefinition).WithMany().HasForeignKey(x => x.SequenceDefinitionId)
+                .OnDelete(DeleteBehavior.SetNull);
+            builder.Entity<Customer>()
+                .HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<Vendor>()
+                .HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
+            builder.Entity<ItemCategory>()
+                .HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<UomConversionRule>()
                 .HasOne(x => x.ToUom).WithMany().HasForeignKey(x => x.ToUomId)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -143,6 +189,20 @@ namespace PrimafitERP.Data
             builder.Entity<ItemUomConversionLine>()
                 .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<Currency>()
+                .HasIndex(x => x.CompanyId)
+                .IsUnique()
+                .HasFilter("[IsBaseCurrency] = 1");
+            builder.Entity<CurrencyManagement>()
+                .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<CurrencyManagement>()
+                .HasOne(x => x.ExchangeCurrencyRecord).WithMany().HasForeignKey(x => x.ExchangeCurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SegChartOfAccount>()
+                .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
 
 
             builder.Entity<CreditNote>(entity =>

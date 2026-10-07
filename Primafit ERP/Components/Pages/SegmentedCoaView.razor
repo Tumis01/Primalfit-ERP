@@ -10,6 +10,7 @@
 
 @inject SegCoaService Service
 @inject CompanyApiService CompanyService
+@inject CurrencyService CurrencyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
@@ -64,7 +65,7 @@
 
             <PermissionGate Key="GL_COA_IMPORT_EXPORT">
                 <Authorized>
-                    <button @onclick="ExportExcel" disabled="@(isDownloadingPdf || isDownloadingExcel || !coa.Any())"
+                    <button @onclick="ExportExcel" disabled="@(isDownloadingPdf || isDownloadingExcel)"
                             class="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-emerald-600 text-sm font-bold rounded-xl hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
                         @if (isDownloadingExcel)
                         {
@@ -147,7 +148,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 
                         <div class="relative space-y-1.5">
-                            <label class="label">@cfg.Segment0Name (Required)</label>
+                            <label class="label">@cfg.Segment0Name — Main Natural Account (Required)</label>
                             @if (draft.Segment0Id != Guid.Empty && !isSearching0)
                             {
                                 <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300" @onclick="() => isSearching0 = true">
@@ -183,6 +184,15 @@
 
                         @if (cfg.Segment1Active)
                         {
+                            @if (!HasPrecedingActiveSegment(1))
+                            {
+                                <div class="space-y-1.5">
+                                    <label class="label">@cfg.Segment1Name</label>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm text-slate-400">Select @cfg.Segment0Name first</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment1Name</label>
                                 @if (draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty && !isSearching1)
@@ -217,10 +227,20 @@
                                     }
                                 }
                             </div>
+                            }
                         }
 
                         @if (cfg.Segment2Active)
                         {
+                            @if (!HasPrecedingActiveSegment(2))
+                            {
+                                <div class="space-y-1.5">
+                                    <label class="label">@cfg.Segment2Name</label>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm text-slate-400">Select @GetPrecedingActiveSegmentName(2) first</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment2Name</label>
                                 @if (draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty && !isSearching2)
@@ -255,10 +275,20 @@
                                     }
                                 }
                             </div>
+                            }
                         }
 
                         @if (cfg.Segment3Active)
                         {
+                            @if (!HasPrecedingActiveSegment(3))
+                            {
+                                <div class="space-y-1.5">
+                                    <label class="label">@cfg.Segment3Name</label>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm text-slate-400">Select @GetPrecedingActiveSegmentName(3) first</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment3Name</label>
                                 @if (draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty && !isSearching3)
@@ -293,10 +323,20 @@
                                     }
                                 }
                             </div>
+                            }
                         }
 
                         @if (cfg.Segment4Active)
                         {
+                            @if (!HasPrecedingActiveSegment(4))
+                            {
+                                <div class="space-y-1.5">
+                                    <label class="label">@cfg.Segment4Name</label>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm text-slate-400">Select @GetPrecedingActiveSegmentName(4) first</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment4Name</label>
                                 @if (draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty && !isSearching4)
@@ -331,10 +371,20 @@
                                     }
                                 }
                             </div>
+                            }
                         }
 
                         @if (cfg.Segment5Active)
                         {
+                            @if (!HasPrecedingActiveSegment(5))
+                            {
+                                <div class="space-y-1.5">
+                                    <label class="label">@cfg.Segment5Name</label>
+                                    <div class="rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm text-slate-400">Select @GetPrecedingActiveSegmentName(5) first</div>
+                                </div>
+                            }
+                            else
+                            {
                             <div class="relative space-y-1.5">
                                 <label class="label">@cfg.Segment5Name</label>
                                 @if (draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty && !isSearching5)
@@ -369,6 +419,7 @@
                                     }
                                 }
                             </div>
+                            }
                         }
 
                     </div>
@@ -388,7 +439,7 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
 
                         <div class="relative space-y-1.5">
                             <label class="label text-indigo-700">Account Type</label>
@@ -425,11 +476,23 @@
                             }
                         </div>
 
+                        <div class="space-y-1.5">
+                            <label class="label">Currency</label>
+                            <InputSelect TValue="Guid?" @bind-Value="draft.CurrencyId" class="@InputClass">
+                                <option value="">Base Currency (@(baseCurrency?.CurrencyCode ?? "not set"))</option>
+                                @foreach (var currency in currencyList)
+                                {
+                                    <option value="@currency.Id">@currency.CurrencyCode — @currency.CurrencyName</option>
+                                }
+                            </InputSelect>
+                            <p class="text-xs text-slate-400">Leave empty to use the company base currency.</p>
+                        </div>
+
                         <div class="col-span-2 flex items-center gap-6 mb-2">
                             <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-colors">
                                 <input type="checkbox" class="h-4 w-4 rounded text-slate-900 focus:ring-slate-900" @bind="draft.AllowJournal" />
                                 <div>
-                                    <span class="block text-sm font-bold text-slate-900">Allow Manual Journal</span>
+                                    <span class="block text-sm font-bold text-slate-900">Allow Manual Entry</span>
                                 </div>
                             </label>
 
@@ -464,6 +527,7 @@
                             <th class="px-6 py-4">Account Code</th>
                             <th class="px-6 py-4">Description</th>
                             <th class="px-6 py-4">Account Type</th>
+                            <th class="px-6 py-4">Currency</th>
                             <th class="px-6 py-4 text-center">Journal Entry</th>
                             <th class="px-6 py-4 text-center">Status</th>
                             <th class="px-6 py-4 text-right">Action</th>
@@ -478,6 +542,7 @@
                                 <td class="px-6 py-4 font-bold text-slate-700 @(a.IsActive ? "" : "text-slate-400")">
                                     @types.FirstOrDefault(x => x.Id == a.SegAccountTypeId)?.Description
                                 </td>
+                                <td class="px-6 py-4 font-mono text-xs text-slate-600">@(a.Currency?.CurrencyCode ?? baseCurrency?.CurrencyCode ?? "-")</td>
                                 <td class="px-6 py-4 text-center">
                                     @if (a.AllowJournal)
                                     {
@@ -521,7 +586,7 @@
                         @if (!PaginatedCoa.Any())
                         {
                             <tr>
-                                <td colspan="6" class="px-6 py-16 text-center text-slate-400">
+                                <td colspan="7" class="px-6 py-16 text-center text-slate-400">
                                     <div class="flex flex-col items-center">
                                         <svg class="w-12 h-12 mb-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                                         <p class="font-bold text-lg">No accounts configured.</p>
@@ -621,6 +686,8 @@
     private List<Segment5> seg5 = new();
     private List<SegAccountType> types = new();
     private List<SegChartOfAccount> coa = new();
+    private List<Currency> currencyList = new();
+    private Currency? baseCurrency => currencyList.FirstOrDefault(c => c.IsBaseCurrency);
 
     private SegCoaService.SegCoaDraft draft = new();
     private string draftCode = "";
@@ -657,6 +724,8 @@
     {
         types = await Service.GetAccountTypesAsync();
 
+        currencyList = await CurrencyService.GetCurrenciesAsync(selectedCompanyId);
+
         seg0 = await Service.GetSegment0Async(selectedCompanyId);
         seg1 = await Service.GetSegment1Async(selectedCompanyId);
         seg2 = await Service.GetSegment2Async(selectedCompanyId);
@@ -688,7 +757,7 @@
 
     private void ResetDraft()
     {
-        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null, SegAccountTypeId = 0 };
+        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null, SegAccountTypeId = 0, CurrencyId = null };
         draftCode = "";
         descTouched = false;
         isEditing = false;
@@ -711,6 +780,7 @@
             Segment5Id = acc.Segment5Id,
             Description = acc.Description,
             SegAccountTypeId = acc.SegAccountTypeId,
+            CurrencyId = acc.CurrencyId,
             AllowJournal = acc.AllowJournal,
             IsActive = acc.IsActive
         };
@@ -766,25 +836,115 @@
     }
 
     private async Task OnBlur0() { await Task.Delay(150); isSearching0 = false; }
-    private async Task SelectSeg0(Guid id) { draft.Segment0Id = id; search0 = ""; isSearching0 = false; await RebuildDraft(); }
+    private async Task SelectSeg0(Guid id)
+    {
+        draft.Segment0Id = id;
+        draft.Segment1Id = draft.Segment2Id = draft.Segment3Id = draft.Segment4Id = draft.Segment5Id = null;
+        search0 = "";
+        isSearching0 = false;
+        await RebuildDraft();
+    }
 
     private async Task OnBlur1() { await Task.Delay(150); isSearching1 = false; }
-    private async Task SelectSeg1(Guid? id) { draft.Segment1Id = id; search1 = ""; isSearching1 = false; await RebuildDraft(); }
+    private async Task SelectSeg1(Guid? id)
+    {
+        draft.Segment1Id = id;
+        if (!IsSelected(id)) draft.Segment2Id = draft.Segment3Id = draft.Segment4Id = draft.Segment5Id = null;
+        search1 = "";
+        isSearching1 = false;
+        await RebuildDraft();
+    }
 
     private async Task OnBlur2() { await Task.Delay(150); isSearching2 = false; }
-    private async Task SelectSeg2(Guid? id) { draft.Segment2Id = id; search2 = ""; isSearching2 = false; await RebuildDraft(); }
+    private async Task SelectSeg2(Guid? id)
+    {
+        draft.Segment2Id = id;
+        if (!IsSelected(id)) draft.Segment3Id = draft.Segment4Id = draft.Segment5Id = null;
+        search2 = "";
+        isSearching2 = false;
+        await RebuildDraft();
+    }
 
     private async Task OnBlur3() { await Task.Delay(150); isSearching3 = false; }
-    private async Task SelectSeg3(Guid? id) { draft.Segment3Id = id; search3 = ""; isSearching3 = false; await RebuildDraft(); }
+    private async Task SelectSeg3(Guid? id)
+    {
+        draft.Segment3Id = id;
+        if (!IsSelected(id)) draft.Segment4Id = draft.Segment5Id = null;
+        search3 = "";
+        isSearching3 = false;
+        await RebuildDraft();
+    }
 
     private async Task OnBlur4() { await Task.Delay(150); isSearching4 = false; }
-    private async Task SelectSeg4(Guid? id) { draft.Segment4Id = id; search4 = ""; isSearching4 = false; await RebuildDraft(); }
+    private async Task SelectSeg4(Guid? id)
+    {
+        draft.Segment4Id = id;
+        if (!IsSelected(id)) draft.Segment5Id = null;
+        search4 = "";
+        isSearching4 = false;
+        await RebuildDraft();
+    }
 
     private async Task OnBlur5() { await Task.Delay(150); isSearching5 = false; }
     private async Task SelectSeg5(Guid? id) { draft.Segment5Id = id; search5 = ""; isSearching5 = false; await RebuildDraft(); }
 
     private async Task OnBlurType() { await Task.Delay(150); isSearchingType = false; }
     private void SelectType(int id) { draft.SegAccountTypeId = id; searchType = ""; isSearchingType = false; }
+
+    private static bool IsSelected(Guid? id) => id.HasValue && id.Value != Guid.Empty;
+
+    private bool HasPrecedingActiveSegment(int segmentNumber) =>
+        IsSelected(GetPrecedingActiveSegmentId(segmentNumber));
+
+    private string GetPrecedingActiveSegmentName(int segmentNumber)
+    {
+        for (var index = segmentNumber - 1; index >= 1; index--)
+        {
+            if (IsSegmentActive(index)) return GetSegmentName(index);
+        }
+
+        return cfg.Segment0Name;
+    }
+
+    private Guid? GetPrecedingActiveSegmentId(int segmentNumber)
+    {
+        for (var index = segmentNumber - 1; index >= 1; index--)
+        {
+            if (IsSegmentActive(index)) return GetSegmentId(index);
+        }
+
+        return draft.Segment0Id == Guid.Empty ? null : draft.Segment0Id;
+    }
+
+    private bool IsSegmentActive(int segmentNumber) => segmentNumber switch
+    {
+        1 => cfg.Segment1Active,
+        2 => cfg.Segment2Active,
+        3 => cfg.Segment3Active,
+        4 => cfg.Segment4Active,
+        5 => cfg.Segment5Active,
+        _ => false
+    };
+
+    private string GetSegmentName(int segmentNumber) => segmentNumber switch
+    {
+        1 => cfg.Segment1Name,
+        2 => cfg.Segment2Name,
+        3 => cfg.Segment3Name,
+        4 => cfg.Segment4Name,
+        5 => cfg.Segment5Name,
+        _ => cfg.Segment0Name
+    };
+
+    private Guid? GetSegmentId(int segmentNumber) => segmentNumber switch
+    {
+        1 => draft.Segment1Id,
+        2 => draft.Segment2Id,
+        3 => draft.Segment3Id,
+        4 => draft.Segment4Id,
+        5 => draft.Segment5Id,
+        _ => draft.Segment0Id == Guid.Empty ? null : draft.Segment0Id
+    };
 
     private async Task SaveAccount()
     {
@@ -797,24 +957,17 @@
         bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
         bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
 
-        int activeCount = 0;
-        if (cfg.Segment1Active) activeCount++;
-        if (cfg.Segment2Active) activeCount++;
-        if (cfg.Segment3Active) activeCount++;
-        if (cfg.Segment4Active) activeCount++;
-        if (cfg.Segment5Active) activeCount++;
-
-        int selectedCount = 0;
-        if (cfg.Segment1Active && hasS1) selectedCount++;
-        if (cfg.Segment2Active && hasS2) selectedCount++;
-        if (cfg.Segment3Active && hasS3) selectedCount++;
-        if (cfg.Segment4Active && hasS4) selectedCount++;
-        if (cfg.Segment5Active && hasS5) selectedCount++;
-
-        if (selectedCount > 0 && selectedCount < activeCount)
+        var selections = new[] { hasS1, hasS2, hasS3, hasS4, hasS5 };
+        var hasPreviousActiveSelection = true; // Segment 0 is required and always active.
+        for (var index = 1; index <= selections.Length; index++)
         {
-            await JS.InvokeVoidAsync("alert", $"Select a value for all {activeCount} active optional segments.");
-            return;
+            if (!IsSegmentActive(index)) continue;
+            if (selections[index - 1] && !hasPreviousActiveSelection)
+            {
+                await JS.InvokeVoidAsync("alert", $"Select {GetPrecedingActiveSegmentName(index)} before {GetSegmentName(index)}.");
+                return;
+            }
+            hasPreviousActiveSelection = selections[index - 1];
         }
 
         draft.CompanyId = selectedCompanyId;
@@ -865,19 +1018,20 @@
         {
             CompanyName = companyName,
             ReportName = "Segmented Chart of Accounts",
-            Headers = new List<string> { "Account Code", "Description", "Account Type" },
+            Headers = new List<string> { "Account Code", "Description", "Account Type", "Currency Code" },
             Rows = FilteredCoa.Select(a => new List<string>
             {
                 a.AccountCode?.ToString() ?? "",
                 a.Description?.ToString() ?? "",
                 types.FirstOrDefault(x => x.Id == a.SegAccountTypeId)?.Description?.ToString() ?? "",
+                a.Currency?.CurrencyCode ?? "",
             }).ToList()
         };
     }
 
     private async Task ExportPdf()
     {
-        if (isDownloadingPdf || isDownloadingExcel || !coa.Any()) return;
+        if (isDownloadingPdf || isDownloadingExcel) return;
         isDownloadingPdf = true;
 
         try
@@ -899,7 +1053,7 @@
 
     private async Task ExportExcel()
     {
-        if (isDownloadingPdf || isDownloadingExcel || !coa.Any()) return;
+        if (isDownloadingPdf || isDownloadingExcel) return;
         isDownloadingExcel = true;
 
         try

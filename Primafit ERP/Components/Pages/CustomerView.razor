@@ -10,6 +10,7 @@
 @using System.Text
 
 @inject MasterDataService MasterService
+@inject IDocumentNumberingService NumberingService
 @inject SegCoaService SegCoaService
 @inject CurrencyService CurrencyService
 @inject UserManager<ApplicationUser> UserManager
@@ -67,14 +68,18 @@
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1">Profile Details</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
+                        <label class="label">Customer Code <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentCustomer.Code" class="input-class" placeholder="Suggested code; editable" />
+                    </div>
+                    <div>
                         <label class="label">Customer Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentCustomer.Name" class="input-class" placeholder="Company or Person Name" />
                     </div>
 
                     <div>
-                        <label class="label">Customer Group</label>
-                        <select @onchange="OnGroupChanged" value="@(currentCustomer.CustomerGroupId?.ToString() ?? "")" class="input-class bg-slate-50 border-slate-300">
-                            <option value="">-- No Group --</option>
+                        <label class="label">Customer Group <span class="text-rose-500">*</span></label>
+                        <select @onchange="OnGroupChanged" value="@(currentCustomer.CustomerGroupId == Guid.Empty ? "" : currentCustomer.CustomerGroupId.ToString())" class="input-class bg-slate-50 border-slate-300">
+                            <option value="">-- Select Group --</option>
                             @foreach (var g in groups)
                             {
                                 <option value="@g.Id">@g.Name</option>
@@ -325,12 +330,19 @@
         }).OrderBy(a => a.AccountCode).ToList();
     }
 
-    private void OnGroupChanged(ChangeEventArgs e)
+    private async Task OnGroupChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var gId))
         {
             currentCustomer.CustomerGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
+
+            if (group != null)
+            {
+                currentCustomer.Code = group.SequenceDefinitionId.HasValue
+                    ? await NumberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
+                    : await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.CustomerCode);
+            }
 
             if (group != null && group.ReceivablesAccountId != Guid.Empty)
             {
@@ -339,7 +351,7 @@
         }
         else
         {
-            currentCustomer.CustomerGroupId = null;
+            currentCustomer.CustomerGroupId = Guid.Empty;
         }
     }
 
@@ -478,6 +490,7 @@
                         var group = groups.FirstOrDefault(g => g.Name.Equals(cols[4].Trim(), StringComparison.OrdinalIgnoreCase));
                         if (group != null) customer.CustomerGroupId = group.Id;
                     }
+                    if (customer.CustomerGroupId == Guid.Empty && groups.Any()) customer.CustomerGroupId = groups[0].Id;
 
                     // Map Currency (Required, defaults to first available if invalid)
                     if (cols.Count > 5 && !string.IsNullOrWhiteSpace(cols[5]))

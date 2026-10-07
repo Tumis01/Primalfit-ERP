@@ -421,7 +421,7 @@
     private Guid defaultInventoryAssetAccountId = Guid.Empty;
 
     private IEnumerable<SalesOrder> FilteredUnshippedOrders =>
-        unshippedOrders.Where(o => o.OrderNumber.StartsWith("INV") && o.Status != OrderStatus.Draft &&
+        unshippedOrders.Where(o => o.IsInvoiceDocument && o.Status != OrderStatus.Draft &&
                                 (string.IsNullOrWhiteSpace(orderSearchTerm)
                                 || o.OrderNumber.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase)
                                 || (o.Customer != null && o.Customer.Name.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase))));
@@ -456,7 +456,7 @@
     private async Task LoadData()
     {
         isLoading = true;
-        warehouses = await WhService.GetWarehousesAsync(companyId);
+        warehouses = await WhService.GetWarehousesAsync(companyId, WarehouseType.Sales);
         await using (var uomCtx = await DbFactory.CreateDbContextAsync())
         {
             uoms = await uomCtx.UnitOfMeasures.AsNoTracking()

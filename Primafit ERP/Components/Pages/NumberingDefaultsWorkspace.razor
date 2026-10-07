@@ -1,0 +1,420 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDocumentNumberingService NumberingService
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject PermissionCacheService PermissionCache
+@rendermode InteractiveServer
+
+<div class="mx-auto max-w-6xl space-y-5 px-4 pb-10 pt-6 sm:px-6">
+    <header>
+        <p class="text-xs font-semibold uppercase tracking-wider text-indigo-700">@ModuleLabel</p>
+        <h1 class="mt-1 text-2xl font-bold text-slate-900">Defaults</h1>
+        <p class="mt-1 text-sm text-slate-600">Set the numbering format used for new records.</p>
+    </header>
+
+    @if (companyId == Guid.Empty)
+    {
+        <div role="alert" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Select a company to manage its numbering defaults.
+        </div>
+    }
+    else
+    {
+        <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <label class="block w-full sm:max-w-md">
+                    <span class="mb-1.5 block text-sm font-semibold text-slate-700">Default for</span>
+                    <InputSelect @bind-Value="selectedTarget" @bind-Value:after="OnTargetChangedAsync" disabled="@isLoading" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100">
+                        <optgroup label="Documents">
+                            @foreach (var target in documentTargets)
+                            {
+                                <option value="@target">@TargetLabel(target)</option>
+                            }
+                        </optgroup>
+                        @if (codeTargets.Count > 0)
+                        {
+                            <optgroup label="Entity codes">
+                                @foreach (var target in codeTargets)
+                                {
+                                    <option value="@target">@TargetLabel(target)</option>
+                                }
+                            </optgroup>
+                        }
+                    </InputSelect>
+                </label>
+                <button type="button" disabled="@isBusy" @onclick="CreateCustom" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">
+                    New sequence
+                </button>
+            </div>
+
+            @if (pageError is not null)
+            {
+                <div role="alert" class="mt-4 flex items-start justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-800">
+                    <span>@pageError</span>
+                    <button type="button" aria-label="Dismiss error" class="font-bold" @onclick="() => pageError = null">×</button>
+                </div>
+            }
+            @if (pageNotice is not null)
+            {
+                <div role="status" class="mt-4 flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+                    <span>@pageNotice</span>
+                    <button type="button" aria-label="Dismiss message" class="font-bold" @onclick="() => pageNotice = null">×</button>
+                </div>
+            }
+
+            <div class="mt-5 border-t border-slate-100 pt-4">
+                <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                    <div>
+                        <h2 class="font-semibold text-slate-900">@TargetLabel(selectedTarget) sequences</h2>
+                        <p class="mt-0.5 text-xs text-slate-500">@TargetDescription(selectedTarget)</p>
+                    </div>
+                    @if (activeDefinition is not null)
+                    {
+                        <span class="text-xs text-slate-500">Active: <strong class="text-emerald-700">@activeDefinition.Name</strong></span>
+                    }
+                </div>
+
+                @if (isLoading)
+                {
+                    <div role="status" aria-live="polite" class="space-y-3 py-3">
+                        <div class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
+                        <div class="h-12 animate-pulse rounded-lg bg-slate-100"></div>
+                        <span class="sr-only">Loading sequences…</span>
+                    </div>
+                }
+                else if (definitions.Count == 0)
+                {
+                    <div class="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center">
+                        <p class="font-semibold text-slate-800">No sequences are available.</p>
+                        <p class="mt-1 text-sm text-slate-500">Create a sequence to set the format for new records.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                        @foreach (var definition in definitions.OrderByDescending(x => x.IsActive).ThenByDescending(x => x.IsSystemDefault).ThenBy(x => x.Name))
+                        {
+                            <div @key="definition.Id" class="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(150px,0.8fr)_auto] sm:items-center sm:px-4">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="truncate text-sm font-semibold text-slate-900">@definition.Name</span>
+                                        @if (definition.IsActive)
+                                        {
+                                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800">Active</span>
+                                        }
+                                        else if (definition.IsSystemDefault)
+                                        {
+                                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">System</span>
+                                        }
+                                    </div>
+                                    <p class="mt-1 truncate text-xs text-slate-500">@ResetLabel(definition.ResetInterval) reset · @definition.Components.Sum(x => x.Length) characters</p>
+                                </div>
+                                <div class="max-w-full overflow-x-auto rounded-md bg-slate-50 px-2.5 py-2 font-mono text-sm font-semibold text-slate-700" title="Example number">
+                                    @PreviewNumber(definition.Components)
+                                </div>
+                                <div class="flex flex-wrap items-center gap-1 sm:justify-end">
+                                    @if (!definition.IsActive)
+                                    {
+                                        <button type="button" disabled="@isBusy" @onclick="() => Activate(definition)" class="rounded-md px-2.5 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">Use</button>
+                                    }
+                                    <button type="button" disabled="@isBusy" @onclick="() => EditDefinition(definition)" class="rounded-md px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50">Edit</button>
+                                    @if (!definition.IsSystemDefault)
+                                    {
+                                        @if (pendingDeleteDefinitionId == definition.Id)
+                                        {
+                                            <span class="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-1">
+                                                <span class="text-[11px] text-rose-800">Delete?</span>
+                                                <button type="button" disabled="@isBusy" @onclick="ConfirmDelete" class="text-xs font-bold text-rose-700 disabled:opacity-50">Yes</button>
+                                                <button type="button" @onclick="CancelDelete" class="text-xs font-semibold text-slate-600">No</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" disabled="@isBusy" @onclick="() => RequestDelete(definition)" class="rounded-md px-2.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Delete</button>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+
+        @if (editingDefinition is not null)
+        {
+            <div id="sequence-editor" class="scroll-mt-6">
+                <SequenceEditor Definition="editingDefinition" IsSaving="isSaving" OnSave="SaveDefinition" OnCancel="CancelEditor" OnChanged="RefreshPreview" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public NumberingDefaultsModule Module { get; set; }
+
+    private Guid companyId;
+    private SequenceTargetType selectedTarget;
+    private List<SequenceTargetType> documentTargets = new();
+    private List<SequenceTargetType> codeTargets = new();
+    private List<SequenceDefinition> definitions = new();
+    private SequenceDefinition? activeDefinition => definitions.FirstOrDefault(x => x.IsActive);
+    private SequenceDefinition? editingDefinition;
+    private string? pageError;
+    private string? pageNotice;
+    private Guid? pendingDeleteDefinitionId;
+    private bool isLoading;
+    private bool isSaving;
+    private bool isBusy;
+    private int loadVersion;
+
+    private string ModuleLabel => Module switch
+    {
+        NumberingDefaultsModule.AccountsReceivable => "Accounts receivable",
+        NumberingDefaultsModule.AccountsPayable => "Accounts payable",
+        _ => "Inventory"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty;
+
+        switch (Module)
+        {
+            case NumberingDefaultsModule.AccountsReceivable:
+                if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
+                documentTargets = Enum.GetValues<SequenceTargetType>().Where(x => x.ToString().StartsWith("AR_")).ToList();
+                codeTargets = new() { SequenceTargetType.CustomerCode };
+                selectedTarget = SequenceTargetType.AR_Quote;
+                break;
+            case NumberingDefaultsModule.AccountsPayable:
+                if (!PermissionCache.Has("PURCHASING_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
+                documentTargets = Enum.GetValues<SequenceTargetType>().Where(x => x.ToString().StartsWith("AP_") && x != SequenceTargetType.AP_GoodsReceipt).ToList();
+                codeTargets = new() { SequenceTargetType.VendorCode };
+                selectedTarget = SequenceTargetType.AP_Request;
+                break;
+            default:
+                if (!PermissionCache.Has("INVENTORY_SETUP_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
+                documentTargets = new() { SequenceTargetType.AP_GoodsReceipt };
+                codeTargets = new() { SequenceTargetType.ItemCategoryCode };
+                selectedTarget = SequenceTargetType.ItemCategoryCode;
+                break;
+        }
+
+        if (companyId != Guid.Empty) await LoadTargetAsync(selectedTarget);
+    }
+
+    private async Task OnTargetChangedAsync()
+    {
+        editingDefinition = null;
+        pendingDeleteDefinitionId = null;
+        pageNotice = null;
+        await LoadTargetAsync(selectedTarget);
+    }
+
+    private async Task LoadTargetAsync(SequenceTargetType target)
+    {
+        if (companyId == Guid.Empty) return;
+        var version = ++loadVersion;
+        isLoading = true;
+        definitions = new();
+        pageError = null;
+        StateHasChanged();
+        try
+        {
+            await NumberingService.GetActiveDefinitionAsync(companyId, target);
+            var loaded = await NumberingService.GetDefinitionsAsync(companyId, target);
+            if (version != loadVersion) return;
+            definitions = loaded;
+        }
+        catch (Exception ex)
+        {
+            if (version == loadVersion) pageError = ex.Message;
+        }
+        finally
+        {
+            if (version == loadVersion) isLoading = false;
+        }
+    }
+
+    private void CreateCustom()
+    {
+        pageError = null;
+        pageNotice = null;
+        pendingDeleteDefinitionId = null;
+        editingDefinition = DocumentNumberingService.CreateDefault(companyId, selectedTarget);
+        editingDefinition.Id = Guid.Empty;
+        editingDefinition.Name = $"Custom {TargetLabel(selectedTarget)}";
+        editingDefinition.Description = string.Empty;
+        editingDefinition.IsSystemDefault = false;
+        editingDefinition.IsActive = false;
+    }
+
+    private void EditDefinition(SequenceDefinition definition)
+    {
+        pageError = null;
+        pageNotice = null;
+        pendingDeleteDefinitionId = null;
+        editingDefinition = new SequenceDefinition
+        {
+            Id = definition.Id,
+            CompanyId = definition.CompanyId,
+            Name = definition.Name,
+            Description = definition.Description,
+            TargetType = definition.TargetType,
+            ResetInterval = definition.ResetInterval,
+            IsSystemDefault = definition.IsSystemDefault,
+            IsActive = definition.IsActive,
+            Components = definition.Components.OrderBy(x => x.OrderIndex).Select(x => new SequenceComponent
+            {
+                Id = x.Id,
+                SequenceDefinitionId = x.SequenceDefinitionId,
+                OrderIndex = x.OrderIndex,
+                ComponentType = x.ComponentType,
+                Length = x.Length,
+                Formula = x.Formula
+            }).ToList()
+        };
+    }
+
+    private async Task SaveDefinition(SequenceDefinition definition)
+    {
+        if (isSaving) return;
+        isSaving = true;
+        isBusy = true;
+        pageError = null;
+        pageNotice = null;
+        var target = definition.TargetType;
+        var shouldActivate = definition.IsActive;
+        try
+        {
+            definition.CompanyId = companyId;
+            var error = await NumberingService.SaveDefinitionAsync(definition);
+            if (error is not null) { pageError = error; return; }
+            editingDefinition = null;
+            pageNotice = shouldActivate ? "The active sequence was updated." : "The sequence was saved.";
+            await LoadTargetAsync(target);
+        }
+        catch (Exception ex)
+        {
+            pageError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+            isBusy = false;
+        }
+    }
+
+    private async Task Activate(SequenceDefinition definition)
+    {
+        if (isBusy) return;
+        isBusy = true;
+        pageError = null;
+        pageNotice = null;
+        try
+        {
+            var error = await NumberingService.ActivateDefinitionAsync(definition.Id, companyId);
+            if (error is not null) pageError = error;
+            else
+            {
+                pageNotice = $"{definition.Name} is now active.";
+                await LoadTargetAsync(definition.TargetType);
+            }
+        }
+        catch (Exception ex)
+        {
+            pageError = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void RequestDelete(SequenceDefinition definition)
+    {
+        pageError = null;
+        pendingDeleteDefinitionId = definition.Id;
+    }
+
+    private void CancelDelete() => pendingDeleteDefinitionId = null;
+
+    private async Task ConfirmDelete()
+    {
+        if (!pendingDeleteDefinitionId.HasValue || isBusy) return;
+        var definition = definitions.FirstOrDefault(x => x.Id == pendingDeleteDefinitionId.Value);
+        if (definition is null) { pendingDeleteDefinitionId = null; return; }
+        isBusy = true;
+        pageError = null;
+        pageNotice = null;
+        try
+        {
+            var error = await NumberingService.DeleteDefinitionAsync(definition.Id, companyId);
+            if (error is not null) pageError = error;
+            else
+            {
+                pendingDeleteDefinitionId = null;
+                pageNotice = $"{definition.Name} was deleted.";
+                await LoadTargetAsync(definition.TargetType);
+            }
+        }
+        catch (Exception ex)
+        {
+            pageError = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void CancelEditor() => editingDefinition = null;
+    private void RefreshPreview() => StateHasChanged();
+
+    private static string PreviewNumber(IEnumerable<SequenceComponent> components)
+    {
+        var sampleDate = DateTime.Today;
+        return string.Concat(components.OrderBy(x => x.OrderIndex).Select(x => x.ComponentType switch
+        {
+            SequenceComponentType.Constant => x.Formula ?? string.Empty,
+            SequenceComponentType.SequenceNumber => "1".PadLeft(Math.Clamp(x.Length, 1, 20), '0'),
+            SequenceComponentType.Year => (sampleDate.Year % (int)Math.Pow(10, Math.Clamp(x.Length, 2, 4))).ToString().PadLeft(Math.Clamp(x.Length, 2, 4), '0'),
+            SequenceComponentType.Month => sampleDate.ToString("MM"),
+            SequenceComponentType.Day => sampleDate.ToString("dd"),
+            SequenceComponentType.FiscalYear => (sampleDate.Year % (int)Math.Pow(10, Math.Clamp(x.Length, 1, 3))).ToString().PadLeft(Math.Clamp(x.Length, 1, 3), '0'),
+            _ => string.Empty
+        }));
+    }
+
+    private static string TargetDescription(SequenceTargetType target) => target switch
+    {
+        SequenceTargetType.CustomerCode => "Fallback format for new customer codes.",
+        SequenceTargetType.VendorCode => "Fallback format for new vendor codes.",
+        SequenceTargetType.ItemCategoryCode => "Fallback format for new item category codes.",
+        _ => $"Format assigned to new {TargetLabel(target).ToLowerInvariant()} records."
+    };
+
+    private static string TargetLabel(SequenceTargetType target) => target switch
+    {
+        SequenceTargetType.AR_Quote => "Sales Quote", SequenceTargetType.AR_Order => "Sales Order", SequenceTargetType.AR_Invoice => "Sales Invoice",
+        SequenceTargetType.AR_CreditNote => "Credit Note", SequenceTargetType.AR_ReceiptRefund => "Receipt Refund", SequenceTargetType.AR_Shipment => "Shipment",
+        SequenceTargetType.AR_CustomerReceipt => "Customer Receipt", SequenceTargetType.AR_Adjustment => "AR Adjustment",
+        SequenceTargetType.AP_Request => "Purchase Request", SequenceTargetType.AP_PurchaseOrder => "Purchase Order", SequenceTargetType.AP_Invoice => "AP Invoice",
+        SequenceTargetType.AP_DebitNote => "Debit Note", SequenceTargetType.AP_ReturnToVendor => "Return to Vendor", SequenceTargetType.AP_GoodsReceipt => "Goods Receipt",
+        SequenceTargetType.AP_VendorPayment => "Vendor Payment", SequenceTargetType.AP_Adjustment => "AP Adjustment",
+        SequenceTargetType.CustomerCode => "Customer Code", SequenceTargetType.VendorCode => "Vendor Code", SequenceTargetType.ItemCategoryCode => "Item Category Code",
+        _ => target.ToString()
+    };
+
+    private static string ResetLabel(ResetInterval reset) => reset switch
+    {
+        ResetInterval.Never => "Never", ResetInterval.Monthly => "Monthly", ResetInterval.Yearly => "Yearly",
+        ResetInterval.Periodically => "Every 30 days", ResetInterval.FiscalYearly => "Fiscal yearly", _ => reset.ToString()
+    };
+}

@@ -11,6 +11,9 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CompanyId { get; set; }
 
+        [Required, StringLength(50)]
+        public string Code { get; set; } = string.Empty;
+
         [Required]
         public string Name { get; set; } = "";
 
@@ -30,7 +33,8 @@ namespace Primafit_ERP.Components.Models
         // Link to GL for Accounts Payable (Control Account)
         public Guid? PayablesAccountId { get; set; }
         // Inside Vendor class
-        public Guid? VendorGroupId { get; set; }
+        [Required]
+        public Guid VendorGroupId { get; set; }
 
         [ForeignKey("VendorGroupId")]
         public VendorGroup? Group { get; set; }

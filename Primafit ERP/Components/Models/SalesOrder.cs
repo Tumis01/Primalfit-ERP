@@ -41,6 +41,14 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
 
+        // Sales withholding is configured on quotes/orders and carried into
+        // the invoice; the receivable is recognized when a payment is posted.
+        public Guid? WithholdingTaxId { get; set; }
+        public string? WithholdingTaxName { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingPercentage { get; set; }
+        public Guid? WithholdingSalesGlAccountId { get; set; }
+
         [Column(TypeName = "decimal(18,4)")]
         public decimal DiscountPercentage { get; set; } = 0;
 
@@ -66,6 +74,15 @@ namespace Primafit_ERP.Components.Models
         [NotMapped] public decimal AmountPaid { get; set; }
         [NotMapped] public decimal CreditNoteTotal { get; set; }
         [NotMapped] public decimal GrandTotalForeign { get; set; }
+
+        // Number formats are configurable, so document type must come from the
+        // workflow fields rather than the text of OrderNumber. The prefix check
+        // keeps older invoices recognizable when they predate these markers.
+        [NotMapped]
+        public bool IsInvoiceDocument => IsDirectInvoice
+            || InvoiceBatchId.HasValue
+            || (ConvertedFromQuoteNumber != null && Status == OrderStatus.Draft)
+            || OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
 
         [NotMapped] public decimal NetInvoiceTotalForeign => Math.Max(0, GrandTotalForeign - CreditNoteTotal);
         [NotMapped] public decimal BalanceDueForeign => Math.Max(0, NetInvoiceTotalForeign - AmountPaid);

@@ -12,15 +12,11 @@ var builder = WebApplication.CreateBuilder(args);
 ExcelPackage.License.SetNonCommercialPersonal("Primafit");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        sql => sql.EnableRetryOnFailure()));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Factory for Blazor Components (Scoped to prevent concurrency issues)
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
-        sql => sql.EnableRetryOnFailure()),
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")),
     ServiceLifetime.Scoped);
 
 // --- 2. IDENTITY CONFIGURATION ---
@@ -64,6 +60,7 @@ builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<WarehouseService>();
 builder.Services.AddScoped<MasterDataService>();
+builder.Services.AddScoped<IDocumentNumberingService, DocumentNumberingService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<ProjectService>();

@@ -10,6 +10,7 @@
 
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
+@inject IDocumentNumberingService NumberingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
@@ -67,6 +68,20 @@
                     <div>
                         <label class="label">Category Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentCategory.Name" class="input-class" placeholder="e.g. Electronics, Consulting, Raw Materials..." />
+                    </div>
+                    <div>
+                        <label class="label">Category Code <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentCategory.Code" class="input-class" placeholder="Suggested code; editable" />
+                    </div>
+                    <div>
+                        <label class="label">Code Sequence</label>
+                        <select value="@(currentCategory.SequenceDefinitionId?.ToString() ?? string.Empty)" @onchange="OnSequenceChanged" class="input-class bg-white">
+                            <option value="">System Default</option>
+                            @foreach (var sequence in codeSequences)
+                            {
+                                <option value="@sequence.Id">@sequence.Name</option>
+                            }
+                        </select>
                     </div>
                     <div>
                         <label class="label">Category Type</label>
@@ -137,7 +152,8 @@
         <table class="w-full text-left text-sm text-slate-900 min-w-[800px]">
             <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                 <tr>
-                    <th class="p-4 pl-6">Category Name</th>
+                    <th class="p-4 pl-6">Category Code</th>
+                    <th class="p-4">Category Name</th>
                     <th class="p-4 text-center">Type</th>
                     <th class="p-4">Income Account</th>
                     <th class="p-4">COGS Account</th>
@@ -153,7 +169,8 @@
                         var cogsAcc = allAccounts.FirstOrDefault(a => a.Id == c.CostOfGoodsSoldAccountId);
 
                         <tr class="hover:bg-slate-50 transition-colors group">
-                            <td class="p-4 pl-6 font-bold text-slate-900">@c.Name</td>
+                            <td class="p-4 pl-6 font-mono font-bold text-slate-700">@c.Code</td>
+                            <td class="p-4 font-bold text-slate-900">@c.Name</td>
                             <td class="p-4 text-center">
                                 <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider @(c.IsService ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200")">
                                     @(c.IsService ? "Service" : "Goods")
@@ -174,7 +191,7 @@
                 }
                 else
                 {
-                    <tr><td colspan="5" class="p-12 text-center text-slate-400">No categories found. Create one to organize your inventory.</td></tr>
+                    <tr><td colspan="6" class="p-12 text-center text-slate-400">No categories found. Create one to organize your inventory.</td></tr>
                 }
             </tbody>
         </table>
@@ -216,6 +233,7 @@
     private bool isImporting = false;
 
     private List<ItemCategory> categories = new();
+    private List<SequenceDefinition> codeSequences = new();
     private ItemCategory currentCategory = new();
 
     // Segmented COA lists
@@ -250,6 +268,8 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
+            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
+            codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
 
             // Fetch Financial Data for Dropdowns
             accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -278,11 +298,20 @@
             .ToList();
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
         currentCategory = new ItemCategory { CompanyId = currentCompanyId };
+        currentCategory.Code = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
         showForm = true;
         isEditing = false;
+    }
+
+    private async Task OnSequenceChanged(ChangeEventArgs args)
+    {
+        currentCategory.SequenceDefinitionId = Guid.TryParse(args.Value?.ToString(), out var id) ? id : null;
+        currentCategory.Code = currentCategory.SequenceDefinitionId.HasValue
+            ? await NumberingService.GenerateAndReserveNextNumberAsync(currentCategory.SequenceDefinitionId.Value)
+            : await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
     }
 
     private void Edit(ItemCategory c)
@@ -291,6 +320,8 @@
         {
             Id = c.Id,
             CompanyId = c.CompanyId,
+            Code = c.Code,
+            SequenceDefinitionId = c.SequenceDefinitionId,
             Name = c.Name,
             IsService = c.IsService,
             SalesIncomeAccountId = c.SalesIncomeAccountId,

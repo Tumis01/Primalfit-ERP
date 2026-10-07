@@ -14,17 +14,20 @@ namespace Primafit_ERP.Services
         private readonly GLOperationsService _glOps;
         private readonly InventoryService _invService;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public CreditNoteService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
             InventoryService invService,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _invService = invService;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         public async Task<List<SalesOrder>> GetInvoicesEligibleForAdjustmentAsync(Guid companyId, Guid customerId)
@@ -36,7 +39,7 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Where(o => o.CompanyId == companyId
                          && o.CustomerId == customerId
-                         && o.OrderNumber.StartsWith("INV")
+                         && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
                          && validStatuses.Contains(o.Status)
                          && o.Lines.Any(l => l.Item != null && !l.Item.IsService))
                 .ToListAsync();
@@ -89,7 +92,7 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId
                          && o.CustomerId == customerId
-                         && o.OrderNumber.StartsWith("INV")
+                         && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
                          && validStatuses.Contains(o.Status))
                 .ToListAsync();
 
@@ -98,7 +101,7 @@ namespace Primafit_ERP.Services
             var paymentsMap = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.AppliedAmount + x.CashDiscountTaken));
+                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign));
 
             var historicalRefundsMap = await ctx.CreditNotes
                 .Where(cn => invoiceIds.Contains(cn.SalesOrderId)
@@ -160,7 +163,7 @@ namespace Primafit_ERP.Services
                 WarehouseId = so.WarehouseId,
                 CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
-                CreditNoteNumber = $"CNS-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
+                CreditNoteNumber = await _numberingService.GenerateAndReserveNextNumberAsync(so.CompanyId, SequenceTargetType.AR_CreditNote)
             };
 
             foreach (var soLine in so.Lines)
@@ -584,7 +587,7 @@ namespace Primafit_ERP.Services
 
             decimal totalPaid = await ctx.PaymentApplications
                 .Where(pa => pa.InvoiceId == orderId)
-                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken);
+                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign);
 
             decimal totalRefunded = await ctx.CreditNotes
                 .Where(cn => cn.SalesOrderId == orderId && cn.Status != CreditNoteStatus.Void && cn.ReturnToStock == false)
@@ -608,7 +611,7 @@ namespace Primafit_ERP.Services
                 TotalAmount = 0,
                 CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
-                CreditNoteNumber = $"CNF-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
+                CreditNoteNumber = await _numberingService.GenerateAndReserveNextNumberAsync(so.CompanyId, SequenceTargetType.AR_CreditNote)
             };
 
             ctx.CreditNotes.Add(creditNote);

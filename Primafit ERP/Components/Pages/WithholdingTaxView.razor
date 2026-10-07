@@ -24,7 +24,7 @@
                 @if (!string.IsNullOrWhiteSpace(companyName))
                 { <span class="rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200">@companyName</span> }
             </div>
-            <p class="text-sm text-slate-500 mt-1">Configure purchase-invoice withholding rates and their GL accounts.</p>
+            <p class="text-sm text-slate-500 mt-1">Configure withholding rates and separate purchase payable and sales receivable GL accounts.</p>
         </div>
         @if (!showForm)
         {
@@ -46,7 +46,7 @@
     {
         <div class="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
             <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-                <div><h2 class="text-lg font-bold text-slate-900">@(configuringDefault ? "Configure Default GL Account" : (editing ? "Edit Withholding Tax" : "New Withholding Tax"))</h2><p class="text-xs text-slate-500 mt-1">The rate is applied to the invoice net amount before VAT.</p></div>
+                <div><h2 class="text-lg font-bold text-slate-900">@(configuringDefault ? "Configure Default GL Accounts" : (editing ? "Edit Withholding Tax" : "New Withholding Tax"))</h2><p class="text-xs text-slate-500 mt-1">The rate is applied to the document subtotal before VAT.</p></div>
                 <button type="button" @onclick="Cancel" class="rounded-lg px-3 py-2 text-slate-400 hover:bg-slate-100">✕</button>
             </div>
             <EditForm Model="current" OnValidSubmit="Save">
@@ -62,7 +62,8 @@
                         <div class="md:col-span-6"><label class="label">Name</label><InputText @bind-Value="current.Name" class="input-class" placeholder="e.g. WHT 10%" /><ValidationMessage For="@(() => current.Name)" /></div>
                         <div class="md:col-span-3"><label class="label">Percentage Value (%)</label><input type="text" inputmode="decimal" value="@current.PercentageValue.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)" @onchange="OnPercentageChanged" class="input-class" placeholder="0.0000" /><ValidationMessage For="@(() => current.PercentageValue)" /></div>
                     }
-                    <div class="md:col-span-12"><SearchableGlAccount Label="Withholding GL Account" Placeholder="Search liability / withholding account..." Accounts="@accountOptions" @bind-Value="current.WithholdingGlAccountId" IsInvalid="@(current.WithholdingGlAccountId == Guid.Empty)" /><p class="mt-1 text-xs text-slate-400">This account is Credited when the withholding amount is settled at vendor payment.</p></div>
+                    <div class="md:col-span-6"><SearchableGlAccount Label="Purchase Account (WHT Payable)" Placeholder="Search purchase withholding liability account..." Accounts="@purchaseAccountOptions" @bind-Value="current.WithholdingGlAccountId" IsInvalid="@(current.WithholdingGlAccountId == Guid.Empty)" /><p class="mt-1 text-xs text-slate-400">Credited when purchase withholding is settled at vendor payment.</p></div>
+                    <div class="md:col-span-6"><SearchableGlAccount Label="Sales Account (WHT Receivable)" Placeholder="Search sales withholding receivable account..." Accounts="@salesAccountOptions" @bind-Value="salesWithholdingAccountId" IsInvalid="@(salesWithholdingAccountId == Guid.Empty)" /><p class="mt-1 text-xs text-slate-400">Debited when a customer payment is posted with withholding.</p></div>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(error)) { <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-700">@error</div> }
                 <div class="mt-8 flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" @onclick="Cancel" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100">Cancel</button><button type="submit" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-slate-800">@(configuringDefault ? "Save GL Account" : (editing ? "Update" : "Save"))</button></div>
@@ -72,13 +73,14 @@
 
     <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div class="border-b border-slate-200 bg-slate-50 px-6 py-4"><h2 class="text-xs font-bold uppercase tracking-wider text-slate-600">Available withholding rates</h2></div>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm text-slate-900"><thead class="bg-white text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200"><tr><th class="px-6 py-4">Name</th><th class="px-6 py-4">Rate</th><th class="px-6 py-4">Withholding GL Account</th><th class="px-6 py-4">Type</th><th class="px-6 py-4 text-right">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">
+        <div class="overflow-x-auto"><table class="w-full text-left text-sm text-slate-900"><thead class="bg-white text-xs uppercase font-bold tracking-wider text-slate-500 border-b border-slate-200"><tr><th class="px-6 py-4">Name</th><th class="px-6 py-4">Rate</th><th class="px-6 py-4">Purchase Account</th><th class="px-6 py-4">Sales Account</th><th class="px-6 py-4">Type</th><th class="px-6 py-4 text-right">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">
             @foreach (var item in taxes.OrderBy(t => t.PercentageValue).ThenBy(t => t.Name))
             {
-                var account = accounts.FirstOrDefault(a => a.Id == item.WithholdingGlAccountId);
-                <tr class="hover:bg-slate-50"><td class="px-6 py-4 font-semibold">@item.Name</td><td class="px-6 py-4"><span class="rounded border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">@item.PercentageValue.ToString("0.####")%</span></td><td class="px-6 py-4 font-mono text-xs">@(account == null ? "Not mapped" : $"{account.AccountCode} - {account.Description}")</td><td class="px-6 py-4">@if (item.IsSystemDefault) { <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase text-slate-600">System default</span> } else { <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase text-emerald-700">Custom</span> }</td><td class="px-6 py-4 text-right"><PermissionGate Key="SYSTEM_SETUP_MANAGE"><Authorized>@if (item.IsSystemDefault) { <button type="button" @onclick="() => ConfigureDefault(item)" class="font-bold text-indigo-700 hover:underline">Configure GL</button> } else { <button type="button" @onclick="() => Edit(item)" class="mr-3 font-bold text-indigo-700 hover:underline">Edit</button><button type="button" @onclick="() => Delete(item)" class="font-bold text-rose-600 hover:underline">Delete</button> }</Authorized></PermissionGate></td></tr>
+                var purchaseAccount = accounts.FirstOrDefault(a => a.Id == item.WithholdingGlAccountId);
+                var salesAccount = item.SalesGlAccountId.HasValue ? accounts.FirstOrDefault(a => a.Id == item.SalesGlAccountId.Value) : null;
+                <tr class="hover:bg-slate-50"><td class="px-6 py-4 font-semibold">@item.Name</td><td class="px-6 py-4"><span class="rounded border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">@item.PercentageValue.ToString("0.####")%</span></td><td class="px-6 py-4 font-mono text-xs">@(purchaseAccount == null ? "Not mapped" : $"{purchaseAccount.AccountCode} - {purchaseAccount.Description}")</td><td class="px-6 py-4 font-mono text-xs">@(salesAccount == null ? "Not mapped" : $"{salesAccount.AccountCode} - {salesAccount.Description}")</td><td class="px-6 py-4">@if (item.IsSystemDefault) { <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase text-slate-600">System default</span> } else { <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase text-emerald-700">Custom</span> }</td><td class="px-6 py-4 text-right"><PermissionGate Key="SYSTEM_SETUP_MANAGE"><Authorized>@if (item.IsSystemDefault) { <button type="button" @onclick="() => ConfigureDefault(item)" class="font-bold text-indigo-700 hover:underline">Configure accounts</button> } else { <button type="button" @onclick="() => Edit(item)" class="mr-3 font-bold text-indigo-700 hover:underline">Edit</button><button type="button" @onclick="() => Delete(item)" class="font-bold text-rose-600 hover:underline">Delete</button> }</Authorized></PermissionGate></td></tr>
             }
-            @if (!taxes.Any()) { <tr><td colspan="5" class="px-6 py-12 text-center text-slate-400">No withholding tax has been configured.</td></tr> }
+            @if (!taxes.Any()) { <tr><td colspan="6" class="px-6 py-12 text-center text-slate-400">No withholding tax has been configured.</td></tr> }
         </tbody></table></div>
     </div>
 </div>
@@ -96,8 +98,14 @@
     private string error = "";
     private List<WithholdingTax> taxes = new();
     private List<SegChartOfAccount> accounts = new();
-    private List<SegChartOfAccount> accountOptions = new();
+    private List<SegChartOfAccount> purchaseAccountOptions = new();
+    private List<SegChartOfAccount> salesAccountOptions = new();
     private WithholdingTax current = new();
+    private Guid salesWithholdingAccountId
+    {
+        get => current.SalesGlAccountId ?? Guid.Empty;
+        set => current.SalesGlAccountId = value == Guid.Empty ? null : value;
+    }
     private bool HasCompany => companyId != Guid.Empty;
 
     protected override async Task OnInitializedAsync()
@@ -112,8 +120,10 @@
             companyName = company?.CompanyName ?? "";
             accounts = await SegCoaService.GetCoaAsync(id);
             var types = await SegCoaService.GetAccountTypesAsync();
-            accountOptions = accounts.Where(a => a.IsActive && types.Any(t => t.Id == a.SegAccountTypeId && t.IsBalanceSheet && !t.IsDebit)).OrderBy(a => a.AccountCode).ToList();
-            if (!accountOptions.Any()) accountOptions = accounts.Where(a => a.IsActive).OrderBy(a => a.AccountCode).ToList();
+            purchaseAccountOptions = accounts.Where(a => a.IsActive && types.Any(t => t.Id == a.SegAccountTypeId && t.IsBalanceSheet && !t.IsDebit)).OrderBy(a => a.AccountCode).ToList();
+            salesAccountOptions = accounts.Where(a => a.IsActive && types.Any(t => t.Id == a.SegAccountTypeId && t.IsBalanceSheet && t.IsDebit)).OrderBy(a => a.AccountCode).ToList();
+            if (!purchaseAccountOptions.Any()) purchaseAccountOptions = accounts.Where(a => a.IsActive).OrderBy(a => a.AccountCode).ToList();
+            if (!salesAccountOptions.Any()) salesAccountOptions = accounts.Where(a => a.IsActive).OrderBy(a => a.AccountCode).ToList();
             await EnsureDefaults();
             await Load();
         }
@@ -134,8 +144,8 @@
 
     private async Task Load() { await using var db = await DbFactory.CreateDbContextAsync(); taxes = await db.WithholdingTaxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); }
     private void ShowAdd() { error = ""; editing = false; configuringDefault = false; current = new WithholdingTax { CompanyId = companyId }; showForm = true; }
-    private void Edit(WithholdingTax item) { error = ""; editing = true; configuringDefault = false; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId }; showForm = true; }
-    private void ConfigureDefault(WithholdingTax item) { error = ""; editing = false; configuringDefault = true; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId, IsSystemDefault = true }; showForm = true; }
+    private void Edit(WithholdingTax item) { error = ""; editing = true; configuringDefault = false; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId, SalesGlAccountId = item.SalesGlAccountId }; showForm = true; }
+    private void ConfigureDefault(WithholdingTax item) { error = ""; editing = false; configuringDefault = true; current = new WithholdingTax { Id = item.Id, CompanyId = item.CompanyId, Name = item.Name, PercentageValue = item.PercentageValue, WithholdingGlAccountId = item.WithholdingGlAccountId, SalesGlAccountId = item.SalesGlAccountId, IsSystemDefault = true }; showForm = true; }
     private void Cancel() { showForm = false; error = ""; configuringDefault = false; }
     private void OnPercentageChanged(ChangeEventArgs e)
     {
@@ -148,12 +158,15 @@
     private async Task Save()
     {
         error = "";
-        if (current.WithholdingGlAccountId == Guid.Empty) { error = "Select a withholding GL account."; return; }
+        if (current.WithholdingGlAccountId == Guid.Empty) { error = "Select a purchase withholding payable account."; return; }
+        if (!current.SalesGlAccountId.HasValue || current.SalesGlAccountId == Guid.Empty) { error = "Select a sales withholding receivable account."; return; }
         if (!configuringDefault && (current.PercentageValue <= 0 || current.PercentageValue > 100)) { error = "Percentage must be greater than 0 and not more than 100."; return; }
         await using var db = await DbFactory.CreateDbContextAsync();
-        if (configuringDefault) { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && x.IsSystemDefault); if (row == null) { error = "The protected default withholding tax could not be found."; return; } row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
+        if (!await db.SegChartOfAccounts.AnyAsync(a => a.Id == current.WithholdingGlAccountId && a.CompanyId == companyId && a.IsActive)) { error = "Select an active purchase account belonging to this company."; return; }
+        if (!await db.SegChartOfAccounts.AnyAsync(a => a.Id == current.SalesGlAccountId.Value && a.CompanyId == companyId && a.IsActive)) { error = "Select an active sales account belonging to this company."; return; }
+        if (configuringDefault) { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && x.IsSystemDefault); if (row == null) { error = "The protected default withholding tax could not be found."; return; } row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.SalesGlAccountId = current.SalesGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
         else if (!editing) { current.Id = Guid.NewGuid(); current.CreatedAt = DateTime.UtcNow; db.WithholdingTaxes.Add(current); }
-        else { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && !x.IsSystemDefault); if (row == null) { error = "Only custom withholding taxes can be edited."; return; } row.Name = current.Name.Trim(); row.PercentageValue = Math.Round(current.PercentageValue, 4); row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
+        else { var row = await db.WithholdingTaxes.FirstOrDefaultAsync(x => x.Id == current.Id && x.CompanyId == companyId && !x.IsSystemDefault); if (row == null) { error = "Only custom withholding taxes can be edited."; return; } row.Name = current.Name.Trim(); row.PercentageValue = Math.Round(current.PercentageValue, 4); row.WithholdingGlAccountId = current.WithholdingGlAccountId; row.SalesGlAccountId = current.SalesGlAccountId; row.UpdatedAt = DateTime.UtcNow; }
         await db.SaveChangesAsync(); showForm = false; configuringDefault = false; await Load();
     }
 

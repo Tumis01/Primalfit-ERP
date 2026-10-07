@@ -13,15 +13,18 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public DebitNoteService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         // =========================================================================
@@ -33,13 +36,17 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { PurchaseOrderStatus.Invoiced, PurchaseOrderStatus.DraftInvoice };
 
-            // Invoices in the PO engine are records with OrderNumber starting with "INV"
+            // Invoice status and conversion lineage identify new configurable numbers;
+            // the old prefix remains as a fallback for legacy rows.
             var invoices = await ctx.PurchaseOrders
                 .Include(o => o.Lines)
                 .Include(o => o.Currency)
                 .Where(o => o.CompanyId == companyId
                          && o.VendorId == vendorId
-                         && o.OrderNumber.StartsWith("INV")
+                         && (o.Status == PurchaseOrderStatus.DraftInvoice
+                             || o.IsDirectInvoice
+                             || (o.ConvertedFromPONumber != null && o.Status == PurchaseOrderStatus.Invoiced)
+                             || o.OrderNumber.StartsWith("INV"))
                          && (o.IsInvoicePosted || validStatuses.Contains(o.Status)))
                 .ToListAsync();
 
@@ -109,7 +116,7 @@ namespace Primafit_ERP.Services
                 ReturnToStock = true,
                 CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
-                DebitNoteNumber = $"DNS-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
+                DebitNoteNumber = await _numberingService.GenerateAndReserveNextNumberAsync(inv.CompanyId, SequenceTargetType.AP_DebitNote)
             };
 
             foreach (var line in inv.Lines)

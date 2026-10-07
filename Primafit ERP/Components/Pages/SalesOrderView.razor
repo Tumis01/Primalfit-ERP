@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject SalesService SalesService
+@inject IDocumentNumberingService NumberingService
 @inject ShipmentService ShipmentService
 @inject MasterDataService MasterService
 @inject CompanyApiService CompanyService
@@ -127,7 +128,7 @@
 
                                 <tr class="hover:bg-slate-50 transition-colors align-middle">
                                     <td class="p-4 font-mono text-slate-600 text-xs">@o.TransactionDateTime.ToString("dd MMM, yyyy HH:mm")</td>
-                                    <td class="p-4 font-mono font-bold @(o.OrderNumber.StartsWith("INV") ? "text-emerald-700" : (o.OrderNumber.StartsWith("ORD") ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
+                                    <td class="p-4 font-mono font-bold @(o.IsInvoiceDocument ? "text-emerald-700" : (o.Status != OrderStatus.Quote ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
                                     <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
                                     <td class="p-4 font-medium">@o.Customer?.Name</td>
                                     <td class="p-4 text-sm">
@@ -162,11 +163,11 @@
                                             {
                                                 <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
                                             }
-                                            else if (o.Status == OrderStatus.Order || (o.OrderNumber.StartsWith("ORD") && o.Status == OrderStatus.Invoiced))
+                                            else if (o.Status == OrderStatus.Order || (o.Status == OrderStatus.Invoiced && !o.IsInvoiceDocument))
                                             {
                                                 <span class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider">Order</span>
                                             }
-                                            else if (o.OrderNumber.StartsWith("INV"))
+                                            else if (o.IsInvoiceDocument)
                                             {
                                                 @if (isGlCommitted)
                                                 {
@@ -252,7 +253,7 @@
                                                     </PermissionGate>
                                                 }
                                             }
-                                            else if (o.Status == OrderStatus.Order || (o.OrderNumber.StartsWith("ORD") && o.Status == OrderStatus.Invoiced))
+                                            else if (o.Status == OrderStatus.Order || (o.Status == OrderStatus.Invoiced && !o.IsInvoiceDocument))
                                             {
                                                 bool isConverted = o.Status == OrderStatus.Invoiced || orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
                                                 if (isConverted)
@@ -270,7 +271,7 @@
                                                     </PermissionGate>
                                                 }
                                             }
-                                            else if (o.OrderNumber.StartsWith("INV"))
+                                            else if (o.IsInvoiceDocument)
                                             {
                                                 @if (!isGlCommitted)
                                                 {
@@ -482,6 +483,17 @@
                                     }
                                 </select>
                             </div>
+                            <div>
+                                <label class="label text-amber-700">Withholding Tax</label>
+                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? string.Empty)" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@IsLocked">
+                                    <option value="">No Withholding Tax</option>
+                                    @foreach (var wht in salesWithholdingTaxes)
+                                    {
+                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
+                                    }
+                                </select>
+                                <p class="mt-1 text-[10px] font-medium text-amber-700">Carries from Quote or Sales Order to Invoice. Withheld when customer payment is posted.</p>
+                            </div>
                         </div>
                     </div>
 
@@ -624,6 +636,13 @@
                                 <span>Tax (@TaxPercentage%):</span>
                                 <span class="font-mono font-bold">+ @TaxAmount.ToString("N4")</span>
                             </div>
+                            @if (WithholdingAmountForeign > 0)
+                            {
+                                <div class="flex justify-between items-center text-amber-700">
+                                    <span>WHT (@currentOrder.WithholdingPercentage.ToString("0.####")%, withheld at payment):</span>
+                                    <span class="font-mono font-bold">@WithholdingAmountForeign.ToString("N4")</span>
+                                </div>
+                            }
                             <div class="flex justify-between border-t border-slate-300 pt-3 text-slate-900 text-lg mt-3">
                                 <span class="font-bold">Total (@currencySymbol):</span>
                                 <span class="font-mono font-black text-emerald-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
@@ -636,7 +655,7 @@
                     </div>
 
                     <div class="flex items-center gap-3 mt-8 justify-end pt-5 border-t border-slate-200">
-                        @if (currentOrder.Id != Guid.Empty && currentOrder.OrderNumber.StartsWith("INV"))
+                        @if (currentOrder.Id != Guid.Empty && currentOrder.IsInvoiceDocument)
                         {
                             <button type="button" @onclick="DownloadInvoice" disabled="@isExporting" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50">
                                 @if (isExporting)
@@ -1021,6 +1040,7 @@
 
     private List<SalesOrder> orders = new();
     private SalesOrder currentOrder = new();
+    private bool _isNewOrderForm;
     private List<Customer> customers = new();
     private List<Currency> currencies = new();
     private List<Item> items = new();
@@ -1031,6 +1051,7 @@
         conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<Warehouse> warehouses = new();
     private List<Tax> taxes = new();
+    private List<WithholdingTax> salesWithholdingTaxes = new();
 
     private List<SegChartOfAccount> allAccounts = new();
     private List<SegChartOfAccount> liabilityAccounts = new();
@@ -1053,15 +1074,18 @@
 
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
     private decimal TaxAmount => DiscountedSubTotal * (TaxPercentage / 100);
+    private decimal WithholdingAmountForeign => currentOrder.WithholdingTaxId.HasValue
+        ? DiscountedSubTotal * (currentOrder.WithholdingPercentage / 100m)
+        : 0m;
 
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
     private IEnumerable<SalesOrder> FilteredOrders => orders
         .Where(o => recordFilter == "All"
-                 || (recordFilter == "Quotes" && o.OrderNumber.StartsWith("QUO"))
-                 || (recordFilter == "Orders" && o.OrderNumber.StartsWith("ORD"))
-                 || (recordFilter == "Invoices" && o.OrderNumber.StartsWith("INV")))
+                 || (recordFilter == "Quotes" && o.Status == OrderStatus.Quote)
+                 || (recordFilter == "Orders" && !o.IsInvoiceDocument && o.Status != OrderStatus.Quote)
+                 || (recordFilter == "Invoices" && o.IsInvoiceDocument))
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
                  || (o.ConvertedFromQuoteNumber != null && o.ConvertedFromQuoteNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
@@ -1184,8 +1208,11 @@
             uoms = await MasterService.GetUnitOfMeasuresAsync(selectedCompanyId);
             conversionRules = await MasterService.GetUomConversionRulesAsync(selectedCompanyId);
             itemUomLines = await MasterService.GetItemUomConversionLinesAsync(selectedCompanyId, true);
-        warehouses = await WhService.GetWarehousesAsync(selectedCompanyId);
+        warehouses = await WhService.GetWarehousesAsync(selectedCompanyId, WarehouseType.Sales);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
+        salesWithholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking()
+            .Where(w => w.CompanyId == selectedCompanyId && w.SalesGlAccountId.HasValue && w.SalesGlAccountId != Guid.Empty)
+            .OrderBy(w => w.PercentageValue).ThenBy(w => w.Name).ToListAsync();
 
         accountTypes = await SegCoaService.GetAccountTypesAsync();
         allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
@@ -1203,17 +1230,29 @@
         }).OrderBy(x => x.AccountCode).ToList();
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
+        _isNewOrderForm = true;
         currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Quote };
+        currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.AR_Quote, DateTime.Today);
         currencySymbol = "";
         currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
         activeTab = 1;
     }
 
-    private void SetStatusType(OrderStatus status)
+    private async Task SetStatusType(OrderStatus status)
     {
         currentOrder.Status = status;
+        if (_isNewOrderForm)
+        {
+            var target = status switch
+            {
+                OrderStatus.Quote => SequenceTargetType.AR_Quote,
+                OrderStatus.Order => SequenceTargetType.AR_Order,
+                _ => SequenceTargetType.AR_Invoice
+            };
+            currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, target, currentOrder.Date.ToDateTime(TimeOnly.MinValue));
+        }
     }
 
     private async Task EditOrder(Guid id)
@@ -1221,6 +1260,7 @@
         var o = await SalesService.GetOrderByIdAsync(id);
         if (o != null)
         {
+            _isNewOrderForm = false;
             currentOrder = o;
             foreach (var line in currentOrder.Lines)
             {
@@ -1337,6 +1377,25 @@
         {
             currentOrder.TaxId = null;
             currentOrder.TaxGLAccountId = null;
+        }
+    }
+
+    private void OnWithholdingChanged(ChangeEventArgs e)
+    {
+        if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
+        {
+            var selected = salesWithholdingTaxes.FirstOrDefault(w => w.Id == id);
+            currentOrder.WithholdingTaxId = selected?.Id;
+            currentOrder.WithholdingTaxName = selected?.Name;
+            currentOrder.WithholdingPercentage = selected?.PercentageValue ?? 0;
+            currentOrder.WithholdingSalesGlAccountId = selected?.SalesGlAccountId;
+        }
+        else
+        {
+            currentOrder.WithholdingTaxId = null;
+            currentOrder.WithholdingTaxName = null;
+            currentOrder.WithholdingPercentage = 0;
+            currentOrder.WithholdingSalesGlAccountId = null;
         }
     }
 

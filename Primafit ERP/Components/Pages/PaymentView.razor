@@ -275,7 +275,7 @@
                                 <option value="@Guid.Empty">-- Select Order --</option>
                                 @foreach (var inv in openInvoices)
                                 {
-                                    <option value="@inv.InvoiceId">@inv.OrderNumber (Due: @inv.BalanceDue.ToString("N4"))</option>
+                                    <option value="@inv.InvoiceId">@inv.OrderNumber (Cash due: @inv.CashBalanceDue.ToString("N4"))</option>
                                 }
                             </select>
                         </div>
@@ -302,6 +302,10 @@
                                 <label class="label text-emerald-700">Amount Received (@currencySymbol) <span class="text-rose-500">*</span></label>
                                 <input type="text" inputmode="decimal" value="@FormatAmount(payment.AmountReceived)" @onchange="OnCustomerForeignAmountChanged"
                                        class="input-class font-bold text-xl text-emerald-700 border-emerald-200 bg-emerald-50 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" placeholder="0" disabled="@IsPaymentPosted" />
+                                @if (SelectedInvoice?.WithholdingRemaining > 0)
+                                {
+                                    <p class="mt-1 text-xs font-medium text-amber-700">WHT receivable on this payment: @currencySymbol@EstimatedWithholdingForPayment.ToString("N4")</p>
+                                }
                             </div>
                             <div>
                                 <label class="label text-slate-600">Ledger / Base Amount <span class="text-rose-500">*</span></label>
@@ -721,6 +725,9 @@
     private Guid selectedInvoiceId = Guid.Empty;
     private bool HasInvoiceSelected => selectedInvoiceId != Guid.Empty;
     private InvoiceRow? SelectedInvoice => openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
+    private decimal EstimatedWithholdingForPayment => SelectedInvoice is { CashBalanceDue: > 0 } invoice
+        ? Math.Min(invoice.WithholdingRemaining, Math.Round(invoice.WithholdingRemaining * payment.AmountReceived / invoice.CashBalanceDue, 4))
+        : 0m;
 
     // Email State
     private bool showEmailPopup = false;
@@ -755,6 +762,8 @@
         public DateTime Date { get; set; }
         public decimal OriginalTotal { get; set; }
         public decimal BalanceDue { get; set; }
+        public decimal CashBalanceDue { get; set; }
+        public decimal WithholdingRemaining { get; set; }
         public decimal OriginalRate { get; set; }
         public Guid CurrencyId { get; set; }
         public List<SalesOrderLine> Lines { get; set; } = new();
@@ -775,6 +784,7 @@
         public decimal GrandTotal { get; set; }
         public decimal AmountPaid { get; set; }
         public decimal BalanceDue { get; set; }
+        public decimal CashBalanceDue { get; set; }
         public string Status { get; set; } = "";
         public string CurrencyCode { get; set; } = "";
         public Guid? ReviewPaymentId { get; set; }
@@ -938,7 +948,7 @@
             .Include(o => o.Currency)
             .Include(o => o.Lines)
             .Where(o => o.CompanyId == currentCompanyId &&
-                        o.OrderNumber.StartsWith("INV") &&
+                        (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                         (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .OrderByDescending(o => o.Date)
             .ToListAsync();
@@ -951,8 +961,17 @@
                                    && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                    && p.Id != payment.Id
                                 group pa by pa.InvoiceId into g
-                                select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                                select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                                 .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
+
+        var withholdingPaid = await (from pa in ctx.PaymentApplications
+                                     join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
+                                     where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
+                                        && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
+                                        && p.Id != payment.Id
+                                     group pa by pa.InvoiceId into g
+                                     select new { InvoiceId = g.Key, Paid = g.Sum(x => x.WithholdingAmountForeign) })
+                                     .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
 
         var reviewReceipts = await (from pa in ctx.PaymentApplications
                                     join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
@@ -993,6 +1012,9 @@
             decimal credited = creditNotesMap.GetValueOrDefault(inv.Id, 0);
 
             decimal balance = grandTotal - paid - credited;
+            decimal invoiceWithholding = net * (inv.WithholdingPercentage / 100m);
+            decimal remainingWithholding = Math.Min(Math.Max(0, balance), Math.Max(0, invoiceWithholding - withholdingPaid.GetValueOrDefault(inv.Id, 0)));
+            decimal cashBalance = Math.Max(0, balance - remainingWithholding);
 
             string status = "Unpaid";
             if (balance <= 0.01m) status = "Paid in Full";
@@ -1008,6 +1030,7 @@
                 GrandTotal = grandTotal,
                 AmountPaid = paid,
                 BalanceDue = balance,
+                CashBalanceDue = cashBalance,
                 Status = status,
                 CurrencyCode = inv.Currency?.CurrencyCode ?? "",
                 ReviewPaymentId = review?.PaymentId,
@@ -1040,7 +1063,7 @@
         var loadedInvoice = openInvoices.FirstOrDefault(i => i.InvoiceId == selectedInvoiceId);
         if (loadedInvoice != null)
         {
-            payment.AmountReceived = loadedInvoice.BalanceDue;
+            payment.AmountReceived = loadedInvoice.CashBalanceDue;
             payment.ExchangeRate = loadedInvoice.OriginalRate;
             payment.CurrencyId = loadedInvoice.CurrencyId;
             payment.Reference = loadedInvoice.OrderNumber;
@@ -1091,7 +1114,7 @@
             .Include(o => o.Lines).ThenInclude(l => l.Item)
             .Where(o => o.CompanyId == currentCompanyId &&
                         o.CustomerId == customerId &&
-                        o.OrderNumber.StartsWith("INV") &&
+                        (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                         (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .ToListAsync();
 
@@ -1110,8 +1133,17 @@
                                       && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                       && p.Id != payment.Id
                                    group pa by pa.InvoiceId into g
-                                   select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                                   select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                                    .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
+
+        var withholdingPaidMap = await (from pa in ctx.PaymentApplications
+                                        join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
+                                        where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
+                                           && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
+                                           && p.Id != payment.Id
+                                        group pa by pa.InvoiceId into g
+                                        select new { InvoiceId = g.Key, Paid = g.Sum(x => x.WithholdingAmountForeign) })
+                                        .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
 
         openInvoices.Clear();
         foreach (var inv in invoices)
@@ -1143,6 +1175,9 @@
             decimal creditedAmount = creditNotesMap.GetValueOrDefault(inv.Id, 0);
 
             decimal balanceDue = grandTotal - paidAmount - creditedAmount;
+            decimal invoiceWithholding = discountedSubTotal * (inv.WithholdingPercentage / 100m);
+            decimal remainingWithholding = Math.Min(Math.Max(0, balanceDue), Math.Max(0, invoiceWithholding - withholdingPaidMap.GetValueOrDefault(inv.Id, 0)));
+            decimal cashBalanceDue = Math.Max(0, balanceDue - remainingWithholding);
 
             if (balanceDue > 0.01m)
             {
@@ -1153,6 +1188,8 @@
                     Date = inv.Date.ToDateTime(TimeOnly.MinValue),
                     OriginalTotal = grandTotal,
                     BalanceDue = balanceDue,
+                    CashBalanceDue = cashBalanceDue,
+                    WithholdingRemaining = remainingWithholding,
                     OriginalRate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1,
                     CurrencyId = inv.CurrencyId,
                     Lines = inv.Lines.ToList(),
@@ -1177,7 +1214,7 @@
 
             if (inv != null)
             {
-                payment.AmountReceived = Math.Round(inv.BalanceDue, 4);
+                payment.AmountReceived = Math.Round(inv.CashBalanceDue, 4);
                 payment.ExchangeRate = inv.OriginalRate;
                 amountReceivedBase = Math.Round(payment.AmountReceived * payment.ExchangeRate, 4);
                 payment.CurrencyId = inv.CurrencyId;
@@ -1271,9 +1308,9 @@
         if (payment.AmountReceived <= 0) { await JS.InvokeVoidAsync("alert", "Amount received must be greater than zero."); return; }
         if (payment.DepositToGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Deposit (Bank) account."); return; }
         if (payment.CreditGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Crediting (A/R) account."); return; }
-        if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.BalanceDue)
+        if (SelectedInvoice != null && payment.AmountReceived > SelectedInvoice.CashBalanceDue)
         {
-            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N4}) cannot exceed the remaining adjusted balance due ({SelectedInvoice.BalanceDue:N4}) after credit note deductions.");
+            await JS.InvokeVoidAsync("alert", $"Validation Error:\n\nPayment amount ({payment.AmountReceived:N4}) cannot exceed the remaining cash due ({SelectedInvoice.CashBalanceDue:N4}) after withholding and credit note deductions.");
             return;
         }
 
@@ -1302,7 +1339,7 @@
                 Guid targetInvId = SelectedInvoice!.InvoiceId;
                 string invNum = SelectedInvoice!.OrderNumber;
                 decimal amt = payment.AmountReceived;
-                decimal remBal = SelectedInvoice.BalanceDue - payment.AmountReceived;
+                decimal remBal = SelectedInvoice.BalanceDue - payment.AmountReceived - EstimatedWithholdingForPayment;
                 string cur = currencySymbol;
 
                 await LoadCustomerInvoices(payment.CustomerId);

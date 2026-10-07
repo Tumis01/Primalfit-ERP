@@ -104,6 +104,14 @@
                             <label class="label">Location / Address</label>
                             <InputText @bind-Value="currentWarehouse.Location" class="input-class" placeholder="City or Address" />
                         </div>
+                        <div>
+                            <label class="label">Type</label>
+                            <InputSelect @bind-Value="currentWarehouse.Type" class="input-class">
+                                <option value="@WarehouseType.Sales">Sales</option>
+                                <option value="@WarehouseType.Purchase">Purchase</option>
+                                <option value="@WarehouseType.Both">Both Sales and Purchase</option>
+                            </InputSelect>
+                        </div>
                     </div>
 
                     <div class="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -137,6 +145,7 @@
                     <tr>
                         <th class="px-6 py-4">Name</th>
                         <th class="px-6 py-4">Location</th>
+                        <th class="px-6 py-4">Type</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -148,6 +157,7 @@
                             <tr class="hover:bg-slate-50 transition-colors">
                                 <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
                                 <td class="px-6 py-4 text-slate-600">@(item.Location ?? "-")</td>
+                                <td class="px-6 py-4 text-slate-600">@(item.Type == WarehouseType.Both ? "Both Sales and Purchase" : item.Type.ToString())</td>
                                 <td class="px-6 py-4 text-right">
                                     <div class="flex items-center justify-end gap-3 opacity-100">
                                         <PermissionGate Key="INVENTORY_SETUP_MANAGE">
@@ -164,7 +174,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="3" class="px-6 py-12 text-center text-slate-400">
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-400">
                                 No warehouses found for this company.
                             </td>
                         </tr>
@@ -271,7 +281,8 @@
             Id = item.Id,
             CompanyId = item.CompanyId,
             Name = item.Name,
-            Location = item.Location
+            Location = item.Location,
+            Type = item.Type
         };
         isEditing = true;
         showForm = true;
@@ -333,13 +344,13 @@
         try
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Name,Location");
+            sb.AppendLine("Name,Location,Type");
 
             foreach (var w in warehouses)
             {
                 var name = $"\"{w.Name?.Replace("\"", "\"\"")}\"";
                 var loc = $"\"{w.Location?.Replace("\"", "\"\"")}\"";
-                sb.AppendLine($"{name},{loc}");
+                sb.AppendLine($"{name},{loc},{w.Type}");
             }
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
@@ -394,6 +405,10 @@
                     if (cols.Count > 1)
                     {
                         warehouse.Location = cols[1].Trim();
+                    }
+                    if (cols.Count > 2 && Enum.TryParse<WarehouseType>(cols[2].Trim(), true, out var warehouseType) && Enum.IsDefined(warehouseType))
+                    {
+                        warehouse.Type = warehouseType;
                     }
 
                     await WarehouseService.SaveWarehouseAsync(warehouse);

@@ -13,15 +13,18 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public VendorReturnService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         // =========================================================================
@@ -162,7 +165,7 @@ namespace Primafit_ERP.Services
                 WarehouseId = null,
                 CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
-                ReturnNumber = $"VRN-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
+                ReturnNumber = await _numberingService.GenerateAndReserveNextNumberAsync(po.CompanyId, SequenceTargetType.AP_ReturnToVendor)
             };
 
             foreach (var poLine in po.Lines)

@@ -8,6 +8,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject PurchasingService PurchService
+@inject IDocumentNumberingService NumberingService
 @inject MasterDataService MasterService
 @inject WarehouseService WarehouseService
 @inject InventoryValuationService ValuationService
@@ -508,7 +509,7 @@
             canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
 
             var t1 = MasterService.GetVendorsAsync(currentCompanyId);
-            var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId);
+            var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId, WarehouseType.Purchase);
             var t3 = PurchService.GetOpenPOsAsync(currentCompanyId);
             var t4 = MasterService.GetItemsAsync(currentCompanyId);
             var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
@@ -583,7 +584,7 @@
                 {
                     CompanyId = currentCompanyId,
                     PurchaseOrderId = selectedPO.Id,
-                    GrnNumber = $"GRN-{DateTime.Now:yyMM}-{Random.Shared.Next(100, 999)}",
+                    GrnNumber = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.AP_GoodsReceipt, DateTime.Now),
                     DateReceived = DateTime.Now
                 };
 

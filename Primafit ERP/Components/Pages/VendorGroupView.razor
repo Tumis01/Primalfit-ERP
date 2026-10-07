@@ -10,6 +10,7 @@
 @using System.Text
 
 @inject MasterDataService MasterService
+@inject IDocumentNumberingService NumberingService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -68,6 +69,18 @@
                     <div>
                         <label class="label">Group Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="model.Name" class="input-class" placeholder="e.g. Suppliers, Contractors" />
+                    </div>
+
+                    <div>
+                        <label class="label">Vendor Code Sequence</label>
+                        <select @bind="model.SequenceDefinitionId" class="input-class bg-white">
+                            <option value="">User Defined / Manual</option>
+                            @foreach (var sequence in codeSequences)
+                            {
+                                <option value="@sequence.Id">@sequence.Name</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Vendors in this group use this sequence for suggested codes.</p>
                     </div>
 
                     <div>
@@ -170,6 +183,7 @@
 
 @code {
     private List<VendorGroup> groups = new();
+    private List<SequenceDefinition> codeSequences = new();
     private List<SegChartOfAccount> apAccounts = new();
     private VendorGroup model = new();
     private bool showForm = false;
@@ -201,6 +215,8 @@
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();
+            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.VendorCode);
+            codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.VendorCode);
         }
     }
 
@@ -219,7 +235,8 @@
             Id = item.Id,
             CompanyId = item.CompanyId,
             Name = item.Name,
-            PayablesAccountId = item.PayablesAccountId
+            PayablesAccountId = item.PayablesAccountId,
+            SequenceDefinitionId = item.SequenceDefinitionId
         };
         showForm = true;
     }

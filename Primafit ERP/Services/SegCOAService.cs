@@ -189,6 +189,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.Set<SegChartOfAccount>()
                 .AsNoTracking()
+                .Include(x => x.Currency)
                 .Where(x => x.CompanyId == companyId)
                 .OrderBy(x => x.AccountCode)
                 .ToListAsync();
@@ -207,6 +208,7 @@ namespace Primafit_ERP.Services
             public Guid? Segment3Id { get; set; }
             public Guid? Segment4Id { get; set; }
             public Guid? Segment5Id { get; set; }
+            public Guid? CurrencyId { get; set; }
 
             public string Description { get; set; } = "";
             public int SegAccountTypeId { get; set; }
@@ -225,31 +227,44 @@ namespace Primafit_ERP.Services
                 if (draft.Segment0Id == Guid.Empty) return ("Segment0 is required.", null);
                 if (draft.SegAccountTypeId <= 0) return ("Account type is required.", null);
 
-                // 2. All-or-Nothing Segment Selection Validation
+                // Selected accounts must follow the configured active segment sequence.
+                // Inactive segment slots are skipped; Segment 0 is always the root.
                 bool hasS1 = draft.Segment1Id.HasValue && draft.Segment1Id.Value != Guid.Empty;
                 bool hasS2 = draft.Segment2Id.HasValue && draft.Segment2Id.Value != Guid.Empty;
                 bool hasS3 = draft.Segment3Id.HasValue && draft.Segment3Id.Value != Guid.Empty;
                 bool hasS4 = draft.Segment4Id.HasValue && draft.Segment4Id.Value != Guid.Empty;
                 bool hasS5 = draft.Segment5Id.HasValue && draft.Segment5Id.Value != Guid.Empty;
 
-                int activeCount = 0;
-                if (cfg.Segment1Active) activeCount++;
-                if (cfg.Segment2Active) activeCount++;
-                if (cfg.Segment3Active) activeCount++;
-                if (cfg.Segment4Active) activeCount++;
-                if (cfg.Segment5Active) activeCount++;
+                if ((hasS1 && !cfg.Segment1Active) || (hasS2 && !cfg.Segment2Active) ||
+                    (hasS3 && !cfg.Segment3Active) || (hasS4 && !cfg.Segment4Active) ||
+                    (hasS5 && !cfg.Segment5Active))
+                    return ("One or more selected segments are not active in the COA configuration.", null);
 
-                int selectedCount = 0;
-                if (cfg.Segment1Active && hasS1) selectedCount++;
-                if (cfg.Segment2Active && hasS2) selectedCount++;
-                if (cfg.Segment3Active && hasS3) selectedCount++;
-                if (cfg.Segment4Active && hasS4) selectedCount++;
-                if (cfg.Segment5Active && hasS5) selectedCount++;
-
-                if (selectedCount > 0 && selectedCount < activeCount)
+                var selections = new[] { hasS1, hasS2, hasS3, hasS4, hasS5 };
+                var activeSegments = new[]
                 {
-                    return ($"Select a value for all {activeCount} active segments.", null);
+                    cfg.Segment1Active, cfg.Segment2Active, cfg.Segment3Active,
+                    cfg.Segment4Active, cfg.Segment5Active
+                };
+                var activeSegmentNames = new[]
+                {
+                    cfg.Segment1Name, cfg.Segment2Name, cfg.Segment3Name,
+                    cfg.Segment4Name, cfg.Segment5Name
+                };
+                var hasPreviousActiveSelection = true; // Segment 0 is required and always active.
+                var previousActiveName = cfg.Segment0Name;
+                for (var index = 0; index < selections.Length; index++)
+                {
+                    if (!activeSegments[index]) continue;
+                    if (selections[index] && !hasPreviousActiveSelection)
+                        return ($"Select {previousActiveName} before {activeSegmentNames[index]}.", null);
+                    hasPreviousActiveSelection = selections[index];
+                    previousActiveName = activeSegmentNames[index];
                 }
+
+                if (draft.CurrencyId.HasValue && !await ctx.Currencies.AnyAsync(c =>
+                    c.Id == draft.CurrencyId.Value && c.CompanyId == draft.CompanyId))
+                    return ("Select a currency configured for this company.", null);
 
                 // 3. Compute Code & Description
                 var (accountCode, computedDesc, err) = await BuildCodeAndDescriptionAsync(ctx, draft.CompanyId,
@@ -274,10 +289,6 @@ namespace Primafit_ERP.Services
                     return ($"Account code '{accountCode}' already exists.", null);
                 }
 
-                // FALLBACK LOGIC: Automatically determine control account constraints (IDs: 24, 25, 26)
-                bool isControlAccount = draft.SegAccountTypeId == 24 || draft.SegAccountTypeId == 25 || draft.SegAccountTypeId == 26;
-                bool enforcedAllowJournal = isControlAccount ? false : draft.AllowJournal;
-
                 SegChartOfAccount account;
 
                 if (draft.Id.HasValue)
@@ -296,7 +307,8 @@ namespace Primafit_ERP.Services
                     account.AccountCode = accountCode;
                     account.Description = finalDesc;
                     account.SegAccountTypeId = draft.SegAccountTypeId;
-                    account.AllowJournal = enforcedAllowJournal; // Force update mapping parameters
+                    account.CurrencyId = draft.CurrencyId;
+                    account.AllowJournal = draft.AllowJournal;
                     account.IsActive = draft.IsActive;
 
                     ctx.Update(account);
@@ -317,7 +329,8 @@ namespace Primafit_ERP.Services
                         AccountCode = accountCode,
                         Description = finalDesc,
                         SegAccountTypeId = draft.SegAccountTypeId,
-                        AllowJournal = enforcedAllowJournal, // Force creation mapping parameters
+                        CurrencyId = draft.CurrencyId,
+                        AllowJournal = draft.AllowJournal,
                         IsActive = true
                     };
                     ctx.Add(account);
@@ -513,6 +526,10 @@ namespace Primafit_ERP.Services
                 var typesMap = await ctx.Set<SegAccountType>()
                     .ToDictionaryAsync(x => x.Description.Trim().ToUpperInvariant(), x => x.Id);
 
+                var currenciesMap = await ctx.Currencies
+                    .Where(x => x.CompanyId == companyId)
+                    .ToDictionaryAsync(x => x.CurrencyCode.Trim().ToUpperInvariant(), x => x.Id);
+
                 // Existing COA codes so we can skip duplicates
                 var existingCodes = new HashSet<string>(
                     await ctx.SegChartOfAccounts
@@ -523,8 +540,8 @@ namespace Primafit_ERP.Services
                 );
 
                 // ── 3. Parse rows from file ──
-                // Each row: (accountCode, description, accountType)
-                var parsedRows = new List<(string Code, string Description, string TypeRaw)>();
+                // Each row: (accountCode, description, accountType, currencyCode)
+                var parsedRows = new List<(string Code, string Description, string TypeRaw, string CurrencyRaw)>();
                 string ext = Path.GetExtension(fileName).ToLowerInvariant();
 
                 if (ext == ".xlsx" || ext == ".xls")
@@ -547,6 +564,7 @@ namespace Primafit_ERP.Services
                         var raw0 = table.Rows[i][0]?.ToString()?.Trim() ?? "";
                         var raw1 = table.Rows[i].ItemArray.Length > 1 ? table.Rows[i][1]?.ToString()?.Trim() ?? "" : "";
                         var raw2 = table.Rows[i].ItemArray.Length > 2 ? table.Rows[i][2]?.ToString()?.Trim() ?? "" : "";
+                        var raw3 = table.Rows[i].ItemArray.Length > 3 ? table.Rows[i][3]?.ToString()?.Trim() ?? "" : "";
 
                         // Skip header row (contains "Account Code" or similar)
                         if (i == 0 && (raw0.Equals("Account Code", StringComparison.OrdinalIgnoreCase)
@@ -556,7 +574,7 @@ namespace Primafit_ERP.Services
                         // Skip obviously empty or metadata rows
                         if (string.IsNullOrWhiteSpace(raw0)) continue;
 
-                        parsedRows.Add((raw0, raw1, raw2));
+                        parsedRows.Add((raw0, raw1, raw2, raw3));
                     }
                 }
                 else if (ext == ".csv")
@@ -584,9 +602,10 @@ namespace Primafit_ERP.Services
                         string code = parts[0].Trim();
                         string desc = parts.Count > 1 ? parts[1].Trim() : "";
                         string type = parts.Count > 2 ? parts[2].Trim() : "";
+                        string currency = parts.Count > 3 ? parts[3].Trim() : "";
 
                         if (!string.IsNullOrEmpty(code))
-                            parsedRows.Add((code, desc, type));
+                            parsedRows.Add((code, desc, type, currency));
                     }
                 }
                 else
@@ -603,7 +622,7 @@ namespace Primafit_ERP.Services
                 var warnings = new List<string>(); // Soft notices (sub-segment not found but still imported)
                 int added = 0, skipped = 0;
 
-                foreach (var (rawCode, rawDesc, rawType) in parsedRows)
+                foreach (var (rawCode, rawDesc, rawType, rawCurrency) in parsedRows)
                 {
                     // ── 4a. Resolve Account Type (required) ──
                     string typeKey = rawType.Trim().ToUpperInvariant();
@@ -670,9 +689,17 @@ namespace Primafit_ERP.Services
                         AccountCode = rawCode.Trim(),
                         Description = string.IsNullOrWhiteSpace(rawDesc) ? rawCode.Trim() : rawDesc.Trim(),
                         SegAccountTypeId = typeId,
+                        CurrencyId = string.IsNullOrWhiteSpace(rawCurrency)
+                            ? null
+                            : currenciesMap.TryGetValue(rawCurrency.Trim().ToUpperInvariant(), out var currencyId)
+                                ? currencyId
+                                : null,
                         AllowJournal = !isControlAccountType, // Enforce false for control classifications
                         IsActive = true
                     };
+
+                    if (!string.IsNullOrWhiteSpace(rawCurrency) && !acc.CurrencyId.HasValue)
+                        warnings.Add($"[{rawCode}] Currency code \"{rawCurrency}\" not found — left as base currency.");
 
                     // ── 4f. Optional segments — LENIENT (warn if missing, don't block) ──
                     if (segParts.Length > 1)

@@ -14,13 +14,13 @@ namespace Primafit_ERP.Services
         }
 
         // GET: Fetch warehouses for a specific company
-        public async Task<List<Warehouse>> GetWarehousesAsync(Guid companyId)
+        public async Task<List<Warehouse>> GetWarehousesAsync(Guid companyId, WarehouseType? moduleType = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Warehouses.AsNoTracking()
-                .Where(w => w.CompanyId == companyId)
-                .OrderBy(w => w.Name)
-                .ToListAsync();
+            var query = ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId);
+            if (moduleType.HasValue)
+                query = query.Where(w => w.Type == WarehouseType.Both || w.Type == moduleType.Value);
+            return await query.OrderBy(w => w.Name).ToListAsync();
         }
 
         // SAVE: Create or Update (FIXED)
@@ -30,6 +30,7 @@ namespace Primafit_ERP.Services
 
             if (warehouse.CompanyId == Guid.Empty) return "Error: Company not selected.";
             if (string.IsNullOrWhiteSpace(warehouse.Name)) return "Error: Warehouse Name is required.";
+            if (!Enum.IsDefined(warehouse.Type)) return "Error: Select a valid warehouse type.";
 
             // Check for duplicate name within the same company (Exclude itself if editing)
             bool duplicateExists = await ctx.Warehouses.AnyAsync(w =>
@@ -55,6 +56,7 @@ namespace Primafit_ERP.Services
                 // CASE: UPDATE EXISTING
                 existing.Name = warehouse.Name;
                 existing.Location = warehouse.Location;
+                existing.Type = warehouse.Type;
                 // We do NOT update CompanyId generally, but you can if needed
             }
 

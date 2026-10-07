@@ -321,7 +321,7 @@ namespace Primafit_ERP.Services
 
             // Right Side: Document Details
             var docDetails = new Cell().SetBorder(Border.NO_BORDER).SetTextAlignment(TextAlignment.RIGHT);
-            string docType = order.Status == OrderStatus.Quote ? "QUOTATION" : (order.OrderNumber.StartsWith("INV") ? "Sales INVOICE" : "SALES Invoice");
+            string docType = order.Status == OrderStatus.Quote ? "QUOTATION" : (order.IsInvoiceDocument ? "Sales INVOICE" : "SALES Invoice");
 
             docDetails.Add(new Paragraph(docType).SetFont(fontBold).SetFontSize(20).SetFontColor(ColorConstants.BLACK));
             docDetails.Add(new Paragraph($"Document #: {order.OrderNumber}").SetFont(fontBold));

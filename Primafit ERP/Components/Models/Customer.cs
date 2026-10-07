@@ -11,6 +11,9 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public Guid CompanyId { get; set; }
 
+        [Required, StringLength(50)]
+        public string Code { get; set; } = string.Empty;
+
         [Required]
         public string Name { get; set; } = "";
         [Required(ErrorMessage = "Email is required")]
@@ -28,7 +31,8 @@ namespace Primafit_ERP.Components.Models
 
         // Link to GL for Accounts Receivable (Control Account)
         public Guid? ReceivablesAccountId { get; set; }
-        public Guid? CustomerGroupId { get; set; }
+        [Required]
+        public Guid CustomerGroupId { get; set; }
 
         [ForeignKey("CustomerGroupId")]
         public CustomerGroup? Group { get; set; }

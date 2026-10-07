@@ -839,7 +839,7 @@
             uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
             itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
             conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
-            warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
+            warehouses = await WhService.GetWarehousesAsync(currentCompanyId, WarehouseType.Purchase);
 
             var accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);

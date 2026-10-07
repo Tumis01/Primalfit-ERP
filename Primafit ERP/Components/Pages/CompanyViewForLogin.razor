@@ -175,12 +175,12 @@
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label class="mb-1 block text-sm font-bold text-slate-700">Base Currency <span class="text-rose-500">*</span></label>
-                                        <InputText @bind-Value="currentCompany.BaseCurrency" placeholder="e.g. NGN" class="@($"{InputClass} border-indigo-200")" />
+                                        <label class="mb-1 block text-sm font-bold text-slate-700">Base Currency Name <span class="text-rose-500">*</span></label>
+                                        <InputText @bind-Value="currentCompany.BaseCurrency" placeholder="e.g. Naira" class="@($"{InputClass} border-indigo-200")" />
                                     </div>
                                     <div>
-                                        <label class="mb-1 block text-sm font-bold text-slate-700">Func. Currency</label>
-                                        <InputText @bind-Value="currentCompany.FunctionalCurrency" placeholder="e.g. USD" class="@InputClass" />
+                                        <label class="mb-1 block text-sm font-bold text-slate-700">Currency Code</label>
+                                        <InputText @bind-Value="currentCompany.FunctionalCurrency" placeholder="e.g. NGN" class="@InputClass" />
                                     </div>
                                 </div>
                             </div>
@@ -217,7 +217,7 @@
                             <th class="px-6 py-4">Organization</th>
                             <th class="px-6 py-4">Reg No.</th>
                             <th class="px-6 py-4">Email</th>
-                            <th class="px-6 py-4">Base Currency</th>
+                            <th class="px-6 py-4">Base Currency Name</th>
                             <th class="px-6 py-4 text-right">Actions</th>
                         </tr>
                     </thead>
@@ -341,8 +341,8 @@
         {
             FiscalStartYear = DateOnly.FromDateTime(DateTime.Now),
             FiscalEndYear = DateOnly.FromDateTime(DateTime.Now.AddYears(1)),
-            BaseCurrency = "NGN",
-            FunctionalCurrency = "USD",
+            BaseCurrency = "Naira",
+            FunctionalCurrency = "NGN",
             country = "Nigeria"
         };
         isEditing = false;

@@ -115,6 +115,11 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public int SegAccountTypeId { get; set; }
 
+        public Guid? CurrencyId { get; set; }
+
+        [ForeignKey(nameof(CurrencyId))]
+        public Currency? Currency { get; set; }
+
         public bool AllowJournal { get; set; } = true;
         public bool IsActive { get; set; } = true;
     }

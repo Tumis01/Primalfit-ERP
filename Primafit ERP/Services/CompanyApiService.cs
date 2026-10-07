@@ -53,6 +53,7 @@ namespace Primafit_ERP.Services
             }
 
             context.CompanyDetails.Add(model);
+            await SyncBaseCurrencyAsync(context, model);
             await context.SaveChangesAsync();
             return true;
         }
@@ -88,8 +89,63 @@ namespace Primafit_ERP.Services
 
             
 
+            await SyncBaseCurrencyAsync(context, entity);
             await context.SaveChangesAsync();
             return true;
+        }
+
+        private static async Task SyncBaseCurrencyAsync(AppDbContext context, CompanyDetails company)
+        {
+            var code = (company.FunctionalCurrency ?? string.Empty).Trim().ToUpperInvariant();
+            var name = (company.BaseCurrency ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name)) return;
+
+            var currencies = await context.Currencies
+                .Where(c => c.CompanyId == company.CompanyDetailsId)
+                .ToListAsync();
+
+            var currency = currencies.FirstOrDefault(c =>
+                string.Equals(c.CurrencyCode, code, StringComparison.OrdinalIgnoreCase));
+            currency ??= currencies.FirstOrDefault(c => c.IsBaseCurrency);
+
+            if (currency == null)
+            {
+                currency = new Currency { Id = Guid.NewGuid(), CompanyId = company.CompanyDetailsId };
+                context.Currencies.Add(currency);
+            }
+
+            foreach (var other in currencies.Where(c => c.Id != currency.Id && c.IsBaseCurrency))
+                other.IsBaseCurrency = false;
+
+            currency.CurrencyCode = code;
+            currency.CurrencyName = name;
+            currency.IsBaseCurrency = true;
+
+            await context.CurrencyManagements
+                .Where(rate => rate.CompanyId == company.CompanyDetailsId && rate.ExchangeCurrencyId == currency.Id)
+                .ExecuteUpdateAsync(update => update.SetProperty(rate => rate.ExchangeCurrency, code));
+
+            bool hasSelfRate = await context.CurrencyManagements.AnyAsync(r =>
+                r.CompanyId == company.CompanyDetailsId &&
+                r.CurrencyId == currency.Id &&
+                r.ExchangeCurrencyId == currency.Id);
+
+            if (!hasSelfRate)
+            {
+                var effectiveDate = company.ModifiedDate == default
+                    ? DateTime.UtcNow.Date
+                    : company.ModifiedDate.Date;
+                context.CurrencyManagements.Add(new CurrencyManagement
+                {
+                    Id = Guid.NewGuid(),
+                    CompanyId = company.CompanyDetailsId,
+                    CurrencyId = currency.Id,
+                    ExchangeCurrency = code,
+                    ExchangeCurrencyId = currency.Id,
+                    Date = DateTime.SpecifyKind(effectiveDate, DateTimeKind.Utc),
+                    Rate = 1.00m
+                });
+            }
         }
 
         public async Task<bool> DeleteCompanyAsync(Guid id)

@@ -75,7 +75,11 @@ namespace Primafit_ERP.Components.Models
         [Required] public Guid CompanyId { get; set; }
 
         [Required, StringLength(100)] public string Name { get; set; } = string.Empty;
+        [Required, StringLength(50)] public string Code { get; set; } = string.Empty;
         public bool IsService { get; set; }
+
+        public Guid? SequenceDefinitionId { get; set; }
+        public SequenceDefinition? SequenceDefinition { get; set; }
 
         // --- GL TEMPLATE MAPPING ---
         public Guid SalesIncomeAccountId { get; set; } // Cr Revenue (Income)

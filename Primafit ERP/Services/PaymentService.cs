@@ -13,15 +13,18 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public PaymentService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         public async Task<string> SavePaymentAsync(CustomerPayment pay)
@@ -29,6 +32,8 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (pay.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
+            if (string.IsNullOrWhiteSpace(pay.Reference))
+                pay.Reference = await _numberingService.GenerateAndReserveNextNumberAsync(pay.CompanyId, SequenceTargetType.AR_CustomerReceipt, pay.Date);
             if (pay.DepositToGlAccountId == Guid.Empty) return "Please select a Bank (Deposit) Account.";
             if (pay.CreditGlAccountId == Guid.Empty) return "Customer AR Account is missing.";
 
@@ -154,6 +159,7 @@ namespace Primafit_ERP.Services
                 // 5. Process Applications, Discounts, and Balance Checks
                 decimal totalDiscountsBase = 0;
                 decimal totalArSettledBase = 0;
+                decimal totalWithholdingBase = 0;
 
                 foreach (var app in pay.Applications)
                 {
@@ -180,7 +186,7 @@ namespace Primafit_ERP.Services
                                                      where pa.InvoiceId == invoice.Id && p.Status == PaymentStatus.Posted
                                                         && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                                         && p.Id != pay.Id
-                                                    select pa.AppliedAmount + pa.CashDiscountTaken).SumAsync();
+                                                    select pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign).SumAsync();
 
                     decimal totalCredited = await (from cn in ctx.CreditNotes
                                                    where cn.SalesOrderId == invoice.Id && cn.Status == CreditNoteStatus.Posted
@@ -189,9 +195,42 @@ namespace Primafit_ERP.Services
 
                     decimal netBalanceDue = grandTotal - totalPaidSoFar - totalCredited;
 
-                    if (app.AppliedAmount > netBalanceDue + 0.01m)
+                    decimal invoiceWithholding = discountedSubTotal * (invoice.WithholdingPercentage / 100m);
+                    decimal withholdingPaidSoFar = await (from pa in ctx.PaymentApplications
+                                                          join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
+                                                          where pa.InvoiceId == invoice.Id && p.Status == PaymentStatus.Posted
+                                                             && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
+                                                             && p.Id != pay.Id
+                                                          select pa.WithholdingAmountForeign).SumAsync();
+                    decimal remainingWithholding = Math.Max(0, invoiceWithholding - withholdingPaidSoFar);
+                    decimal remainingCashDue = Math.Max(0, netBalanceDue - remainingWithholding);
+
+                    if (app.AppliedAmount > remainingCashDue + 0.01m)
                     {
-                    return $"Post Error: Applied payment ({app.AppliedAmount:N4}) for invoice {invoice.OrderNumber} exceeds remaining balance ({netBalanceDue:N4}).";
+                    return $"Post Error: Payment ({app.AppliedAmount:N4}) exceeds the remaining cash due ({remainingCashDue:N4}) for invoice {invoice.OrderNumber}.";
+                    }
+
+                    app.WithholdingAmountForeign = remainingCashDue > 0
+                        ? Math.Min(remainingWithholding, Math.Round(remainingWithholding * (app.AppliedAmount + app.CashDiscountTaken) / remainingCashDue, 4))
+                        : 0;
+                    if (app.WithholdingAmountForeign > 0)
+                    {
+                        if (!invoice.WithholdingSalesGlAccountId.HasValue || invoice.WithholdingSalesGlAccountId == Guid.Empty)
+                            return "Posting Aborted: The invoice has a withholding tax but no sales receivable account is mapped.";
+                        bool withholdingAccountIsValid = await ctx.SegChartOfAccounts.AnyAsync(a =>
+                            a.Id == invoice.WithholdingSalesGlAccountId.Value && a.CompanyId == invoice.CompanyId && a.IsActive);
+                        if (!withholdingAccountIsValid)
+                            return "Posting Aborted: The invoice withholding receivable account is invalid or inactive.";
+
+                        decimal withholdingBase = Math.Round(app.WithholdingAmountForeign * invoiceRate, 2);
+                        totalWithholdingBase += withholdingBase;
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = invoice.WithholdingSalesGlAccountId.Value,
+                            Debit = withholdingBase,
+                            Credit = 0,
+                            Reference = $"Withholding Tax: {invoice.OrderNumber}"
+                        });
                     }
 
                     // Cash discount taken on receipt
@@ -223,7 +262,7 @@ namespace Primafit_ERP.Services
                         });
                     }
 
-                    decimal totalLineSettledForeign = app.AppliedAmount + app.CashDiscountTaken;
+                    decimal totalLineSettledForeign = app.AppliedAmount + app.CashDiscountTaken + app.WithholdingAmountForeign;
                     totalArSettledBase += Math.Round(totalLineSettledForeign * invoiceRate, 2);
 
                     decimal finalRemaining = netBalanceDue - totalLineSettledForeign;
@@ -231,7 +270,7 @@ namespace Primafit_ERP.Services
                 }
 
                 // 6. CREDIT ACCOUNTS RECEIVABLE (Asset Decreases)
-                decimal finalArCreditBase = totalBankBase + totalDiscountsBase;
+                decimal finalArCreditBase = totalBankBase + totalDiscountsBase + totalWithholdingBase;
 
                 glLines.Add(new GLJournalLine
                 {

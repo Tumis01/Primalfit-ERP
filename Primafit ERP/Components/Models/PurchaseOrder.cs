@@ -35,8 +35,8 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; } 
 
-        // Withholding is available only for invoice documents. These fields are
-        // also copied to VendorBill as an immutable posting snapshot.
+        // Withholding carries across Requests, Purchase Orders and invoices.
+        // These values are copied to VendorBill as an immutable posting snapshot.
         public Guid? WithholdingTaxId { get; set; }
         public string? WithholdingTaxName { get; set; }
         [Column(TypeName = "decimal(18,4)")]
@@ -69,6 +69,14 @@ namespace Primafit_ERP.Components.Models
         public bool IsFullyPaid { get; set; } = false;
 
         [NotMapped] public decimal GrandTotalForeign { get; set; }
+
+        // Configurable numbering can use any prefix; use workflow state to
+        // identify invoices and retain the prefix only for legacy documents.
+        [NotMapped]
+        public bool IsInvoiceDocument => Status == PurchaseOrderStatus.DraftInvoice
+            || IsDirectInvoice
+            || (ConvertedFromPONumber != null && Status == PurchaseOrderStatus.Invoiced)
+            || OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
     }
 
     public class PurchaseOrderLine

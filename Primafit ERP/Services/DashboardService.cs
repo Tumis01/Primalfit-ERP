@@ -58,7 +58,7 @@ namespace Primafit_ERP.Services
             // 2. OPERATIONAL COUNTS 
             // ═══════════════════════════════════════════════════════════════════
             snapshot.UnshippedOrdersCount = await ctx.SalesOrders
-                .Where(o => o.CompanyId == companyId && o.OrderNumber.StartsWith("INV"))
+                .Where(o => o.CompanyId == companyId && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")))
                 .CountAsync(o => o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity));
 
             snapshot.PendingTransfersCount = await ctx.StockTransfers
@@ -190,7 +190,7 @@ namespace Primafit_ERP.Services
             var unpaidInvoices = await ctx.SalesOrders
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
-                            o.OrderNumber.StartsWith("INV") &&
+                            (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .AsNoTracking()
                 .ToListAsync();
@@ -199,7 +199,7 @@ namespace Primafit_ERP.Services
             var arPayments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .Select(g => new { g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .Select(g => new { g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.Key, x => x.Paid);
 
             foreach (var inv in unpaidInvoices)
@@ -262,7 +262,7 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Customer)
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
-                            o.OrderNumber.StartsWith("INV") &&
+                            (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced) &&
                             o.Date >= DateOnly.FromDateTime(startOfMonth))
                 .ToListAsync();
@@ -291,7 +291,7 @@ namespace Primafit_ERP.Services
                 .AsNoTracking()
                 .Include(o => o.Customer)
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
-                .Where(o => o.CompanyId == companyId && o.OrderNumber.StartsWith("INV"))
+                .Where(o => o.CompanyId == companyId && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")))
                 .Where(o => o.Lines.Any(l => l.Item != null && !l.Item.IsService && l.QtyShipped < l.Quantity))
                 .OrderBy(o => o.Date)
                 .Take(20)

@@ -16,6 +16,8 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public string CurrencyCode { get; set; }
+
+        public bool IsBaseCurrency { get; set; }
     }
 
     public class CurrencyManagement
@@ -32,8 +34,14 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CurrencyId))]
         public Currency? Currency { get; set; }
 
-        [Required]
-        public string ExchangeCurrency { get; set; } // base currency code (e.g. NGN)
+        // Filled from the selected target currency before saving. This legacy column
+        // remains required in the database, but isn't entered directly on the form.
+        public string ExchangeCurrency { get; set; } = string.Empty;
+
+        public Guid? ExchangeCurrencyId { get; set; }
+
+        [ForeignKey(nameof(ExchangeCurrencyId))]
+        public Currency? ExchangeCurrencyRecord { get; set; }
 
         public DateTime Date { get; set; } 
 

@@ -7,10 +7,12 @@ namespace Primafit_ERP.Services
     public class MasterDataService
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
+        private readonly IDocumentNumberingService _numberingService;
 
-        public MasterDataService(IDbContextFactory<AppDbContext> dbFactory)
+        public MasterDataService(IDbContextFactory<AppDbContext> dbFactory, IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
+            _numberingService = numberingService;
         }
 
         // --- CUSTOMERS ---
@@ -29,6 +31,20 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
+            if (customer.CustomerGroupId == Guid.Empty) return "Customer Group is required.";
+            if (string.IsNullOrWhiteSpace(customer.Name)) return "Customer Name is required.";
+            if (!await ctx.CustomerGroups.AnyAsync(x => x.Id == customer.CustomerGroupId && x.CompanyId == customer.CompanyId))
+                return "Select a customer group belonging to this company.";
+            if (string.IsNullOrWhiteSpace(customer.Code))
+            {
+                var group = await ctx.CustomerGroups.AsNoTracking().FirstAsync(x => x.Id == customer.CustomerGroupId);
+                customer.Code = group.SequenceDefinitionId.HasValue
+                    ? await _numberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
+                    : await _numberingService.GenerateAndReserveNextNumberAsync(customer.CompanyId, SequenceTargetType.CustomerCode);
+            }
+            if (customer.Code.Length > 50) return "Customer Code cannot exceed 50 characters.";
+            if (await ctx.Customers.AnyAsync(x => x.CompanyId == customer.CompanyId && x.Code.ToLower() == customer.Code.ToLower() && x.Id != customer.Id))
+                return $"Customer Code '{customer.Code}' already exists in this company.";
 
             // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor) 
             // via the @onchange event, so we just save whatever the model contains here.
@@ -69,6 +85,20 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (vendor.CurrencyId == Guid.Empty) return "Default Currency is required.";
+            if (vendor.VendorGroupId == Guid.Empty) return "Vendor Group is required.";
+            if (string.IsNullOrWhiteSpace(vendor.Name)) return "Vendor Name is required.";
+            if (!await ctx.VendorGroups.AnyAsync(x => x.Id == vendor.VendorGroupId && x.CompanyId == vendor.CompanyId))
+                return "Select a vendor group belonging to this company.";
+            if (string.IsNullOrWhiteSpace(vendor.Code))
+            {
+                var group = await ctx.VendorGroups.AsNoTracking().FirstAsync(x => x.Id == vendor.VendorGroupId);
+                vendor.Code = group.SequenceDefinitionId.HasValue
+                    ? await _numberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
+                    : await _numberingService.GenerateAndReserveNextNumberAsync(vendor.CompanyId, SequenceTargetType.VendorCode);
+            }
+            if (vendor.Code.Length > 50) return "Vendor Code cannot exceed 50 characters.";
+            if (await ctx.Vendors.AnyAsync(x => x.CompanyId == vendor.CompanyId && x.Code.ToLower() == vendor.Code.ToLower() && x.Id != vendor.Id))
+                return $"Vendor Code '{vendor.Code}' already exists in this company.";
 
             if (vendor.Id == Guid.Empty || !await ctx.Vendors.AnyAsync(x => x.Id == vendor.Id))
             {
@@ -189,11 +219,19 @@ namespace Primafit_ERP.Services
         public async Task<List<CustomerGroup>> GetCustomerGroupsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.CustomerGroups
-                .AsNoTracking()
+            var groups = await ctx.CustomerGroups
+                .AsNoTracking().Include(x => x.SequenceDefinition)
                 .Where(x => x.CompanyId == companyId)
                 .OrderBy(x => x.Name)
                 .ToListAsync();
+            if (groups.Count == 0)
+            {
+                var fallback = new CustomerGroup { CompanyId = companyId, Name = "Default Customer Group" };
+                ctx.CustomerGroups.Add(fallback);
+                await ctx.SaveChangesAsync();
+                groups.Add(fallback);
+            }
+            return groups;
         }
 
         public async Task<string> SaveCustomerGroupAsync(CustomerGroup group)
@@ -201,6 +239,8 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
+            if (group.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x => x.Id == group.SequenceDefinitionId.Value && x.CompanyId == group.CompanyId && x.TargetType == SequenceTargetType.CustomerCode))
+                return "Select a customer code sequence belonging to this company.";
 
             // Duplicate Check
             if (await ctx.CustomerGroups.AnyAsync(x => x.CompanyId == group.CompanyId && x.Name == group.Name && x.Id != group.Id))
@@ -235,11 +275,19 @@ namespace Primafit_ERP.Services
         public async Task<List<VendorGroup>> GetVendorGroupsAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.VendorGroups
-                .AsNoTracking()
+            var groups = await ctx.VendorGroups
+                .AsNoTracking().Include(x => x.SequenceDefinition)
                 .Where(x => x.CompanyId == companyId)
                 .OrderBy(x => x.Name)
                 .ToListAsync();
+            if (groups.Count == 0)
+            {
+                var fallback = new VendorGroup { CompanyId = companyId, Name = "Default Vendor Group" };
+                ctx.VendorGroups.Add(fallback);
+                await ctx.SaveChangesAsync();
+                groups.Add(fallback);
+            }
+            return groups;
         }
 
         public async Task<string> SaveVendorGroupAsync(VendorGroup group)
@@ -247,6 +295,8 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
+            if (group.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x => x.Id == group.SequenceDefinitionId.Value && x.CompanyId == group.CompanyId && x.TargetType == SequenceTargetType.VendorCode))
+                return "Select a vendor code sequence belonging to this company.";
 
             // Duplicate Check
             if (await ctx.VendorGroups.AnyAsync(x => x.CompanyId == group.CompanyId && x.Name == group.Name && x.Id != group.Id))
@@ -499,6 +549,18 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveItemCategoryAsync(ItemCategory category)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+
+            if (string.IsNullOrWhiteSpace(category.Name)) return "Category Name is required.";
+            if (category.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x =>
+                x.Id == category.SequenceDefinitionId.Value && x.CompanyId == category.CompanyId && x.TargetType == SequenceTargetType.ItemCategoryCode))
+                return "Select an item category sequence belonging to this company.";
+            if (string.IsNullOrWhiteSpace(category.Code))
+                category.Code = category.SequenceDefinitionId.HasValue
+                    ? await _numberingService.GenerateAndReserveNextNumberAsync(category.SequenceDefinitionId.Value)
+                    : await _numberingService.GenerateAndReserveNextNumberAsync(category.CompanyId, SequenceTargetType.ItemCategoryCode);
+            if (category.Code.Length > 50) return "Category Code cannot exceed 50 characters.";
+            if (await ctx.ItemCategories.AnyAsync(x => x.CompanyId == category.CompanyId && x.Code.ToLower() == category.Code.ToLower() && x.Id != category.Id))
+                return $"Category Code '{category.Code}' already exists in this company.";
 
             if (await ctx.ItemCategories.AnyAsync(c => c.CompanyId == category.CompanyId && c.Name.ToLower() == category.Name.ToLower() && c.Id != category.Id))
                 return "A category with this name already exists.";

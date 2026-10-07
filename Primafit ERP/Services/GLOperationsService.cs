@@ -116,9 +116,12 @@ namespace Primafit_ERP.Services
     List<GLJournalLine> lines,
     string userId,
     bool requireAllowJournal = false,
-    Guid? existingBatchId = null) // Automated sub-ledgers remain exempt from AllowJournal control accounts
+            Guid? existingBatchId = null,
+            string? journalNumberOverride = null) // Automated sub-ledgers remain exempt from AllowJournal control accounts
         {
-            string journalNumber = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
+            string journalNumber = string.IsNullOrWhiteSpace(journalNumberOverride)
+                ? $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}"
+                : journalNumberOverride;
 
             if (existingBatchId.HasValue && existingBatchId.Value != Guid.Empty)
             {
@@ -602,6 +605,23 @@ namespace Primafit_ERP.Services
             batch.IsLocked = false;
             batch.ReleasedByUserId = null;
             batch.ReleasedAt = null;
+
+            await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> UnlockRejectedBatchAsync(Guid batchId, string userId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var batch = await ctx.GLBatches.FirstOrDefaultAsync(b => b.Id == batchId);
+
+            if (batch == null) return "Batch not found.";
+            if (batch.Status != BatchStatus.Rejected) return "Only rejected batches can be unlocked this way.";
+            if (!batch.IsLocked) return string.Empty;
+
+            batch.IsLocked = false;
+            AddAudit(ctx, batch.CompanyId, userId, "RejectedBatchUnlocked", nameof(GLBatch), batch.Id,
+                $"Rejected batch '{batch.BatchName}' was unlocked for editing.");
 
             await ctx.SaveChangesAsync();
             return string.Empty;

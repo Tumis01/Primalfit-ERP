@@ -10,6 +10,7 @@
 @using System.Text
 
 @inject MasterDataService MasterService
+@inject IDocumentNumberingService NumberingService
 @inject CurrencyService CurrService
 @inject SegCoaService GLService
 @inject UserManager<ApplicationUser> UserManager
@@ -66,14 +67,18 @@
                 <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 border-b border-slate-100 pb-1">Profile Details</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
+                        <label class="label">Vendor Code <span class="text-rose-500">*</span></label>
+                        <InputText @bind-Value="currentVendor.Code" class="input-class" placeholder="Suggested code; editable" />
+                    </div>
+                    <div>
                         <label class="label">Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="currentVendor.Name" class="input-class" placeholder="Company or Supplier Name" />
                     </div>
 
                     <div>
-                        <label class="label">Vendor Group</label>
-                        <select @onchange="OnGroupChanged" value="@(currentVendor.VendorGroupId?.ToString() ?? "")" class="input-class bg-slate-50 border-slate-300">
-                            <option value="">-- No Group --</option>
+                        <label class="label">Vendor Group <span class="text-rose-500">*</span></label>
+                        <select @onchange="OnGroupChanged" value="@(currentVendor.VendorGroupId == Guid.Empty ? "" : currentVendor.VendorGroupId.ToString())" class="input-class bg-slate-50 border-slate-300">
+                            <option value="">-- Select Group --</option>
                             @foreach (var g in groups)
                             {
                                 <option value="@g.Id">@g.Name</option>
@@ -296,12 +301,19 @@
 
     private async Task LoadData() => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
 
-    private void OnGroupChanged(ChangeEventArgs e)
+    private async Task OnGroupChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var gId))
         {
             currentVendor.VendorGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
+
+            if (group != null)
+            {
+                currentVendor.Code = group.SequenceDefinitionId.HasValue
+                    ? await NumberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
+                    : await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.VendorCode);
+            }
 
             if (group != null && group.PayablesAccountId.HasValue)
             {
@@ -310,7 +322,7 @@
         }
         else
         {
-            currentVendor.VendorGroupId = null;
+            currentVendor.VendorGroupId = Guid.Empty;
         }
     }
 
@@ -331,6 +343,7 @@
         {
             Id = v.Id,
             CompanyId = v.CompanyId,
+            Code = v.Code,
             Name = v.Name,
             Email = v.Email,
             Phone = v.Phone,
@@ -444,6 +457,7 @@
                         var group = groups.FirstOrDefault(g => g.Name.Equals(cols[4].Trim(), StringComparison.OrdinalIgnoreCase));
                         if (group != null) vendor.VendorGroupId = group.Id;
                     }
+                    if (vendor.VendorGroupId == Guid.Empty && groups.Any()) vendor.VendorGroupId = groups[0].Id;
 
                     // Map Currency (Required, defaults to first available if invalid)
                     if (cols.Count > 5 && !string.IsNullOrWhiteSpace(cols[5]))

@@ -8,6 +8,7 @@
 
 @inject NavigationManager Nav
 @inject PurchasingService PurchService
+@inject IDocumentNumberingService NumberingService
 @inject MasterDataService MasterService
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
@@ -69,7 +70,7 @@
                     <PermissionGate Key="PO_CREATE">
                         <Authorized>
                             <button @onclick="CreateNew" class="flex-1 lg:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                                New PO
+                                New Purchase Document
                             </button>
                             
                         </Authorized>
@@ -415,7 +416,7 @@
                                                 <button @onclick="() => ExecuteInvoicePostFromList(inv)"
                                                         disabled="@(isPostingId == inv.Id)"
                                                         class="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 border border-indigo-700 rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                                                @(isPostingId == inv.Id ? "Submitting..." : (isRejected ? "Resubmit for Review" : invoiceBatchInfo?.Status == BatchStatus.Ready ? "Update Staging" : "Submit for Review"))
+                                                @(isPostingId == inv.Id ? "Submitting..." : (isRejected ? "Resubmit for Review" : invoiceBatchInfo?.Status == BatchStatus.Ready ? "Update Staging" : "Submit Inv for Review"))
                                                 </button>
                                             }
                                             else
@@ -492,7 +493,7 @@
                         }
                     </div>
 
-                    <div class="flex items-center gap-3">
+                    <div class="flex flex-wrap items-center gap-3">
                         @if (canConfigureRoute)
                         {
                             <button type="button" @onclick="OpenRouteModal" class="px-3.5 py-1.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
@@ -507,15 +508,15 @@
 
                         @if (!IsLocked)
                         {
-                            <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                                <button type="button" @onclick="() => SetStatusType(PurchaseOrderStatus.Request)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.Request ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
-                                    Request (Draft)
+                            <div role="group" aria-label="Purchase document type" class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+                                <button type="button" aria-pressed="@(currentOrder.Status == PurchaseOrderStatus.Request)" @onclick="() => SetStatusType(PurchaseOrderStatus.Request)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.Request ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
+                                    Request
                                 </button>
-                                <button type="button" @onclick="() => SetStatusType(PurchaseOrderStatus.Open)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.Open ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
+                                <button type="button" aria-pressed="@(currentOrder.Status == PurchaseOrderStatus.Open)" @onclick="() => SetStatusType(PurchaseOrderStatus.Open)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.Open ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
                                     Purchase Order
                                 </button>
-                                <button type="button" @onclick="() => SetStatusType(PurchaseOrderStatus.DraftInvoice)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.DraftInvoice ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
-                                    Direct Invoice
+                                <button type="button" aria-pressed="@(currentOrder.Status == PurchaseOrderStatus.DraftInvoice)" @onclick="() => SetStatusType(PurchaseOrderStatus.DraftInvoice)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == PurchaseOrderStatus.DraftInvoice ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
+                                    Invoice
                                 </button>
                             </div>
                         }
@@ -568,21 +569,14 @@
                             </div>
                             <div>
                                 <label class="label text-amber-700">Withholding Tax</label>
-                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@(!IsInvoiceDocument || IsLocked)">
+                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? "")" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@IsLocked">
                                     <option value="">No Withholding Tax</option>
                                     @foreach (var wht in withholdingTaxes)
                                     {
                                         <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
                                     }
                                 </select>
-                                @if (IsInvoiceDocument)
-                                {
-                                    <p class="mt-1 text-[10px] font-medium text-amber-700">Attached to this invoice; withheld only when the vendor payment is posted.</p>
-                                }
-                                else
-                                {
-                                    <p class="mt-1 text-[10px] font-medium text-slate-400">Available when the document type is Invoice.</p>
-                                }
+                                <p class="mt-1 text-[10px] font-medium text-amber-700">Carries from Request to Purchase Order and Invoice; withheld when the vendor payment is posted.</p>
                             </div>
                         </div>
                     </div>
@@ -613,7 +607,7 @@
                                                 }
                                                 else
                                                 {
-                                                    <SearchableItem Label="" Items="@items" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineItem(line))" IsInvalid="@(line.ItemId == Guid.Empty)" />
+                                                    <SearchableItem Label="" Items="@purchasableItems" @bind-Value="line.ItemId" OnSelectionChanged="@(() => UpdateLineItem(line))" IsInvalid="@(line.ItemId == Guid.Empty)" />
                                                 }
                                             </td>
                                             <td class="p-2 align-top">
@@ -684,7 +678,7 @@
                                 <span class="">@(IsInvoiceDocument ? "Total Amount " : "Total Amount") (@currencySymbol):</span>
                                 <span class="font-mono font-black text-indigo-700 text-2xl">@GrandTotalForeign.ToString("N4")</span>
                             </div>
-                            @if (IsInvoiceDocument && WithholdingAmountForeign > 0)
+                            @if (WithholdingAmountForeign > 0)
                             {
                                 <div class="flex justify-between items-center text-amber-700 border-t border-amber-100 pt-2">
                                     <span>Withholding Tax (@currentOrder.WithholdingPercentage.ToString("0.####")%):</span>
@@ -721,7 +715,7 @@
                                 </Authorized>
                             </PermissionGate>
 
-                            <button type="button" @onclick="() => SetActiveTab(currentOrder.Status == PurchaseOrderStatus.DraftInvoice ? 3 : (currentOrder.Status == PurchaseOrderStatus.Request ? 2 : 0))" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
+                            <button type="button" @onclick="CancelEdit" class="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancel</button>
 
                             <PermissionGate Key="PO_CREATE">
                                 <Authorized>
@@ -729,17 +723,17 @@
                                     {
                                         <button type="button" @onclick="SaveInvoiceDraft" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
                                             @if (isBusy) { <span class="animate-spin">↻</span> }
-                                            <span>Save Invoice Draft</span>
+                                            <span>Save Draft</span>
                                         </button>
 
                                         <button type="button" @onclick="SaveAndPostFormInvoice" class="px-8 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
                                             @if (isBusy) { <span class="animate-spin">↻</span> }
-                                            <span>@(IsCurrentOrderRejected ? "Resubmit Invoice for GL Review" : CurrentOrderBatchInfo?.Status == BatchStatus.Ready ? "Update Invoice Staging" : "Submit Invoice for GL Review")</span>
+                                            <span>@InvoiceSubmitButtonLabel</span>
                                         </button>
                                     }
                                     else
                                     {
-                                        <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
+                                        <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 @(currentOrder.Status == PurchaseOrderStatus.Request ? "bg-indigo-600 hover:bg-indigo-700" : "bg-blue-600 hover:bg-blue-700") text-white rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center gap-2" disabled="@isBusy">
                                             @if (isBusy) { <span class="animate-spin">↻</span> }
                                             <span>@(currentOrder.Status == PurchaseOrderStatus.Request ? "Save Request" : "Save Purchase Order")</span>
                                         </button>
@@ -749,7 +743,7 @@
                         }
                         else
                         {
-                            <button type="button" @onclick="() => SetActiveTab(currentOrder.Status == PurchaseOrderStatus.DraftInvoice || currentOrder.Status == PurchaseOrderStatus.Invoiced ? 3 : (currentOrder.Status == PurchaseOrderStatus.Request ? 2 : 0))" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md">Close View</button>
+                            <button type="button" @onclick="CancelEdit" class="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 shadow-md">Close View</button>
                         }
                     </div>
                 </div>
@@ -1009,11 +1003,11 @@
     private bool IsReviewEditable => CurrentOrderBatchInfo?.Status is BatchStatus.Ready or BatchStatus.Rejected or BatchStatus.Draft;
 
     private bool IsLocked =>
-        !IsReviewEditable && (((currentOrder.HasReceipt || currentOrder.IsFullyReceived) && !IsCurrentOrderRejected) ||
+        currentOrder.Id != Guid.Empty && !IsReviewEditable && (((currentOrder.HasReceipt || currentOrder.IsFullyReceived) && !IsCurrentOrderRejected) ||
         (currentOrder.IsInvoicePosted && !IsCurrentOrderRejected) ||
         (currentOrder.Status == PurchaseOrderStatus.Invoiced && !IsCurrentOrderRejected) ||
-        (currentOrder.Status == PurchaseOrderStatus.Request && orders.Any(o => o.ConvertedFromRequestNumber == currentOrder.OrderNumber)) ||
-        (currentOrder.Status == PurchaseOrderStatus.Open && orders.Any(o => o.ConvertedFromPONumber == currentOrder.OrderNumber)));
+        (currentOrder.Status == PurchaseOrderStatus.Request && !string.IsNullOrWhiteSpace(currentOrder.OrderNumber) && orders.Any(o => o.ConvertedFromRequestNumber == currentOrder.OrderNumber)) ||
+        (currentOrder.Status == PurchaseOrderStatus.Open && !string.IsNullOrWhiteSpace(currentOrder.OrderNumber) && orders.Any(o => o.ConvertedFromPONumber == currentOrder.OrderNumber)));
 
     private int pageSize = 15;
     private int currentOrderPage = 1;
@@ -1043,6 +1037,7 @@
 
     private List<PurchaseOrder> orders = new();
     private PurchaseOrder currentOrder = new();
+    private bool _isNewOrderForm;
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<Item> items = new();
@@ -1089,19 +1084,24 @@
     private decimal TaxPercentage => taxes.FirstOrDefault(t => t.Id == currentOrder.TaxId)?.Per ?? 0;
     private decimal TaxAmount => DiscountedSubTotal * (TaxPercentage / 100);
     private decimal GrandTotalForeign => DiscountedSubTotal + TaxAmount;
-    private decimal WithholdingAmountForeign => IsInvoiceDocument && currentOrder.WithholdingTaxId.HasValue
+    private List<Item> purchasableItems => items.Where(item => !item.IsService).ToList();
+    private string InvoiceSubmitButtonLabel => currentOrder.Id != Guid.Empty && CurrentOrderBatchInfo?.Status == BatchStatus.Ready
+        ? "Update Invoice Staging"
+        : IsCurrentOrderRejected
+            ? "Resubmit Invoice for GL Review"
+            : "Submit Invoice to GL Review";
+    private decimal WithholdingAmountForeign => currentOrder.WithholdingTaxId.HasValue
         ? DiscountedSubTotal * (currentOrder.WithholdingPercentage / 100m)
         : 0m;
     private decimal NetAmountPayableForeign => Math.Max(0, GrandTotalForeign - WithholdingAmountForeign);
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
-    private bool IsInvoiceDocument => currentOrder.Status is PurchaseOrderStatus.DraftInvoice or PurchaseOrderStatus.Invoiced
-        || currentOrder.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
+    private bool IsInvoiceDocument => currentOrder.IsInvoiceDocument;
     private Dictionary<Guid, VendorBill> linkedBillsMap = new();
     private Dictionary<Guid, decimal> debitNotesMap = new();
     private bool canConfigureRoute = false;
 
     private IEnumerable<PurchaseOrder> FilteredRequests => orders
-        .Where(o => o.OrderNumber.StartsWith("REQ", StringComparison.OrdinalIgnoreCase))
+        .Where(o => o.Status == PurchaseOrderStatus.Request)
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
@@ -1112,7 +1112,7 @@
     private IEnumerable<PurchaseOrder> PagedRequests => FilteredRequests.Skip((currentReqPage - 1) * pageSize).Take(pageSize);
 
     private IEnumerable<PurchaseOrder> FilteredOrders => orders
-        .Where(o => o.OrderNumber.StartsWith("PO", StringComparison.OrdinalIgnoreCase))
+        .Where(o => o.Status != PurchaseOrderStatus.Request && !o.IsInvoiceDocument)
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
@@ -1124,7 +1124,7 @@
     private IEnumerable<PurchaseOrder> PagedOrders => FilteredOrders.Skip((currentOrderPage - 1) * pageSize).Take(pageSize);
 
     private IEnumerable<PurchaseOrder> FilteredInvoices => orders
-        .Where(o => o.OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase))
+        .Where(o => o.IsInvoiceDocument)
         .Where(o => o.OrderDate.Date >= filterFromDate.Date && o.OrderDate.Date <= filterToDate.Date)
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
                  || o.OrderNumber.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
@@ -1169,7 +1169,7 @@
         uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
         conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
         itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
-        warehouses = await WhService.GetWarehousesAsync(currentCompanyId);
+        warehouses = await WhService.GetWarehousesAsync(currentCompanyId, WarehouseType.Purchase);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToListAsync();
         withholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking().Where(t => t.CompanyId == currentCompanyId).OrderBy(t => t.PercentageValue).ToListAsync();
 
@@ -1250,35 +1250,51 @@
 
     private void SetActiveTab(int index) { activeTab = index; ResetPaginationMatrices(); }
     private void ResetPaginationMatrices() { currentOrderPage = 1; currentReqPage = 1; currentInvPage = 1; }
-
-    private void CreateNew()
+    private int GetListingTabForStatus(PurchaseOrderStatus status) => status switch
     {
-        currentOrder = new PurchaseOrder { CompanyId = currentCompanyId, OrderDate = DateTime.Now, ExchangeRate = 1, Status = PurchaseOrderStatus.Request };
-        currencySymbol = "";
-        selectedCurrencyCode = "";
-        currentOrder.Lines.Add(new PurchaseOrderLine());
-        activeTab = 1;
-    }
+        PurchaseOrderStatus.Request => 2,
+        PurchaseOrderStatus.DraftInvoice or PurchaseOrderStatus.Invoiced => 3,
+        _ => 0
+    };
+    private void CancelEdit() => SetActiveTab(GetListingTabForStatus(currentOrder.Status));
 
-    private void CreateNewInvoice()
+    private async Task CreateNew()
     {
+        _isNewOrderForm = true;
         currentOrder = new PurchaseOrder
         {
             CompanyId = currentCompanyId,
             OrderDate = DateTime.Now,
             ExchangeRate = 1,
-            Status = PurchaseOrderStatus.DraftInvoice
+            Status = PurchaseOrderStatus.Request,
+            IsDirectInvoice = false
         };
+        currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.AP_Request, currentOrder.OrderDate);
         currencySymbol = "";
         selectedCurrencyCode = "";
         currentOrder.Lines.Add(new PurchaseOrderLine());
         activeTab = 1;
     }
 
-    private void SetStatusType(PurchaseOrderStatus status) => currentOrder.Status = status;
+    private async Task SetStatusType(PurchaseOrderStatus status)
+    {
+        currentOrder.Status = status;
+        currentOrder.IsDirectInvoice = status == PurchaseOrderStatus.DraftInvoice;
+        if (_isNewOrderForm)
+        {
+            var target = status switch
+            {
+                PurchaseOrderStatus.Request => SequenceTargetType.AP_Request,
+                PurchaseOrderStatus.DraftInvoice => SequenceTargetType.AP_Invoice,
+                _ => SequenceTargetType.AP_PurchaseOrder
+            };
+            currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, target, currentOrder.OrderDate);
+        }
+    }
 
     private async Task EditOrder(PurchaseOrder po)
     {
+        _isNewOrderForm = false;
         var result = await PurchService.GetVendorCurrencyDataAsync(po.VendorId, currentCompanyId);
         currencySymbol = result.CurrencyCode;
         selectedCurrencyCode = result.CurrencyCode;
@@ -1296,6 +1312,7 @@
             OrderNumber = po.OrderNumber,
             ConvertedFromRequestNumber = po.ConvertedFromRequestNumber,
             ConvertedFromPONumber = po.ConvertedFromPONumber,
+            IsDirectInvoice = po.IsDirectInvoice,
             Status = po.Status,
             CurrencyId = po.CurrencyId,
             ExchangeRate = po.ExchangeRate,
@@ -1379,7 +1396,7 @@
         isBusy = true;
         try
         {
-            currentOrder.Status = PurchaseOrderStatus.DraftInvoice;
+            SetStatusType(PurchaseOrderStatus.DraftInvoice);
             var err = await PurchService.SavePurchaseOrderAsync(currentOrder);
             if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
 
@@ -1433,13 +1450,22 @@
     private async Task SaveAndPostFormInvoice()
     {
         if (currentOrder.VendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a vendor."); return; }
+        if (!currentOrder.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
 
-        currentOrder.Status = PurchaseOrderStatus.DraftInvoice;
+        isBusy = true;
+        try
+        {
+            SetStatusType(PurchaseOrderStatus.DraftInvoice);
 
-        var saveErr = await PurchService.SavePurchaseOrderAsync(currentOrder);
-        if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", saveErr); return; }
+            var saveErr = await PurchService.SavePurchaseOrderAsync(currentOrder);
+            if (!string.IsNullOrEmpty(saveErr)) { await JS.InvokeVoidAsync("alert", saveErr); return; }
 
-        await ExecuteInvoicePostFromList(currentOrder);
+            await ExecuteInvoicePostFromList(currentOrder);
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
     private async Task SaveOrder()
@@ -1513,7 +1539,6 @@
 
     private void OnWithholdingChanged(ChangeEventArgs e)
     {
-        if (!IsInvoiceDocument) return;
         if (Guid.TryParse(e.Value?.ToString(), out var id) && id != Guid.Empty)
         {
             var selected = withholdingTaxes.FirstOrDefault(x => x.Id == id);

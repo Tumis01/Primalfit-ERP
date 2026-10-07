@@ -224,6 +224,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
                                             <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
+                                            <NavLink href="/ar/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="setup/ar-transaction-types" class="@NestedNavLink" activeClass="@NestedNavActive">AR Transaction Type</NavLink>
                                         </div>
                                     }
@@ -297,6 +298,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
                                             <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
+                                            <NavLink href="/ap/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="setup/ap-transaction-types" class="@NestedNavLink" activeClass="@NestedNavActive">Ap Transaction Types</NavLink>
                                         </div>
                                     }
@@ -374,6 +376,7 @@
                                             <NavLink href="/sc/item-categories" class="@NestedNavLink" activeClass="@NestedNavActive">Item Category</NavLink>
                                             <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
                                             <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
+                                            <NavLink href="/inventory/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         </div>
                                     }
 
@@ -715,7 +718,7 @@
         if (path.StartsWith("gl/general-ledger") || path.StartsWith("reports/profit-and-loss") || path.StartsWith("reports/balance-sheet") || path.StartsWith("reports/budget-variance") || path.StartsWith("gl/bank-reconciliation"))
         { _financeMenuOpen = true; _financeReportOpen = true; }
     
-        if (path.StartsWith("md/customers") || path.StartsWith("md/customer-groups"))
+        if (path.StartsWith("md/customers") || path.StartsWith("md/customer-groups") || path.StartsWith("ar/defaults"))
         { _salesMenuOpen = true; _salesSetupOpen = true; }
 
         if (path.StartsWith("sc/sales-orders") || path.StartsWith("ar/payment-entry") || path.StartsWith("sales/credit-notes"))
@@ -724,13 +727,13 @@
         if (path.StartsWith("reports/customer-transactions") || path.StartsWith("reports/ar-age-analysis") || path.StartsWith("reports/sales-analysis"))
         { _salesMenuOpen = true; _salesReportOpen = true; }
     
-        if (path.StartsWith("md/vendors") || path.StartsWith("md/vendor-groups"))
+        if (path.StartsWith("md/vendors") || path.StartsWith("md/vendor-groups") || path.StartsWith("ap/defaults"))
         { _purchasingMenuOpen = true; _purchasingSetupOpen = true; }
 
         if (path.StartsWith("procurement/purchase-orders") || path.StartsWith("ap/bill-entry") || path.StartsWith("purchases/returns"))
         { _purchasingMenuOpen = true; _purchasingTransOpen = true; }
     
-        if (path.StartsWith("sc/items") || path.StartsWith("sc/uom") || path == "warehouses")
+        if (path.StartsWith("sc/items") || path.StartsWith("sc/uom") || path == "warehouses" || path.StartsWith("inventory/defaults"))
         { _inventoryMenuOpen = true; _inventorySetupOpen = true; }
 
         if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("supply-chain/issue-to-project") || path.StartsWith("wh/shipments"))

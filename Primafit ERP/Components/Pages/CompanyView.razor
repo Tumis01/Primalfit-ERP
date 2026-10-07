@@ -145,11 +145,11 @@
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label class="mb-1 block text-sm font-medium text-slate-700">Base Curr.</label>
+                                        <label class="mb-1 block text-sm font-medium text-slate-700">Base Currency Name</label>
                                         <InputText @bind-Value="currentCompany.BaseCurrency" class="@InputClass" />
                                     </div>
                                     <div>
-                                        <label class="mb-1 block text-sm font-medium text-slate-700">Func. Curr.</label>
+                                        <label class="mb-1 block text-sm font-medium text-slate-700">Currency Code</label>
                                         <InputText @bind-Value="currentCompany.FunctionalCurrency" class="@InputClass" />
                                     </div>
                                 </div>
@@ -259,7 +259,7 @@
             FiscalStartYear = DateOnly.FromDateTime(DateTime.Now),
             FiscalEndYear = DateOnly.FromDateTime(DateTime.Now.AddYears(1)),
             BaseCurrency = "Naira",
-            FunctionalCurrency = "USD",
+            FunctionalCurrency = "NGN",
             country = "Nigeria"
         };
         isEditing = false;

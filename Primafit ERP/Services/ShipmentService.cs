@@ -14,17 +14,20 @@ namespace Primafit_ERP.Services
         private readonly GLOperationsService _glOps;
         private readonly InventoryService _invService;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public ShipmentService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
             InventoryService invService,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _invService = invService;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         public async Task<List<SalesShipment>> GetPendingShipmentsAsync(Guid companyId)
@@ -184,6 +187,9 @@ namespace Primafit_ERP.Services
 
             if (order == null) return "Validation Error: Order reference not found.";
             if (order.WarehouseId == Guid.Empty) return $"Validation Error: Invoice '{order.OrderNumber}' does not have a fulfillment warehouse assigned.";
+            if (!await ctx.Warehouses.AnyAsync(w => w.Id == order.WarehouseId && w.CompanyId == order.CompanyId &&
+                (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
+                return "Validation Error: The fulfillment warehouse is not available to the sales module.";
 
             var creditedQuantitiesMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
@@ -537,17 +543,8 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        private static async Task<string> GenerateShipmentNumberAsync(AppDbContext ctx, Guid companyId)
-        {
-            string shipmentNumber;
-            do
-            {
-                shipmentNumber = $"SHP-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-            }
-            while (await ctx.SalesShipments.AnyAsync(s => s.CompanyId == companyId && s.ShipmentNumber == shipmentNumber));
-
-            return shipmentNumber;
-        }
+        private Task<string> GenerateShipmentNumberAsync(AppDbContext ctx, Guid companyId) =>
+            _numberingService.GenerateAndReserveNextNumberAsync(companyId, SequenceTargetType.AR_Shipment);
 
         private static async Task<Dictionary<Guid, decimal>> GetPostedShipmentQuantitiesAsync(
             AppDbContext ctx,

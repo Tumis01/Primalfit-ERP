@@ -16,6 +16,9 @@ namespace Primafit_ERP.Components.Models
 
         public Guid? ReceivablesAccountId { get; set; }
 
+        public Guid? SequenceDefinitionId { get; set; }
+        public SequenceDefinition? SequenceDefinition { get; set; }
+
     }
     public class VendorGroup
     {
@@ -29,5 +32,8 @@ namespace Primafit_ERP.Components.Models
         public string Name { get; set; } = "";
 
         public Guid? PayablesAccountId { get; set; }
+
+        public Guid? SequenceDefinitionId { get; set; }
+        public SequenceDefinition? SequenceDefinition { get; set; }
     }
 }

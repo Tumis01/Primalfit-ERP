@@ -13,15 +13,18 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly GLOperationsService _glOps;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
         public ReceiptRefundService(
             IDbContextFactory<AppDbContext> dbFactory,
             GLOperationsService glOps,
-            TransactionMappingService mappingService)
+            TransactionMappingService mappingService,
+            IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         public async Task<List<SalesOrder>> GetInvoicesEligibleForRefundAsync(Guid companyId, Guid customerId)
@@ -35,7 +38,7 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .Where(o => o.CompanyId == companyId
                          && o.CustomerId == customerId
-                         && o.OrderNumber.StartsWith("INV")
+                         && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
                          && validStatuses.Contains(o.Status))
                 .ToListAsync();
 
@@ -48,7 +51,7 @@ namespace Primafit_ERP.Services
                                      where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
                                         && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                      group pa by pa.InvoiceId into g
-                                     select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                                     select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                                     .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
 
             var historicalCashRefundsMap = await ctx.ReceiptRefunds
@@ -122,7 +125,7 @@ namespace Primafit_ERP.Services
                 DestinationWarehouseId = so.WarehouseId,
                 CreatedByUserId = userId,
                 CreatedAt = DateTime.UtcNow,
-                RefundNumber = $"RRF-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
+                RefundNumber = await _numberingService.GenerateAndReserveNextNumberAsync(so.CompanyId, SequenceTargetType.AR_ReceiptRefund)
             };
 
             foreach (var soLine in so.Lines)
@@ -488,7 +491,7 @@ namespace Primafit_ERP.Services
 
             decimal totalPaid = await ctx.PaymentApplications
                 .Where(pa => pa.InvoiceId == orderId)
-                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken);
+                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign);
 
             decimal priorRefunded = await ctx.ReceiptRefunds
                 .Where(r => r.SalesOrderId == orderId

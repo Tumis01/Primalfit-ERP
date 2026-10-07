@@ -10,6 +10,7 @@
 @using System.Text
 
 @inject MasterDataService MasterService
+@inject IDocumentNumberingService NumberingService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -68,6 +69,18 @@
                     <div>
                         <label class="label">Group Name <span class="text-rose-500">*</span></label>
                         <InputText @bind-Value="model.Name" class="input-class" placeholder="e.g. Wholesalers, VIP, Retail" />
+                    </div>
+
+                    <div>
+                        <label class="label">Customer Code Sequence</label>
+                        <select @bind="model.SequenceDefinitionId" class="input-class bg-white">
+                            <option value="">User Defined / Manual</option>
+                            @foreach (var sequence in codeSequences)
+                            {
+                                <option value="@sequence.Id">@sequence.Name</option>
+                            }
+                        </select>
+                        <p class="text-xs text-slate-400 mt-1">Customers in this group use this sequence for suggested codes.</p>
                     </div>
 
                     <div>
@@ -168,6 +181,7 @@
 
 @code {
     private List<CustomerGroup> groups = new();
+    private List<SequenceDefinition> codeSequences = new();
     private List<SegChartOfAccount> arAccounts = new();
     private CustomerGroup model = new();
     private bool showForm = false;
@@ -201,6 +215,8 @@
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();
+            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.CustomerCode);
+            codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.CustomerCode);
         }
     }
 
@@ -219,7 +235,8 @@
             Id = item.Id,
             CompanyId = item.CompanyId,
             Name = item.Name,
-            ReceivablesAccountId = item.ReceivablesAccountId
+            ReceivablesAccountId = item.ReceivablesAccountId,
+            SequenceDefinitionId = item.SequenceDefinitionId
         };
         showForm = true;
     }

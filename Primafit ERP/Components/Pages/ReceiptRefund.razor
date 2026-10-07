@@ -858,7 +858,7 @@
         Guid companyId = user.CompanyDetailsId.Value;
 
         canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(companyId);
-        warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId).ToListAsync();
+        warehouses = await ctx.Warehouses.AsNoTracking().Where(w => w.CompanyId == companyId && (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)).ToListAsync();
         customers = await ctx.Customers.AsNoTracking().Where(c => c.CompanyId == companyId).OrderBy(c => c.Name).ToListAsync();
         uoms = await MasterService.GetUnitOfMeasuresAsync(companyId);
         itemUomLines = await MasterService.GetItemUomConversionLinesAsync(companyId, true);

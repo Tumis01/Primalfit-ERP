@@ -4,11 +4,13 @@
 @using PrimafitERP.Data
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.IO
 
 @inject SalesService SalesService
+@inject IDocumentNumberingService NumberingService
 @inject CompanyApiService CompanyService
 @inject CurrencyService CurrService
 @inject SegCoaService SegCoaService
@@ -973,14 +975,7 @@
 
             if (string.IsNullOrWhiteSpace(invoice.OrderNumber))
             {
-                bool isDup = true;
-                string generated = string.Empty;
-                while (isDup)
-                {
-                    generated = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                    isDup = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == invoice.CompanyId && o.OrderNumber == generated);
-                }
-                invoice.OrderNumber = generated;
+                invoice.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(invoice.CompanyId, SequenceTargetType.AR_Invoice, invoice.Date.ToDateTime(TimeOnly.MinValue));
             }
 
             var existing = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == invoice.Id);

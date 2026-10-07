@@ -11,13 +11,15 @@ namespace Primafit_ERP.Services
         private readonly GLOperationsService _glOps;
         private readonly InventoryService _invService;
         private readonly TransactionMappingService _mappingService;
+        private readonly IDocumentNumberingService _numberingService;
 
-        public SalesService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService, TransactionMappingService mappingService)
+        public SalesService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService, TransactionMappingService mappingService, IDocumentNumberingService numberingService)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
             _invService = invService;
             _mappingService = mappingService;
+            _numberingService = numberingService;
         }
 
         public async Task<List<SalesOrder>> GetOrdersAsync(Guid companyId)
@@ -35,14 +37,14 @@ namespace Primafit_ERP.Services
             if (!orders.Any()) return orders;
 
             var invoiceIds = orders
-                .Where(o => o.OrderNumber.StartsWith("INV") || o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.InvoiceBatchId != null)
+                .Where(o => o.IsInvoiceDocument)
                 .Select(o => o.Id)
                 .ToList();
 
             var paymentsMap = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
             var creditNotesMap = await ctx.CreditNotes
@@ -143,7 +145,7 @@ namespace Primafit_ERP.Services
 
                 order.AmountPaid = await ctx.PaymentApplications
                     .Where(pa => pa.InvoiceId == order.Id)
-                    .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken);
+                    .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign);
             }
 
             return order;
@@ -156,6 +158,26 @@ namespace Primafit_ERP.Services
             if (order.CompanyId == Guid.Empty) return "System Error: Company ID missing.";
             if (order.CustomerId == Guid.Empty) return "Customer is required.";
             if (!order.Lines.Any()) return "Order must have at least one line.";
+
+            if (order.WithholdingTaxId.HasValue)
+            {
+                var withholding = await ctx.WithholdingTaxes.AsNoTracking()
+                    .FirstOrDefaultAsync(w => w.Id == order.WithholdingTaxId.Value && w.CompanyId == order.CompanyId);
+                if (withholding == null) return "Selected withholding tax is not configured for this company.";
+                if (!withholding.SalesGlAccountId.HasValue || withholding.SalesGlAccountId == Guid.Empty)
+                    return "Selected withholding tax has no sales receivable account mapped.";
+                if (!await ctx.SegChartOfAccounts.AnyAsync(a => a.Id == withholding.SalesGlAccountId.Value && a.CompanyId == order.CompanyId && a.IsActive))
+                    return "Selected withholding tax sales receivable account is invalid or inactive.";
+                order.WithholdingTaxName = withholding.Name;
+                order.WithholdingPercentage = Math.Round(withholding.PercentageValue, 4);
+                order.WithholdingSalesGlAccountId = withholding.SalesGlAccountId;
+            }
+            else
+            {
+                order.WithholdingTaxName = null;
+                order.WithholdingPercentage = 0;
+                order.WithholdingSalesGlAccountId = null;
+            }
 
             var lineItemIds = order.Lines.Where(l => l.ItemId.HasValue).Select(l => l.ItemId!.Value).Distinct().ToList();
             var itemsMap = await ctx.Items.Where(i => lineItemIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id);
@@ -185,6 +207,11 @@ namespace Primafit_ERP.Services
             }
 
             bool hasPhysicalItems = order.Lines.Any(l => l.ItemId.HasValue && itemsMap.ContainsKey(l.ItemId.Value) && !itemsMap[l.ItemId.Value].IsService);
+
+            if (order.WarehouseId != Guid.Empty && !await ctx.Warehouses.AnyAsync(w =>
+                w.Id == order.WarehouseId && w.CompanyId == order.CompanyId &&
+                (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
+                return "Select a warehouse available to the sales module.";
 
             if (order.Status != OrderStatus.Quote && hasPhysicalItems && order.WarehouseId == Guid.Empty)
             {
@@ -223,19 +250,13 @@ namespace Primafit_ERP.Services
 
                 if (string.IsNullOrWhiteSpace(order.OrderNumber))
                 {
-                    string prefix = "INV";
-                    if (order.Status == OrderStatus.Quote) prefix = "QUO";
-                    else if (order.Status == OrderStatus.Order) prefix = "ORD";
-
-                    bool isDuplicate = true;
-                    string generatedNumber = string.Empty;
-
-                    while (isDuplicate)
+                    var target = order.Status switch
                     {
-                        generatedNumber = $"{prefix}-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                        isDuplicate = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == order.CompanyId && o.OrderNumber == generatedNumber);
-                    }
-                    order.OrderNumber = generatedNumber;
+                        OrderStatus.Quote => SequenceTargetType.AR_Quote,
+                        OrderStatus.Order => SequenceTargetType.AR_Order,
+                        _ => SequenceTargetType.AR_Invoice
+                    };
+                    order.OrderNumber = await _numberingService.GenerateAndReserveNextNumberAsync(order.CompanyId, target, order.Date.ToDateTime(TimeOnly.MinValue));
                 }
 
                 foreach (var line in order.Lines)
@@ -275,6 +296,10 @@ namespace Primafit_ERP.Services
                 existing.TransactionDateTime = order.TransactionDateTime;
                 existing.TaxId = order.TaxId;
                 existing.TaxGLAccountId = order.TaxGLAccountId;
+                existing.WithholdingTaxId = order.WithholdingTaxId;
+                existing.WithholdingTaxName = order.WithholdingTaxName;
+                existing.WithholdingPercentage = order.WithholdingPercentage;
+                existing.WithholdingSalesGlAccountId = order.WithholdingSalesGlAccountId;
 
                 existing.DiscountPercentage = order.DiscountPercentage;
                 existing.DiscountAmount = order.DiscountAmount;
@@ -321,15 +346,7 @@ namespace Primafit_ERP.Services
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == quote.OrderNumber);
             if (alreadyConverted) return "This quote has already been converted.";
 
-            // Unique Validation Checking Sequence
-            bool isDuplicate = true;
-            string generatedOrderNumber = string.Empty;
-
-            while (isDuplicate)
-            {
-                generatedOrderNumber = $"ORD-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                isDuplicate = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == quote.CompanyId && o.OrderNumber == generatedOrderNumber);
-            }
+            var generatedOrderNumber = await _numberingService.GenerateAndReserveNextNumberAsync(quote.CompanyId, SequenceTargetType.AR_Order);
 
             var order = new SalesOrder
             {
@@ -348,7 +365,11 @@ namespace Primafit_ERP.Services
                 WarehouseId = quote.WarehouseId,
                 DiscountPercentage = quote.DiscountPercentage,
                 DiscountAmount = quote.DiscountAmount,
-                DiscountGlAccountId = quote.DiscountGlAccountId
+                DiscountGlAccountId = quote.DiscountGlAccountId,
+                WithholdingTaxId = quote.WithholdingTaxId,
+                WithholdingTaxName = quote.WithholdingTaxName,
+                WithholdingPercentage = quote.WithholdingPercentage,
+                WithholdingSalesGlAccountId = quote.WithholdingSalesGlAccountId
             };
 
             foreach (var line in quote.Lines)
@@ -380,15 +401,7 @@ namespace Primafit_ERP.Services
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
             if (alreadyConverted) return "This order has already been converted to an invoice.";
 
-            // Unique Validation Checking Sequence
-            bool isDuplicate = true;
-            string generatedInvoiceNumber = string.Empty;
-
-            while (isDuplicate)
-            {
-                generatedInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                isDuplicate = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == order.CompanyId && o.OrderNumber == generatedInvoiceNumber);
-            }
+            var generatedInvoiceNumber = await _numberingService.GenerateAndReserveNextNumberAsync(order.CompanyId, SequenceTargetType.AR_Invoice);
 
             var invoice = new SalesOrder
             {
@@ -407,7 +420,11 @@ namespace Primafit_ERP.Services
                 WarehouseId = order.WarehouseId,
                 DiscountPercentage = order.DiscountPercentage,
                 DiscountAmount = order.DiscountAmount,
-                DiscountGlAccountId = order.DiscountGlAccountId
+                DiscountGlAccountId = order.DiscountGlAccountId,
+                WithholdingTaxId = order.WithholdingTaxId,
+                WithholdingTaxName = order.WithholdingTaxName,
+                WithholdingPercentage = order.WithholdingPercentage,
+                WithholdingSalesGlAccountId = order.WithholdingSalesGlAccountId
             };
 
             foreach (var line in order.Lines)
@@ -435,6 +452,9 @@ namespace Primafit_ERP.Services
 
             if (order == null) return "Order not found.";
             if (order.Status == OrderStatus.Shipped) return "Order has already been completely fulfilled.";
+            if (!await ctx.Warehouses.AnyAsync(w => w.Id == warehouseId && w.CompanyId == order.CompanyId &&
+                (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
+                return "Select a warehouse available to the sales module.";
 
             // 1. Fetch all historically posted pre-shipment credit notes for this invoice
             var creditedQuantitiesMap = await ctx.CreditNoteLines
@@ -659,17 +679,9 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = $"Inv {order.OrderNumber}" });
 
-                if (!order.OrderNumber.StartsWith("INV"))
+                if (string.IsNullOrWhiteSpace(order.OrderNumber))
                 {
-                    bool isDuplicate = true;
-                    string generatedInvoiceString = string.Empty;
-
-                    while (isDuplicate)
-                    {
-                        generatedInvoiceString = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                        isDuplicate = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == order.CompanyId && o.OrderNumber == generatedInvoiceString);
-                    }
-                    order.OrderNumber = generatedInvoiceString;
+                    order.OrderNumber = await _numberingService.GenerateAndReserveNextNumberAsync(order.CompanyId, SequenceTargetType.AR_Invoice, order.Date.ToDateTime(TimeOnly.MinValue));
                 }
 
                 // STAGE TO BATCH ONLY (DO NOT POST TO GLTRANSACTION DIRECTLY)
@@ -749,7 +761,7 @@ namespace Primafit_ERP.Services
             var paymentsMap = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
             var creditNotesMap = await ctx.CreditNotes
@@ -912,17 +924,9 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = grandTotalBase, Credit = 0, Reference = "Accounts Receivable" });
 
-                if (string.IsNullOrWhiteSpace(invoice.OrderNumber) || !invoice.OrderNumber.StartsWith("INV"))
+                if (string.IsNullOrWhiteSpace(invoice.OrderNumber))
                 {
-                    bool isStringDuplicate = true;
-                    string generatedDirectInvoiceNumber = string.Empty;
-
-                    while (isStringDuplicate)
-                    {
-                        generatedDirectInvoiceNumber = $"INV-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}";
-                        isStringDuplicate = await ctx.SalesOrders.AnyAsync(o => o.CompanyId == invoice.CompanyId && o.OrderNumber == generatedDirectInvoiceNumber);
-                    }
-                    invoice.OrderNumber = generatedDirectInvoiceNumber;
+                    invoice.OrderNumber = await _numberingService.GenerateAndReserveNextNumberAsync(invoice.CompanyId, SequenceTargetType.AR_Invoice, invoice.Date.ToDateTime(TimeOnly.MinValue));
                 }
 
                 // 2. Stage to batch using the verified batchToUpdate reference
@@ -1005,7 +1009,9 @@ namespace Primafit_ERP.Services
                 .Where(o => o.CompanyId == companyId
                          && o.Date >= start
                          && o.Date <= end
-                         && o.OrderNumber.StartsWith("INV")
+                         && (o.IsDirectInvoice || o.InvoiceBatchId != null
+                             || (o.ConvertedFromQuoteNumber != null && o.Status == OrderStatus.Draft)
+                             || o.OrderNumber.StartsWith("INV"))
                          && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.Status == OrderStatus.Draft));
 
             if (!string.IsNullOrWhiteSpace(customerSearch))
@@ -1019,7 +1025,7 @@ namespace Primafit_ERP.Services
             var payments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
             var creditNotesMap = await ctx.CreditNotes
@@ -1094,7 +1100,9 @@ namespace Primafit_ERP.Services
             var orders = await ctx.SalesOrders
                 .Include(o => o.Customer)
                 .Include(o => o.Lines)
-                .Where(o => o.CompanyId == companyId && o.Date <= asOfDate && o.OrderNumber.StartsWith("INV") && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
+                .Where(o => o.CompanyId == companyId && o.Date <= asOfDate
+                         && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
+                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 
             var invoiceIds = orders.Select(o => o.Id).ToList();
@@ -1102,7 +1110,7 @@ namespace Primafit_ERP.Services
             var payments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
-                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken) })
+                .Select(g => new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
 
             // FEATURE: Batch load credit notes to correctly calculate aging buckets
@@ -1185,7 +1193,7 @@ namespace Primafit_ERP.Services
                          && l.Header.CompanyId == companyId
                          && l.Header.Date >= start
                          && l.Header.Date <= end
-                         && l.Header.OrderNumber.StartsWith("INV")
+                         && (l.Header.IsDirectInvoice || l.Header.InvoiceBatchId != null || l.Header.OrderNumber.StartsWith("INV"))
                          && validStatuses.Contains(l.Header.Status));
 
             var lines = await query.ToListAsync();

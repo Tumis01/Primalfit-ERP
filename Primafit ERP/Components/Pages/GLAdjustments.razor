@@ -10,6 +10,7 @@
 @inject TransactionMappingService MappingService
 @inject SegCoaService SegCoaService
 @inject GLOperationsService GlOperations
+@inject IDocumentNumberingService NumberingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
@@ -317,7 +318,19 @@
                 new() { SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, Reference = narrationString }
             };
 
-            var (err, batchId) = await GlOperations.CreateJournalEntryAsync(companyId, postingDate, "ADJ-BATCH", narrationString, lines, userId);
+            SequenceTargetType? numberingTarget = selectedMapping!.TransactionType switch
+            {
+                SystemTransactionType.ArAdjustment => SequenceTargetType.AR_Adjustment,
+                SystemTransactionType.ApAdjustment => SequenceTargetType.AP_Adjustment,
+                _ => null
+            };
+            var journalNumber = numberingTarget.HasValue
+                ? await NumberingService.GenerateAndReserveNextNumberAsync(companyId, numberingTarget.Value, postingDate.ToDateTime(TimeOnly.MinValue))
+                : null;
+
+            var (err, batchId) = await GlOperations.CreateJournalEntryAsync(
+                companyId, postingDate, "ADJ-BATCH", narrationString, lines, userId,
+                journalNumberOverride: journalNumber);
             if (!string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", $"Ledger Refusal: {err}");

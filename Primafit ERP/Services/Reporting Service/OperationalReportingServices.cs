@@ -234,7 +234,7 @@ namespace Primafit_ERP.Services
                 .Where(o => o.CompanyId == companyId
                     && customerIds.Contains(o.CustomerId)
                     && o.Date <= endDate
-                    && o.OrderNumber.StartsWith("INV")
+                    && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
                     && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 

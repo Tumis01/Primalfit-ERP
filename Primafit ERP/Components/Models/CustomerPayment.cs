@@ -58,5 +58,8 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal CashDiscountTaken { get; set; }
+
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingAmountForeign { get; set; }
     }
 }

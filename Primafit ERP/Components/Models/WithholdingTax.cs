@@ -21,6 +21,10 @@ public class WithholdingTax
     [Required]
     public Guid WithholdingGlAccountId { get; set; }
 
+    // Sales-side withholding is a receivable asset, separate from the
+    // purchase-side withholding liability account above.
+    public Guid? SalesGlAccountId { get; set; }
+
     public bool IsSystemDefault { get; set; }
     [StringLength(40)]
     public string? DefaultKey { get; set; }

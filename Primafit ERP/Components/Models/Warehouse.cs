@@ -3,6 +3,13 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
 {
+    public enum WarehouseType
+    {
+        Sales = 0,
+        Purchase = 1,
+        Both = 2
+    }
+
     // 1. CLEAN WAREHOUSE (No Transit Property)
     public class Warehouse
     {
@@ -11,6 +18,7 @@ namespace Primafit_ERP.Components.Models
 
         [Required] public string Name { get; set; } = string.Empty;
         public string? Location { get; set; }
+        public WarehouseType Type { get; set; } = WarehouseType.Both;
     }
 
     // 2. STOCK TRANSFER (Tracks the "Floating" Items)
