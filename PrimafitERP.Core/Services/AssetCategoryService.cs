@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -24,21 +24,20 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (string.IsNullOrWhiteSpace(category.Name)) return "Category name is required.";
 
-            // Check if this ID actually exists in the database
-            var exists = await ctx.AssetCategories.AnyAsync(c => c.Id == category.Id);
-
-            if (!exists)
+            if (category.Id == Guid.Empty)
             {
-                // If it's empty, generate a new one. If it has a generated Guid but isn't in the DB, just Add it.
-                if (category.Id == Guid.Empty) category.Id = Guid.NewGuid();
+                category.Id = Guid.NewGuid();
                 ctx.AssetCategories.Add(category);
             }
             else
             {
-                ctx.AssetCategories.Update(category);
+                var existing = await ctx.AssetCategories.FirstOrDefaultAsync(c => c.Id == category.Id && c.CompanyId == category.CompanyId);
+                if (existing == null) return "This asset category no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(category);
             }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This asset category changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
 

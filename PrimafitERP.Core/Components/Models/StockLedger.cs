@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -23,5 +23,6 @@ namespace Primafit_ERP.Components.Models
         public decimal CostAtTime { get; set; } // Snapshot of WACC at this moment
 
         public string Reference { get; set; } = string.Empty; // e.g., "INV-1001" or "PO-55"
+        public Guid? GLBatchId { get; set; }
     }
 }

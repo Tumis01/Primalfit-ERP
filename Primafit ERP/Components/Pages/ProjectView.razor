@@ -1,4 +1,5 @@
-﻿@page "/projects"
+@page "/projects/setup"
+@page "/projects"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -8,135 +9,81 @@
 @inject ProjectService ProjectService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
-@inject NavigationManager Nav
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
-
-    <div class="flex justify-between items-center bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h1 class="text-2xl font-bold text-slate-900">Project Management</h1>
-            <p class="text-sm text-slate-500">Track costs, budgets, and revenue by job or contract.</p>
+            <h1 class="text-2xl font-bold text-slate-900">Projects</h1>
+            <p class="text-sm text-slate-500">Optional reporting tags for transactions and account balances.</p>
         </div>
-        <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-all flex items-center gap-2">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-            New Project
-        </button>
+        <button @onclick="CreateNew" class="px-5 py-2.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800">New Project</button>
     </div>
 
     @if (isLoading)
     {
-        <div class="p-12 text-center text-slate-400 animate-pulse">Loading Projects...</div>
+        <div class="p-12 text-center text-slate-400 animate-pulse bg-white rounded-2xl border">Loading projects…</div>
     }
-    else if (!projects.Any())
+    else if (projects.Count == 0)
     {
-        <div class="p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400">
-            No projects found. Create one to get started.
-        </div>
+        <div class="p-12 text-center border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 bg-white">No projects have been set up.</div>
     }
     else
     {
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            @foreach (var p in projects)
-            {
-                <div @onclick="@(() => Nav.NavigateTo($"/projects/{p.Id}"))"
-                     class="group bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all relative">
-
-                    <div class="flex justify-between items-start mb-3">
-                        <span class="px-2 py-1 rounded-md bg-slate-100 text-xs font-bold text-slate-600 font-mono border border-slate-200">
-                            @p.ProjectCode
-                        </span>
-
-                        <button @onclick:stopPropagation="true" @onclick="@(() => Edit(p))"
-                                class="text-slate-300 hover:text-indigo-600 p-1 rounded-full hover:bg-slate-50 transition-colors z-10" title="Edit Properties">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                        </button>
-                    </div>
-
-                    <h3 class="font-bold text-lg text-slate-900 group-hover:text-indigo-600 transition-colors mb-1">@p.Name</h3>
-                    <p class="text-xs text-slate-500 line-clamp-2 h-8">@p.Description</p>
-
-                    <div class="mt-3 mb-4">
-                        <span class="text-[10px] uppercase font-bold @GetStatusColor(p.Status)">@p.Status</span>
-                    </div>
-
-                    <div class="pt-4 border-t border-slate-100 grid grid-cols-2 gap-4">
-                        <div>
-                            <span class="block text-[10px] text-slate-400 uppercase font-bold">Budget Revenue</span>
-                            <span class="block font-mono font-bold text-emerald-600 text-sm">@p.BudgetedRevenue.ToString("N0")</span>
-                        </div>
-                        <div>
-                            <span class="block text-[10px] text-slate-400 uppercase font-bold">Budget Cost</span>
-                            <span class="block font-mono font-bold text-rose-600 text-sm">@p.BudgetedCost.ToString("N0")</span>
-                        </div>
-                    </div>
-                </div>
-            }
+        <div class="overflow-x-auto bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b">
+                    <tr><th class="p-4">Project Code</th><th class="p-4">Name</th><th class="p-4">Description</th><th class="p-4">Status</th><th class="p-4 text-right">Actions</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var project in projects)
+                    {
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-4 font-mono font-bold text-slate-800">@project.ProjectCode</td>
+                            <td class="p-4 font-semibold text-slate-900">@project.Name</td>
+                            <td class="p-4 text-slate-500">@project.Description</td>
+                            <td class="p-4"><span class="px-2 py-1 rounded-full text-xs font-bold @(project.IsActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")">@(project.IsActive ? "Active" : "Inactive")</span></td>
+                            <td class="p-4 text-right whitespace-nowrap">
+                                <button @onclick="() => Edit(project)" class="px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-lg">Edit</button>
+                                <button @onclick="() => Delete(project)" class="px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50 rounded-lg">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
         </div>
     }
 
     @if (showModal)
     {
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
             <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
-                <h3 class="text-xl font-bold text-slate-900">@(model.Id == Guid.Empty ? "Create Project" : "Edit Project")</h3>
-
+                <h2 class="text-xl font-bold text-slate-900">@(model.Id == Guid.Empty ? "Create Project" : "Edit Project")</h2>
                 <EditForm Model="model" OnValidSubmit="Save">
                     <DataAnnotationsValidator />
                     <div class="space-y-4">
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="label">Project Code</label>
-                                <InputText @bind-Value="model.ProjectCode" class="input-class" placeholder="PRJ-..." />
-                            </div>
-                            <div>
-                                <label class="label">Status</label>
-                                <InputSelect @bind-Value="model.Status" class="input-class">
-                                    @foreach (var s in Enum.GetValues<ProjectStatus>())
-                                    {
-                                        <option value="@s">@s</option>
-                                    }
-                                </InputSelect>
-                            </div>
-                        </div>
-
                         <div>
-                            <label class="label">Project Name</label>
-                            <InputText @bind-Value="model.Name" class="input-class" />
+                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Project Code</label>
+                            <InputText @bind-Value="model.ProjectCode" maxlength="50" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                            <ValidationMessage For="() => model.ProjectCode" />
                         </div>
-
                         <div>
-                            <label class="label">Description</label>
-                            <InputTextArea @bind-Value="model.Description" class="input-class h-20" />
+                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Name</label>
+                            <InputText @bind-Value="model.Name" maxlength="200" class="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                            <ValidationMessage For="() => model.Name" />
                         </div>
-
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="label">Start Date</label>
-                                <InputDate @bind-Value="model.StartDate" class="input-class" />
-                            </div>
-                            <div>
-                                <label class="label">End Date</label>
-                                <InputDate @bind-Value="model.EndDate" class="input-class" />
-                            </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
+                            <InputTextArea @bind-Value="model.Description" class="w-full rounded-lg border border-slate-300 px-3 py-2 h-24" />
                         </div>
-
-                        <div class="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                            <div>
-                                <label class="label text-emerald-600">Budget Revenue</label>
-                                <InputNumber @bind-Value="model.BudgetedRevenue" class="input-class font-bold" />
-                            </div>
-                            <div>
-                                <label class="label text-rose-600">Budget Cost</label>
-                                <InputNumber @bind-Value="model.BudgetedCost" class="input-class font-bold" />
-                            </div>
-                        </div>
+                        <label class="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                            <InputCheckbox @bind-Value="model.IsActive" /> Active
+                        </label>
                     </div>
-
                     <div class="flex justify-end gap-3 mt-6">
                         <button type="button" @onclick="() => showModal = false" class="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-                        <button type="submit" class="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg shadow hover:bg-slate-800 transition-colors">Save Project</button>
+                        <button type="submit" class="px-6 py-2 bg-slate-900 text-white font-bold rounded-lg">Save Project</button>
                     </div>
                 </EditForm>
             </div>
@@ -144,71 +91,48 @@
     }
 </div>
 
-<style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.25rem;
-        letter-spacing: 0.025em;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.5rem;
-        font-size: 0.875rem;
-        transition: all 0.2s;
-    }
-
-        .input-class:focus {
-            border-color: #0f172a;
-            outline: none;
-            ring: 2px;
-            ring-color: #e2e8f0;
-        }
-</style>
-
 @code {
     private List<Project> projects = new();
     private Project model = new();
     private bool isLoading = true;
-    private bool showModal = false;
+    private bool showModal;
     private Guid companyId;
 
     protected override async Task OnInitializedAsync()
     {
         var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-        if (user?.CompanyDetailsId != null)
+        if (user?.CompanyDetailsId is Guid id)
         {
-            companyId = user.CompanyDetailsId.Value;
+            companyId = id;
             await LoadData();
         }
         isLoading = false;
     }
 
-    private async Task LoadData() => projects = await ProjectService.GetProjectsAsync(companyId);
-
-    private void CreateNew() { model = new Project { CompanyId = companyId }; showModal = true; }
-
-    // Opens modal without navigating
-    private void Edit(Project p) { model = p; showModal = true; }
-
+    private Task LoadData() => RefreshProjects();
+    private async Task RefreshProjects() => projects = await ProjectService.GetProjectsAsync(companyId);
+    private void CreateNew() { model = new Project { Id = Guid.Empty, CompanyId = companyId, IsActive = true }; showModal = true; }
+    private void Edit(Project project) { model = new Project { Id = project.Id, CompanyId = project.CompanyId, ProjectCode = project.ProjectCode, Name = project.Name, Description = project.Description, IsAccountingProject = true, IsActive = project.IsActive }; showModal = true; }
     private async Task Save()
     {
-        var err = await ProjectService.SaveProjectAsync(model);
-        if (string.IsNullOrEmpty(err)) { showModal = false; await LoadData(); }
-        else await JS.InvokeVoidAsync("alert", err);
+        var error = await ProjectService.SaveProjectAsync(model);
+        if (string.IsNullOrWhiteSpace(error)) { showModal = false; await LoadData(); }
+        else await JS.InvokeVoidAsync("alert", error);
     }
 
-    private string GetStatusColor(ProjectStatus s) => s switch
+    private async Task Delete(Project project)
     {
-        ProjectStatus.Active => "text-emerald-600",
-        ProjectStatus.Completed => "text-indigo-600",
-        ProjectStatus.Proposed => "text-slate-400",
-        _ => "text-amber-600"
-    };
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            $"Delete project {project.ProjectCode} — {project.Name}? This cannot be undone.");
+        if (!confirmed) return;
+
+        var error = await ProjectService.DeleteProjectAsync(companyId, project.Id);
+        if (!string.IsNullOrWhiteSpace(error))
+        {
+            await JS.InvokeVoidAsync("alert", error);
+            return;
+        }
+
+        await LoadData();
+    }
 }

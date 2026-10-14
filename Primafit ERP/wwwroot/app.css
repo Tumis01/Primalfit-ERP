@@ -6,6 +6,54 @@ html, body {
 
 body {
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    zoom: 0.9;
+}
+
+@supports not (zoom: 0.9) {
+    html {
+        font-size: 90%;
+    }
+}
+
+/* Keep route configuration dialogs bounded and their fixed controls intact. */
+.route-config-dialog {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    max-height: 90vh;
+    max-height: 90dvh;
+    min-height: 0;
+}
+
+.route-config-header,
+.route-config-dialog > :first-child,
+.route-config-footer {
+    flex: 0 0 auto;
+}
+
+.route-config-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.route-config-body--mapping {
+    min-height: min(380px, calc(90vh - 9rem));
+    max-height: calc(90vh - 9rem);
+    min-height: min(380px, calc(90dvh - 9rem));
+    max-height: calc(90dvh - 9rem);
+}
+
+.route-config-dialog--popover {
+    overflow: visible;
+}
+
+/* Let account menus escape the scroll body while open. The viewport overlay
+   becomes the scroll surface until the menu closes. */
+.route-config-dialog:has(.searchable-gl-account-menu),
+.route-config-body:has(.searchable-gl-account-menu) {
+    overflow: visible !important;
 }
 
 /* Keep numeric transaction inputs consistent across every module. */

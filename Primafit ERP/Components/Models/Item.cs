@@ -17,7 +17,7 @@ namespace Primafit_ERP.Components.Models
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         [Required] public Guid CompanyId { get; set; }
 
-        [Required] public string SKU { get; set; } = string.Empty;
+        [Required] public string Code { get; set; } = string.Empty;
         [Required] public string Name { get; set; } = string.Empty;
         public bool IsService { get; set; }
         public string UoM { get; set; } = "Each";
@@ -39,7 +39,7 @@ namespace Primafit_ERP.Components.Models
         public decimal WeightedAverageCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
-        public decimal StandardCost { get; set; } 
+        public decimal StandardCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal UserSpecifiedCost { get; set; }
@@ -48,7 +48,7 @@ namespace Primafit_ERP.Components.Models
         public decimal MostRecentCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
-        public decimal SellingPrice { get; set; } 
+        public decimal SellingPrice { get; set; }
         public Guid? CategoryId { get; set; }
         public virtual ItemCategory? Category { get; set; }
 
@@ -71,15 +71,15 @@ namespace Primafit_ERP.Components.Models
     }
     public class ItemCategory
     {
-        [Key] public Guid Id { get; set; } 
+        [Key] public Guid Id { get; set; }
         [Required] public Guid CompanyId { get; set; }
 
         [Required, StringLength(100)] public string Name { get; set; } = string.Empty;
         [Required, StringLength(50)] public string Code { get; set; } = string.Empty;
         public bool IsService { get; set; }
 
-        public Guid? SequenceDefinitionId { get; set; }
-        public SequenceDefinition? SequenceDefinition { get; set; }
+        public Guid? ItemCodeSequenceDefinitionId { get; set; }
+        public SequenceDefinition? ItemCodeSequenceDefinition { get; set; }
 
         // --- GL TEMPLATE MAPPING ---
         public Guid SalesIncomeAccountId { get; set; } // Cr Revenue (Income)

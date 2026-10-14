@@ -1,4 +1,4 @@
-﻿@page "/md/customers"
+@page "/md/customers"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -69,7 +69,13 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
                         <label class="label">Customer Code <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentCustomer.Code" class="input-class" placeholder="Suggested code; editable" />
+                        <InputText @bind-Value="currentCustomer.Code" readonly="@IsCustomerCodeReadOnly" class="@(IsCustomerCodeReadOnly ? "input-class bg-slate-100 text-slate-600" : "input-class")" placeholder="Enter customer code" />
+                        <ValidationMessage For="@(() => currentCustomer.Code)" class="mt-1 block text-xs font-semibold text-rose-600" />
+                        <p class="mt-1 text-xs text-slate-500">@CustomerCodeHint</p>
+                        @if (!string.IsNullOrWhiteSpace(customerCodeError))
+                        {
+                            <p role="alert" class="mt-1 text-xs font-semibold text-rose-600">@customerCodeError</p>
+                        }
                     </div>
                     <div>
                         <label class="label">Customer Name <span class="text-rose-500">*</span></label>
@@ -129,7 +135,7 @@
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                    <button type="button" @onclick="() => isEditing = false" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
+                    <button type="button" @onclick="CancelEdit" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
                     <button type="submit" class="px-6 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-md transition-all active:scale-95">Save Profile</button>
                 </div>
             </EditForm>
@@ -140,7 +146,7 @@
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
                 <div class="relative w-full sm:max-w-md">
-                    
+
                     <input type="text" @bind="customerSearch" @bind:event="oninput" class="input-class bg-white pl-10 pr-10" placeholder="Search customers by name, email, phone, or group..." />
                     @if (!string.IsNullOrWhiteSpace(customerSearch))
                     {
@@ -150,9 +156,10 @@
                 <div class="text-xs font-bold uppercase tracking-wider text-slate-400">@FilteredCustomers.Count() of @customers.Count customers</div>
             </div>
             <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
+                <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[900px]">
                     <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
                         <tr>
+                            <th class="px-6 py-4">Code</th>
                             <th class="px-6 py-4">Name</th>
                             <th class="px-6 py-4">Group</th>
                             <th class="px-6 py-4">Contact</th>
@@ -166,6 +173,7 @@
                         {
                             var arAccount = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId);
                             <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="px-6 py-4 font-mono font-semibold text-slate-700">@(string.IsNullOrWhiteSpace(c.Code) ? "—" : c.Code)</td>
                                 <td class="px-6 py-4 font-bold text-slate-900">@c.Name</td>
                                 <td class="px-6 py-4">
                                     @if (c.Group != null)
@@ -284,6 +292,8 @@
     private bool isImporting = false;
     private Guid selectedCompanyId;
     private string customerSearch = string.Empty;
+    private string? customerCodeError;
+    private Guid? pendingCustomerCodeSequenceId;
 
     private IEnumerable<Customer> FilteredCustomers => customers
         .Where(c => string.IsNullOrWhiteSpace(customerSearch)
@@ -298,6 +308,12 @@
         get => currentCustomer.ReceivablesAccountId ?? Guid.Empty;
         set => currentCustomer.ReceivablesAccountId = value == Guid.Empty ? null : value;
     }
+
+    private CustomerGroup? SelectedCustomerGroup => groups.FirstOrDefault(x => x.Id == currentCustomer.CustomerGroupId);
+    private bool IsCustomerCodeReadOnly => SelectedCustomerGroup?.SequenceDefinitionId.HasValue == true;
+    private string CustomerCodeHint => IsCustomerCodeReadOnly
+        ? "Generated by the customer group sequence; this code is read-only."
+        : "Enter a unique code. Codes are generated only when the selected group has an assigned sequence.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -332,19 +348,36 @@
 
     private async Task OnGroupChanged(ChangeEventArgs e)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var gId))
+        customerCodeError = null;
+        var previousGroup = groups.FirstOrDefault(x => x.Id == currentCustomer.CustomerGroupId);
+        if (Guid.TryParse(e.Value?.ToString(), out var gId) && gId != Guid.Empty)
         {
-            currentCustomer.CustomerGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
+            if (group is null) return;
+            currentCustomer.CustomerGroupId = gId;
 
-            if (group != null)
+            if (group.SequenceDefinitionId is Guid sequenceId
+                && (previousGroup?.SequenceDefinitionId != sequenceId || string.IsNullOrWhiteSpace(currentCustomer.Code)))
             {
-                currentCustomer.Code = group.SequenceDefinitionId.HasValue
-                    ? await NumberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
-                    : await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.CustomerCode);
+                pendingCustomerCodeSequenceId = sequenceId;
+                try
+                {
+                    currentCustomer.Code = await NumberingService.PeekNextNumberAsync(
+                        sequenceId,
+                        exceptEntityId: currentCustomer.Id);
+                }
+                catch (Exception ex)
+                {
+                    currentCustomer.Code = string.Empty;
+                    customerCodeError = $"Could not generate a customer code from this group's sequence: {ex.Message}";
+                }
+            }
+            else if (group.SequenceDefinitionId is null)
+            {
+                pendingCustomerCodeSequenceId = null;
             }
 
-            if (group != null && group.ReceivablesAccountId != Guid.Empty)
+            if (group.ReceivablesAccountId != Guid.Empty)
             {
                 currentCustomer.ReceivablesAccountId = group.ReceivablesAccountId;
             }
@@ -352,12 +385,15 @@
         else
         {
             currentCustomer.CustomerGroupId = Guid.Empty;
+            pendingCustomerCodeSequenceId = null;
         }
     }
 
     private void CreateNew()
     {
         currentCustomer = new Customer { CompanyId = selectedCompanyId };
+        customerCodeError = null;
+        pendingCustomerCodeSequenceId = null;
         if (availableCurrencies.Any()) currentCustomer.CurrencyId = availableCurrencies.First().Id;
         isEditing = true;
     }
@@ -365,25 +401,68 @@
     private void Edit(Customer c)
     {
         currentCustomer = c;
+        customerCodeError = null;
+        pendingCustomerCodeSequenceId = null;
         isEditing = true;
+    }
+
+    private void CancelEdit()
+    {
+        isEditing = false;
+        customerCodeError = null;
+        pendingCustomerCodeSequenceId = null;
     }
 
     private async Task Save()
     {
+        if (!IsCustomerCodeReadOnly) customerCodeError = null;
+        if (!string.IsNullOrWhiteSpace(customerCodeError)) return;
+        if (!IsCustomerCodeReadOnly)
+        {
+            if (string.IsNullOrWhiteSpace(currentCustomer.Code))
+            {
+                customerCodeError = "Enter a customer code.";
+                return;
+            }
+            if (!await NumberingService.IsCodeAvailableAsync(selectedCompanyId, SequenceTargetType.CustomerCode, currentCustomer.Code, currentCustomer.Id))
+            {
+                customerCodeError = $"Customer Code '{currentCustomer.Code.Trim()}' already exists in this company.";
+                return;
+            }
+        }
         if (currentCustomer.ReceivablesAccountId == null || currentCustomer.ReceivablesAccountId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Accounts Receivable GL Account is required.");
             return;
         }
 
-        var err = await MasterService.SaveCustomerAsync(currentCustomer);
+        var previewedCustomerCode = currentCustomer.Code;
+        if (pendingCustomerCodeSequenceId.HasValue)
+            currentCustomer.Code = string.Empty; // Let the save service allocate and commit a checked number atomically.
+
+        string err;
+        try
+        {
+            err = await MasterService.SaveCustomerAsync(currentCustomer);
+        }
+        catch (Exception ex)
+        {
+            if (pendingCustomerCodeSequenceId.HasValue)
+                currentCustomer.Code = previewedCustomerCode;
+            customerCodeError = $"Could not save the customer: {ex.Message}";
+            return;
+        }
         if (string.IsNullOrEmpty(err))
         {
             await LoadCustomers();
             isEditing = false;
+            customerCodeError = null;
+            pendingCustomerCodeSequenceId = null;
         }
         else
         {
+            if (pendingCustomerCodeSequenceId.HasValue)
+                currentCustomer.Code = previewedCustomerCode;
             await JS.InvokeVoidAsync("alert", err);
         }
     }
@@ -418,7 +497,7 @@
         {
             var sb = new StringBuilder();
             // Headers match our import parsing structure
-            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ArGlAccountCode");
+            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ArGlAccountCode,Code");
 
             foreach (var c in customers)
             {
@@ -427,7 +506,7 @@
                 var glCode = arAccounts.FirstOrDefault(a => a.Id == c.ReceivablesAccountId)?.AccountCode ?? "";
 
                 // Wrap fields in quotes to safely handle commas inside addresses or names
-                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",\"{c.Email?.Replace("\"", "\"\"")}\",\"{c.Phone?.Replace("\"", "\"\"")}\",\"{c.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\"");
+                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",\"{c.Email?.Replace("\"", "\"\"")}\",\"{c.Phone?.Replace("\"", "\"\"")}\",\"{c.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\",\"{c.Code?.Replace("\"", "\"\"")}\"");
             }
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
@@ -466,6 +545,7 @@
             }
 
             int successCount = 0;
+            var importErrors = new List<string>();
 
             // Start loop at 1 to skip header row
             for (int i = 1; i < lines.Length; i++)
@@ -509,18 +589,24 @@
                         var gl = arAccounts.FirstOrDefault(a => a.AccountCode == cols[6].Trim());
                         if (gl != null) customer.ReceivablesAccountId = gl.Id;
                     }
+                    if (cols.Count > 7) customer.Code = cols[7].Trim();
 
                     // Only save if the mandatory AR account is successfully mapped
                     if (customer.ReceivablesAccountId.HasValue && customer.ReceivablesAccountId != Guid.Empty)
                     {
-                        await MasterService.SaveCustomerAsync(customer);
-                        successCount++;
+                        var error = await MasterService.SaveCustomerAsync(customer);
+                        if (string.IsNullOrWhiteSpace(error)) successCount++;
+                        else importErrors.Add($"{name}: {error}");
                     }
+                    else importErrors.Add($"{name}: A valid A/R GL account is required.");
                 }
             }
 
             await LoadCustomers();
-            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} customers processed and mapped successfully.");
+            var importSummary = $"Import complete. {successCount} customers processed successfully.";
+            if (importErrors.Count > 0)
+                importSummary += $" {importErrors.Count} row(s) were skipped. First issue: {importErrors[0]}";
+            await JS.InvokeVoidAsync("alert", importSummary);
         }
         catch (Exception ex)
         {

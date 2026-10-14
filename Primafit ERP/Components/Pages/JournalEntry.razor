@@ -8,6 +8,7 @@
 
 @inject SegCoaService SetupService
 @inject GLOperationsService GlOps
+@inject ProjectService ProjectService
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
@@ -205,6 +206,9 @@
                                         <label class="label text-rose-700">Credit</label>
                                         <InputNumber @bind-Value="entryForm.Credit" @oninput="(e) => entryForm.Debit = 0" class="@($"{InputClass} font-mono font-bold text-rose-700 text-right")" placeholder="0.0000" />
                                     </div>
+                                    <div class="md:col-span-12">
+                                        <ProjectSelect @bind-Value="entryForm.ProjectId" Projects="@projects" />
+                                    </div>
 
                                     <div class="md:col-span-12 flex justify-end gap-2 pt-1">
                                         @if (isEditing)
@@ -233,6 +237,7 @@
                                         <th class="p-4">Reference / Details</th>
                                         <th class="p-4 text-right w-36">Debit</th>
                                         <th class="p-4 text-right w-36">Credit</th>
+                                        <th class="p-4">Project</th>
                                         <th class="p-4 w-24 text-center">Action</th>
                                     </tr>
                                 </thead>
@@ -252,6 +257,7 @@
                                                 <td class="p-4 text-right font-mono font-bold text-rose-700">
                                                     @(line.Credit > 0 ? line.Credit.ToString("N4") : "-")
                                                 </td>
+                                                <td class="p-4 text-xs text-slate-500">@GetProjectName(line.ProjectId)</td>
                                                 <td class="p-4 text-center">
                                                     @if ((selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Rejected) && !line.IsPosted)
                                                     {
@@ -420,6 +426,7 @@
     private List<GLBatch> activeBatches = new();
     private List<SegChartOfAccount> coaList = new();
     private List<SegChartOfAccount> fullMasterCoaList = new();
+    private List<Project> projects = new();
 
     private GLBatch? selectedBatch;
     private GLJournalLine entryForm = new();
@@ -458,6 +465,7 @@
             var allCoa = await SetupService.GetCoaAsync(currentCompanyId);
             fullMasterCoaList = allCoa.ToList();
             coaList = allCoa.Where(x => x.AllowJournal && x.IsActive).OrderBy(x => x.AccountCode).ToList();
+            projects = await ProjectService.GetActiveProjectsAsync(currentCompanyId);
 
             await LoadBatches();
         }
@@ -615,7 +623,8 @@
             SegCoaId = line.SegCoaId,
             Reference = line.Reference,
             Debit = line.Debit,
-            Credit = line.Credit
+            Credit = line.Credit,
+            ProjectId = line.ProjectId
         };
         isEditing = true;
     }
@@ -637,6 +646,10 @@
 
     private string GetAccountName(Guid id) =>
         fullMasterCoaList.FirstOrDefault(a => a.Id == id)?.Description ?? "Control Account";
+
+    private string GetProjectName(Guid? id) => id.HasValue
+        ? projects.FirstOrDefault(p => p.Id == id.Value) is { } project ? $"{project.ProjectCode} - {project.Name}" : "Inactive project"
+        : "—";
 
     private string GetStatusPillClass(BatchStatus status) => status switch
     {

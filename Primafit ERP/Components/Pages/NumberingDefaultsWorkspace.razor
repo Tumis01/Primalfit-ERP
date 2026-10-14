@@ -72,7 +72,7 @@
                         <h2 class="font-semibold text-slate-900">@TargetLabel(selectedTarget) sequences</h2>
                         <p class="mt-0.5 text-xs text-slate-500">@TargetDescription(selectedTarget)</p>
                     </div>
-                    @if (activeDefinition is not null)
+                    @if (!IsEntityCodeTarget && activeDefinition is not null)
                     {
                         <span class="text-xs text-slate-500">Active: <strong class="text-emerald-700">@activeDefinition.Name</strong></span>
                     }
@@ -102,7 +102,7 @@
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <span class="truncate text-sm font-semibold text-slate-900">@definition.Name</span>
-                                        @if (definition.IsActive)
+                                        @if (definition.IsActive && !IsEntityCodeTarget)
                                         {
                                             <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800">Active</span>
                                         }
@@ -112,12 +112,16 @@
                                         }
                                     </div>
                                     <p class="mt-1 truncate text-xs text-slate-500">@ResetLabel(definition.ResetInterval) reset · @definition.Components.Sum(x => x.Length) characters</p>
+                                    @if (IsEntityCodeTarget)
+                                    {
+                                        <p class="mt-1 text-xs text-slate-500">@AssignmentCaption(definition)</p>
+                                    }
                                 </div>
                                 <div class="max-w-full overflow-x-auto rounded-md bg-slate-50 px-2.5 py-2 font-mono text-sm font-semibold text-slate-700" title="Example number">
                                     @PreviewNumber(definition.Components)
                                 </div>
                                 <div class="flex flex-wrap items-center gap-1 sm:justify-end">
-                                    @if (!definition.IsActive)
+                                    @if (!IsEntityCodeTarget && !definition.IsActive)
                                     {
                                         <button type="button" disabled="@isBusy" @onclick="() => Activate(definition)" class="rounded-md px-2.5 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">Use</button>
                                     }
@@ -162,7 +166,9 @@
     private List<SequenceTargetType> documentTargets = new();
     private List<SequenceTargetType> codeTargets = new();
     private List<SequenceDefinition> definitions = new();
-    private SequenceDefinition? activeDefinition => definitions.FirstOrDefault(x => x.IsActive);
+    private Dictionary<Guid, List<string>> sequenceAssignments = new();
+    private bool IsEntityCodeTarget => DocumentNumberingService.IsCodeTarget(selectedTarget);
+    private SequenceDefinition? activeDefinition => IsEntityCodeTarget ? null : definitions.FirstOrDefault(x => x.IsActive);
     private SequenceDefinition? editingDefinition;
     private string? pageError;
     private string? pageNotice;
@@ -194,15 +200,15 @@
                 break;
             case NumberingDefaultsModule.AccountsPayable:
                 if (!PermissionCache.Has("PURCHASING_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
-                documentTargets = Enum.GetValues<SequenceTargetType>().Where(x => x.ToString().StartsWith("AP_") && x != SequenceTargetType.AP_GoodsReceipt).ToList();
+                documentTargets = Enum.GetValues<SequenceTargetType>().Where(x => x.ToString().StartsWith("AP_")).ToList();
                 codeTargets = new() { SequenceTargetType.VendorCode };
                 selectedTarget = SequenceTargetType.AP_Request;
                 break;
             default:
                 if (!PermissionCache.Has("INVENTORY_SETUP_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
-                documentTargets = new() { SequenceTargetType.AP_GoodsReceipt };
-                codeTargets = new() { SequenceTargetType.ItemCategoryCode };
-                selectedTarget = SequenceTargetType.ItemCategoryCode;
+                documentTargets = new();
+                codeTargets = new() { SequenceTargetType.ItemCode };
+                selectedTarget = SequenceTargetType.ItemCode;
                 break;
         }
 
@@ -223,14 +229,20 @@
         var version = ++loadVersion;
         isLoading = true;
         definitions = new();
+        sequenceAssignments = new();
         pageError = null;
         StateHasChanged();
         try
         {
-            await NumberingService.GetActiveDefinitionAsync(companyId, target);
+            if (!DocumentNumberingService.IsCodeTarget(target))
+                await NumberingService.GetActiveDefinitionAsync(companyId, target);
             var loaded = await NumberingService.GetDefinitionsAsync(companyId, target);
+            var assignments = DocumentNumberingService.IsCodeTarget(target)
+                ? await NumberingService.GetSequenceAssignmentsAsync(companyId, target)
+                : new Dictionary<Guid, List<string>>();
             if (version != loadVersion) return;
             definitions = loaded;
+            sequenceAssignments = assignments;
         }
         catch (Exception ex)
         {
@@ -253,6 +265,7 @@
         editingDefinition.Description = string.Empty;
         editingDefinition.IsSystemDefault = false;
         editingDefinition.IsActive = false;
+        editingDefinition.Components.Clear();
     }
 
     private void EditDefinition(SequenceDefinition definition)
@@ -313,6 +326,7 @@
 
     private async Task Activate(SequenceDefinition definition)
     {
+        if (IsEntityCodeTarget) return;
         if (isBusy) return;
         isBusy = true;
         pageError = null;
@@ -394,11 +408,19 @@
 
     private static string TargetDescription(SequenceTargetType target) => target switch
     {
-        SequenceTargetType.CustomerCode => "Fallback format for new customer codes.",
-        SequenceTargetType.VendorCode => "Fallback format for new vendor codes.",
-        SequenceTargetType.ItemCategoryCode => "Fallback format for new item category codes.",
+        SequenceTargetType.CustomerCode => "Create code sequences here and assign them to customer groups. Without an assigned sequence, enter customer codes manually.",
+        SequenceTargetType.VendorCode => "Create code sequences here and assign them to vendor groups. Without an assigned sequence, enter vendor codes manually.",
+        SequenceTargetType.ItemCode => "Create item code sequences here and assign them to item categories. Items in categories without a sequence use manually entered codes.",
         _ => $"Format assigned to new {TargetLabel(target).ToLowerInvariant()} records."
     };
+
+    private string AssignmentCaption(SequenceDefinition definition)
+    {
+        var assignmentKind = selectedTarget == SequenceTargetType.ItemCode ? "Categories" : "Groups";
+        if (!sequenceAssignments.TryGetValue(definition.Id, out var names) || names.Count == 0)
+            return $"Not assigned to any {assignmentKind.ToLowerInvariant()} yet.";
+        return $"Assigned to {assignmentKind}: {string.Join(", ", names)}";
+    }
 
     private static string TargetLabel(SequenceTargetType target) => target switch
     {
@@ -408,7 +430,7 @@
         SequenceTargetType.AP_Request => "Purchase Request", SequenceTargetType.AP_PurchaseOrder => "Purchase Order", SequenceTargetType.AP_Invoice => "AP Invoice",
         SequenceTargetType.AP_DebitNote => "Debit Note", SequenceTargetType.AP_ReturnToVendor => "Return to Vendor", SequenceTargetType.AP_GoodsReceipt => "Goods Receipt",
         SequenceTargetType.AP_VendorPayment => "Vendor Payment", SequenceTargetType.AP_Adjustment => "AP Adjustment",
-        SequenceTargetType.CustomerCode => "Customer Code", SequenceTargetType.VendorCode => "Vendor Code", SequenceTargetType.ItemCategoryCode => "Item Category Code",
+        SequenceTargetType.CustomerCode => "Customer Code", SequenceTargetType.VendorCode => "Vendor Code", SequenceTargetType.ItemCode => "Item Code",
         _ => target.ToString()
     };
 

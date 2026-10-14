@@ -108,6 +108,11 @@ namespace Primafit_ERP.Components.Models
         public string? Reference { get; set; }
         public bool IsPosted { get; set; } = false;
 
+        // Optional reporting dimension; it never changes the accounting amount.
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
     }
     public class GLTransaction
     {

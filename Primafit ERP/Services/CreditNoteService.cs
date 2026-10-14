@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -153,6 +153,7 @@ namespace Primafit_ERP.Services
                 Id = Guid.NewGuid(),
                 CompanyId = so.CompanyId,
                 SalesOrderId = so.Id,
+                ProjectId = so.ProjectId,
                 CustomerId = so.CustomerId,
                 CurrencyId = so.CurrencyId,
                 ExchangeRate = so.ExchangeRate,
@@ -367,7 +368,7 @@ namespace Primafit_ERP.Services
                     decimal lineDiscountBase = Math.Round(lineDiscountForeign * rate, 2);
                     if (lineDiscountBase > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = lineDiscountBase, Reference = $"Discount Rollback: {line.Item.SKU}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = lineDiscountBase, Reference = $"Discount Rollback: {line.Item.Code}" });
                     }
 
                     // C. Debit Tax Reversal Account
@@ -380,7 +381,7 @@ namespace Primafit_ERP.Services
                     {
                         lineTaxForeign = lineNetRevenueForeign * (taxPer / 100);
                         lineTaxBase = Math.Round(lineNetRevenueBase * (taxPer / 100), 2);
-                        glLines.Add(new GLJournalLine { SegCoaId = taxGlAccountId, Debit = lineTaxBase, Credit = 0, Reference = $"Tax Rollback: {line.Item.SKU}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = taxGlAccountId, Debit = lineTaxBase, Credit = 0, Reference = $"Tax Rollback: {line.Item.Code}" });
                     }
 
                     totalArReductionBase += (lineNetRevenueBase + lineTaxBase);
@@ -407,7 +408,7 @@ namespace Primafit_ERP.Services
                     return $"Posting Aborted: Structural variance too wide to resolve safely. Mismatch: {mismatch:N2}";
                 }
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Credit Note", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Credit Note", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId, inheritedProjectId: cn.ProjectId ?? so.ProjectId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
                 if (batchId.HasValue)
@@ -470,7 +471,7 @@ namespace Primafit_ERP.Services
                 // Credit Bank Account
                 glLines.Add(new GLJournalLine { SegCoaId = targetBankGlId, Debit = 0, Credit = refundAmountBase, Reference = $"Cash Refund Out: {cn.Customer?.Name}" });
 
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId, inheritedProjectId: cn.ProjectId ?? cn.SalesOrder?.ProjectId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value, userId.ToString());
 

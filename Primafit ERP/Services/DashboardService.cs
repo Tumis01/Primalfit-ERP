@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -55,7 +55,7 @@ namespace Primafit_ERP.Services
                 .ToHashSet();
 
             // ═══════════════════════════════════════════════════════════════════
-            // 2. OPERATIONAL COUNTS 
+            // 2. OPERATIONAL COUNTS
             // ═══════════════════════════════════════════════════════════════════
             snapshot.UnshippedOrdersCount = await ctx.SalesOrders
                 .Where(o => o.CompanyId == companyId && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")))
@@ -152,7 +152,7 @@ namespace Primafit_ERP.Services
             snapshot.PreviousMonthProfit = RevOf(prevMonthGl) - ExpOf(prevMonthGl);
 
             // ═══════════════════════════════════════════════════════════════════
-            // 5. SIX-MONTH TREND  
+            // 5. SIX-MONTH TREND
             // ═══════════════════════════════════════════════════════════════════
             for (int i = 0; i < 6; i++)
             {
@@ -167,7 +167,7 @@ namespace Primafit_ERP.Services
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // 6. TOP EXPENSES MTD  
+            // 6. TOP EXPENSES MTD
             // ═══════════════════════════════════════════════════════════════════
             snapshot.TopExpenses = mtdGl
                 .Where(t => IsExp(t.CoaId))
@@ -333,7 +333,7 @@ namespace Primafit_ERP.Services
                 .Select(i => new LowStockSummary
                 {
                     ItemName = i.Name,
-                    SKU = i.SKU ?? string.Empty,
+                    Code = i.Code ?? string.Empty,
                     CurrentQty = stockLevels.GetValueOrDefault(i.Id, 0),
                     ReorderLevel = i.ReorderLevel
                 })
@@ -463,5 +463,5 @@ namespace Primafit_ERP.Services
             }).ToList();
         }
     }
-    
+
 }

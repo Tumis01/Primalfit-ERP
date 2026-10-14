@@ -295,6 +295,7 @@ namespace Primafit_ERP.Services
                     SegCoaId = entry.OffsetSegCoaId,
                     Debit = entry.Credit,
                     Credit = entry.Debit,
+                    ProjectId = entry.ProjectId,
                     Reference = $"{entry.Reference}: {entry.Description}"
                 });
 
@@ -303,6 +304,7 @@ namespace Primafit_ERP.Services
                     SegCoaId = batch.BankSegCoaId,
                     Debit = entry.Debit,
                     Credit = entry.Credit,
+                    ProjectId = entry.ProjectId,
                     Reference = $"Cashbook: {entry.Reference}"
                 });
             }

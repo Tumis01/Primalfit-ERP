@@ -18,6 +18,9 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid VendorId { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
         public string OrderNumber { get; set; } = string.Empty; // Holds REQ-..., PO-..., or INV-...
         public DateTime OrderDate { get; set; } = DateTime.Now;
         public Guid? LinkedSalesOrderId { get; set; }
@@ -113,6 +116,9 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid PurchaseOrderId { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
         public string GrnNumber { get; set; } = string.Empty;
         public DateTime DateReceived { get; set; } = DateTime.Now;
         public Guid InventoryGlAccountId { get; set; }
@@ -158,6 +164,10 @@ namespace Primafit_ERP.Components.Models
         public Guid? PurchaseOrderId { get; set; }
         [ForeignKey(nameof(PurchaseOrderId))]
         public virtual PurchaseOrder? PurchaseOrder { get; set; }
+
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
 
         public Guid AccountsPayableGlId { get; set; }
         public bool IsDirectBill { get; set; } = false;
@@ -267,6 +277,10 @@ namespace Primafit_ERP.Components.Models
         public Guid VendorBillId { get; set; }
         [ForeignKey(nameof(VendorBillId))]
         public virtual VendorBill? VendorBill { get; set; }
+
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
 
         public DateTime Date { get; set; } = DateTime.Now;
 

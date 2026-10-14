@@ -210,10 +210,10 @@
 
 @if (showModal)
 {
-    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col">
+    <div class="fixed inset-0 z-[100] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 route-config-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col h-auto max-h-[90vh] max-h-[90dvh] overflow-visible route-config-dialog route-config-dialog--popover">
 
-            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
+            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl shrink-0 route-config-header">
                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">
                     @if (isCreatingCustom)
                     {
@@ -224,12 +224,12 @@
                         <span>Configure Route: <span class="text-indigo-700">@(editingMap?.TransactionType == SystemTransactionType.CustomGlAdjustment ? editingMap.CustomTransactionType?.Name : FormatEnumName(editingMap?.TransactionType.ToString() ?? ""))</span></span>
                     }
                 </h3>
-                <button type="button" @onclick="CloseModal" class="text-slate-400 hover:text-rose-600 transition-colors">
+                <button type="button" @onclick="CloseModal" class="shrink-0 text-slate-400 hover:text-rose-600 transition-colors">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
 
-            <div class="p-6 overflow-visible flex-1 content-box">
+            <div class="p-6 flex-1 min-h-0 route-config-body route-config-body--mapping space-y-5">
 
                 @if (isCreatingCustom || (editingMap != null && editingMap.TransactionType == SystemTransactionType.CustomGlAdjustment))
                 {
@@ -246,48 +246,50 @@
                     <hr class="border-slate-200/60 my-4" />
                 }
 
-                <div class="space-y-2 relative z-50">
-                    <div class="flex justify-between items-center">
-                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Debit Account Override Mapping</label>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-[50]">
+                    <label class="w-full sm:w-1/3 block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Debit Account Override Mapping</label>
+                    <div class="w-full sm:w-2/3 flex items-center gap-2">
+                        <div class="min-w-0 flex-1">
+                            <SearchableGlAccount Label=""
+                                                 Placeholder="@(isCreatingCustom ? "Select Default Debit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, true))"
+                                                 Accounts="@coaList"
+                                                 Value="@(tempDebit ?? Guid.Empty)"
+                                                 ValueChanged="@((Guid val) => tempDebit = val == Guid.Empty ? null : val)" />
+                        </div>
                         @if (tempDebit.HasValue)
                         {
-                            <button type="button" @onclick="() => tempDebit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
-                                Clear Override
+                            <button type="button" title="Clear Override" aria-label="Clear debit account override" @onclick="() => tempDebit = null" class="shrink-0 text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
+                                Clear 
                             </button>
                         }
                     </div>
-                    <SearchableGlAccount Label=""
-                                         Placeholder="@(isCreatingCustom ? "Select Default Debit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, true))"
-                                         Accounts="@coaList"
-                                         Value="@(tempDebit ?? Guid.Empty)"
-                                         ValueChanged="@((Guid val) => tempDebit = val == Guid.Empty ? null : val)" />
                 </div>
 
-                <div class="h-6"></div>
-
-                <div class="space-y-2 relative z-30">
-                    <div class="flex justify-between items-center">
-                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-[30]">
+                    <label class="w-full sm:w-1/3 block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
+                    <div class="w-full sm:w-2/3 flex items-center gap-2">
+                        <div class="min-w-0 flex-1">
+                            <SearchableGlAccount Label=""
+                                                 Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, false))"
+                                                 Accounts="@coaList"
+                                                 Value="@(tempCredit ?? Guid.Empty)"
+                                                 ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
+                        </div>
                         @if (tempCredit.HasValue)
                         {
-                            <button type="button" @onclick="() => tempCredit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
+                            <button type="button" title="Clear Override" aria-label="Clear credit account override" @onclick="() => tempCredit = null" class="shrink-0 text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
                                 Clear Override
                             </button>
                         }
                     </div>
-                    <SearchableGlAccount Label=""
-                                         Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, false))"
-                                         Accounts="@coaList"
-                                         Value="@(tempCredit ?? Guid.Empty)"
-                                         ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
                 </div>
             </div>
 
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[60]">
-                <button @onclick="CloseModal" class="px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors" disabled="@isSaving">
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] shrink-0 route-config-footer">
+                <button @onclick="CloseModal" class="shrink-0 whitespace-nowrap px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors" disabled="@isSaving">
                     Cancel
                 </button>
-                <button @onclick="ApplyAndSaveModal" class="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5" disabled="@isSaving">
+                <button @onclick="ApplyAndSaveModal" class="shrink-0 whitespace-nowrap px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5" disabled="@isSaving">
                     @if (isSaving)
                     {
                         <span class="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"></span>

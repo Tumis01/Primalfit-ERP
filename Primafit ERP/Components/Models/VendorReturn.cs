@@ -36,6 +36,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(PurchaseOrderId))]
         public virtual PurchaseOrder? PurchaseOrder { get; set; }
 
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
         public Guid? WarehouseId { get; set; }
         [ForeignKey(nameof(WarehouseId))]
         public virtual Warehouse? Warehouse { get; set; }

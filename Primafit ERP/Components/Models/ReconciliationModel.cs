@@ -22,6 +22,7 @@ namespace Primafit_ERP.Components.Models
         public Guid CompanyId { get; set; }
         public Guid BankAccountId { get; set; } // FK to GLChartOfAccount
 
+        public DateOnly? StatementStartDate { get; set; }
         public DateOnly StatementDate { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
@@ -61,6 +62,20 @@ namespace Primafit_ERP.Components.Models
     {
         public BankReconciliation Reconciliation { get; set; } = new();
         public List<GLTransaction> CandidateGLTransactions { get; set; } = new();
+        public DateOnly PeriodStartDate { get; set; }
+        public decimal OpeningBookBalance { get; set; }
+        public decimal PeriodDebits { get; set; }
+        public decimal PeriodCredits { get; set; }
+        public decimal BookClosingBalance { get; set; }
+        public decimal OutstandingDeposits { get; set; }
+        public decimal OutstandingPayments { get; set; }
+        public decimal ClearedPeriodActivity => CandidateGLTransactions
+            .Where(t => t.BankReconciliationId.HasValue
+                && t.PostingDate >= PeriodStartDate
+                && t.PostingDate <= Reconciliation.StatementDate)
+            .Sum(t => t.Debit - t.Credit);
+        public decimal ClearedBookBalance => OpeningBookBalance + ClearedPeriodActivity;
+        public decimal Difference => Reconciliation.StatementEndingBalance - ClearedBookBalance;
     }
     
 }

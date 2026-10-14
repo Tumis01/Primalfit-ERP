@@ -99,7 +99,7 @@
         <div class="flex-1 min-w-[200px]">
             <label class="label">Search Items</label>
             <div class="relative">
-                <input type="text" @bind="SearchTerm" @bind:after="ResetPage" placeholder="Search SKU or Name..." class="input-class pl-9" />
+                <input type="text" @bind="SearchTerm" @bind:after="ResetPage" placeholder="Search Code or Name..." class="input-class pl-9" />
             </div>
         </div>
 
@@ -151,7 +151,7 @@
                         @foreach (var row in PaginatedData)
                         {
                             <tr class="hover:bg-slate-50/80 transition-colors">
-                                <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.SKU</td>
+                                <td class="px-6 py-4 font-mono font-bold text-slate-500 text-xs">@row.Code</td>
                                 <td class="px-6 py-4 font-bold text-slate-900 truncate max-w-[250px]" title="@row.Name">@row.Name</td>
                                 <td class="px-6 py-4 text-center text-xs font-bold text-slate-400">@row.UoM</td>
                                 <td class="px-6 py-4 text-center font-mono font-black text-indigo-600">@row.QtyDisplay</td>
@@ -209,7 +209,7 @@
             <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                 <div>
                     <h3 class="text-lg font-bold text-slate-900">Valuation History</h3>
-                    <p class="text-xs text-slate-500 font-bold mt-1">@selectedHistoryItem.SKU - @selectedHistoryItem.Name</p>
+                    <p class="text-xs text-slate-500 font-bold mt-1">@selectedHistoryItem.Code - @selectedHistoryItem.Name</p>
                 </div>
                 <button @onclick="() => showHistoryModal = false" class="text-slate-400 hover:text-rose-500 transition-colors bg-white p-2 rounded-full shadow-sm border border-slate-200">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -302,7 +302,7 @@
     private class ValuationRow
     {
         public Guid ItemId { get; set; }
-        public string SKU { get; set; } = "";
+        public string Code { get; set; } = "";
         public string Name { get; set; } = "";
         public string UoM { get; set; } = "";
         public decimal Qty { get; set; }
@@ -367,7 +367,7 @@
             {
                 query = query.Where(x =>
                     x.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
-                    x.SKU.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase));
+                    x.Code.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase));
             }
 
             if (FromItemId != Guid.Empty && ToItemId != Guid.Empty)
@@ -482,7 +482,7 @@
                 rawData.Add(new ValuationRow
                 {
                     ItemId = item.Id,
-                    SKU = item.SKU ?? "N/A",
+                    Code = item.Code ?? "N/A",
                     Name = item.Name,
                     UoM = primaryFactor == 1m || string.Equals(primaryName, baseName, StringComparison.OrdinalIgnoreCase)
                         ? primaryName
@@ -541,14 +541,14 @@
             ReportingPeriod = FilterMode == "AsOf"
                 ? $"As of {FilterAsOfDate:MMM dd, yyyy}"
                 : $"{FilterStartDate:MMM dd, yyyy} to {FilterEndDate:MMM dd, yyyy}",
-            Headers = new List<string> { "SKU", "Item Description", "Primary / Base UoM", "Qty on Hand (Primary / Base)", "Costing Method", "Unit Cost (Primary UOM)", "Total Value" }
+            Headers = new List<string> { "Code", "Item Description", "Primary / Base UoM", "Qty on Hand (Primary / Base)", "Costing Method", "Unit Cost (Primary UOM)", "Total Value" }
         };
 
         // Export ALL filtered rows (ignore pagination)
         foreach (var row in FilteredData)
         {
             data.Rows.Add(new List<string> {
-                row.SKU,
+                row.Code,
                 row.Name,
                 row.UoM,
                 row.QtyDisplay,

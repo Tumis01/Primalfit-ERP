@@ -7,6 +7,7 @@
 @using Microsoft.EntityFrameworkCore
 
 @inject InventoryService InvService
+@inject ProjectService ProjectService
 @inject MasterDataService MasterService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
@@ -52,6 +53,10 @@
                     <span class="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">@pendingTransfers.Count</span>
                 }
             </button>
+            <button @onclick="() => activeTab = 3"
+                    class="px-4 py-2 rounded-lg text-sm font-bold transition-all @(activeTab == 3 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
+                History
+            </button>
         </div>
     </div>
 
@@ -79,7 +84,7 @@
                                 <label class="label text-rose-700 flex items-center gap-2">
                                     <span class="w-2 h-2 rounded-full bg-rose-500"></span> Source Warehouse
                                 </label>
-                                <select class="input-class mt-1" value="@fromWhId" @onchange="OnFromWarehouseChanged">
+                                <select class="input-class mt-1" value="@fromWhId" @onchange="OnFromWarehouseChanged" disabled="@(transferLines.Count > 0)">
                                     <option value="@Guid.Empty">-- Select Origin --</option>
                                     @foreach (var w in warehouses)
                                     {
@@ -92,7 +97,7 @@
                                 <label class="label text-emerald-700 flex items-center gap-2">
                                     <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Destination Warehouse
                                 </label>
-                                <select @bind="toWhId" class="input-class mt-1">
+                                <select @bind="toWhId" class="input-class mt-1" disabled="@(transferLines.Count > 0)">
                                     <option value="@Guid.Empty">-- Select Destination --</option>
                                     @foreach (var w in warehouses.Where(x => x.Id != fromWhId))
                                     {
@@ -134,18 +139,44 @@
                             </div>
                         </div>
 
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                            <ProjectSelect @bind-Value="selectedProjectId" Projects="@projects" />
+                            <div class="md:col-span-2 flex justify-end gap-2">
+                                @if (editingTransferLine is not null)
+                                {
+                                    <button type="button" @onclick="CancelTransferLineEdit" class="px-4 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50">Cancel</button>
+                                }
+                                <button type="button" @onclick="AddTransferLine" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700">@(editingTransferLine is null ? "Add Transfer Line" : "Update Transfer Line")</button>
+                            </div>
+                        </div>
+
+                        <div class="md:col-span-2 border border-slate-200 rounded-xl overflow-hidden">
+                            <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between"><span class="text-xs font-black uppercase text-slate-600">Transfer Lines</span><span class="text-xs font-bold text-slate-500">@transferLines.Count item(s)</span></div>
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-[10px] uppercase text-slate-500 border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3">Project</th><th class="p-3"></th></tr></thead>
+                                <tbody class="divide-y divide-slate-100">
+                                    @foreach (var line in transferLines)
+                                    {
+                                        <tr class="@(ReferenceEquals(editingTransferLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3">@GetProjectName(line.ProjectId)</td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditTransferLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveTransferLine(line)" class="text-rose-600 font-bold">Remove</button></td></tr>
+                                    }
+                                    @if (transferLines.Count == 0) { <tr><td colspan="4" class="p-6 text-center text-slate-400">Add one or more item lines.</td></tr> }
+                                </tbody>
+                            </table>
+                        </div>
+
                         <div class="relative z-20">
                             <SearchableGlAccount Label="Transit GL Account"
                                 Placeholder="Search Account (e.g. 1050)"
                                 Accounts="transitAccounts"
                                 @bind-Value="transitSegCoaId"
+                                Disabled="@(transferLines.Count > 0)"
                                 IsInvalid="@(transitSegCoaId == Guid.Empty)" />
                             <div class="text-[10px] text-slate-400 mt-1">Temporary asset account for value in transit.</div>
                         </div>
 
                         <div class="relative z-10">
                             <label class="label">Reference / Note</label>
-                            <InputText @bind-Value="reference" class="input-class" placeholder="e.g. TRF-2023-001" />
+                            <InputText @bind-Value="reference" class="input-class" placeholder="e.g. TRF-2023-001" disabled="@(transferLines.Count > 0)" />
                             <div class="text-[10px] text-slate-400 mt-1">Optional tracking number.</div>
                         </div>
                     </div>
@@ -154,7 +185,7 @@
                         
                         <PermissionGate Key="INVENTORY_OPERATIONS_MANAGE">
                             <Authorized>
-                                <button type="submit" disabled="@(isBusy || qty <= 0)" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                                <button type="submit" disabled="@(isBusy || transferLines.Count == 0 || editingTransferLine is not null)" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
                                     @if (isBusy)
                                     {
                                         <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -169,7 +200,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                   d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                                         </svg>
-                                        <span>Submit Transfer for GL Review</span>
+                                        <span>Submit @transferLines.Count Transfer Line(s)</span>
                                     }
                                 </button>
                             </Authorized>
@@ -178,7 +209,7 @@
                 </EditForm>
             </div>
         }
-        else
+        else if (activeTab == 2)
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                 <table class="w-full text-left text-sm">
@@ -208,14 +239,34 @@
                                             <span class="text-emerald-600">@t.ToWarehouse?.Name</span>
                                         </div>
                                     </td>
-                                    <td class="p-4 font-bold text-slate-900">@t.Item?.Name</td>
-                                    <td class="p-4 text-right font-mono text-slate-500">@GetTransferQuantityInUom(t).ToString("N4") @t.UomName</td>
+                                    <td class="p-4 font-bold text-slate-900">
+                                        @if (t.HasLineDetails)
+                                        {
+                                            @foreach (var line in t.Lines) { <div>@line.Item?.Name <span class="text-xs font-normal text-slate-400">(@GetProjectName(line.ProjectId))</span></div> }
+                                        }
+                                        else { @t.Item?.Name }
+                                    </td>
+                                    <td class="p-4 text-right font-mono text-slate-500">
+                                        @if (t.HasLineDetails)
+                                        {
+                                            @foreach (var line in t.Lines) { <div>@((line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity).ToString("N4")) @line.UomName</div> }
+                                        }
+                                        else { @GetTransferQuantityInUom(t).ToString("N4") @t.UomName }
+                                    </td>
 
                                     <td class="p-4 text-right">
-                                        <input type="number"  
-                                               value="@GetReceiveQty(t.Id, GetTransferQuantityInUom(t))"
-                                               @onchange="(e => UpdateReceiveQty(t.Id, e))"
-                                               class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 focus:ring-slate-900 focus:border-slate-900 text-sm" />
+                                        @if (t.HasLineDetails)
+                                        {
+                                            @foreach (var line in t.Lines)
+                                            {
+                                                var shippedQty = line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity;
+                                                <div class="mb-1"><input type="number" value="@GetReceiveQty(line.Id, shippedQty)" @onchange="(e => UpdateReceiveQty(line.Id, e))" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 text-sm" /></div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <input type="number" value="@GetReceiveQty(t.Id, GetTransferQuantityInUom(t))" @onchange="(e => UpdateReceiveQty(t.Id, e))" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 text-sm" />
+                                        }
                                     </td>
 
                                     <td class="p-4 text-right">
@@ -239,6 +290,67 @@
                         }
                     </tbody>
                 </table>
+            </div>
+        }
+        else
+        {
+            <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                <div class="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-black uppercase text-slate-700">Transfer History</h3>
+                        <p class="text-xs text-slate-500 mt-1">Outbound and received stock transfers with their GL approval records.</p>
+                    </div>
+                    <span class="text-xs font-bold text-slate-500">@transferHistory.Count record(s)</span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm min-w-[1100px]">
+                        <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
+                            <tr>
+                                <th class="p-4">Date Shipped</th>
+                                <th class="p-4">Reference</th>
+                                <th class="p-4">Route</th>
+                                <th class="p-4">Items / Quantity</th>
+                                <th class="p-4">Shipment Approved By</th>
+                                <th class="p-4">Date Received</th>
+                                <th class="p-4">Receipt Approved By</th>
+                                <th class="p-4">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            @foreach (var history in transferHistory)
+                            {
+                                var transfer = history.Transfer;
+                                <tr class="hover:bg-slate-50/70 align-top">
+                                    <td class="p-4 whitespace-nowrap font-mono text-slate-600">@transfer.DateShipped.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td class="p-4 font-semibold text-slate-800">@transfer.Reference</td>
+                                    <td class="p-4 whitespace-nowrap"><span class="text-rose-600">@transfer.FromWarehouse?.Name</span><span class="mx-2 text-slate-400">→</span><span class="text-emerald-600">@transfer.ToWarehouse?.Name</span></td>
+                                    <td class="p-4">
+                                        @if (transfer.HasLineDetails)
+                                        {
+                                            @foreach (var line in transfer.Lines)
+                                            {
+                                                <div class="mb-1"><span class="font-medium">@line.Item?.Name</span><span class="ml-2 font-mono text-xs text-slate-500">@GetHistoryQuantity(line.QuantityInUom, line.Quantity, line.UomConversionFactor).ToString("N4") @line.UomName shipped → @GetReceivedHistoryQuantity(line.QuantityReceived, line.UomConversionFactor) @line.UomName received</span></div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <div class="font-medium">@transfer.Item?.Name</div>
+                                            <div class="font-mono text-xs text-slate-500">@GetHistoryQuantity(transfer.QuantityInUom, transfer.Quantity, transfer.UomConversionFactor).ToString("N4") @transfer.UomName shipped → @GetReceivedHistoryQuantity(transfer.QuantityReceived, transfer.UomConversionFactor) @transfer.UomName received</div>
+                                        }
+                                    </td>
+                                    <td class="p-4"><div class="font-medium">@GetApprovalUser(history.ShipmentApproval, "No approval record")</div><div class="text-xs text-slate-500">@GetApprovalDate(history.ShipmentApproval)</div></td>
+                                    <td class="p-4 whitespace-nowrap">@(transfer.DateReceived?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                                    <td class="p-4"><div class="font-medium">@GetApprovalUser(history.ReceiptApproval, transfer.Status == TransferStatus.Received ? "No approval record" : "Not received")</div><div class="text-xs text-slate-500">@GetApprovalDate(history.ReceiptApproval)</div></td>
+                                    <td class="p-4"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase @(transfer.Status == TransferStatus.Received ? "bg-emerald-50 text-emerald-700" : transfer.Status == TransferStatus.Cancelled ? "bg-slate-100 text-slate-600" : "bg-amber-50 text-amber-700")">@transfer.Status</span></td>
+                                </tr>
+                            }
+                            @if (transferHistory.Count == 0)
+                            {
+                                <tr><td colspan="8" class="p-12 text-center text-slate-400">No stock transfer history found.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
             </div>
         }
     }
@@ -290,6 +402,10 @@
     private List<SegChartOfAccount> transitAccounts = new();
     private string currentUserId = "";
     private List<StockTransfer> pendingTransfers = new();
+    private List<TransferHistoryEntry> transferHistory = new();
+    private List<Project> projects = new();
+    private List<StockTransferBatchLineDto> transferLines = new();
+    private StockTransferBatchLineDto? editingTransferLine;
 
     // --- State ---
     private int activeTab = 1;
@@ -299,11 +415,27 @@
     private Guid selectedUomId;
     private Guid lastUomItemId;
     private Guid transitSegCoaId;
+    private Guid? selectedProjectId;
     private decimal qty;
     private string reference = "";
     private decimal currentStockLevel = 0;
     private bool isBusy = false;
     private object dummy = new();
+    private Dictionary<string, string> transferUserNames = new();
+
+    private sealed class TransferHistoryEntry
+    {
+        public StockTransfer Transfer { get; set; } = new();
+        public TransferApprovalInfo? ShipmentApproval { get; set; }
+        public TransferApprovalInfo? ReceiptApproval { get; set; }
+    }
+
+    private sealed class TransferApprovalInfo
+    {
+        public BatchStatus Status { get; set; }
+        public string? PostedByUserId { get; set; }
+        public DateTime? PostedAt { get; set; }
+    }
 
     // Local state for receiving quantities
     private Dictionary<Guid, decimal> receiveQtyMap = new();
@@ -359,8 +491,101 @@
 
 
         pendingTransfers = await InvService.GetPendingTransfersAsync(selectedCompanyId);
+        projects = await ProjectService.GetActiveProjectsAsync(selectedCompanyId);
+        await LoadTransferHistoryAsync();
 
         receiveQtyMap.Clear();
+    }
+
+    private async Task LoadTransferHistoryAsync()
+    {
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+        var transfers = await ctx.StockTransfers.AsNoTracking()
+            .Include(t => t.Item)
+            .Include(t => t.FromWarehouse)
+            .Include(t => t.ToWarehouse)
+            .Include(t => t.Lines).ThenInclude(line => line.Item)
+            .Where(t => t.CompanyId == selectedCompanyId)
+            .OrderByDescending(t => t.DateShipped)
+            .ToListAsync();
+
+        var inboundReferences = await ctx.StockLedgers.AsNoTracking()
+            .Where(m => m.CompanyId == selectedCompanyId
+                && m.Type == StockMovementType.TransferIn
+                && m.GLBatchId.HasValue
+                && m.Reference.StartsWith("RECV:"))
+            .Select(m => new { m.Reference, BatchId = m.GLBatchId!.Value })
+            .ToListAsync();
+
+        var receiptBatchByTransfer = new Dictionary<Guid, Guid>();
+        foreach (var movement in inboundReferences)
+        {
+            var separator = movement.Reference.IndexOf('|');
+            if (separator <= "RECV:".Length) continue;
+            var transferIdText = movement.Reference.Substring("RECV:".Length, separator - "RECV:".Length);
+            if (Guid.TryParseExact(transferIdText, "N", out var transferId))
+                receiptBatchByTransfer[transferId] = movement.BatchId;
+        }
+
+        var batchIds = transfers
+            .Where(t => t.GLBatchId.HasValue)
+            .Select(t => t.GLBatchId!.Value)
+            .Concat(receiptBatchByTransfer.Values)
+            .Distinct()
+            .ToList();
+        var approvalByBatch = new Dictionary<Guid, TransferApprovalInfo>();
+        if (batchIds.Count > 0)
+        {
+            var batches = await ctx.GLBatches.AsNoTracking()
+                .Where(batch => batch.CompanyId == selectedCompanyId && batchIds.Contains(batch.Id))
+                .Select(batch => new
+                {
+                    batch.Id,
+                    batch.Status,
+                    batch.PostedByUserId,
+                    batch.PostedAt
+                })
+                .ToListAsync();
+
+            approvalByBatch = batches.ToDictionary(
+                batch => batch.Id,
+                batch => new TransferApprovalInfo
+                {
+                    Status = batch.Status,
+                    PostedByUserId = batch.PostedByUserId,
+                    PostedAt = batch.PostedAt
+                });
+
+            var postedByIds = batches
+                .Where(batch => !string.IsNullOrWhiteSpace(batch.PostedByUserId))
+                .Select(batch => batch.PostedByUserId!)
+                .Distinct()
+                .ToList();
+            if (postedByIds.Count > 0)
+            {
+                var users = await UserManager.Users
+                    .Where(user => postedByIds.Contains(user.Id))
+                    .Select(user => new { user.Id, user.FirstName, user.LastName, user.UserName })
+                    .ToListAsync();
+                transferUserNames = users.ToDictionary(
+                    user => user.Id,
+                    user => string.IsNullOrWhiteSpace($"{user.FirstName} {user.LastName}".Trim())
+                        ? user.UserName ?? user.Id
+                        : $"{user.FirstName} {user.LastName}".Trim());
+            }
+        }
+
+        transferHistory = transfers.Select(transfer => new TransferHistoryEntry
+        {
+            Transfer = transfer,
+            ShipmentApproval = transfer.GLBatchId.HasValue && approvalByBatch.TryGetValue(transfer.GLBatchId.Value, out var shipmentApproval)
+                ? shipmentApproval
+                : null,
+            ReceiptApproval = receiptBatchByTransfer.TryGetValue(transfer.Id, out var receiptBatchId)
+                && approvalByBatch.TryGetValue(receiptBatchId, out var receiptApproval)
+                    ? receiptApproval
+                    : null
+        }).ToList();
     }
 
     private async Task OnFromWarehouseChanged(ChangeEventArgs e)
@@ -433,9 +658,117 @@
         => transfer.QuantityInUom > 0 ? transfer.QuantityInUom : transfer.Quantity;
 
     private record UomOption(Guid Id, string Name, decimal Factor);
+
+    private void AddTransferLine()
+    {
+        if (fromWhId == Guid.Empty || toWhId == Guid.Empty || fromWhId == toWhId)
+        {
+            _ = JS.InvokeVoidAsync("alert", "Select different source and destination warehouses first.");
+            return;
+        }
+        if (selectedItemId == Guid.Empty || qty <= 0)
+        {
+            _ = JS.InvokeVoidAsync("alert", "Select an item and enter a quantity greater than zero.");
+            return;
+        }
+        var updatedLine = new StockTransferBatchLineDto
+        {
+            ItemId = selectedItemId,
+            QuantityInUom = qty,
+            UomId = selectedUomId == Guid.Empty ? null : selectedUomId,
+            UomName = GetSelectedUomName(),
+            UomConversionFactor = GetSelectedUomFactor(),
+            ProjectId = selectedProjectId
+        };
+
+        if (editingTransferLine is null)
+        {
+            transferLines.Add(updatedLine);
+        }
+        else
+        {
+            var lineIndex = transferLines.IndexOf(editingTransferLine);
+            if (lineIndex >= 0) transferLines[lineIndex] = updatedLine;
+            else transferLines.Add(updatedLine);
+        }
+
+        editingTransferLine = null;
+        selectedItemId = Guid.Empty;
+        selectedUomId = Guid.Empty;
+        lastUomItemId = Guid.Empty;
+        selectedProjectId = null;
+        qty = 0;
+        currentStockLevel = 0;
+    }
+
+    private async Task EditTransferLine(StockTransferBatchLineDto line)
+    {
+        editingTransferLine = line;
+        selectedItemId = line.ItemId;
+        selectedUomId = line.UomId ?? Guid.Empty;
+        lastUomItemId = line.ItemId;
+        selectedProjectId = line.ProjectId;
+        qty = line.QuantityInUom;
+        await CheckStock();
+    }
+
+    private void CancelTransferLineEdit()
+    {
+        editingTransferLine = null;
+        selectedItemId = Guid.Empty;
+        selectedUomId = Guid.Empty;
+        lastUomItemId = Guid.Empty;
+        selectedProjectId = null;
+        qty = 0;
+        currentStockLevel = 0;
+    }
+
+    private void RemoveTransferLine(StockTransferBatchLineDto line)
+    {
+        if (ReferenceEquals(editingTransferLine, line)) CancelTransferLineEdit();
+        transferLines.Remove(line);
+    }
+
+    private static decimal GetHistoryQuantity(decimal quantityInUom, decimal baseQuantity, decimal conversionFactor)
+        => quantityInUom > 0 ? quantityInUom : UomConversion.FromBase(baseQuantity, conversionFactor);
+
+    private static string GetReceivedHistoryQuantity(decimal? receivedBaseQuantity, decimal conversionFactor)
+        => receivedBaseQuantity.HasValue
+            ? UomConversion.FromBase(receivedBaseQuantity.Value, conversionFactor).ToString("N4")
+            : "—";
+
+    private string GetApprovalUser(TransferApprovalInfo? approval, string notStartedLabel)
+    {
+        if (approval is null) return notStartedLabel;
+        return approval.Status switch
+        {
+            BatchStatus.Posted => string.IsNullOrWhiteSpace(approval.PostedByUserId)
+                ? "Unknown approver"
+                : transferUserNames.TryGetValue(approval.PostedByUserId, out var displayName)
+                    ? displayName
+                    : approval.PostedByUserId,
+            BatchStatus.Ready => "Awaiting GL approval",
+            BatchStatus.Rejected => "Rejected",
+            _ => "Not yet approved"
+        };
+    }
+
+    private static string GetApprovalDate(TransferApprovalInfo? approval)
+        => approval?.PostedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—";
+
+    private string GetItemName(Guid itemId) => items.FirstOrDefault(x => x.Id == itemId)?.Name ?? "Unknown item";
+    private string GetProjectName(Guid? projectId) => projectId.HasValue
+        ? projects.FirstOrDefault(x => x.Id == projectId.Value)?.Name ?? "Inactive project"
+        : "—";
+
     private async Task ProcessShipment()
     {
-        if (fromWhId == Guid.Empty || toWhId == Guid.Empty || selectedItemId == Guid.Empty || qty <= 0 || transitSegCoaId == Guid.Empty)
+        if (editingTransferLine is not null)
+        {
+            await JS.InvokeVoidAsync("alert", "Save or cancel the transfer line edit before submitting.");
+            return;
+        }
+        if (fromWhId == Guid.Empty || toWhId == Guid.Empty || transferLines.Count == 0 || transitSegCoaId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Please complete all fields.");
             return;
@@ -444,24 +777,19 @@
         isBusy = true;
         try
         {
-            // Passed currentUserId at the end
-            var err = await InvService.ShipTransferAsync(
+            var err = await InvService.ShipTransferBatchAsync(
                 selectedCompanyId,
-                selectedItemId,
                 fromWhId,
                 toWhId,
-                qty,
                 transitSegCoaId,
                 reference,
-                currentUserId,
-                selectedUomId,
-                GetSelectedUomName(),
-                GetSelectedUomFactor());
+                transferLines,
+                currentUserId);
 
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Transfer submitted for GL review. Stock is now 'In Transit'.");
-                qty = 0; reference = "";
+                qty = 0; reference = ""; transferLines.Clear(); selectedProjectId = null; editingTransferLine = null;
                 await LoadData();
                 activeTab = 2;
             }
@@ -485,19 +813,27 @@
     }
     private async Task ReceiveTransfer(StockTransfer t)
 {
-    decimal actualQty = GetReceiveQty(t.Id, t.Quantity);
+    string confirmation = t.HasLineDetails
+        ? $"Submit receipt for {t.Lines.Count} transfer item line(s) for GL review?"
+        : $"Submit receipt of {GetReceiveQty(t.Id, t.Quantity):N4} (Shipped: {t.Quantity:N4}) for GL review?";
+    if (!await JS.InvokeAsync<bool>("confirm", confirmation)) return;
 
-    if (actualQty > t.Quantity)
+    string err;
+    if (t.HasLineDetails)
     {
-        await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!");
-        return;
+        var receivedLines = t.Lines.Select(line => new StockTransferReceiveLineDto
+        {
+            StockTransferLineId = line.Id,
+            QuantityReceived = GetReceiveQty(line.Id, line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity)
+        }).ToList();
+        err = await InvService.ReceiveTransferBatchAsync(t.Id, receivedLines, currentUserId);
     }
-
-    if (!await JS.InvokeAsync<bool>("confirm", $"Submit receipt of {actualQty:N4} (Shipped: {t.Quantity:N4}) for GL review?"))
-        return;
-
-    // Passed currentUserId here
-    var err = await InvService.ReceiveTransferAsync(t.Id, actualQty, currentUserId);
+    else
+    {
+        decimal actualQty = GetReceiveQty(t.Id, t.Quantity);
+        if (actualQty > t.Quantity) { await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!"); return; }
+        err = await InvService.ReceiveTransferAsync(t.Id, actualQty, currentUserId);
+    }
     
     if (string.IsNullOrEmpty(err))
     {

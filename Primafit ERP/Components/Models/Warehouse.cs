@@ -59,6 +59,11 @@ namespace Primafit_ERP.Components.Models
         public TransferStatus Status { get; set; } = TransferStatus.InTransit;
         public Guid? GLBatchId { get; set; }
 
+        // New multi-line transfers store detail in Lines. The original item
+        // columns above remain intact for existing single-line transfer rows.
+        public bool HasLineDetails { get; set; }
+        public virtual List<StockTransferLine> Lines { get; set; } = new();
+
         public DateTime DateShipped { get; set; } = DateTime.UtcNow;
         public DateTime? DateReceived { get; set; }
 
@@ -66,5 +71,23 @@ namespace Primafit_ERP.Components.Models
         public Guid TransitGLAccountId { get; set; }
         [Column(TypeName = "decimal(18,4)")]
         public decimal ValueAtShipment { get; set; } // Snapshot of cost
+    }
+
+    public class StockTransferLine
+    {
+        [Key] public Guid Id { get; set; } = Guid.NewGuid();
+        [Required] public Guid StockTransferId { get; set; }
+        [ForeignKey(nameof(StockTransferId))] public StockTransfer? Transfer { get; set; }
+        [Required] public Guid ItemId { get; set; }
+        [ForeignKey(nameof(ItemId))] public Item? Item { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal Quantity { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")] public decimal UomConversionFactor { get; set; } = 1m;
+        [Column(TypeName = "decimal(18,4)")] public decimal QuantityInUom { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal? QuantityReceived { get; set; }
+        [Column(TypeName = "decimal(18,4)")] public decimal ValueAtShipment { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))] public Project? Project { get; set; }
     }
 }

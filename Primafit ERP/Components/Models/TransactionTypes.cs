@@ -94,6 +94,7 @@ namespace Primafit_ERP.Components.Models
         public Guid EntityId { get; set; } // CustomerId or VendorId
         public string EntityName { get; set; } = string.Empty;
         public decimal BalanceAmount { get; set; }
+        public Guid? ProjectId { get; set; }
     }
     public class InventoryAdjustmentLineDto
     {
@@ -104,6 +105,36 @@ namespace Primafit_ERP.Components.Models
         public bool IsDebitInventory { get; set; } = true; // true = Debit Item Account, false = Credit Item Account
         public decimal QuantityChange { get; set; } // Positive for increase, Negative for decrease
         public decimal TotalValueChange { get; set; }
+        public Guid? ProjectId { get; set; }
+    }
+
+    public class StockEntryBatchLineDto
+    {
+        public Guid ItemId { get; set; }
+        public Guid WarehouseId { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal TotalValueChange { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        public decimal UomConversionFactor { get; set; } = 1m;
+        public decimal QuantityInUom { get; set; }
+        public Guid? ProjectId { get; set; }
+    }
+
+    public class StockTransferBatchLineDto
+    {
+        public Guid ItemId { get; set; }
+        public decimal QuantityInUom { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        public decimal UomConversionFactor { get; set; } = 1m;
+        public Guid? ProjectId { get; set; }
+    }
+
+    public class StockTransferReceiveLineDto
+    {
+        public Guid StockTransferLineId { get; set; }
+        public decimal QuantityReceived { get; set; }
     }
     public class TransactionTypeOptionDto
     {

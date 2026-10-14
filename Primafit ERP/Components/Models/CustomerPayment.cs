@@ -52,6 +52,9 @@ namespace Primafit_ERP.Components.Models
 
         // Links to the Sales Order that was Invoiced
         public Guid InvoiceId { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal AppliedAmount { get; set; }

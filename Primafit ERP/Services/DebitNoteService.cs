@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -108,6 +108,7 @@ namespace Primafit_ERP.Services
                 CompanyId = inv.CompanyId,
                 PurchaseOrderId = inv.Id, // Stores the Invoice ID directly
                 VendorId = inv.VendorId,
+                ProjectId = inv.ProjectId,
                 CurrencyId = inv.CurrencyId,
                 ExchangeRate = inv.ExchangeRate,
                 Date = DateOnly.FromDateTime(DateTime.Today),
@@ -325,7 +326,7 @@ namespace Primafit_ERP.Services
                             SegCoaId = discountAccount,
                             Debit = lineDiscountBase,
                             Credit = 0,
-                            Reference = $"Discount Rollback: {line.Item.SKU}"
+                            Reference = $"Discount Rollback: {line.Item.Code}"
                         });
                     }
 
@@ -345,7 +346,7 @@ namespace Primafit_ERP.Services
                             SegCoaId = taxGlAccountId,
                             Debit = 0,
                             Credit = lineTaxBase,
-                            Reference = $"Tax Rollback: {line.Item.SKU}"
+                            Reference = $"Tax Rollback: {line.Item.Code}"
                         });
                     }
 
@@ -386,7 +387,8 @@ namespace Primafit_ERP.Services
                     dn.DebitNoteNumber,
                     glLines,
                     userId.ToString(),
-                    existingBatchId: dn.GlBatchId);
+                    existingBatchId: dn.GlBatchId,
+                    inheritedProjectId: dn.ProjectId ?? inv.ProjectId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(dn.CompanyId, batchId.Value, userId.ToString());

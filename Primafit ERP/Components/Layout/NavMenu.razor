@@ -1,5 +1,6 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @using Microsoft.AspNetCore.Components.Routing
+@implements IDisposable
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
@@ -106,6 +107,7 @@
                 <span class="flex-1 font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Dashboard</span>
             </NavLink>
 
+           
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Core Modules</div>
 
             @* 1. FINANCE & GL *@
@@ -184,6 +186,7 @@
                                                     <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
                                                     <NavLink href="gl/batches" class="@NestedNavLink" activeClass="@NestedNavActive">Batches</NavLink>
                                                     <NavLink href="/reports/cashbook" class="@NestedNavLink" activeClass="@NestedNavActive">Cashbook Report</NavLink>
+                                                    <NavLink href="/reports/reconciliation" class="@NestedNavLink" activeClass="@NestedNavActive">Reconciliation Report</NavLink>
                                                     <NavLink href="reports/budget-variance" class="@NestedNavLink" activeClass="@NestedNavActive">Budget Variance</NavLink>
                                                 </div>
                                             }
@@ -222,10 +225,10 @@
                                     @if (_salesSetupOpen)
                                     {
                                         <div class="space-y-0.5 mb-2">
-                                            <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
-                                            <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
-                                            <NavLink href="/ar/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="setup/ar-transaction-types" class="@NestedNavLink" activeClass="@NestedNavActive">AR Transaction Type</NavLink>
+                                        <NavLink href="/ar/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
+                                        <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
+                                            <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
                                         </div>
                                     }
 
@@ -296,10 +299,10 @@
                                     @if (_purchasingSetupOpen)
                                     {
                                         <div class="space-y-0.5 mb-2">
-                                            <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
-                                            <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
-                                            <NavLink href="/ap/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="setup/ap-transaction-types" class="@NestedNavLink" activeClass="@NestedNavActive">Ap Transaction Types</NavLink>
+                                        <NavLink href="/ap/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
+                                        <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
+                                            <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
                                         </div>
                                     }
 
@@ -372,11 +375,11 @@
                                     @if (_inventorySetupOpen)
                                     {
                                         <div class="space-y-0.5 mb-2">
+                                            <NavLink href="/inventory/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                             <NavLink href="sc/items" class="@NestedNavLink" activeClass="@NestedNavActive">Items & Services</NavLink>
                                             <NavLink href="/sc/item-categories" class="@NestedNavLink" activeClass="@NestedNavActive">Item Category</NavLink>
                                             <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
                                             <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
-                                            <NavLink href="/inventory/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         </div>
                                     }
 
@@ -390,7 +393,6 @@
                                             <NavLink href="/inventory/adjustments" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Adjustment</NavLink>
                                             <NavLink href="sc/stock-entry" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Entry & Adj.</NavLink>
                                             <NavLink href="sc/transfers" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Transfer</NavLink>
-                                            <NavLink href="supply-chain/issue-to-project" class="@NestedNavLink" activeClass="@NestedNavActive">Issue to Project</NavLink>
                                         </div>
                                     }
 
@@ -405,7 +407,6 @@
                                                 <div class="space-y-0.5 mb-2">
                                                     <NavLink href="sc/stock-list" class="@NestedNavLink" activeClass="@NestedNavActive">Stock List</NavLink>
                                                     <NavLink href="reports/stock-by-uom" class="@NestedNavLink" activeClass="@NestedNavActive">Stock by UOM</NavLink>
-                                                    <NavLink href="reports/consumption-log" class="@NestedNavLink" activeClass="@NestedNavActive">Consumption Log</NavLink>
                                                     <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
                                                     <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
                                                 </div>
@@ -418,6 +419,37 @@
                     </div>
                  
             </PermissionGate>
+            <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Common</div>
+            <div class="space-y-1">
+                <button @onclick="ToggleProjectsMenu" class="@NavBase w-full justify-between" title="Projects">
+                    <div class="flex items-center gap-3">
+                        <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                        <span class="flex-1 text-left font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Projects</span>
+                    </div>
+                    <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform duration-300 @(_isCollapsed ? "hidden" : "block") @(_projectsMenuOpen ? "rotate-90 text-slate-800" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
+                </button>
+                @if (_projectsMenuOpen && !_isCollapsed)
+                {
+                    <div class="relative pl-5 animate-in slide-in-from-left-2 duration-300">
+                        <div class="absolute left-[26px] top-0 bottom-2 w-px bg-slate-200"></div>
+                        <div class="space-y-0.5 pt-1">
+                            <NavLink href="/projects/setup" class="@NestedNavLink" activeClass="@NestedNavActive">Setup</NavLink>
+                            <button @onclick="ToggleProjectsReport" class="@SubNavFolderBase">
+                                <span>Reports</span>
+                                <svg class="h-3 w-3 text-slate-400 @(_projectsReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                            </button>
+                            @if (_projectsReportOpen)
+                            {
+                                <div class="space-y-0.5 mb-2">
+                                    <NavLink href="/projects/report/profit-and-loss" Match="NavLinkMatch.All" class="@NestedNavLink" activeClass="@NestedNavActive">Profit &amp; Loss</NavLink>
+                                    <NavLink href="/projects/report/balance-sheet" Match="NavLinkMatch.All" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
+                                    <NavLink href="/projects/report/general-ledger" Match="NavLinkMatch.All" class="@NestedNavLink" activeClass="@NestedNavActive">General Ledger</NavLink>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
 
             <div class="mt-6 mb-2 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 @(_isCollapsed ? "hidden" : "block")">Specialized</div>
 
@@ -483,14 +515,6 @@
                  
             </PermissionGate>
 
-
-            @* 6. PROJECTS *@
-            <NavLink href="/projects" class="@NavBase" activeClass="@NavActive" title="Projects">
-                <svg class="@IconBase" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                </svg>
-                <span class="flex-1 font-medium whitespace-nowrap @(_isCollapsed ? "hidden" : "block")">Projects</span>
-            </NavLink>
 
             @* 7. FIXED ASSETS *@
             <PermissionGate Key="FIXED_ASSETS_PAGE">
@@ -635,6 +659,8 @@
     private bool _hrMenuOpen;
     private bool _assetsMenuOpen;
     private bool _setupMenuOpen;
+    private bool _projectsMenuOpen;
+    private bool _projectsReportOpen;
 
     // Sub-Folder Toggles
     private bool _financeSetupOpen;
@@ -660,6 +686,7 @@
     private string userName = "Guest";
     private string userInitial = "G";
     private bool needsCompanySetup = false;
+    private Guid? currentCompanyId;
 
     private string SidebarClass =>
         $"fixed inset-y-0 left-0 z-40 bg-white border-r border-slate-200 transition-all duration-300 ease-in-out flex flex-col " +
@@ -677,6 +704,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        ApiService.CompanyProfileUpdated += HandleCompanyProfileUpdated;
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         var user = authState.User;
 
@@ -689,6 +718,7 @@
 
             if (dbUser?.CompanyDetailsId != null)
             {
+                currentCompanyId = dbUser.CompanyDetailsId.Value;
                 // ---> CRITICAL FIX: Load permissions into the cache before NavMenu renders <---
                 await PermissionCache.LoadAsync(dbUser.Id, dbUser.CompanyDetailsId.Value);
 
@@ -708,6 +738,9 @@
         }
 
         var path = new Uri(Nav.Uri).AbsolutePath.Trim('/').ToLowerInvariant();
+
+        _projectsMenuOpen = path.StartsWith("projects/") || path == "projects";
+        _projectsReportOpen = path.StartsWith("projects/report/") || path == "projects/report";
     
         if (path.StartsWith("seg-account-types") || path.StartsWith("finance/segments-setup") || path.StartsWith("finance/segmented-coa"))
         { _financeMenuOpen = true; _financeSetupOpen = true; }
@@ -736,10 +769,10 @@
         if (path.StartsWith("sc/items") || path.StartsWith("sc/uom") || path == "warehouses" || path.StartsWith("inventory/defaults"))
         { _inventoryMenuOpen = true; _inventorySetupOpen = true; }
 
-        if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("supply-chain/issue-to-project") || path.StartsWith("wh/shipments"))
+        if (path.StartsWith("sc/stock-entry") || path.StartsWith("sc/transfers") || path.StartsWith("wh/shipments"))
         { _inventoryMenuOpen = true; _inventoryTransOpen = true; }
 
-        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/stock-by-uom") || path.StartsWith("reports/consumption-log") || path.StartsWith("reports/stock-aging") || path.StartsWith("reports/inventory-valuation"))
+        if (path.StartsWith("sc/stock-list") || path.StartsWith("reports/stock-by-uom") || path.StartsWith("reports/stock-aging") || path.StartsWith("reports/inventory-valuation"))
         { _inventoryMenuOpen = true; _inventoryReportOpen = true; }
     
         if (path.StartsWith("hr/settings") || path.StartsWith("hr/employees"))
@@ -756,6 +789,32 @@
         
         // Force Blazor to re-evaluate the gates now that the cache is definitely loaded
         StateHasChanged();
+    }
+
+    private void HandleCompanyProfileUpdated(Guid companyId)
+    {
+        if (currentCompanyId != companyId) return;
+
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshCompanySetupStateAsync(companyId);
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshCompanySetupStateAsync(Guid companyId)
+    {
+        await using var ctx = await DbFactory.CreateDbContextAsync();
+        var company = await ctx.CompanyDetails.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CompanyDetailsId == companyId);
+
+        needsCompanySetup = company != null &&
+            (string.IsNullOrWhiteSpace(company.BaseCurrency) || company.FiscalStartYear == null);
+    }
+
+    public void Dispose()
+    {
+        ApiService.CompanyProfileUpdated -= HandleCompanyProfileUpdated;
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
@@ -780,7 +839,7 @@
     private void CloseAllMainMenus()
     {
         _financeMenuOpen = false; _salesMenuOpen = false; _purchasingMenuOpen = false;
-        _inventoryMenuOpen = false; _hrMenuOpen = false; _assetsMenuOpen = false; _setupMenuOpen = false;
+        _inventoryMenuOpen = false; _hrMenuOpen = false; _assetsMenuOpen = false; _setupMenuOpen = false; _projectsMenuOpen = false;
     }
 
     private void CloseAllSubMenus()
@@ -790,6 +849,7 @@
         _purchasingSetupOpen = false; _purchasingTransOpen = false; _purchasingReportOpen = false;
         _inventorySetupOpen = false; _inventoryTransOpen = false; _inventoryReportOpen = false;
         _hrSetupOpen = false; _hrTransOpen = false; _hrReportOpen = false;
+        _projectsReportOpen = false;
     }
 
     // Toggles now automatically expand the sidebar if it was collapsed!
@@ -800,6 +860,7 @@
     private async Task ToggleHrMenu() { await AutoExpand(); bool wasOpen = _hrMenuOpen; CloseAllMainMenus(); _hrMenuOpen = !wasOpen; }
     private async Task ToggleAssetsMenu() { await AutoExpand(); bool wasOpen = _assetsMenuOpen; CloseAllMainMenus(); _assetsMenuOpen = !wasOpen; }
     private async Task ToggleSetupMenu() { await AutoExpand(); bool wasOpen = _setupMenuOpen; CloseAllMainMenus(); _setupMenuOpen = !wasOpen; }
+    private async Task ToggleProjectsMenu() { await AutoExpand(); bool wasOpen = _projectsMenuOpen; CloseAllMainMenus(); _projectsMenuOpen = !wasOpen; }
 
     private void ToggleFinanceSetup() { bool wasOpen = _financeSetupOpen; CloseAllSubMenus(); _financeSetupOpen = !wasOpen; }
     private void ToggleFinanceTrans() { bool wasOpen = _financeTransOpen; CloseAllSubMenus(); _financeTransOpen = !wasOpen; }
@@ -816,6 +877,7 @@
     private void ToggleInventorySetup() { bool wasOpen = _inventorySetupOpen; CloseAllSubMenus(); _inventorySetupOpen = !wasOpen; }
     private void ToggleInventoryTrans() { bool wasOpen = _inventoryTransOpen; CloseAllSubMenus(); _inventoryTransOpen = !wasOpen; }
     private void ToggleInventoryReport() { bool wasOpen = _inventoryReportOpen; CloseAllSubMenus(); _inventoryReportOpen = !wasOpen; }
+    private void ToggleProjectsReport() { bool wasOpen = _projectsReportOpen; CloseAllSubMenus(); _projectsReportOpen = !wasOpen; }
 
     private void ToggleHrSetup() { bool wasOpen = _hrSetupOpen; CloseAllSubMenus(); _hrSetupOpen = !wasOpen; }
     private void ToggleHrTrans() { bool wasOpen = _hrTransOpen; CloseAllSubMenus(); _hrTransOpen = !wasOpen; }

@@ -23,6 +23,13 @@ namespace Primafit_ERP.Components.Models
 
         public string? Description { get; set; }
 
+        // The Projects table predates the accounting project dimension. Existing
+        // rows remain available for compatibility but the new module only manages
+        // rows explicitly created for project reporting.
+        public bool IsAccountingProject { get; set; }
+
+        public bool IsActive { get; set; } = true;
+
         [Column(TypeName = "decimal(18,4)")]
         public decimal BudgetedRevenue { get; set; }
 

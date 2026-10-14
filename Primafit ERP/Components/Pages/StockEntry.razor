@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject InventoryService InvService
+@inject ProjectService ProjectService
 @inject MasterDataService MasterService
 @inject WarehouseService WhService
 @inject CompanyApiService CompanyService
@@ -178,7 +179,7 @@
 
                             <div>
                                 <label class="label text-indigo-700">Adjustment Type</label>
-                                <select @bind="EntryType" class="input-class font-bold border-indigo-200 bg-indigo-50/30">
+                                <select @bind="EntryType" class="input-class font-bold border-indigo-200 bg-indigo-50/30" disabled="@(entryLines.Count > 0)">
                                     <option value="@StockEntryType.DirectReceipt">Direct Receipt (Vendor Purchase)</option>
                                     <option value="@StockEntryType.QuantityIncrease">Quantity Increase (+Qty Only)</option>
                                     <option value="@StockEntryType.QuantityDecrease">Quantity Decrease (-Qty Only)</option>
@@ -193,7 +194,7 @@
                             {
                                 <div class="animate-in slide-in-from-top-2">
                                     <label class="label">Vendor (Source)</label>
-                                    <select @bind="selectedVendorId" class="input-class">
+                                    <select @bind="selectedVendorId" class="input-class" disabled="@(entryLines.Count > 0)">
                                         <option value="@Guid.Empty">-- Select Vendor --</option>
                                         @foreach (var v in vendors)
                                         {
@@ -222,7 +223,7 @@
 
                             <div>
                                 <label class="label">Reference / Reason</label>
-                                <input type="text" @bind="referenceNote" class="input-class" placeholder="e.g., Audit found extra stock, Damaged in transit..." />
+                                <input type="text" @bind="referenceNote" class="input-class" placeholder="e.g., Audit found extra stock, Damaged in transit..." disabled="@(entryLines.Count > 0)" />
                             </div>
 
                         </div>
@@ -285,7 +286,36 @@
                                            readonly="@(!IsTotalCostEditable)" />
                                 </div>
                             </div>
+
+                            <div class="mt-5"><ProjectSelect @bind-Value="selectedProjectId" Projects="@projects" /></div>
+                            <div class="mt-4 flex justify-end gap-2">
+                                @if (editingStockLine is not null)
+                                {
+                                    <button type="button" @onclick="CancelStockLineEdit" class="px-4 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50">Cancel</button>
+                                }
+                                <button type="button" @onclick="AddStockLine" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700">@(editingStockLine is null ? "Add Item Line" : "Update Item Line")</button>
+                            </div>
                         </div>
+                    </div>
+
+                    <div class="mt-6 bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                        <div class="px-5 py-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                            <h3 class="text-sm font-black uppercase tracking-wide text-slate-700">Entry Lines</h3>
+                            <span class="text-xs font-bold text-slate-500">@entryLines.Count item(s)</span>
+                        </div>
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-[10px] uppercase text-slate-500 bg-white border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3 text-right">Value</th><th class="p-3">Project</th><th class="p-3"></th></tr></thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @foreach (var line in entryLines)
+                                {
+                                    <tr class="@(ReferenceEquals(editingStockLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3 text-right font-mono">@line.TotalValueChange.ToString("N2")</td><td class="p-3 text-xs">@GetProjectName(line.ProjectId)</td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditStockLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveStockLine(line)" class="text-rose-600 font-bold">Remove</button></td></tr>
+                                }
+                                @if (entryLines.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="p-8 text-center text-slate-400">Add one or more items to this stock entry.</td></tr>
+                                }
+                            </tbody>
+                        </table>
                     </div>
 
                     <div class="flex items-center justify-between pt-6 border-t border-slate-100">
@@ -294,7 +324,7 @@
                         </button>
                         <PermissionGate Key="INVENTORY_OPERATIONS_MANAGE">
                             <Authorized>
-                                <button @onclick="ProcessEntry" disabled="@isBusy" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
+                                <button @onclick="ProcessEntry" disabled="@(isBusy || entryLines.Count == 0 || editingStockLine is not null)" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-8 py-3 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
                                     @if (isBusy)
                                     {
                                         <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
@@ -302,7 +332,7 @@
                                     }
                                     else
                                     {
-                                        <span>Submit Entry for GL Review</span>
+                                        <span>Submit @entryLines.Count Item Line(s)</span>
                                     }
                                 </button>
                             </Authorized>
@@ -393,12 +423,16 @@
     private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
         conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<StockLedger> stockLedgerHistory = new();
+    private List<Project> projects = new();
+    private List<StockEntryBatchLineDto> entryLines = new();
+    private StockEntryBatchLineDto? editingStockLine;
 
     private StockEntryType entryType = StockEntryType.DirectReceipt;
     private Guid selectedVendorId;
     private Guid selectedWarehouseId;
     private Guid selectedItemId;
     private Guid? selectedUomId;
+    private Guid? selectedProjectId;
     private string referenceNote = "";
 
     private decimal _qty;
@@ -418,6 +452,7 @@
         get => entryType;
         set
         {
+            if (entryLines.Count > 0 && value != entryType) return;
             entryType = value;
             Recalculate();
         }
@@ -502,6 +537,7 @@
         warehouses = t2.Result;
         items = t3.Result;
         stockLedgerHistory = t4.Result;
+        projects = await ProjectService.GetActiveProjectsAsync(selectedCompanyId);
         itemUomLines = t5.Result;
         conversionRules = t6.Result;
         uoms = t7.Result;
@@ -614,58 +650,107 @@
         Qty = 0;
         UnitPrice = 0;
         TotalCost = 0;
+        selectedProjectId = null;
+        entryLines.Clear();
+        editingStockLine = null;
     }
+
+    private void AddStockLine()
+    {
+        if (selectedItemId == Guid.Empty) { _ = JS.InvokeVoidAsync("alert", "Select an item first."); return; }
+        if (IsServiceItem && entryType != StockEntryType.DirectReceipt) { _ = JS.InvokeVoidAsync("alert", "Service items can only be received directly."); return; }
+        if (!IsServiceItem && selectedWarehouseId == Guid.Empty) { _ = JS.InvokeVoidAsync("alert", "Select a warehouse first."); return; }
+        if (entryType == StockEntryType.DirectReceipt && selectedVendorId == Guid.Empty) { _ = JS.InvokeVoidAsync("alert", "Select a vendor for this receipt."); return; }
+        if (entryType != StockEntryType.CostIncrease && entryType != StockEntryType.CostDecrease && !IsServiceItem && Qty <= 0) { _ = JS.InvokeVoidAsync("alert", "Enter a quantity greater than zero."); return; }
+        if (entryType != StockEntryType.QuantityIncrease && entryType != StockEntryType.QuantityDecrease && TotalCost <= 0) { _ = JS.InvokeVoidAsync("alert", "Enter a value greater than zero."); return; }
+
+        var factor = IsServiceItem ? 1m : SelectedUomFactor;
+        var selectedQuantity = IsServiceItem ? 1m : Qty;
+        var baseQuantity = IsServiceItem ? 1m : UomConversion.ToBase(Qty, factor);
+        var uomName = IsServiceItem ? string.Empty : (GetItemUoms(SelectedItem).FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? SelectedItem?.UoM ?? "Each");
+        var updatedLine = new StockEntryBatchLineDto
+        {
+            ItemId = selectedItemId,
+            WarehouseId = IsServiceItem ? Guid.Empty : selectedWarehouseId,
+            Quantity = baseQuantity,
+            TotalValueChange = TotalCost,
+            UomId = selectedUomId,
+            UomName = uomName,
+            UomConversionFactor = factor,
+            QuantityInUom = selectedQuantity,
+            ProjectId = selectedProjectId
+        };
+
+        if (editingStockLine is null)
+        {
+            entryLines.Add(updatedLine);
+        }
+        else
+        {
+            var lineIndex = entryLines.IndexOf(editingStockLine);
+            if (lineIndex >= 0) entryLines[lineIndex] = updatedLine;
+            else entryLines.Add(updatedLine);
+        }
+
+        editingStockLine = null;
+        selectedItemId = Guid.Empty;
+        selectedUomId = null;
+        selectedProjectId = null;
+        Qty = 0;
+        UnitPrice = 0;
+        TotalCost = 0;
+    }
+
+    private void EditStockLine(StockEntryBatchLineDto line)
+    {
+        editingStockLine = line;
+        selectedItemId = line.ItemId;
+        selectedWarehouseId = line.WarehouseId;
+        selectedUomId = line.UomId;
+        selectedProjectId = line.ProjectId;
+        UnitPrice = line.QuantityInUom > 0 ? line.TotalValueChange / line.QuantityInUom : 0;
+        Qty = line.QuantityInUom;
+        TotalCost = line.TotalValueChange;
+    }
+
+    private void CancelStockLineEdit()
+    {
+        editingStockLine = null;
+        selectedItemId = Guid.Empty;
+        selectedWarehouseId = Guid.Empty;
+        selectedUomId = null;
+        selectedProjectId = null;
+        Qty = 0;
+        UnitPrice = 0;
+        TotalCost = 0;
+    }
+
+    private void RemoveStockLine(StockEntryBatchLineDto line)
+    {
+        if (ReferenceEquals(editingStockLine, line)) CancelStockLineEdit();
+        entryLines.Remove(line);
+    }
+    private string GetItemName(Guid itemId) => items.FirstOrDefault(x => x.Id == itemId)?.Name ?? "Unknown item";
+    private string GetProjectName(Guid? projectId) => projectId.HasValue
+        ? projects.FirstOrDefault(x => x.Id == projectId)?.Name ?? "Inactive project"
+        : "—";
 
     private async Task ProcessEntry()
     {
-        if (selectedItemId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select an Item."); return; }
-        if (!IsServiceItem && selectedWarehouseId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a Receiving Warehouse."); return; }
-        if (TotalCost <= 0) { await JS.InvokeVoidAsync("alert", "Total Cost / Value must be greater than zero."); return; }
+        if (editingStockLine is not null) { await JS.InvokeVoidAsync("alert", "Save or cancel the item line edit before submitting."); return; }
+        if (entryLines.Count == 0) { await JS.InvokeVoidAsync("alert", "Add at least one item line."); return; }
         if (string.IsNullOrWhiteSpace(referenceNote)) { referenceNote = entryType.ToString(); }
-
-        if (IsServiceItem && entryType != StockEntryType.DirectReceipt)
-        {
-            await JS.InvokeVoidAsync("alert", "Service items cannot be adjusted. They can only be purchased (Direct Receipt).");
-            return;
-        }
 
         isBusy = true;
         try
         {
-            string err = "";
-            Guid finalWhId = IsServiceItem ? Guid.Empty : selectedWarehouseId;
-            decimal finalQty = IsServiceItem ? 1 : UomConversion.ToBase(Qty, SelectedUomFactor);
-            decimal selectedQuantity = IsServiceItem ? 1 : Qty;
-            if (entryType == StockEntryType.QuantityDecrease || entryType == StockEntryType.BothDecrease)
-                selectedQuantity = -Math.Abs(selectedQuantity);
-            string selectedUomName = IsServiceItem
-                ? string.Empty
-                : (GetItemUoms(SelectedItem).FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? SelectedItem?.UoM ?? "Each");
-
-            if (entryType == StockEntryType.DirectReceipt)
-            {
-                if (selectedVendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Select a Vendor for a Direct Receipt."); isBusy = false; return; }
-
-                // Passed currentUserId here
-                err = await InvService.ReceiveStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, finalQty, TotalCost, selectedVendorId, referenceNote, currentUserId, selectedUomId, selectedUomName, SelectedUomFactor, selectedQuantity);
-            }
-            else
-            {
-                if (finalQty <= 0 && (entryType != StockEntryType.CostIncrease && entryType != StockEntryType.CostDecrease))
-                {
-                    await JS.InvokeVoidAsync("alert", "Quantity must be greater than zero for this adjustment type.");
-                    isBusy = false; return;
-                }
-
-                // Passed currentUserId here
-                err = await InvService.AdjustStockAsync(
-                    selectedCompanyId, selectedItemId, finalWhId, entryType, finalQty, TotalCost, referenceNote, currentUserId, selectedUomId, selectedUomName, SelectedUomFactor, selectedQuantity);
-            }
+            var err = await InvService.ProcessStockEntryBatchAsync(
+                selectedCompanyId, entryType, selectedVendorId, referenceNote, entryLines, currentUserId);
 
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Stock entry submitted for GL review.");
+                entryLines.Clear();
                 await LoadData();
                 currentPage = 1;
                 activeTab = 0;

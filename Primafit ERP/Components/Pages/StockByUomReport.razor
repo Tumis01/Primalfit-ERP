@@ -275,7 +275,7 @@
             groups.Add(new StockUomGroup
             {
                 ItemName = item.Name,
-                Sku = item.SKU,
+                Sku = item.Code,
                 WarehouseName = warehouseMap.GetValueOrDefault(position.WarehouseId, "Unknown"),
                 Primary = primary,
                 OffsetUoms = lines.Where(x => !x.IsPrimary).ToList(),
@@ -407,7 +407,7 @@
             CompanyName = companyName,
             ReportingPeriod = $"Warehouse: {warehouseLabel}",
             GeneratedBy = currentUserName,
-            Headers = new List<string> { "Warehouse", "Item", "SKU", "UOM", "Qty", "Unit Cost", "Stock Value" },
+            Headers = new List<string> { "Warehouse", "Item", "Code", "UOM", "Qty", "Unit Cost", "Stock Value" },
             Rows = exportRows
         };
     }

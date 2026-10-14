@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data.Seed;
@@ -38,6 +38,7 @@ namespace PrimafitERP.Data
         public DbSet<ItemUomConversionLine> ItemUomConversionLines { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
+        public DbSet<StockTransferLine> StockTransferLines { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
         public DbSet<SalesOrderLine> SalesOrderLines { get; set; }
         public DbSet<CustomerPayment> CustomerPayments { get; set; }
@@ -129,6 +130,13 @@ namespace PrimafitERP.Data
                 }
             }
 
+            // Unposted/rejected linked inventory movements must not affect any
+            // balance, report, or availability query. Null batch IDs are kept
+            // visible for historical ledger rows created before GL linking.
+            builder.Entity<StockLedger>().HasQueryFilter(x =>
+                x.GLBatchId == null || GLBatches.Any(batch => batch.Id == x.GLBatchId
+                    && batch.CompanyId == x.CompanyId && batch.Status == BatchStatus.Posted));
+
             builder.Entity<UomConversionRule>()
                 .HasIndex(x => new { x.CompanyId, x.FromUomId, x.ToUomId })
                 .IsUnique();
@@ -170,8 +178,9 @@ namespace PrimafitERP.Data
                 .HasOne(x => x.SequenceDefinition).WithMany().HasForeignKey(x => x.SequenceDefinitionId)
                 .OnDelete(DeleteBehavior.SetNull);
             builder.Entity<ItemCategory>()
-                .HasOne(x => x.SequenceDefinition).WithMany().HasForeignKey(x => x.SequenceDefinitionId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .HasOne(x => x.ItemCodeSequenceDefinition).WithMany().HasForeignKey(x => x.ItemCodeSequenceDefinitionId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<ItemCategory>().HasIndex(x => x.ItemCodeSequenceDefinitionId);
             builder.Entity<Customer>()
                 .HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
             builder.Entity<Vendor>()
@@ -194,6 +203,58 @@ namespace PrimafitERP.Data
                 .HasIndex(x => x.CompanyId)
                 .IsUnique()
                 .HasFilter("[IsBaseCurrency] = 1");
+            builder.Entity<Project>()
+                .HasIndex(x => new { x.CompanyId, x.ProjectCode })
+                .IsUnique()
+                .HasFilter("[IsAccountingProject] = 1");
+            builder.Entity<GLJournalLine>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<GLTransaction>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<StockLedger>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<StockTransfer>()
+                .HasMany(x => x.Lines).WithOne(x => x.Transfer).HasForeignKey(x => x.StockTransferId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<StockTransferLine>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<StockTransferLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<SalesOrder>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<PurchaseOrder>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<GoodsReceipt>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<VendorBill>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<VendorPayment>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<CreditNote>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<DebitNote>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<ReceiptRefund>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<VendorReturn>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<PaymentApplication>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
             builder.Entity<CurrencyManagement>()
                 .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -207,7 +268,7 @@ namespace PrimafitERP.Data
 
             builder.Entity<CreditNote>(entity =>
             {
-                
+
                 entity.HasOne(c => c.Customer)
                       .WithMany()
                       .HasForeignKey(c => c.CustomerId)
@@ -250,8 +311,13 @@ namespace PrimafitERP.Data
                    .WithMany(h => h.Lines)
                    .HasForeignKey(l => l.HeaderId)
                    .OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<CreditNoteLine>()
+                   .HasOne(l => l.Item)
+                   .WithMany()
+                   .HasForeignKey(l => l.ItemId)
+                   .OnDelete(DeleteBehavior.NoAction);
 
-            
+
 
             builder.Entity<GLMainAccount>()
                 .HasOne(m => m.AccountType)

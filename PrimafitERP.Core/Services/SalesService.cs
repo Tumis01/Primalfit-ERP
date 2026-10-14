@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -344,6 +344,7 @@ namespace Primafit_ERP.Services
             if (order == null) return "Order not found.";
 
             var glLines = new List<GLJournalLine>();
+            var stockMovements = new List<StockLedger>();
 
             foreach (var line in order.Lines)
             {
@@ -353,7 +354,7 @@ namespace Primafit_ERP.Services
                 if (currentStock < line.Quantity)
                     return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Need: {line.Quantity}";
 
-                ctx.StockLedgers.Add(new StockLedger
+                var stockMovement = new StockLedger
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = order.CompanyId,
@@ -364,13 +365,15 @@ namespace Primafit_ERP.Services
                     CostAtTime = line.Item.WeightedAverageCost,
                     Reference = order.OrderNumber,
                     Date = DateTime.UtcNow
-                });
+                };
+                ctx.StockLedgers.Add(stockMovement);
+                stockMovements.Add(stockMovement);
 
                 decimal cogsValueBase = line.Quantity * line.Item.WeightedAverageCost;
                 if (cogsValueBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.Code}" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.Code}" });
                 }
             }
 
@@ -378,8 +381,15 @@ namespace Primafit_ERP.Services
             {
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment", $"Ship {order.OrderNumber}", glLines, userId);
                 if (!string.IsNullOrEmpty(err)) return err;
-
-                if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
+                if (stockMovements.Count > 0 && !batchId.HasValue)
+                    return "GL staging did not create a review batch for this shipment.";
+                if (batchId.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
+                    if (!string.IsNullOrEmpty(postError)) return postError;
+                    foreach (var stockMovement in stockMovements)
+                        stockMovement.GLBatchId = batchId;
+                }
                 order.ShipmentBatchId = batchId;
             }
 
@@ -883,7 +893,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { OrderStatus.PartiallyInvoiced, OrderStatus.Invoiced };
 
-            // 1. Fetch sales lines matching parameters. 
+            // 1. Fetch sales lines matching parameters.
             // CRITICAL FIX: Explicitly ignore direct invoices by filtering out entries without an Item ID
             var query = ctx.SalesOrderLines
                 .Include(l => l.Header).ThenInclude(h => h.Customer)
@@ -909,7 +919,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Sales Analysis Ledger Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                // FIXED: Header titles explicitly modified to match required layout fields 
+                // FIXED: Header titles explicitly modified to match required layout fields
                 Headers = new List<string> { "Date / Reference", "Customer Name", "Type", "Quantity", "Price", "Amount" },
                 Rows = new List<List<string>>()
             };
@@ -981,4 +991,4 @@ namespace Primafit_ERP.Services
             return reportData;
         }
     }
-}   
+}

@@ -125,7 +125,10 @@ namespace Primafit_ERP.Services
                 Reference = $"Bill: {vendor.Name}"
             });
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
+            var (stockGlError, stockBatchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Purchase", $"Stock In - {item.Name}", glLines, userId);
+            if (!string.IsNullOrWhiteSpace(stockGlError)) return $"GL staging failed: {stockGlError}";
+            if (!stockBatchId.HasValue) return "GL staging failed: no review batch was created for the stock receipt.";
+            ledgerEntry.GLBatchId = stockBatchId;
 
             // 6. Save Everything
             await ctx.SaveChangesAsync();
@@ -144,7 +147,7 @@ namespace Primafit_ERP.Services
 
             decimal issueValue = qty * item.WeightedAverageCost;
 
-            ctx.StockLedgers.Add(new StockLedger
+            var issueMovement = new StockLedger
             {
                 CompanyId = companyId,
                 ItemId = itemId,
@@ -153,7 +156,8 @@ namespace Primafit_ERP.Services
                 Type = StockMovementType.Sale,
                 CostAtTime = item.WeightedAverageCost,
                 Reference = $"PRJ: {note}"
-            });
+            };
+            ctx.StockLedgers.Add(issueMovement);
 
             var glLines = new List<GLJournalLine>
             {
@@ -161,7 +165,10 @@ namespace Primafit_ERP.Services
                 new() { SegCoaId  = item.InventoryAssetAccountId, Debit = 0, Credit = issueValue, Reference = $"Issued from {warehouseId}" }
             };
 
-            await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines, userId);
+            var (issueGlError, issueBatchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Project Issue", note, glLines, userId);
+            if (!string.IsNullOrWhiteSpace(issueGlError)) return $"GL staging failed: {issueGlError}";
+            if (!issueBatchId.HasValue) return "GL staging failed: no review batch was created for the project issue.";
+            issueMovement.GLBatchId = issueBatchId;
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
@@ -195,7 +202,7 @@ namespace Primafit_ERP.Services
                 };
                 ctx.StockTransfers.Add(transfer);
 
-                ctx.StockLedgers.Add(new StockLedger
+                var outboundMovement = new StockLedger
                 {
                     CompanyId = companyId,
                     ItemId = itemId,
@@ -204,7 +211,8 @@ namespace Primafit_ERP.Services
                     Type = StockMovementType.TransferOut,
                     CostAtTime = item.WeightedAverageCost,
                     Reference = $"SHIP: {note}"
-                });
+                };
+                ctx.StockLedgers.Add(outboundMovement);
 
                 var glLines = new List<GLJournalLine>
                 {
@@ -215,12 +223,15 @@ namespace Primafit_ERP.Services
                 // Create GL Batch
                 var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", note, glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+                if (!batchId.HasValue) throw new Exception("Transfer shipment did not create a GL review batch.");
 
                 // Auto-Post GL Batch
                 if (batchId.HasValue)
                 {
                     var postErr = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                    transfer.GLBatchId = batchId;
+                    outboundMovement.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -245,11 +256,28 @@ namespace Primafit_ERP.Services
                 var transfer = await ctx.StockTransfers.Include(t => t.Item).FirstOrDefaultAsync(t => t.Id == transferId);
                 if (transfer == null) return "Transfer not found.";
 
-                transfer.Status = TransferStatus.Received;
-                transfer.DateReceived = DateTime.UtcNow;
-                transfer.QuantityReceived = actualQtyReceived;
+                if (transfer.GLBatchId.HasValue)
+                {
+                    var shipBatchStatus = await ctx.GLBatches.AsNoTracking()
+                        .Where(batch => batch.Id == transfer.GLBatchId.Value && batch.CompanyId == transfer.CompanyId)
+                        .Select(batch => (BatchStatus?)batch.Status)
+                        .FirstOrDefaultAsync();
+                    if (shipBatchStatus != BatchStatus.Posted)
+                        return "Transfer cannot be received until its shipment batch has been posted.";
+                }
 
-                ctx.StockLedgers.Add(new StockLedger
+                var receiptReference = $"RECV:{transfer.Id:N}|{transfer.Reference}";
+                bool receiptAwaitingReview = await ctx.StockLedgers.IgnoreQueryFilters()
+                    .AnyAsync(movement => movement.CompanyId == transfer.CompanyId
+                        && movement.Type == StockMovementType.TransferIn
+                        && movement.Reference == receiptReference
+                        && movement.GLBatchId.HasValue
+                        && ctx.GLBatches.Any(batch => batch.Id == movement.GLBatchId.Value
+                            && (batch.Status == BatchStatus.Draft || batch.Status == BatchStatus.Ready)));
+                if (receiptAwaitingReview)
+                    return "This transfer receipt is already awaiting GL review.";
+
+                var inboundMovement = new StockLedger
                 {
                     CompanyId = transfer.CompanyId,
                     ItemId = transfer.ItemId,
@@ -257,8 +285,9 @@ namespace Primafit_ERP.Services
                     QuantityChanged = actualQtyReceived,
                     Type = StockMovementType.TransferIn,
                     CostAtTime = transfer.Item.WeightedAverageCost,
-                    Reference = $"RECV: {transfer.Reference}"
-                });
+                    Reference = receiptReference
+                };
+                ctx.StockLedgers.Add(inboundMovement);
 
                 decimal totalShippedValue = transfer.ValueAtShipment;
                 decimal receivedValue = actualQtyReceived * transfer.Item.WeightedAverageCost;
@@ -284,12 +313,24 @@ namespace Primafit_ERP.Services
                 // Create GL Batch
                 var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(transfer.CompanyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Recv", transfer.Reference, glLines, userId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
+                if (!batchId.HasValue) throw new Exception("Transfer receipt did not create a GL review batch.");
 
                 // Auto-Post GL Batch
                 if (batchId.HasValue)
                 {
+                    inboundMovement.GLBatchId = batchId;
                     var postErr = await _glOps.PostBatchAsync(transfer.CompanyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Post Error: {postErr}");
+                    var receiptBatchStatus = await ctx.GLBatches.AsNoTracking()
+                        .Where(batch => batch.Id == batchId.Value && batch.CompanyId == transfer.CompanyId)
+                        .Select(batch => (BatchStatus?)batch.Status)
+                        .FirstOrDefaultAsync();
+                    if (receiptBatchStatus == BatchStatus.Posted)
+                    {
+                        transfer.Status = TransferStatus.Received;
+                        transfer.DateReceived = DateTime.UtcNow;
+                        transfer.QuantityReceived = actualQtyReceived;
+                    }
                 }
 
                 await ctx.SaveChangesAsync();
@@ -382,9 +423,10 @@ namespace Primafit_ERP.Services
                 });
 
                 // 2. Update Physical Stock Ledger
+                StockLedger? movementEntry = null;
                 if (qtyChange != 0)
                 {
-                    ctx.StockLedgers.Add(new StockLedger
+                    movementEntry = new StockLedger
                     {
                         Id = Guid.NewGuid(),
                         CompanyId = companyId,
@@ -395,7 +437,8 @@ namespace Primafit_ERP.Services
                         CostAtTime = item.WeightedAverageCost,
                         Reference = reference,
                         Date = DateTime.UtcNow
-                    });
+                    };
+                    ctx.StockLedgers.Add(movementEntry);
                 }
 
                 // 3. Post to General Ledger ONLY if value actually changed
@@ -419,7 +462,10 @@ namespace Primafit_ERP.Services
 
                     var (err, batchId) = await _glOps.CreateJournalEntryAsync(companyId, DateOnly.FromDateTime(DateTime.Today), "Inventory Adjustment", reference, glLines, userId);
                     if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Error: {err}");
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                    if (!batchId.HasValue) throw new Exception("GL staging did not create a review batch for this inventory adjustment.");
+                    var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                    if (!string.IsNullOrEmpty(postError)) throw new Exception($"GL posting error: {postError}");
+                    if (movementEntry != null) movementEntry.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -438,7 +484,9 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.StockTransfers
                 .Include(t => t.Item).Include(t => t.FromWarehouse).Include(t => t.ToWarehouse)
-                .Where(t => t.CompanyId == companyId && t.Status == TransferStatus.InTransit)
+                .Where(t => t.CompanyId == companyId && t.Status == TransferStatus.InTransit
+                    && (!t.GLBatchId.HasValue || ctx.GLBatches.Any(batch => batch.Id == t.GLBatchId.Value
+                        && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted)))
                 .OrderByDescending(t => t.DateShipped)
                 .ToListAsync();
         }
@@ -495,6 +543,7 @@ namespace Primafit_ERP.Services
             try
             {
                 var glLines = new List<GLJournalLine>();
+                var stagedMovements = new List<StockLedger>();
 
                 foreach (var line in validLines)
                 {
@@ -555,7 +604,7 @@ namespace Primafit_ERP.Services
                     // 5. Append Physical Warehouse Movement Logging entries
                     if (line.QuantityChange != 0)
                     {
-                        ctx.StockLedgers.Add(new StockLedger
+                        var movement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = companyId,
@@ -566,7 +615,9 @@ namespace Primafit_ERP.Services
                             CostAtTime = item.WeightedAverageCost,
                             Reference = $"ADJ-{postingDate:yyMMdd}",
                             Date = DateTime.UtcNow
-                        });
+                        };
+                        ctx.StockLedgers.Add(movement);
+                        stagedMovements.Add(movement);
                     }
                 }
 
@@ -574,12 +625,12 @@ namespace Primafit_ERP.Services
                 string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMddHHmm}";
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
                 if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
+                if (!batchId.HasValue) throw new Exception("GL staging did not create a review batch for this inventory adjustment.");
 
-                if (batchId.HasValue)
-                {
-                    var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
-                    if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
-                }
+                var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
+                if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                foreach (var movement in stagedMovements)
+                    movement.GLBatchId = batchId;
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();

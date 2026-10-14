@@ -201,6 +201,19 @@
                                 </table>
 
                                 <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                                    @if (IsDraftShipment(shp))
+                                    {
+                                        <PermissionGate Key="SHIPMENT_CREATE">
+                                            <Authorized>
+                                                <button type="button"
+                                                        @onclick="() => DeleteDraftShipment(shp)"
+                                                        disabled="@isBusy"
+                                                        class="px-5 py-2 rounded-xl text-rose-700 font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    Delete Draft
+                                                </button>
+                                            </Authorized>
+                                        </PermissionGate>
+                                    }
                                     <button type="button" @onclick="() => expandedShipmentId = Guid.Empty" class="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-50 border border-slate-200 transition-colors">
                                         Cancel
                                     </button>
@@ -274,8 +287,8 @@
 <!-- ROUTE CONFIGURATION MODAL -->
 @if (showRouteModal && selectedShipmentForConfig != null)
 {
-    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+    <div class="fixed inset-0 z-[120] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 route-config-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden route-config-dialog">
 
             <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
                 <div>
@@ -287,7 +300,7 @@
                 </button>
             </div>
 
-            <div class="p-6 overflow-visible space-y-5 flex-1">
+            <div class="p-6 overflow-visible space-y-5 flex-1 route-config-body">
                 <!-- Custom Template Profile Selector -->
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
@@ -374,7 +387,7 @@
                 </div>
             </div>
 
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] route-config-footer">
                 <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
                     Close
                 </button>
@@ -504,6 +517,10 @@
     private bool IsShipmentEditable(SalesShipment shipment) =>
         GetReviewStatus(shipment) is null or BatchStatus.Draft or BatchStatus.Rejected;
 
+    private bool IsDraftShipment(SalesShipment shipment) =>
+        shipment.Status == ShipmentStatus.Pending
+        && (GetReviewStatus(shipment) is null or BatchStatus.Draft);
+
     private SalesOrderLine? GetInvoiceLine(SalesShipment shipment, SalesShipmentLine line) =>
         shipment.SalesOrder?.Lines?.FirstOrDefault(orderLine => orderLine.Id == line.SalesOrderLineId);
 
@@ -592,6 +609,34 @@
     private void ToggleExpand(Guid id)
     {
         expandedShipmentId = expandedShipmentId == id ? Guid.Empty : id;
+    }
+
+    private async Task DeleteDraftShipment(SalesShipment shipment)
+    {
+        if (!IsDraftShipment(shipment) || isBusy) return;
+
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Delete shipment draft {shipment.ShipmentNumber}? This cannot be undone.");
+        if (!confirmed) return;
+
+        isBusy = true;
+        try
+        {
+            var error = await ShipmentService.DeleteDraftShipmentAsync(companyId, shipment.Id, currentUserId);
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                await JS.InvokeVoidAsync("alert", error);
+                return;
+            }
+
+            expandedShipmentId = Guid.Empty;
+            await LoadData();
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
     private decimal GetLineFactor(SalesShipmentLine line) => UomConversion.NormalizeFactor(line.UomConversionFactor);

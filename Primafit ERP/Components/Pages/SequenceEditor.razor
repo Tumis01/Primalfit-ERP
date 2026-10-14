@@ -41,20 +41,7 @@
             <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                 <div>
                     <h3 class="font-bold text-slate-900">Build the number format</h3>
-                    <p class="mt-1 text-sm text-slate-500">The parts are joined in the order shown. Every sequence needs exactly one sequence number.</p>
-                </div>
-                <div role="group" aria-label="Add a format part" class="flex flex-wrap gap-2">
-                    <button type="button" @onclick="() => AddComponent(SequenceComponentType.Constant)" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700">+ Fixed text</button>
-                    <button type="button" disabled="@HasSequenceNumber" @onclick="() => AddComponent(SequenceComponentType.SequenceNumber)" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40">+ Number</button>
-                    <div class="relative">
-                        <InputSelect @bind-Value="selectedDatePart" @bind-Value:after="AddDatePart" aria-label="Choose date part to add" class="rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-8 text-xs font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100">
-                            <option value="">Add date part…</option>
-                            <option value="@SequenceComponentType.Year">Year</option>
-                            <option value="@SequenceComponentType.Month">Month</option>
-                            <option value="@SequenceComponentType.Day">Day</option>
-                            <option value="@SequenceComponentType.FiscalYear">Fiscal year</option>
-                        </InputSelect>
-                    </div>
+                    <p class="mt-1 text-sm text-slate-500">Add a row for each part, then choose its component type. Every sequence needs one sequence number.</p>
                 </div>
             </div>
 
@@ -62,8 +49,9 @@
             {
                 <div class="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
                     <div aria-hidden="true" class="text-2xl text-slate-300">＋</div>
-                    <div class="mt-2 text-sm font-bold text-slate-700">Start with a format part</div>
-                    <p class="mt-1 text-xs text-slate-500">Add fixed text such as “INV-”, then add one incrementing number.</p>
+                    <div class="mt-2 text-sm font-bold text-slate-700">Add the first row</div>
+                    <p class="mt-1 text-xs text-slate-500">Choose a component type for each row you add.</p>
+                    <button type="button" disabled="@IsSaving" @onclick="AddRow" class="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50">+ Add row</button>
                 </div>
             }
             else
@@ -76,34 +64,37 @@
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div class="flex items-center gap-2">
                                     <span class="grid h-7 w-7 place-items-center rounded-lg bg-slate-100 font-mono text-xs font-bold text-slate-600">@(position + 1)</span>
-                                    <span class="text-xs font-bold uppercase tracking-wide text-slate-500">@ComponentLabel(component.ComponentType)</span>
+                                    <span class="text-xs font-bold uppercase tracking-wide text-slate-500">Format row</span>
                                 </div>
                                 <div role="group" aria-label="Reorder or remove part @(position + 1)" class="flex items-center gap-1">
-                                    <button type="button" disabled="@(position == 0 || IsSaving)" aria-label="Move part @(position + 1) up" title="Move up" @onclick="() => Move(component, -1)" class="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">↑</button>
-                                    <button type="button" disabled="@(position == OrderedComponents.Count - 1 || IsSaving)" aria-label="Move part @(position + 1) down" title="Move down" @onclick="() => Move(component, 1)" class="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35">↓</button>
                                     <button type="button" disabled="@IsSaving" aria-label="Remove part @(position + 1)" title="Remove part" @onclick="() => Remove(component)" class="ml-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-40">Remove</button>
                                 </div>
                             </div>
                             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_130px_minmax(0,1.15fr)]">
                                 <label class="block">
                                     <span class="mb-1 block text-xs font-semibold text-slate-600">Part type</span>
-                                    <InputSelect Value="component.ComponentType" ValueChanged="(SequenceComponentType value) => ChangeType(component, value)" ValueExpression="() => component.ComponentType" disabled="@IsSaving" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100">
+                                    <select value="@(IsUnconfigured(component) ? string.Empty : component.ComponentType.ToString())" @onchange="args => ChangeType(component, args.Value?.ToString())" disabled="@IsSaving" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100">
+                                        <option value="">Select a component type…</option>
                                         @foreach (var type in Enum.GetValues<SequenceComponentType>())
                                         {
                                             <option value="@type" disabled="@(type == SequenceComponentType.SequenceNumber && component.ComponentType != SequenceComponentType.SequenceNumber && HasSequenceNumber)">@ComponentLabel(type)</option>
                                         }
-                                    </InputSelect>
+                                    </select>
                                 </label>
                                 <label class="block">
                                     <span class="mb-1 block text-xs font-semibold text-slate-600">Length</span>
-                                    <InputNumber @bind-Value="component.Length" @bind-Value:after="NotifyChanged" min="@MinLength(component.ComponentType)" max="@MaxLength(component.ComponentType)" disabled="@IsSaving" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100" />
-                                    <span class="mt-1 block text-[11px] leading-4 text-slate-400">@LengthHint(component.ComponentType)</span>
+                                    <InputNumber @bind-Value="component.Length" @bind-Value:after="() => NormalizeLength(component)" min="@MinLength(component.ComponentType)" max="@MaxLength(component.ComponentType)" disabled="@(IsSaving || IsUnconfigured(component) || IsFixedLength(component.ComponentType))" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100" />
+                                    <span class="mt-1 block text-[11px] leading-4 text-slate-400">@(IsUnconfigured(component) ? "Choose a type first" : LengthHint(component.ComponentType))</span>
                                 </label>
                                 <div>
                                     <span class="mb-1 block text-xs font-semibold text-slate-600">Formula / value</span>
-                                    @if (component.ComponentType == SequenceComponentType.Constant)
+                                    @if (IsUnconfigured(component))
                                     {
-                                        <InputText @bind-Value="component.Formula" @bind-Value:after="NotifyChanged" maxlength="20" autocomplete="off" disabled="@IsSaving" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100" placeholder="Enter fixed text" />
+                                        <div class="flex min-h-[42px] items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-400">Choose a component type first</div>
+                                    }
+                                    else if (component.ComponentType == SequenceComponentType.Constant)
+                                    {
+                                        <InputText @bind-Value="component.Formula" @bind-Value:after="NotifyChanged" maxlength="20" autocomplete="off" disabled="@IsSaving" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100" placeholder="Enter constant" />
                                         <span class="mt-1 block text-[11px] leading-4 text-slate-400">Enter exactly @component.Length character(s).</span>
                                     }
                                     else
@@ -119,6 +110,7 @@
                         </li>
                     }
                 </ol>
+                <button type="button" disabled="@IsSaving" @onclick="AddRow" class="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50">+ Add row</button>
             }
         </div>
 
@@ -166,10 +158,11 @@
     [Parameter] public EventCallback OnChanged { get; set; }
 
     private string? validationMessage;
-    private string selectedDatePart = string.Empty;
+    private readonly HashSet<Guid> unconfiguredRowIds = new();
+    private SequenceDefinition? lastDefinition;
     private List<SequenceComponent> OrderedComponents => Definition.Components.OrderBy(x => x.OrderIndex).ToList();
-    private bool HasSequenceNumber => Definition.Components.Any(x => x.ComponentType == SequenceComponentType.SequenceNumber);
-    private string Preview => string.Concat(OrderedComponents.Select(x => x.ComponentType switch
+    private bool HasSequenceNumber => Definition.Components.Any(x => !IsUnconfigured(x) && x.ComponentType == SequenceComponentType.SequenceNumber);
+    private string Preview => string.Concat(OrderedComponents.Where(x => !IsUnconfigured(x)).Select(x => x.ComponentType switch
     {
         SequenceComponentType.Constant => x.Formula ?? string.Empty,
         SequenceComponentType.SequenceNumber => "1".PadLeft(Math.Clamp(x.Length, 1, 20), '0'),
@@ -179,46 +172,56 @@
         SequenceComponentType.FiscalYear => (DateTime.Today.Year % (int)Math.Pow(10, Math.Clamp(x.Length, 1, 3))).ToString().PadLeft(Math.Clamp(x.Length, 1, 3), '0'),
         _ => string.Empty
     }));
-    private int PreviewLength => OrderedComponents.Sum(x => Math.Max(0, x.Length));
+    private int PreviewLength => OrderedComponents.Where(x => !IsUnconfigured(x)).Sum(x => Math.Max(0, x.Length));
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(lastDefinition, Definition))
+        {
+            lastDefinition = Definition;
+            unconfiguredRowIds.Clear();
+            validationMessage = null;
+        }
+    }
+
+    private bool IsUnconfigured(SequenceComponent component) => unconfiguredRowIds.Contains(component.Id);
 
     private async Task NotifyChanged()
     {
-        validationMessage = DocumentNumberingService.ValidateDefinition(Definition);
+        validationMessage = unconfiguredRowIds.Count > 0 ? null : DocumentNumberingService.ValidateDefinition(Definition);
         await OnChanged.InvokeAsync();
     }
 
-    private async Task AddDatePart()
+    private void AddRow()
     {
-        if (Enum.TryParse<SequenceComponentType>(selectedDatePart, out var type)) await AddComponent(type);
-        selectedDatePart = string.Empty;
-    }
-
-    private async Task AddComponent(SequenceComponentType type)
-    {
-        if (type == SequenceComponentType.SequenceNumber && HasSequenceNumber) return;
-        var length = type switch
+        var component = new SequenceComponent
         {
-            SequenceComponentType.SequenceNumber => 4,
-            SequenceComponentType.Year => 4,
-            SequenceComponentType.Month or SequenceComponentType.Day => 2,
-            SequenceComponentType.FiscalYear => 3,
-            _ => 1
-        };
-        Definition.Components.Add(new SequenceComponent
-        {
+            Id = Guid.NewGuid(),
             SequenceDefinitionId = Definition.Id,
             OrderIndex = Definition.Components.Count,
-            ComponentType = type,
-            Length = length,
-            Formula = type == SequenceComponentType.Constant ? string.Empty : FormulaValue(type, length)
-        });
+            ComponentType = SequenceComponentType.Constant,
+            Length = 1,
+            Formula = null
+        };
+        Definition.Components.Add(component);
+        unconfiguredRowIds.Add(component.Id);
         Reindex();
-        await NotifyChanged();
+        validationMessage = null;
     }
 
-    private async Task ChangeType(SequenceComponent component, SequenceComponentType type)
+    private async Task ChangeType(SequenceComponent component, string? value)
     {
+        if (!Enum.TryParse<SequenceComponentType>(value, out var type))
+        {
+            component.ComponentType = SequenceComponentType.Constant;
+            component.Length = 1;
+            component.Formula = null;
+            unconfiguredRowIds.Add(component.Id);
+            await NotifyChanged();
+            return;
+        }
         if (type == SequenceComponentType.SequenceNumber && component.ComponentType != type && HasSequenceNumber) return;
+        unconfiguredRowIds.Remove(component.Id);
         component.ComponentType = type;
         component.Length = type switch
         {
@@ -232,9 +235,16 @@
         await NotifyChanged();
     }
 
+    private async Task NormalizeLength(SequenceComponent component)
+    {
+        component.Length = Math.Clamp(component.Length, MinLength(component.ComponentType), MaxLength(component.ComponentType));
+        await NotifyChanged();
+    }
+
     private async Task Remove(SequenceComponent component)
     {
         Definition.Components.Remove(component);
+        unconfiguredRowIds.Remove(component.Id);
         Reindex();
         await NotifyChanged();
     }
@@ -261,6 +271,11 @@
     private async Task Save()
     {
         if (IsSaving) return;
+        if (unconfiguredRowIds.Count > 0)
+        {
+            validationMessage = "Choose a component type for every row before saving.";
+            return;
+        }
         validationMessage = DocumentNumberingService.ValidateDefinition(Definition);
         if (validationMessage is not null) return;
         await OnSave.InvokeAsync(Definition);
@@ -280,6 +295,8 @@
         SequenceComponentType.Constant or SequenceComponentType.SequenceNumber => 20,
         _ => 2
     };
+
+    private static bool IsFixedLength(SequenceComponentType type) => type is SequenceComponentType.Month or SequenceComponentType.Day;
 
     private static string LengthHint(SequenceComponentType type) => type switch
     {
@@ -314,7 +331,7 @@
 
     private static string ComponentLabel(SequenceComponentType type) => type switch
     {
-        SequenceComponentType.Constant => "Fixed text",
+        SequenceComponentType.Constant => "Constant",
         SequenceComponentType.SequenceNumber => "Sequence number",
         SequenceComponentType.Year => "Year",
         SequenceComponentType.Month => "Month",

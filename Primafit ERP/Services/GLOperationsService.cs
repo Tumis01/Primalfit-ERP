@@ -117,8 +117,18 @@ namespace Primafit_ERP.Services
     string userId,
     bool requireAllowJournal = false,
             Guid? existingBatchId = null,
-            string? journalNumberOverride = null) // Automated sub-ledgers remain exempt from AllowJournal control accounts
+            string? journalNumberOverride = null,
+            Guid? inheritedProjectId = null) // Automated sub-ledgers remain exempt from AllowJournal control accounts
         {
+            // Project is a reporting dimension only. Applying a document-level
+            // project to untagged lines leaves explicitly tagged detail lines
+            // intact and never changes posting amounts or validation.
+            if (inheritedProjectId.HasValue)
+            {
+                foreach (var line in lines.Where(x => !x.ProjectId.HasValue))
+                    line.ProjectId = inheritedProjectId;
+            }
+
             string journalNumber = string.IsNullOrWhiteSpace(journalNumberOverride)
                 ? $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}"
                 : journalNumberOverride;
@@ -133,7 +143,8 @@ namespace Primafit_ERP.Services
                     journalNumber,
                     lines,
                     userId,
-                    existingBatchId);
+                    existingBatchId,
+                    inheritedProjectId: inheritedProjectId);
             }
 
             // Pass the bypass configuration down into the batch engine context
@@ -439,6 +450,7 @@ namespace Primafit_ERP.Services
                             Debit = line.Debit,
                             Credit = line.Credit,
                             Narration = line.Reference ?? journal.Narration,
+                            ProjectId = line.ProjectId,
                             CreatedAt = DateTime.UtcNow
                         });
 
@@ -464,6 +476,25 @@ namespace Primafit_ERP.Services
                 batch.IsLocked = true;
                 batch.PostedByUserId = userId;
                 batch.PostedAt = DateTime.UtcNow;
+                var transferReceiptMovements = await ctx.StockLedgers.IgnoreQueryFilters()
+                    .Where(movement => movement.GLBatchId == batch.Id
+                        && movement.CompanyId == companyId
+                        && movement.Type == StockMovementType.TransferIn)
+                    .ToListAsync();
+                foreach (var movement in transferReceiptMovements)
+                {
+                    var transferIdText = movement.Reference.Split('|', 2)[0].Replace("RECV:", string.Empty);
+                    if (!Guid.TryParseExact(transferIdText, "N", out var transferId)) continue;
+
+                    var transfer = await ctx.StockTransfers.FirstOrDefaultAsync(item =>
+                        item.Id == transferId && item.CompanyId == companyId);
+                    if (transfer == null) continue;
+
+                    transfer.Status = TransferStatus.Received;
+                    transfer.DateReceived = movement.Date;
+                    transfer.QuantityReceived = movement.QuantityChanged;
+                }
+
                 AddAudit(ctx, companyId, userId, "BatchPosted", nameof(GLBatch), batch.Id,
                     $"Batch '{batch.BatchName}' was approved and committed to the General Ledger.");
 
@@ -696,8 +727,15 @@ namespace Primafit_ERP.Services
     List<GLJournalLine> lines,
     string userId,
             Guid? existingBatchId = null,
-            bool? clearAfterPost = null)
+            bool? clearAfterPost = null,
+            Guid? inheritedProjectId = null)
         {
+            if (inheritedProjectId.HasValue)
+            {
+                foreach (var line in lines.Where(x => !x.ProjectId.HasValue))
+                    line.ProjectId = inheritedProjectId;
+            }
+
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
             var cleanLines = lines
@@ -834,6 +872,7 @@ namespace Primafit_ERP.Services
             existing.Reference = line.Reference;
             existing.Debit = line.Debit;
             existing.Credit = line.Credit;
+            existing.ProjectId = line.ProjectId;
 
             await ctx.SaveChangesAsync();
             return string.Empty;

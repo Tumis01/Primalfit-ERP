@@ -147,14 +147,7 @@ namespace Primafit_ERP.Services
 
                 // 4. DEBIT BANK (Liquid Asset Increases)
                 decimal totalBankBase = Math.Round(pay.AmountReceived * rate, 2);
-
-                glLines.Add(new GLJournalLine
-                {
-                    SegCoaId = bankAccount,
-                    Debit = totalBankBase,
-                    Credit = 0,
-                    Reference = $"Rcpt {pay.Reference}"
-                });
+                var projectWeights = new List<(Guid? ProjectId, decimal Weight)>();
 
                 // 5. Process Applications, Discounts, and Balance Checks
                 decimal totalDiscountsBase = 0;
@@ -165,6 +158,7 @@ namespace Primafit_ERP.Services
                 {
                     var invoice = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == app.InvoiceId);
                     if (invoice == null) continue;
+                    app.ProjectId = invoice.ProjectId;
 
                     decimal invoiceRate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
 
@@ -229,6 +223,7 @@ namespace Primafit_ERP.Services
                             SegCoaId = invoice.WithholdingSalesGlAccountId.Value,
                             Debit = withholdingBase,
                             Credit = 0,
+                            ProjectId = invoice.ProjectId,
                             Reference = $"Withholding Tax: {invoice.OrderNumber}"
                         });
                     }
@@ -258,12 +253,15 @@ namespace Primafit_ERP.Services
                             SegCoaId = discountAllowedGl,
                             Debit = discountTakenBase,
                             Credit = 0,
+                            ProjectId = invoice.ProjectId,
                             Reference = $"Disc Allowed: {invoice.OrderNumber}"
                         });
                     }
 
                     decimal totalLineSettledForeign = app.AppliedAmount + app.CashDiscountTaken + app.WithholdingAmountForeign;
                     totalArSettledBase += Math.Round(totalLineSettledForeign * invoiceRate, 2);
+                    var projectWeight = Math.Max(0m, Math.Round(totalLineSettledForeign * invoiceRate, 2));
+                    if (projectWeight > 0) projectWeights.Add((invoice.ProjectId, projectWeight));
 
                     decimal finalRemaining = netBalanceDue - totalLineSettledForeign;
                     invoice.Status = finalRemaining <= 0.01m ? OrderStatus.Invoiced : OrderStatus.PartiallyInvoiced;
@@ -271,14 +269,52 @@ namespace Primafit_ERP.Services
 
                 // 6. CREDIT ACCOUNTS RECEIVABLE (Asset Decreases)
                 decimal finalArCreditBase = totalBankBase + totalDiscountsBase + totalWithholdingBase;
-
-                glLines.Add(new GLJournalLine
+                var groupedProjectWeights = projectWeights
+                    .GroupBy(x => x.ProjectId)
+                    .Select(g => new { ProjectId = g.Key, Weight = g.Sum(x => x.Weight) })
+                    .ToList();
+                var totalProjectWeight = groupedProjectWeights.Sum(x => x.Weight);
+                if (totalProjectWeight <= 0)
                 {
-                    SegCoaId = arAccount,
-                    Debit = 0,
-                    Credit = finalArCreditBase,
-                    Reference = $"Pay Inv {pay.Reference}"
-                });
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = bankAccount, Debit = totalBankBase, Credit = 0,
+                        Reference = $"Rcpt {pay.Reference}"
+                    });
+                    glLines.Add(new GLJournalLine
+                    {
+                        SegCoaId = arAccount, Debit = 0, Credit = finalArCreditBase,
+                        Reference = $"Pay Inv {pay.Reference}"
+                    });
+                }
+                else
+                {
+                    decimal bankAllocated = 0;
+                    decimal arAllocated = 0;
+                    for (int i = 0; i < groupedProjectWeights.Count; i++)
+                    {
+                        var allocation = groupedProjectWeights[i];
+                        var isLast = i == groupedProjectWeights.Count - 1;
+                        var bankShare = isLast ? totalBankBase - bankAllocated
+                            : Math.Round(totalBankBase * allocation.Weight / totalProjectWeight, 2);
+                        var arShare = isLast ? finalArCreditBase - arAllocated
+                            : Math.Round(finalArCreditBase * allocation.Weight / totalProjectWeight, 2);
+                        bankAllocated += bankShare;
+                        arAllocated += arShare;
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = bankAccount, Debit = bankShare, Credit = 0,
+                            ProjectId = allocation.ProjectId,
+                            Reference = $"Rcpt {pay.Reference}"
+                        });
+                        glLines.Add(new GLJournalLine
+                        {
+                            SegCoaId = arAccount, Debit = 0, Credit = arShare,
+                            ProjectId = allocation.ProjectId,
+                            Reference = $"Pay Inv {pay.Reference}"
+                        });
+                    }
+                }
 
                 decimal totalDebits = glLines.Sum(x => x.Debit);
                 decimal totalCredits = glLines.Sum(x => x.Credit);

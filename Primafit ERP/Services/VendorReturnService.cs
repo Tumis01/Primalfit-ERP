@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -156,6 +156,7 @@ namespace Primafit_ERP.Services
                 CompanyId = po.CompanyId,
                 PurchaseOrderId = po.Id,
                 VendorId = po.VendorId,
+                ProjectId = po.ProjectId,
                 CurrencyId = po.CurrencyId,
                 ExchangeRate = po.ExchangeRate,
                 Date = DateOnly.FromDateTime(DateTime.Today),
@@ -365,7 +366,7 @@ namespace Primafit_ERP.Services
                             return $"Posting Aborted: Insufficient warehouse stock for '{line.Item.Name}'. In Stock: {currentWhStock:N2}, Attempting Return: {line.Quantity:N2}.";
 
                         // 1. Stock Ledger Outflow
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = vReturn.CompanyId,
@@ -377,10 +378,12 @@ namespace Primafit_ERP.Services
                             UomConversionFactor = line.UomConversionFactor,
                             QuantityInUom = UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                             Type = StockMovementType.PurchaseReturn,
+                            ProjectId = vReturn.ProjectId ?? po.ProjectId,
                             CostAtTime = poLine.UnitCost,
                             Reference = vReturn.ReturnNumber,
                             Date = DateTime.UtcNow
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
 
                         // 2. Direct Double Entry: DR Accounts Payable (Liability) | CR Inventory Asset
                         decimal lineStockValueBase = Math.Round(line.Quantity * poLine.UnitCost * rate, 2);
@@ -405,7 +408,7 @@ namespace Primafit_ERP.Services
                                 SegCoaId = debitApAccount,
                                 Debit = lineStockValueBase,
                                 Credit = 0,
-                                Reference = $"AP Liability Reduction: {line.Item.SKU}"
+                                Reference = $"AP Liability Reduction: {line.Item.Code}"
                             });
 
                             glLines.Add(new GLJournalLine
@@ -413,7 +416,7 @@ namespace Primafit_ERP.Services
                                 SegCoaId = creditAssetAccount,
                                 Debit = 0,
                                 Credit = lineStockValueBase,
-                                Reference = $"Stock Outflow (Return): {line.Item.SKU}"
+                                Reference = $"Stock Outflow (Return): {line.Item.Code}"
                             });
                         }
 
@@ -512,10 +515,24 @@ namespace Primafit_ERP.Services
                     vReturn.ReturnNumber,
                     glLines,
                     userId.ToString(),
-                    existingBatchId: vReturn.GlBatchId);
+                    existingBatchId: vReturn.GlBatchId,
+                    inheritedProjectId: vReturn.ProjectId ?? vReturn.PurchaseOrder?.ProjectId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(vReturn.CompanyId, batchId.Value, userId.ToString());
+                var stagedStockMovements = ctx.ChangeTracker.Entries<StockLedger>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.Reference == vReturn.ReturnNumber)
+                    .Select(entry => entry.Entity)
+                    .ToList();
+                if (stagedStockMovements.Count > 0 && !batchId.HasValue)
+                    throw new Exception("GL staging did not create a review batch for this vendor return.");
+                if (batchId.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(vReturn.CompanyId, batchId.Value, userId.ToString());
+                    if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                }
+
+                foreach (var stockMovement in stagedStockMovements)
+                    stockMovement.GLBatchId = batchId;
 
                 vReturn.Status = VendorReturnStatus.Posted;
                 vReturn.PostedAt = DateTime.UtcNow;

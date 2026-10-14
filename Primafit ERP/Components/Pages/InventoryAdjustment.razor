@@ -9,6 +9,7 @@
 @using System.IO
 
 @inject InventoryService InvService
+@inject ProjectService ProjectService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
@@ -92,6 +93,7 @@
                         <th class="p-4 text-right w-[11%]">Unit Cost</th>
                         <th class="p-4 text-right w-[10%] text-emerald-700">Debit (Dr)</th>
                         <th class="p-4 text-right w-[10%] text-rose-700">Credit (Cr)</th>
+                        <th class="p-4">Project</th>
                         <th class="p-4 pr-6 text-center w-[5%]">Action</th>
                     </tr>
                 </thead>
@@ -189,6 +191,7 @@
                                 </div>
                             </td>
 
+                            <td class="p-3 align-middle"><ProjectSelect @bind-Value="line.ProjectId" Projects="@projects" Label="" /></td>
                             <td class="p-3 pr-6 text-center align-middle">
                                 <button type="button" @onclick="() => RemoveLine(line)"
                                         class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
@@ -312,6 +315,7 @@
 
     private List<Item> items = new();
     private List<Warehouse> warehouses = new();
+    private List<Project> projects = new();
     private List<SegChartOfAccount> coaList = new();
     private List<InventoryAdjustmentUiRowDto> lines = new();
 
@@ -326,6 +330,7 @@
 
         public decimal DebitAmount { get; set; }
         public decimal CreditAmount { get; set; }
+        public Guid? ProjectId { get; set; }
 
         public bool IsDebitReadOnly => CreditAmount > 0;
         public bool IsCreditReadOnly => DebitAmount > 0;
@@ -349,6 +354,7 @@
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
             warehouses = await MasterService.GetREAlWarehousesAsync(currentCompanyId);
+            projects = await ProjectService.GetActiveProjectsAsync(currentCompanyId);
             coaList = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
 
             await LoadActiveRoutingConfigurationLabels();
@@ -486,7 +492,8 @@
                 WarehouseId = uiLine.WarehouseId,
                 IsDebitInventory = isDebit,
                 QuantityChange = computedQuantityChange,
-                TotalValueChange = absoluteValueChange
+                TotalValueChange = absoluteValueChange,
+                ProjectId = uiLine.ProjectId
             });
         }
 

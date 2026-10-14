@@ -22,6 +22,7 @@ namespace Primafit_ERP.Components.Models
         public Guid CompanyId { get; set; }
         public Guid BankAccountId { get; set; } // FK to GLChartOfAccount
 
+        public DateOnly? StatementStartDate { get; set; }
         public DateOnly StatementDate { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]

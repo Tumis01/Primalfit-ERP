@@ -331,6 +331,7 @@ namespace Primafit_ERP.Services
                 TaxId = req.TaxId,
                 TaxGLAccountId = req.TaxGLAccountId,
                 VendorId = req.VendorId,
+                ProjectId = req.ProjectId,
                 OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.Open,
                 CurrencyId = req.CurrencyId,
@@ -391,6 +392,7 @@ namespace Primafit_ERP.Services
                 TaxId = po.TaxId,
                 TaxGLAccountId = po.TaxGLAccountId,
                 VendorId = po.VendorId,
+                ProjectId = po.ProjectId,
                 OrderDate = DateTime.Now,
                 Status = PurchaseOrderStatus.DraftInvoice, // Initial state inside the Invoice workspace
                 CurrencyId = po.CurrencyId,
@@ -524,6 +526,7 @@ namespace Primafit_ERP.Services
                     CompanyId = invoiceOrder.CompanyId,
                     VendorId = invoiceOrder.VendorId,
                     PurchaseOrderId = invoiceOrder.Id,
+                    ProjectId = invoiceOrder.ProjectId,
                     AccountsPayableGlId = resolvedApAccount,
                     ExternalInvoiceNumber = invoiceOrder.OrderNumber,
                     BillDate = DateTime.Now,
@@ -658,7 +661,7 @@ namespace Primafit_ERP.Services
 
                 glLines.Add(new GLJournalLine { SegCoaId = resolvedApAccount, Debit = 0, Credit = grandTotalBase, Reference = $"AP Liability: {bill.ExternalInvoiceNumber}" });
 
-                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId, existingBatchId: invoiceOrder.GLBatchId);
+                var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(invoiceOrder.CompanyId, DateOnly.FromDateTime(bill.BillDate), "Purchase Invoice", $"Inv {bill.ExternalInvoiceNumber}", glLines, userId, existingBatchId: invoiceOrder.GLBatchId, inheritedProjectId: invoiceOrder.ProjectId);
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(invoiceOrder.CompanyId, batchId.Value, userId);
                 invoiceOrder.GLBatchId = batchId;
@@ -721,6 +724,7 @@ namespace Primafit_ERP.Services
 
                 var po = await ctx.PurchaseOrders.Include(p => p.Lines).FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
                 if (po == null) return "STOP: PO not found.";
+                grn.ProjectId = po.ProjectId;
 
                 var conversionMap = await ctx.UomConversionRules.AsNoTracking()
                     .Where(x => x.CompanyId == grn.CompanyId && x.IsActive)
@@ -798,6 +802,7 @@ namespace Primafit_ERP.Services
                 ctx.GoodsReceipts.Add(grn);
 
                 var glLines = new List<GLJournalLine>();
+                var stagedStockMovements = new List<StockLedger>();
                 decimal totalReceivedValueBase = 0;
 
                 // 3. Post Inventory & Financials
@@ -845,7 +850,7 @@ namespace Primafit_ERP.Services
                         receivedQtyByItem[item.Id] = receivedQtyByItem.GetValueOrDefault(item.Id) + grnLine.QuantityReceived;
 
                         // A. Physical Stock Increase
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = grn.CompanyId,
@@ -854,6 +859,7 @@ namespace Primafit_ERP.Services
                             Date = grn.DateReceived,
                             Reference = grn.GrnNumber,
                             Type = StockMovementType.Purchase,
+                            ProjectId = grn.ProjectId,
                             // QuantityChanged is the canonical physical quantity in
                             // the item's primary/reference UOM.
                             QuantityChanged = grnLine.QuantityReceived,
@@ -862,7 +868,9 @@ namespace Primafit_ERP.Services
                             UomConversionFactor = UomConversion.NormalizeFactor(grnLine.UomConversionFactor),
                             QuantityInUom = UomConversion.FromBase(grnLine.QuantityReceived, grnLine.UomConversionFactor),
                             CostAtTime = incomingUnitCostBase
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
+                        stagedStockMovements.Add(stockMovement);
 
                         // B. Debit: Inventory Stock Asset
                         Guid itemInventoryAssetAccount = grn.OverrideInventoryAssetGlAccountId
@@ -915,10 +923,19 @@ namespace Primafit_ERP.Services
                         $"GRN {grn.GrnNumber}",
                         glLines,
                         userId,
-                        existingBatchId: grn.GLBatchId);
+                        existingBatchId: grn.GLBatchId,
+                        inheritedProjectId: grn.ProjectId);
 
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                    if (stagedStockMovements.Count > 0 && !batchId.HasValue)
+                        throw new Exception("GL staging did not create a review batch for this goods receipt.");
+                    if (batchId.HasValue)
+                    {
+                        var postError = await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                        if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                        foreach (var stockMovement in stagedStockMovements)
+                            stockMovement.GLBatchId = batchId;
+                    }
                     grn.GLBatchId = batchId;
                 }
 
@@ -1118,7 +1135,8 @@ namespace Primafit_ERP.Services
             var (err, batchId) = await _glOps.CreateJournalEntryAsync(
                 bill.CompanyId, postDate, "Vendor Bill",
                 $"Inv #{bill.ExternalInvoiceNumber ?? "REF"}", glLines, userId,
-                existingBatchId: bill.GLBatchId
+                existingBatchId: bill.GLBatchId,
+                inheritedProjectId: bill.ProjectId
             );
 
             if (!string.IsNullOrEmpty(err)) return $"GL ERROR: {err}";
@@ -1171,6 +1189,7 @@ namespace Primafit_ERP.Services
                 if (bill == null) return "Vendor Bill not found.";
                 if (!bill.IsPosted) return "Cannot pay an unposted draft bill.";
                 if (payment.Amount <= 0) return "Payment amount must be greater than zero.";
+                payment.ProjectId = bill.ProjectId;
 
                 decimal rate = bill.ExchangeRate > 0 ? bill.ExchangeRate : 1.0m;
 
@@ -1321,7 +1340,8 @@ namespace Primafit_ERP.Services
                     string.IsNullOrWhiteSpace(payment.Reference) ? $"Pay {bill.ExternalInvoiceNumber}" : payment.Reference,
                     glLines,
                     userId,
-                    existingBatchId: payment.GLBatchId);
+                    existingBatchId: payment.GLBatchId,
+                    inheritedProjectId: bill.ProjectId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
                 if (batchId.HasValue) await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
@@ -1567,7 +1587,8 @@ namespace Primafit_ERP.Services
                     $"Bill {bill.ExternalInvoiceNumber}",
                     glLines,
                     userId,
-                    existingBatchId: bill.GLBatchId);
+                    existingBatchId: bill.GLBatchId,
+                    inheritedProjectId: bill.ProjectId);
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
@@ -2430,6 +2451,7 @@ var finalizedReversalLine = new VendorPayment
 {
     Id = Guid.NewGuid(),
     VendorBillId = bill.Id,
+    ProjectId = bill.ProjectId,
     Date = reversalPayment.Date,
     Amount = -finalAmountBase, // STORE TRUE BASE CURRENCY WITH NEGATIVE POLARITY
     BankGlAccountId = reversalPayment.BankGlAccountId,
@@ -2469,7 +2491,8 @@ var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(
     "AP Debit Note Reversal",
     finalizedReversalLine.Reference,
     glLines,
-    userId
+    userId,
+    inheritedProjectId: bill.ProjectId
 );
 
 if (!string.IsNullOrEmpty(glErr)) throw new Exception($"General Ledger Engine Rejection: {glErr}");

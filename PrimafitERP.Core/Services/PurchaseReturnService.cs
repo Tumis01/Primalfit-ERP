@@ -199,6 +199,7 @@ namespace Primafit_ERP.Services
                 if (originalBill == null) return "Original Bill not found.";
 
                 // --- A. STOCK LEDGER (Physical Reversal) ---
+                var stockMovements = new List<StockLedger>();
                 foreach (var line in rtv.Lines.Where(l => l.QtyReturning > 0))
                 {
                     decimal currentStock = await ctx.StockLedgers
@@ -208,7 +209,7 @@ namespace Primafit_ERP.Services
                     if (currentStock < line.QtyReturning)
                         throw new Exception($"Insufficient stock for {line.ItemName}. Have {currentStock.ToString("N2")} in this warehouse, trying to return {line.QtyReturning.ToString("N2")}.");
 
-                    ctx.StockLedgers.Add(new StockLedger
+                    var stockMovement = new StockLedger
                     {
                         Id = Guid.NewGuid(),
                         CompanyId = rtv.CompanyId,
@@ -219,7 +220,9 @@ namespace Primafit_ERP.Services
                         CostAtTime = line.UnitCost,
                         Reference = rtv.ReturnNumber,
                         Date = DateTime.UtcNow
-                    });
+                    };
+                    ctx.StockLedgers.Add(stockMovement);
+                    stockMovements.Add(stockMovement);
                 }
 
                 // --- B. FINANCIALS (GL) ---
@@ -277,8 +280,16 @@ namespace Primafit_ERP.Services
                     userId.ToString());
 
                 if (!string.IsNullOrEmpty(glErr)) throw new Exception($"GL Error: {glErr}");
+                if (stockMovements.Count > 0 && !batchId.HasValue)
+                    throw new Exception("GL staging did not create a review batch for this purchase return.");
 
-                if (batchId.HasValue) await _glOps.PostBatchAsync(rtv.CompanyId, batchId.Value, userId.ToString());
+                if (batchId.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(rtv.CompanyId, batchId.Value, userId.ToString());
+                    if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                    foreach (var stockMovement in stockMovements)
+                        stockMovement.GLBatchId = batchId;
+                }
 
                 // --- C. FINALIZE ---
                 rtv.Status = ReturnStatus.Posted;

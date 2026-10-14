@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -35,10 +35,10 @@ namespace Primafit_ERP.Services
                                        join s in ctx.StockLedgers.AsNoTracking() on i.Id equals s.ItemId into stock
                                        from s in stock.DefaultIfEmpty() // Left join to include items with 0 stock
                                        where i.CompanyId == companyId && !i.IsService
-                                       group s by new { i.SKU, i.Name, i.UoM, i.WeightedAverageCost } into g
+                                       group s by new { i.Code, i.Name, i.UoM, i.WeightedAverageCost } into g
                                        select new
                                        {
-                                           SKU = g.Key.SKU,
+                                           Code = g.Key.Code,
                                            ItemName = g.Key.Name,
                                            UoM = g.Key.UoM,
                                            WACC = g.Key.WeightedAverageCost,
@@ -52,7 +52,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Inventory Valuation Report (WACC)",
                 ReportingPeriod = $"As of {DateTime.Today:MMM dd, yyyy}",
-                Headers = new List<string> { "SKU", "Item Description", "UoM", "Qty on Hand", "Unit Cost (WACC)", "Total Value" }
+                Headers = new List<string> { "Code", "Item Description", "UoM", "Qty on Hand", "Unit Cost (WACC)", "Total Value" }
             };
 
             decimal grandTotalValue = 0;
@@ -66,7 +66,7 @@ namespace Primafit_ERP.Services
 
                 report.Rows.Add(new List<string>
                 {
-                    item.SKU,
+                    item.Code,
                     item.ItemName,
                     item.UoM,
                     item.TotalQty.ToString("N2"),
@@ -102,7 +102,7 @@ namespace Primafit_ERP.Services
                                           {
                                               s.Date,
                                               s.Reference,
-                                              i.SKU,
+                                              i.Code,
                                               i.Name,
                                               // StockLedger records outbound as negative, so we use Math.Abs
                                               ConsumedQty = Math.Abs(s.QuantityChanged),
@@ -113,7 +113,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Internal Consumption & Project Issue Log",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
-                Headers = new List<string> { "Date", "Project/Ref", "SKU", "Item Description", "Qty Consumed", "Value at Issue" }
+                Headers = new List<string> { "Date", "Project/Ref", "Code", "Item Description", "Qty Consumed", "Value at Issue" }
             };
 
             decimal grandTotalConsumed = 0;
@@ -127,7 +127,7 @@ namespace Primafit_ERP.Services
                 {
                     log.Date.ToString("yyyy-MM-dd"),
                     log.Reference.Replace("PRJ: ", ""), // Clean up the prefix for presentation
-                    log.SKU,
+                    log.Code,
                     log.Name,
                     log.ConsumedQty.ToString("N2"),
                     value.ToString("N2")
@@ -155,7 +155,7 @@ namespace Primafit_ERP.Services
                                    where totalQty > 0 // Only care about items we actually have in stock
                                    select new
                                    {
-                                       i.SKU,
+                                       i.Code,
                                        i.Name,
                                        TotalQty = totalQty,
                                        i.WeightedAverageCost,
@@ -166,7 +166,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Stock Aging (Slow Moving Items)",
                 ReportingPeriod = $"Items inactive for {daysWithoutMovementThreshold}+ days",
-                Headers = new List<string> { "SKU", "Item Description", "Qty on Hand", "Last Movement Date", "Days Inactive", "Capital Tied Up" }
+                Headers = new List<string> { "Code", "Item Description", "Qty on Hand", "Last Movement Date", "Days Inactive", "Capital Tied Up" }
             };
 
             decimal totalCapitalTiedUp = 0;
@@ -186,7 +186,7 @@ namespace Primafit_ERP.Services
 
                     report.Rows.Add(new List<string>
                     {
-                        item.SKU,
+                        item.Code,
                         item.Name,
                         item.TotalQty.ToString("N2"),
                         item.LastMoveDate.HasValue ? item.LastMoveDate.Value.ToString("yyyy-MM-dd") : "Never",
@@ -463,7 +463,7 @@ namespace Primafit_ERP.Services
                 .Where(x => !string.IsNullOrWhiteSpace(x.CustomerAddress))
                 .ToList();
 
-            
+
 
             var table = new Table(UnitValue.CreatePercentArray(new float[] { 1.1f, 2.2f, 1.6f, 1.5f, 3f, 1.3f, 1.3f, 1.4f }))
                 .UseAllAvailableWidth();

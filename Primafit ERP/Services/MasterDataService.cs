@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -46,7 +46,7 @@ namespace Primafit_ERP.Services
             if (await ctx.Customers.AnyAsync(x => x.CompanyId == customer.CompanyId && x.Code.ToLower() == customer.Code.ToLower() && x.Id != customer.Id))
                 return $"Customer Code '{customer.Code}' already exists in this company.";
 
-            // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor) 
+            // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor)
             // via the @onchange event, so we just save whatever the model contains here.
 
             if (customer.Id == Guid.Empty || !await ctx.Customers.AnyAsync(x => x.Id == customer.Id))
@@ -123,16 +123,57 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        public async Task<string> SaveItemAsync(Item item)
+        public Task<string> SaveItemAsync(Item item) => SaveItemCoreAsync(item, null);
+
+        public Task<string> SaveItemWithUomConversionAsync(Item item, ItemUomConversionLine conversionLine)
+            => SaveItemCoreAsync(item, conversionLine);
+
+        private async Task<string> SaveItemCoreAsync(Item item, ItemUomConversionLine? conversionLine)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
-            if (string.IsNullOrWhiteSpace(item.SKU)) return "Code is required.";
+            if (item.CategoryId.HasValue
+                && !await ctx.ItemCategories.AnyAsync(x => x.Id == item.CategoryId.Value && x.CompanyId == item.CompanyId))
+                return "Select an item category belonging to this company.";
 
             if (!item.IsService && item.InventoryAssetAccountId == Guid.Empty)
                 return "Inventory Asset Account is required for physical goods.";
+
+            var existingItemForCode = item.Id == Guid.Empty ? null : await ctx.Items.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == item.Id && x.CompanyId == item.CompanyId);
+            if (conversionLine is not null && item.Id != Guid.Empty && existingItemForCode is null)
+                return "The item could not be found for this company. Save the item before saving its UOM conversions.";
+            var category = item.CategoryId.HasValue
+                ? await ctx.ItemCategories.AsNoTracking().FirstOrDefaultAsync(x => x.Id == item.CategoryId.Value && x.CompanyId == item.CompanyId)
+                : null;
+            if (item.CategoryId.HasValue && category is null) return "Select an item category belonging to this company.";
+            var sequenceId = category?.ItemCodeSequenceDefinitionId;
+            if (sequenceId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x =>
+                x.Id == sequenceId.Value && x.CompanyId == item.CompanyId && x.TargetType == SequenceTargetType.ItemCode))
+                return "The selected item category has an invalid item code sequence.";
+            var shouldGenerateCode = sequenceId.HasValue && (existingItemForCode is null
+                || existingItemForCode.CategoryId != item.CategoryId
+                || string.IsNullOrWhiteSpace(item.Code));
+            await using var transaction = shouldGenerateCode || conversionLine is not null
+                ? await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable)
+                : null;
+            if (shouldGenerateCode && sequenceId is Guid assignedSequenceId)
+            {
+                try
+                {
+                    item.Code = await _numberingService.ReserveNextNumberWithinTransactionAsync(
+                        ctx, assignedSequenceId, exceptEntityId: item.Id);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return $"Could not generate an item code: {ex.Message}";
+                }
+            }
+            item.Code = item.Code?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(item.Code))
+                return "Enter an item code. A code is generated automatically only when the selected category has an assigned sequence.";
 
             if (!item.IsService)
             {
@@ -156,11 +197,35 @@ namespace Primafit_ERP.Services
                 item.UoM = string.Empty;
             }
 
+            UnitOfMeasure? conversionUom = null;
+            if (conversionLine is not null)
+            {
+                if (item.IsService)
+                    return "Additional UOM conversions can only be added to physical inventory items.";
+                if (!item.UomId.HasValue)
+                    return "Select a primary UOM before adding conversion UOMs.";
+                if (conversionLine.UomId == Guid.Empty || conversionLine.ConversionFactorToBase <= 0)
+                    return "Select an additional UOM and enter a conversion factor greater than zero.";
+
+                conversionUom = await ctx.UnitOfMeasures.AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == conversionLine.UomId && u.CompanyId == item.CompanyId);
+                if (conversionUom is null)
+                    return "The selected UOM could not be found for this company. Refresh the UOM list and try again.";
+                if (item.UomId == conversionLine.UomId)
+                    return "The primary UOM is already configured on the item.";
+
+                var primaryUomChanged = existingItemForCode is not null && existingItemForCode.UomId != item.UomId;
+                if (!primaryUomChanged && existingItemForCode is not null && await ctx.ItemUomConversionLines.AnyAsync(x =>
+                    x.ItemId == item.Id && x.UomId == conversionLine.UomId && x.Id != conversionLine.Id))
+                    return "This UOM is already configured for the item.";
+            }
+
             if (item.SalesIncomeAccountId == Guid.Empty) return "Sales Income Account is required.";
             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return "COGS/Expense Account is required.";
 
-            bool isSkuDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.SKU == item.SKU && i.Id != item.Id);
-            if (isSkuDuplicate) return ($"The SKU '{item.SKU}' is already in use.");
+            bool isCodeDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId
+                && i.Code.ToLower() == item.Code.ToLower() && i.Id != item.Id);
+            if (isCodeDuplicate) return $"Item Code '{item.Code}' is already in use.";
 
             bool isNameDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.Name == item.Name && i.Id != item.Id);
             if (isNameDuplicate) return ($"The Item Name '{item.Name}' is already in use.");
@@ -196,7 +261,31 @@ namespace Primafit_ERP.Services
                 }
             }
 
+            if (conversionLine is not null)
+            {
+                var existingConversion = await ctx.ItemUomConversionLines
+                    .FirstOrDefaultAsync(x => x.Id == conversionLine.Id && x.ItemId == item.Id);
+                if (existingConversion is null)
+                {
+                    ctx.ItemUomConversionLines.Add(new ItemUomConversionLine
+                    {
+                        Id = conversionLine.Id == Guid.Empty ? Guid.NewGuid() : conversionLine.Id,
+                        ItemId = item.Id,
+                        UomId = conversionLine.UomId,
+                        ConversionFactorToBase = conversionLine.ConversionFactorToBase,
+                        IsActive = true
+                    });
+                }
+                else
+                {
+                    existingConversion.UomId = conversionLine.UomId;
+                    existingConversion.ConversionFactorToBase = conversionLine.ConversionFactorToBase;
+                    existingConversion.IsActive = true;
+                }
+            }
+
             await ctx.SaveChangesAsync();
+            if (transaction is not null) await transaction.CommitAsync();
             return string.Empty;
         }
         public async Task<string> DeleteVendorAsync(Guid id)
@@ -328,7 +417,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
         // --- UNIT OF MEASURE ---
-       
+
         public async Task<List<UnitOfMeasure>> GetUnitOfMeasuresAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -422,7 +511,8 @@ namespace Primafit_ERP.Services
                 return "Select a UOM and enter a conversion factor greater than zero.";
             var item = await ctx.Items.AsNoTracking().FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
             var uom = await ctx.UnitOfMeasures.AsNoTracking().FirstOrDefaultAsync(x => x.Id == line.UomId && x.CompanyId == companyId);
-            if (item == null || uom == null) return "The selected item or UOM is invalid.";
+            if (item == null) return "The item could not be found for this company. Save the item before saving its UOM conversions.";
+            if (uom == null) return "The selected UOM could not be found for this company. Refresh the UOM list and try again.";
             if (item.UomId == line.UomId)
                 return "The primary UOM is already configured on the item.";
             if (await ctx.ItemUomConversionLines.AnyAsync(x => x.ItemId == line.ItemId && x.UomId == line.UomId && x.Id != line.Id))
@@ -541,6 +631,7 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             return await ctx.ItemCategories
+                .Include(c => c.ItemCodeSequenceDefinition)
                 .Where(c => c.CompanyId == companyId)
                 .OrderBy(c => c.Name)
                 .AsNoTracking()
@@ -551,13 +642,12 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             if (string.IsNullOrWhiteSpace(category.Name)) return "Category Name is required.";
-            if (category.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x =>
-                x.Id == category.SequenceDefinitionId.Value && x.CompanyId == category.CompanyId && x.TargetType == SequenceTargetType.ItemCategoryCode))
-                return "Select an item category sequence belonging to this company.";
+            if (category.ItemCodeSequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x =>
+                x.Id == category.ItemCodeSequenceDefinitionId.Value && x.CompanyId == category.CompanyId && x.TargetType == SequenceTargetType.ItemCode))
+                return "Select an item code sequence belonging to this company.";
             if (string.IsNullOrWhiteSpace(category.Code))
-                category.Code = category.SequenceDefinitionId.HasValue
-                    ? await _numberingService.GenerateAndReserveNextNumberAsync(category.SequenceDefinitionId.Value)
-                    : await _numberingService.GenerateAndReserveNextNumberAsync(category.CompanyId, SequenceTargetType.ItemCategoryCode);
+                return "Category Code is required.";
+            category.Code = category.Code.Trim();
             if (category.Code.Length > 50) return "Category Code cannot exceed 50 characters.";
             if (await ctx.ItemCategories.AnyAsync(x => x.CompanyId == category.CompanyId && x.Code.ToLower() == category.Code.ToLower() && x.Id != category.Id))
                 return $"Category Code '{category.Code}' already exists in this company.";

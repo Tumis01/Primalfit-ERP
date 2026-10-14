@@ -1,0 +1,336 @@
+@page "/reports/reconciliation"
+@using System.Globalization
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using BankReconciliationEntity = Primafit_ERP.Components.Models.BankReconciliation
+@using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject ReconciliationService ReconService
+@inject SegCoaService CoaService
+@inject ReportExportService ExportService
+@inject CompanyApiService CompanyService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+<div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <h1 class="text-2xl font-bold text-slate-900">Reconciliation Report</h1>
+        <p class="mt-1 text-sm text-slate-500">Review completed and draft bank reconciliations, including cleared activity and outstanding items.</p>
+
+        <div class="mt-5 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Bank Account</label>
+                <select @bind="selectedBankId" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <option value="@Guid.Empty">All bank and cash accounts</option>
+                    @foreach (var account in bankAccounts)
+                    {
+                        <option value="@account.Id">@account.AccountCode — @account.Description</option>
+                    }
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Start Date</label>
+                <InputDate @bind-Value="filterStartDate" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+            </div>
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">End Date</label>
+                <InputDate @bind-Value="filterEndDate" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm" />
+            </div>
+            <button @onclick="LoadHistoryAsync" disabled="@(isLoading || filterStartDate > filterEndDate)" class="rounded-lg bg-slate-900 px-5 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-50">
+                @(isLoading ? "Loading…" : "Find Reconciliations")
+            </button>
+        </div>
+        @if (filterStartDate > filterEndDate)
+        {
+        <p class="mt-2 text-xs font-semibold text-rose-600">The start date must be on or before the end date.</p>
+        }
+        else
+        {
+            <p class="mt-2 text-xs text-slate-500">Shows reconciliations whose statement periods overlap these dates.</p>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">Loading reconciliation history…</div>
+    }
+    else if (reconciliations.Count == 0)
+    {
+        <div class="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">No reconciliations were found for the selected filters.</div>
+    }
+    else
+    {
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="border-b border-slate-100 bg-slate-50 px-5 py-3 flex items-center justify-between">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-700">Reconciliation History</h2>
+                <span class="text-xs text-slate-500">@reconciliations.Count records</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-white text-xs uppercase text-slate-500">
+                        <tr>
+                            <th class="px-5 py-3">Statement Period</th>
+                            <th class="px-5 py-3">Bank Account</th>
+                            <th class="px-5 py-3">Method</th>
+                            <th class="px-5 py-3 text-right">Statement Balance</th>
+                            <th class="px-5 py-3">Status</th>
+                            <th class="px-5 py-3"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var reconciliation in reconciliations)
+                        {
+                            var account = bankAccounts.FirstOrDefault(a => a.Id == reconciliation.BankAccountId);
+                            <tr class="hover:bg-slate-50 @(selectedReconciliationId == reconciliation.Id ? "bg-indigo-50/60" : "")">
+                                <td class="px-5 py-3 whitespace-nowrap">@(reconciliation.StatementStartDate?.ToString("dd MMM yyyy") ?? "Beginning") – @reconciliation.StatementDate.ToString("dd MMM yyyy")</td>
+                                <td class="px-5 py-3">@account?.AccountCode — @account?.Description</td>
+                                <td class="px-5 py-3">@reconciliation.Type</td>
+                                <td class="px-5 py-3 text-right font-mono">@reconciliation.StatementEndingBalance.ToString("N4")</td>
+                                <td class="px-5 py-3"><span class="rounded-full px-2 py-1 text-xs font-bold @(reconciliation.Status == ReconStatus.Finalized ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")">@reconciliation.Status</span></td>
+                                <td class="px-5 py-3 text-right"><button @onclick="() => SelectReconciliationAsync(reconciliation.Id)" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100">View Report</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (isLoadingReport)
+    {
+        <div class="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Preparing reconciliation report…</div>
+    }
+    else if (reportVm != null && reportData != null)
+    {
+        <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div class="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="font-bold text-slate-900">@reportData.ReportName</h2>
+                    <p class="mt-1 text-xs text-slate-500">@reportData.ReportingPeriod</p>
+                </div>
+                <div class="flex gap-2">
+                    <button @onclick="ExportPdfAsync" disabled="@isExporting" class="rounded-lg border border-rose-200 bg-white px-4 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Download PDF</button>
+                    <button @onclick="ExportExcelAsync" disabled="@isExporting" class="rounded-lg border border-emerald-200 bg-white px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">Download Excel</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 border-b border-slate-100 p-5 sm:grid-cols-3">
+                <div class="rounded-xl border border-slate-200 p-4"><div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Statement Balance</div><div class="mt-1 font-mono font-bold">@reportVm.Reconciliation.StatementEndingBalance.ToString("N4")</div></div>
+                <div class="rounded-xl border border-slate-200 p-4"><div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Book Balance (Cleared)</div><div class="mt-1 font-mono font-bold text-indigo-700">@reportVm.ClearedBookBalance.ToString("N4")</div></div>
+                <div class="rounded-xl border border-slate-200 p-4"><div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Difference</div><div class="mt-1 font-mono font-bold @(reportVm.Difference == 0 ? "text-emerald-700" : "text-rose-700")">@reportVm.Difference.ToString("N4")</div></div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-900 text-xs uppercase tracking-wide text-white">
+                        <tr><th class="px-5 py-3">Date</th><th class="px-5 py-3">Reference</th><th class="px-5 py-3">Description</th><th class="px-5 py-3 text-right">Debit</th><th class="px-5 py-3 text-right">Credit</th><th class="px-5 py-3">Status</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var row in reportData.Rows)
+                        {
+                            if (string.IsNullOrEmpty(row[0]) && row[1].StartsWith("SUMMARY -", StringComparison.Ordinal))
+                            {
+                                <tr class="bg-indigo-50"><td colspan="6" class="px-5 py-2 text-xs font-bold uppercase tracking-wide text-indigo-800">@row[1]</td></tr>
+                            }
+                            else if (string.IsNullOrEmpty(row[0]))
+                            {
+                                <tr class="bg-slate-50"><td colspan="5" class="px-5 py-2 font-semibold text-slate-700">@row[1]</td><td class="px-5 py-2 text-right font-mono font-bold">@row[5]</td></tr>
+                            }
+                            else
+                            {
+                                <tr class="hover:bg-slate-50"><td class="px-5 py-2 whitespace-nowrap text-xs text-slate-500">@row[0]</td><td class="px-5 py-2 text-xs font-mono text-slate-600">@row[1]</td><td class="px-5 py-2">@row[2]</td><td class="px-5 py-2 text-right font-mono">@row[3]</td><td class="px-5 py-2 text-right font-mono">@row[4]</td><td class="px-5 py-2 text-xs">@row[5]</td></tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private Guid companyId;
+    private Guid selectedBankId;
+    private Guid? selectedReconciliationId;
+    private DateOnly filterStartDate = DateOnly.MinValue;
+    private DateOnly filterEndDate = DateOnly.FromDateTime(DateTime.Today);
+    private string companyName = "";
+    private string currencyCode = "Base";
+    private string currentUserName = "Finance & GL";
+    private bool isLoading = true;
+    private bool isLoadingReport;
+    private bool isExporting;
+    private List<SegChartOfAccount> bankAccounts = new();
+    private List<BankReconciliationEntity> reconciliations = new();
+    private ReconViewModel? reportVm;
+    private StandardReportData? reportData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("FINANCE_REPORTS_PAGE"))
+        {
+            NavManager.NavigateTo("/access-denied");
+            return;
+        }
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        if (user?.CompanyDetailsId is Guid userCompanyId)
+        {
+            companyId = userCompanyId;
+            currentUserName = user.UserName ?? user.Email ?? currentUserName;
+            var company = await CompanyService.GetCompanyByIdAsync(companyId);
+            companyName = company?.CompanyName ?? "";
+            currencyCode = company?.BaseCurrency ?? company?.FunctionalCurrency ?? "Base";
+            var accounts = await CoaService.GetActiveCoaAsync(companyId);
+            var types = await CoaService.GetAccountTypesAsync();
+            bankAccounts = accounts.Where(a =>
+            {
+                var type = types.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
+                return type?.Description.Contains("Bank", StringComparison.OrdinalIgnoreCase) == true
+                    || type?.Description.Contains("Cash", StringComparison.OrdinalIgnoreCase) == true;
+            }).OrderBy(a => a.AccountCode).ToList();
+            await LoadHistoryAsync();
+        }
+        else
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        if (filterStartDate > filterEndDate) return;
+        isLoading = true;
+        selectedReconciliationId = null;
+        reportVm = null;
+        reportData = null;
+        try
+        {
+            reconciliations = await ReconService.GetReconciliationHistoryAsync(companyId,
+                selectedBankId == Guid.Empty ? null : selectedBankId, filterStartDate, filterEndDate);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Could not load reconciliation history: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectReconciliationAsync(Guid id)
+    {
+        isLoadingReport = true;
+        selectedReconciliationId = id;
+        reportVm = null;
+        reportData = null;
+        try
+        {
+            reportVm = await ReconService.GetReconDataAsync(companyId, id);
+            if (reportVm != null) reportData = BuildReportData(reportVm);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Could not prepare reconciliation report: {ex.Message}");
+        }
+        finally
+        {
+            isLoadingReport = false;
+        }
+    }
+
+    private StandardReportData BuildReportData(ReconViewModel model)
+    {
+        string Amount(decimal value) => value.ToString("N4", CultureInfo.InvariantCulture);
+        var account = bankAccounts.FirstOrDefault(a => a.Id == model.Reconciliation.BankAccountId);
+        var rows = new List<List<string>>();
+        void Section(string name) => rows.Add(new() { "", $"SUMMARY - {name}", "", "", "", "" });
+        void Summary(string name, decimal amount) => rows.Add(new() { "", name, "", "", "", Amount(amount) });
+
+        Section("Reconciliation Summary");
+        Summary("Opening book balance", model.OpeningBookBalance);
+        Summary("Period debits", model.PeriodDebits);
+        Summary("Period credits", model.PeriodCredits);
+        Summary("Book balance (cleared)", model.ClearedBookBalance);
+        Summary("Statement ending balance", model.Reconciliation.StatementEndingBalance);
+        Summary("Outstanding deposits", model.OutstandingDeposits);
+        Summary("Outstanding payments", model.OutstandingPayments);
+        Summary("Reconciliation difference", model.Difference);
+
+        Section("Cleared GL Transactions");
+        var periodTransactions = model.CandidateGLTransactions
+            .Where(t => t.PostingDate >= model.PeriodStartDate && t.PostingDate <= model.Reconciliation.StatementDate)
+            .OrderBy(t => t.PostingDate)
+            .ToList();
+        var cleared = periodTransactions.Where(t => t.BankReconciliationId == model.Reconciliation.Id).ToList();
+        foreach (var txn in cleared)
+            rows.Add(new() { txn.PostingDate.ToString("yyyy-MM-dd"), txn.JournalId.ToString("N")[..8], txn.Narration ?? "", Amount(txn.Debit), Amount(txn.Credit), "Cleared" });
+        if (cleared.Count == 0) rows.Add(new() { "", "", "No cleared GL transactions.", "", "", "" });
+
+        Section("Outstanding GL Transactions Through Statement End");
+        var outstanding = periodTransactions.Where(t => t.BankReconciliationId == null).ToList();
+        foreach (var txn in outstanding)
+            rows.Add(new() { txn.PostingDate.ToString("yyyy-MM-dd"), txn.JournalId.ToString("N")[..8], txn.Narration ?? "", Amount(txn.Debit), Amount(txn.Credit), "Outstanding" });
+        if (outstanding.Count == 0) rows.Add(new() { "", "", "No outstanding GL transactions.", "", "", "" });
+
+        Section("Transactions Cleared in Another Reconciliation");
+        var previouslyReconciled = periodTransactions
+            .Where(t => t.BankReconciliationId.HasValue && t.BankReconciliationId != model.Reconciliation.Id)
+            .ToList();
+        foreach (var txn in previouslyReconciled)
+            rows.Add(new() { txn.PostingDate.ToString("yyyy-MM-dd"), txn.JournalId.ToString("N")[..8], txn.Narration ?? "", Amount(txn.Debit), Amount(txn.Credit), "Previously reconciled" });
+        if (previouslyReconciled.Count == 0) rows.Add(new() { "", "", "No transactions cleared in another reconciliation during this period.", "", "", "" });
+
+        if (model.Reconciliation.Type == ReconType.Automatic)
+        {
+            Section("Bank Statement Lines");
+            foreach (var line in model.Reconciliation.StatementLines.OrderBy(l => l.Date))
+                rows.Add(new() { line.Date.ToString("yyyy-MM-dd"), line.Reference ?? "", line.Description, line.Amount > 0 ? Amount(line.Amount) : "0.0000", line.Amount < 0 ? Amount(Math.Abs(line.Amount)) : "0.0000", line.IsMatched ? "Matched" : "Unmatched" });
+        }
+
+        return new StandardReportData
+        {
+            ReportName = "Bank Reconciliation Report",
+            CompanyName = companyName,
+            Currency = currencyCode,
+            ReportingPeriod = $"{account?.AccountCode} {account?.Description} | {model.PeriodStartDate:dd MMM yyyy} to {model.Reconciliation.StatementDate:dd MMM yyyy} | {model.Reconciliation.Status}",
+            GeneratedBy = currentUserName,
+            DateGenerated = DateTime.Now,
+            Headers = new() { "Date", "Reference", "Description", "Debit", "Credit", "Status / Balance" },
+            Rows = rows
+        };
+    }
+
+    private async Task ExportPdfAsync() => await ExportAsync(true);
+    private async Task ExportExcelAsync() => await ExportAsync(false);
+
+    private async Task ExportAsync(bool pdf)
+    {
+        if (reportData == null || isExporting || reportVm == null) return;
+        isExporting = true;
+        try
+        {
+            var bytes = pdf ? ExportService.GeneratePdf(reportData) : ExportService.GenerateExcel(reportData);
+            using var stream = new DotNetStreamReference(new MemoryStream(bytes));
+            var ext = pdf ? "pdf" : "xlsx";
+            await JS.InvokeVoidAsync("downloadFileFromStream", $"Reconciliation_Report_{reportVm.Reconciliation.StatementDate:yyyyMMdd}.{ext}", stream);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Report export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+}

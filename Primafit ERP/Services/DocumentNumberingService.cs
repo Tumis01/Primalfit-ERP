@@ -7,8 +7,9 @@ namespace Primafit_ERP.Services;
 
 public interface IDocumentNumberingService
 {
-    Task<string> PeekNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null);
+    Task<string> PeekNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null, Guid? exceptEntityId = null);
     Task<string> GenerateAndReserveNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null);
+    Task<string> ReserveNextNumberWithinTransactionAsync(AppDbContext db, Guid sequenceDefinitionId, DateTime? referenceDate = null, Guid? exceptEntityId = null);
     Task<string> PeekNextNumberAsync(Guid companyId, SequenceTargetType targetType, DateTime? referenceDate = null);
     Task<string> GenerateAndReserveNextNumberAsync(Guid companyId, SequenceTargetType targetType, DateTime? referenceDate = null);
     Task<SequenceDefinition> GetActiveDefinitionAsync(Guid companyId, SequenceTargetType targetType);
@@ -16,6 +17,8 @@ public interface IDocumentNumberingService
     Task<string?> SaveDefinitionAsync(SequenceDefinition definition);
     Task<string?> ActivateDefinitionAsync(Guid definitionId, Guid companyId);
     Task<string?> DeleteDefinitionAsync(Guid definitionId, Guid companyId);
+    Task<bool> IsCodeAvailableAsync(Guid companyId, SequenceTargetType targetType, string code, Guid? exceptId = null);
+    Task<Dictionary<Guid, List<string>>> GetSequenceAssignmentsAsync(Guid companyId, SequenceTargetType targetType);
 }
 
 public sealed class DocumentNumberingService : IDocumentNumberingService
@@ -24,7 +27,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
 
     public DocumentNumberingService(IDbContextFactory<AppDbContext> dbFactory) => _dbFactory = dbFactory;
 
-    public async Task<string> PeekNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null)
+    public async Task<string> PeekNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null, Guid? exceptEntityId = null)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var definition = await db.SequenceDefinitions.AsNoTracking()
@@ -37,7 +40,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         var tracker = await db.SequenceTrackers.AsNoTracking()
             .FirstOrDefaultAsync(x => x.SequenceDefinitionId == definition.Id && x.ScopePeriodKey == scope);
         var number = (tracker?.LastNumber ?? 0) + 1;
-        while (await IsNumberInUseAsync(db, definition, FormatNumber(components, number, date, await GetFiscalYearAsync(db, definition.CompanyId, date))))
+        while (await IsNumberInUseAsync(db, definition, FormatNumber(components, number, date, await GetFiscalYearAsync(db, definition.CompanyId, date)), exceptEntityId))
             number++;
         EnsureFits(components, number);
         return FormatNumber(components, number, date, await GetFiscalYearAsync(db, definition.CompanyId, date));
@@ -79,6 +82,46 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         tracker.LastNumber = number;
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
+        return formatted;
+    }
+
+    public async Task<string> ReserveNextNumberWithinTransactionAsync(
+        AppDbContext db,
+        Guid sequenceDefinitionId,
+        DateTime? referenceDate = null,
+        Guid? exceptEntityId = null)
+    {
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("A database transaction is required to reserve a number with its entity.");
+
+        var definition = await db.SequenceDefinitions.Include(x => x.Components)
+            .FirstOrDefaultAsync(x => x.Id == sequenceDefinitionId);
+        if (definition is null || !IsCodeTarget(definition.TargetType))
+            throw new InvalidOperationException("The selected item code sequence was not found.");
+
+        var components = ValidateAndNormalize(definition);
+        var date = referenceDate ?? DateTime.Today;
+        var scope = await ScopePeriodKeyAsync(db, definition, date);
+        var tracker = await db.SequenceTrackers
+            .FirstOrDefaultAsync(x => x.SequenceDefinitionId == definition.Id && x.ScopePeriodKey == scope);
+        if (tracker is null)
+        {
+            tracker = new SequenceTracker { SequenceDefinitionId = definition.Id, ScopePeriodKey = scope };
+            db.SequenceTrackers.Add(tracker);
+        }
+
+        var fiscalYear = await GetFiscalYearAsync(db, definition.CompanyId, date);
+        var number = tracker.LastNumber + 1;
+        string formatted;
+        do
+        {
+            EnsureFits(components, number);
+            formatted = FormatNumber(components, number, date, fiscalYear);
+            if (!await IsNumberInUseAsync(db, definition, formatted, exceptEntityId)) break;
+            number++;
+        } while (true);
+
+        tracker.LastNumber = number;
         return formatted;
     }
 
@@ -222,10 +265,32 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         await using var db = await _dbFactory.CreateDbContextAsync();
         return targetType switch
         {
-            SequenceTargetType.CustomerCode => !await db.Customers.AnyAsync(x => x.CompanyId == companyId && x.Code == code && (!exceptId.HasValue || x.Id != exceptId.Value)),
-            SequenceTargetType.VendorCode => !await db.Vendors.AnyAsync(x => x.CompanyId == companyId && x.Code == code && (!exceptId.HasValue || x.Id != exceptId.Value)),
-            SequenceTargetType.ItemCategoryCode => !await db.ItemCategories.AnyAsync(x => x.CompanyId == companyId && x.Code == code && (!exceptId.HasValue || x.Id != exceptId.Value)),
+            SequenceTargetType.CustomerCode => !await db.Customers.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == code.ToLower() && (!exceptId.HasValue || x.Id != exceptId.Value)),
+            SequenceTargetType.VendorCode => !await db.Vendors.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == code.ToLower() && (!exceptId.HasValue || x.Id != exceptId.Value)),
+            SequenceTargetType.ItemCategoryCode => !await db.ItemCategories.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == code.ToLower() && (!exceptId.HasValue || x.Id != exceptId.Value)),
+            SequenceTargetType.ItemCode => !await db.Items.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == code.ToLower() && (!exceptId.HasValue || x.Id != exceptId.Value)),
             _ => true
+        };
+    }
+
+    public async Task<Dictionary<Guid, List<string>>> GetSequenceAssignmentsAsync(Guid companyId, SequenceTargetType targetType)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        return targetType switch
+        {
+            SequenceTargetType.CustomerCode => await db.CustomerGroups.AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.SequenceDefinitionId.HasValue)
+                .GroupBy(x => x.SequenceDefinitionId!.Value)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(x => x.Name).OrderBy(x => x).ToList()),
+            SequenceTargetType.VendorCode => await db.VendorGroups.AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.SequenceDefinitionId.HasValue)
+                .GroupBy(x => x.SequenceDefinitionId!.Value)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(x => x.Name).OrderBy(x => x).ToList()),
+            SequenceTargetType.ItemCode => await db.ItemCategories.AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.ItemCodeSequenceDefinitionId.HasValue)
+                .GroupBy(x => x.ItemCodeSequenceDefinitionId!.Value)
+                .ToDictionaryAsync(g => g.Key, g => g.Select(x => x.Name).OrderBy(x => x).ToList()),
+            _ => new Dictionary<Guid, List<string>>()
         };
     }
 
@@ -238,7 +303,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         if (definition.IsSystemDefault) return "The system default sequence cannot be deleted.";
         if (await db.CustomerGroups.AnyAsync(x => x.SequenceDefinitionId == definitionId)
             || await db.VendorGroups.AnyAsync(x => x.SequenceDefinitionId == definitionId)
-            || await db.ItemCategories.AnyAsync(x => x.SequenceDefinitionId == definitionId))
+            || await db.ItemCategories.AnyAsync(x => x.ItemCodeSequenceDefinitionId == definitionId))
             return "This sequence is assigned to a group or category. Remove those assignments before deleting it.";
 
         if (definition.IsActive)
@@ -287,6 +352,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
             SequenceTargetType.CustomerCode => "CUST-",
             SequenceTargetType.VendorCode => "VEND-",
             SequenceTargetType.ItemCategoryCode => "CAT-",
+            SequenceTargetType.ItemCode => "ITEM-",
             _ => "DOC-"
         };
         var definition = new SequenceDefinition
@@ -317,7 +383,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
     }
 
     public static bool IsCodeTarget(SequenceTargetType type) => type is
-        SequenceTargetType.CustomerCode or SequenceTargetType.VendorCode or SequenceTargetType.ItemCategoryCode;
+        SequenceTargetType.CustomerCode or SequenceTargetType.VendorCode or SequenceTargetType.ItemCode;
 
     private static List<SequenceComponent> ValidateAndNormalize(SequenceDefinition definition)
         => ValidateAndNormalize(definition, out var error) is var result && error is null
@@ -412,7 +478,7 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         return date >= began ? date.Year : date.Year - 1;
     }
 
-    private static async Task<bool> IsNumberInUseAsync(AppDbContext db, SequenceDefinition definition, string number)
+    private static async Task<bool> IsNumberInUseAsync(AppDbContext db, SequenceDefinition definition, string number, Guid? exceptEntityId = null)
     {
         var companyId = definition.CompanyId;
         return definition.TargetType switch
@@ -430,9 +496,10 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
             SequenceTargetType.AP_ReturnToVendor => await db.VendorReturns.AnyAsync(x => x.CompanyId == companyId && x.ReturnNumber == number),
             SequenceTargetType.AP_GoodsReceipt => await db.GoodsReceipts.AnyAsync(x => x.CompanyId == companyId && x.GrnNumber == number),
             SequenceTargetType.AP_VendorPayment => await db.VendorPayments.AnyAsync(x => x.VendorBill != null && x.VendorBill.CompanyId == companyId && x.Reference == number),
-            SequenceTargetType.CustomerCode => await db.Customers.AnyAsync(x => x.CompanyId == companyId && x.Code == number),
-            SequenceTargetType.VendorCode => await db.Vendors.AnyAsync(x => x.CompanyId == companyId && x.Code == number),
-            SequenceTargetType.ItemCategoryCode => await db.ItemCategories.AnyAsync(x => x.CompanyId == companyId && x.Code == number),
+            SequenceTargetType.CustomerCode => await db.Customers.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
+            SequenceTargetType.VendorCode => await db.Vendors.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
+            SequenceTargetType.ItemCategoryCode => await db.ItemCategories.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
+            SequenceTargetType.ItemCode => await db.Items.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
             _ => false
         };
     }

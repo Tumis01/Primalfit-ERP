@@ -1,4 +1,4 @@
-﻿@page "/sc/item-categories"
+@page "/sc/item-categories"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
@@ -71,17 +71,24 @@
                     </div>
                     <div>
                         <label class="label">Category Code <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentCategory.Code" class="input-class" placeholder="Suggested code; editable" />
+                        <InputText @bind-Value="currentCategory.Code" class="input-class" placeholder="Enter category code" />
+                        <ValidationMessage For="@(() => currentCategory.Code)" class="mt-1 block text-xs font-semibold text-rose-600" />
+                        <p class="mt-1 text-xs text-slate-500">Category codes are entered manually. Item codes use the category sequence below.</p>
+                        @if (!string.IsNullOrWhiteSpace(categoryCodeError))
+                        {
+                            <p role="alert" class="mt-1 text-xs font-semibold text-rose-600">@categoryCodeError</p>
+                        }
                     </div>
                     <div>
-                        <label class="label">Code Sequence</label>
-                        <select value="@(currentCategory.SequenceDefinitionId?.ToString() ?? string.Empty)" @onchange="OnSequenceChanged" class="input-class bg-white">
-                            <option value="">System Default</option>
-                            @foreach (var sequence in codeSequences)
+                        <label class="label">Item Code Sequence</label>
+                        <select value="@(currentCategory.ItemCodeSequenceDefinitionId?.ToString() ?? string.Empty)" @onchange="OnItemCodeSequenceChanged" class="input-class bg-white">
+                            <option value="">User Defined / Manual item codes</option>
+                            @foreach (var sequence in itemCodeSequences)
                             {
                                 <option value="@sequence.Id">@sequence.Name</option>
                             }
                         </select>
+                        <p class="mt-1 text-xs text-slate-500">Items assigned to this category use this sequence for their code.</p>
                     </div>
                     <div>
                         <label class="label">Category Type</label>
@@ -154,6 +161,7 @@
                 <tr>
                     <th class="p-4 pl-6">Category Code</th>
                     <th class="p-4">Category Name</th>
+                    <th class="p-4">Item Code Sequence</th>
                     <th class="p-4 text-center">Type</th>
                     <th class="p-4">Income Account</th>
                     <th class="p-4">COGS Account</th>
@@ -171,6 +179,16 @@
                         <tr class="hover:bg-slate-50 transition-colors group">
                             <td class="p-4 pl-6 font-mono font-bold text-slate-700">@c.Code</td>
                             <td class="p-4 font-bold text-slate-900">@c.Name</td>
+                            <td class="p-4">
+                                @if (c.ItemCodeSequenceDefinition is not null)
+                                {
+                                    <span class="inline-flex rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">@c.ItemCodeSequenceDefinition.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-xs text-slate-400">Manual item codes</span>
+                                }
+                            </td>
                             <td class="p-4 text-center">
                                 <span class="px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider @(c.IsService ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200")">
                                     @(c.IsService ? "Service" : "Goods")
@@ -191,7 +209,7 @@
                 }
                 else
                 {
-                    <tr><td colspan="6" class="p-12 text-center text-slate-400">No categories found. Create one to organize your inventory.</td></tr>
+                    <tr><td colspan="7" class="p-12 text-center text-slate-400">No categories found. Create one to organize your inventory.</td></tr>
                 }
             </tbody>
         </table>
@@ -233,8 +251,9 @@
     private bool isImporting = false;
 
     private List<ItemCategory> categories = new();
-    private List<SequenceDefinition> codeSequences = new();
+    private List<SequenceDefinition> itemCodeSequences = new();
     private ItemCategory currentCategory = new();
+    private string? categoryCodeError;
 
     // Segmented COA lists
     private List<SegChartOfAccount> allAccounts = new();
@@ -268,8 +287,7 @@
         {
             currentCompanyId = user.CompanyDetailsId.Value;
             await LoadData();
-            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
-            codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
+            itemCodeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.ItemCode);
 
             // Fetch Financial Data for Dropdowns
             accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -298,20 +316,17 @@
             .ToList();
     }
 
-    private async Task CreateNew()
+    private void CreateNew()
     {
         currentCategory = new ItemCategory { CompanyId = currentCompanyId };
-        currentCategory.Code = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
+        categoryCodeError = null;
         showForm = true;
         isEditing = false;
     }
 
-    private async Task OnSequenceChanged(ChangeEventArgs args)
+    private void OnItemCodeSequenceChanged(ChangeEventArgs args)
     {
-        currentCategory.SequenceDefinitionId = Guid.TryParse(args.Value?.ToString(), out var id) ? id : null;
-        currentCategory.Code = currentCategory.SequenceDefinitionId.HasValue
-            ? await NumberingService.GenerateAndReserveNextNumberAsync(currentCategory.SequenceDefinitionId.Value)
-            : await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode);
+        currentCategory.ItemCodeSequenceDefinitionId = Guid.TryParse(args.Value?.ToString(), out var id) ? id : null;
     }
 
     private void Edit(ItemCategory c)
@@ -321,7 +336,7 @@
             Id = c.Id,
             CompanyId = c.CompanyId,
             Code = c.Code,
-            SequenceDefinitionId = c.SequenceDefinitionId,
+            ItemCodeSequenceDefinitionId = c.ItemCodeSequenceDefinitionId,
             Name = c.Name,
             IsService = c.IsService,
             SalesIncomeAccountId = c.SalesIncomeAccountId,
@@ -329,6 +344,7 @@
             InventoryAssetAccountId = c.InventoryAssetAccountId,
             AdjustmentExpenseAccountId = c.AdjustmentExpenseAccountId
         };
+        categoryCodeError = null;
         showForm = true;
         isEditing = true;
     }
@@ -350,6 +366,17 @@
 
     private async Task SaveCategory()
     {
+        categoryCodeError = null;
+        if (string.IsNullOrWhiteSpace(currentCategory.Code))
+        {
+            categoryCodeError = "Enter a category code.";
+            return;
+        }
+        if (!await NumberingService.IsCodeAvailableAsync(currentCompanyId, SequenceTargetType.ItemCategoryCode, currentCategory.Code, currentCategory.Id))
+        {
+            categoryCodeError = $"Category Code '{currentCategory.Code.Trim()}' already exists in this company.";
+            return;
+        }
         if (currentCategory.SalesIncomeAccountId == Guid.Empty || currentCategory.CostOfGoodsSoldAccountId == Guid.Empty)
         {
             await JS.InvokeVoidAsync("alert", "Sales Income and COGS accounts are strictly required.");
@@ -363,18 +390,23 @@
         }
 
         isBusy = true;
-        var err = await MasterService.SaveItemCategoryAsync(currentCategory);
-
-        if (string.IsNullOrEmpty(err))
+        try
         {
-            showForm = false;
-            await LoadData();
-        }
-        else
-        {
+            var err = await MasterService.SaveItemCategoryAsync(currentCategory);
+            if (string.IsNullOrEmpty(err))
+            {
+                showForm = false;
+                categoryCodeError = null;
+                await LoadData();
+                return;
+            }
             await JS.InvokeVoidAsync("alert", err);
         }
-        isBusy = false;
+        catch (Exception ex)
+        {
+            categoryCodeError = $"Could not save the category: {ex.Message}";
+        }
+        finally { isBusy = false; }
     }
 
     // --- CSV EXPORT LOGIC ---
@@ -383,7 +415,7 @@
         try
         {
             var sb = new StringBuilder();
-            sb.AppendLine("CategoryName,IsService,SalesIncomeGlCode,CogsGlCode,InventoryAssetGlCode,AdjustmentGlCode");
+            sb.AppendLine("CategoryName,IsService,SalesIncomeGlCode,CogsGlCode,InventoryAssetGlCode,AdjustmentGlCode,CategoryCode");
 
             foreach (var c in categories)
             {
@@ -392,7 +424,7 @@
                 var assetCode = allAccounts.FirstOrDefault(a => a.Id == c.InventoryAssetAccountId)?.AccountCode ?? "";
                 var adjCode = allAccounts.FirstOrDefault(a => a.Id == c.AdjustmentExpenseAccountId)?.AccountCode ?? "";
 
-                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",{c.IsService},\"{incomeCode}\",\"{cogsCode}\",\"{assetCode}\",\"{adjCode}\"");
+                sb.AppendLine($"\"{c.Name?.Replace("\"", "\"\"")}\",{c.IsService},\"{incomeCode}\",\"{cogsCode}\",\"{assetCode}\",\"{adjCode}\",\"{c.Code?.Replace("\"", "\"\"")}\"");
             }
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
@@ -431,6 +463,7 @@
             }
 
             int successCount = 0;
+            var importErrors = new List<string>();
 
             for (int i = 1; i < lines.Length; i++)
             {
@@ -470,21 +503,25 @@
                         var gl = allAccounts.FirstOrDefault(a => a.AccountCode == cols[5].Trim());
                         if (gl != null) category.AdjustmentExpenseAccountId = gl.Id;
                     }
-
+                    if (cols.Count > 6) category.Code = cols[6].Trim();
                     // Strict Validation before saving
                     if (category.SalesIncomeAccountId != Guid.Empty && category.CostOfGoodsSoldAccountId != Guid.Empty)
                     {
                         if (category.IsService || (category.InventoryAssetAccountId.HasValue && category.InventoryAssetAccountId != Guid.Empty))
                         {
-                            await MasterService.SaveItemCategoryAsync(category);
-                            successCount++;
+                            var saveError = await MasterService.SaveItemCategoryAsync(category);
+                            if (string.IsNullOrEmpty(saveError)) successCount++;
+                            else importErrors.Add($"Row {i + 1}: {saveError}");
                         }
                     }
                 }
             }
 
             await LoadData();
-            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} categories mapped and saved successfully.");
+            var summary = $"Import complete. {successCount} categories saved.";
+            if (importErrors.Count > 0)
+                summary += $" {importErrors.Count} rows failed: {string.Join(" | ", importErrors.Take(10))}";
+            await JS.InvokeVoidAsync("alert", summary);
         }
         catch (Exception ex)
         {

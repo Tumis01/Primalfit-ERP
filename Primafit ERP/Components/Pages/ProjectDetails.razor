@@ -1,184 +1,189 @@
+@page "/projects/report"
+@page "/projects/report/{ReportType}"
 @page "/projects/{Id:guid}"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
-@using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject ProjectService ProjectService
-@inject IJSRuntime JS
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
 @rendermode InteractiveServer
 
-<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500">
+<div class="max-w-7xl mx-auto space-y-6">
+    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+            <div>
+                <a href="/projects/setup" class="text-xs font-bold text-indigo-600 hover:underline">← Project setup</a>
+                <h1 class="text-2xl font-bold text-slate-900 mt-2">Project Reports</h1>
+                @if (selectedProject is not null)
+                {
+                    <p class="text-sm text-slate-500 mt-1">@selectedProject.ProjectCode · @selectedProject.Name</p>
+                }
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-end">
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Project</label>
+                    <select @bind:get="selectedProjectId" @bind:set="SelectProject" class="w-full min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
+                        <option value="">Select a project</option>
+                        @foreach (var project in projects)
+                        {
+                            <option @key="project.Id" value="@project.Id">@project.ProjectCode - @project.Name@(project.IsActive ? "" : " (Inactive)")</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">From</label>
+                    <InputDate @bind-Value="fromDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">To</label>
+                    <InputDate @bind-Value="toDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                </div>
+                <button @onclick="LoadReport" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-700">Apply</button>
+            </div>
+        </div>
+    </div>
 
     @if (isLoading)
     {
-        <div class="p-12 text-center text-slate-400 animate-pulse">Loading Financials...</div>
+        <div class="p-12 text-center text-slate-400 animate-pulse bg-white border rounded-2xl">Loading project report…</div>
     }
-    else if (project == null)
+    else if (projects.Count == 0)
     {
-        <div class="p-6 text-center text-red-500 font-bold border rounded-xl bg-red-50">Project not found.</div>
+        <div class="p-8 rounded-2xl border border-slate-200 bg-white text-slate-500">No projects have been set up yet.</div>
+    }
+    else if (selectedProjectId is null)
+    {
+        <div class="p-8 rounded-2xl border border-dashed border-slate-300 bg-white text-center text-slate-500">Choose a project to view its reports.</div>
+    }
+    else if (report is null)
+    {
+        <div class="p-8 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800">
+            @(fromDate > toDate ? "The start date must be on or before the end date." : "Project not found.")
+        </div>
     }
     else
     {
-        <div class="flex flex-col md:flex-row justify-between items-start bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
-            <div>
-                <div class="flex items-center gap-3 mb-1">
-                    <span class="px-2 py-1 rounded-md bg-slate-100 text-xs font-bold text-slate-600 font-mono">@project.ProjectCode</span>
-                    <h1 class="text-2xl font-bold text-slate-900">@project.Name</h1>
-                </div>
-                <p class="text-sm text-slate-500 max-w-2xl">@project.Description</p>
-            </div>
-            <div class="flex items-center gap-4">
-                <div class="text-right">
-                    <div class="text-[10px] uppercase font-bold text-slate-400">Status</div>
-                    <div class="text-sm font-bold px-3 py-1 rounded-full @GetStatusColor(project.Status)">@project.Status</div>
-                </div>
-            </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Revenue</div><div class="mt-2 text-xl font-mono font-bold text-emerald-700">@FormatAmount(report.Revenue, credit: true)</div></div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Expenses</div><div class="mt-2 text-xl font-mono font-bold text-rose-700">@FormatAmount(report.Expenses)</div></div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Net Result</div><div class="mt-2 text-xl font-mono font-bold text-slate-900">@FormatAmount(report.Revenue - report.Expenses)</div></div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <nav class="flex flex-wrap gap-2 border-b border-slate-200" aria-label="Project reports">
+            <NavLink href="/projects/report/profit-and-loss" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.ProfitAndLoss)">Profit &amp; Loss</NavLink>
+            <NavLink href="/projects/report/balance-sheet" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.BalanceSheet)">Balance Sheet</NavLink>
+            <NavLink href="/projects/report/general-ledger" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.GeneralLedger)">General Ledger</NavLink>
+        </nav>
 
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
-                <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <svg class="w-16 h-16 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                </div>
-                <div class="text-sm font-bold text-slate-500 uppercase tracking-wide">Actual Revenue</div>
-                <div class="text-2xl font-mono font-bold text-emerald-600 mt-1">@pl.ActualRevenue.ToString("N4")</div>
-
-                <div class="mt-4">
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-400">Budget: <span class="font-bold text-slate-600">@project.BudgetedRevenue.ToString("N0")</span></span>
-                        <span class="font-bold text-emerald-600">@GetProgress(pl.ActualRevenue, project.BudgetedRevenue)%</span>
+        @switch (activeReport)
+        {
+            case ReportTab.ProfitAndLoss:
+                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project Profit and Loss</h2><p class="text-xs text-slate-500">Posted project activity from @report.FromDate.ToString("yyyy-MM-dd") to @report.ToDate.ToString("yyyy-MM-dd"). Credit balances are shown in brackets.</p></div>
+                    @AccountTable(report.ProfitAndLossAccounts)
+                </section>
+                break;
+            case ReportTab.BalanceSheet:
+                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project Balance Sheet</h2><p class="text-xs text-slate-500">Cumulative posted balances through @report.ToDate.ToString("yyyy-MM-dd"). Credit balances are shown in brackets.</p></div>
+                    @AccountTable(report.BalanceSheetAccounts)
+                </section>
+                break;
+            case ReportTab.GeneralLedger:
+                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project General Ledger Activity</h2><p class="text-xs text-slate-500">Posted activity from @report.FromDate.ToString("yyyy-MM-dd") to @report.ToDate.ToString("yyyy-MM-dd"). Credit values are shown in brackets.</p></div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Date</th><th class="p-3">Account</th><th class="p-3">Narration</th><th class="p-3 text-right">Debit</th><th class="p-3 text-right">Credit</th></tr></thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @foreach (var transaction in report.Transactions)
+                                {
+                                    <tr><td class="p-3">@transaction.PostingDate.ToString("yyyy-MM-dd")</td><td class="p-3">@transaction.SegCoa?.AccountCode - @transaction.SegCoa?.Description</td><td class="p-3">@transaction.Narration</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Debit)</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Credit, credit: true)</td></tr>
+                                }
+                                @if (report.Transactions.Count == 0) { <tr><td colspan="5" class="p-8 text-center text-slate-400">No posted project activity for this period.</td></tr> }
+                            </tbody>
+                        </table>
                     </div>
-                    <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div class="bg-emerald-500 h-full rounded-full" style="width: @GetProgress(pl.ActualRevenue, project.BudgetedRevenue)%"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden group">
-                <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <svg class="w-16 h-16 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" /></svg>
-                </div>
-                <div class="text-sm font-bold text-slate-500 uppercase tracking-wide">Actual Cost</div>
-                <div class="text-2xl font-mono font-bold text-rose-600 mt-1">@pl.ActualCost.ToString("N4")</div>
-
-                <div class="mt-4">
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-400">Budget: <span class="font-bold text-slate-600">@project.BudgetedCost.ToString("N0")</span></span>
-                        <span class="font-bold text-rose-600">@GetProgress(pl.ActualCost, project.BudgetedCost)%</span>
-                    </div>
-                    <div class="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div class="bg-rose-500 h-full rounded-full" style="width: @GetProgress(pl.ActualCost, project.BudgetedCost)%"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-lg flex flex-col justify-between relative overflow-hidden">
-                <div class="relative z-10">
-                    <div class="text-sm font-bold text-slate-400 uppercase tracking-wide">Net Margin</div>
-                    <div class="text-3xl font-mono font-bold mt-1 @(pl.Margin >= 0 ? "text-emerald-400" : "text-rose-400")">
-                        @pl.Margin.ToString("N4")
-                    </div>
-                </div>
-                <div class="relative z-10 mt-2">
-                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/10 text-xs font-bold backdrop-blur-sm">
-                        <span>@pl.MarginPercent.ToString("N1")%</span>
-                        <span class="text-slate-300 font-normal">Profitability</span>
-                    </div>
-                </div>
-                <div class="absolute -bottom-6 -right-6 text-white/5">
-                    <svg class="w-32 h-32" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.72 2.13-1.71 0-2.69-4.5-2.97-4.5-5.65 0-1.74 1.41-2.96 3.19-3.22V4h2.67v1.93c1.71.36 3.13 1.41 3.27 3.31h-1.96c-.11-.9-1.1-1.9-2.6-1.9-1.31 0-2.13.8-2.13 1.68 0 2.75 4.5 3.03 4.5 5.7 0 1.68-1.4 2.87-3.12 3.37z" /></svg>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                <h3 class="font-bold text-sm text-slate-700 uppercase tracking-wide">Recent Financial Activity</h3>
-                <span class="text-xs text-slate-400">@transactions.Count transactions found</span>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead class="bg-white text-xs uppercase font-bold text-slate-500 border-b border-slate-100">
-                        <tr>
-                            <th class="p-4 w-32">Date</th>
-                            <th class="p-4">Description / Narration</th>
-                            <th class="p-4 text-right w-40">Revenue (Cr)</th>
-                            <th class="p-4 text-right w-40">Cost (Dr)</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @if (transactions.Any())
-                        {
-                            @foreach (var t in transactions)
-                            {
-                                <tr class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-4 text-slate-500 font-mono text-xs">@t.PostingDate.ToString("yyyy-MM-dd")</td>
-                                    <td class="p-4 font-medium text-slate-900">@t.Narration</td>
-                                    <td class="p-4 text-right font-mono text-emerald-600 font-bold">
-                                        @((t.Credit > 0) ? t.Credit.ToString("N4") : "-")
-                                    </td>
-                                    <td class="p-4 text-right font-mono text-rose-600 font-bold">
-                                        @((t.Debit > 0) ? t.Debit.ToString("N4") : "-")
-                                    </td>
-                                </tr>
-                            }
-                        }
-                        else
-                        {
-                            <tr>
-                                <td colspan="4" class="p-12 text-center text-slate-400 text-sm">
-                                    No financial activity recorded yet for this project.
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                </section>
+                break;
+        }
     }
 </div>
 
 @code {
-    [Parameter] public Guid Id { get; set; }
+    [Parameter] public Guid? Id { get; set; }
+    [Parameter] public string? ReportType { get; set; }
 
-    private Project? project;
-    private ProjectPLViewModel pl = new();
-    private List<GLTransaction> transactions = new();
+    private enum ReportTab { ProfitAndLoss, BalanceSheet, GeneralLedger }
+    private ReportTab activeReport = ReportTab.ProfitAndLoss;
     private bool isLoading = true;
+    private Guid companyId;
+    private Guid? selectedProjectId;
+    private List<Project> projects = new();
+    private Project? selectedProject => projects.FirstOrDefault(project => project.Id == selectedProjectId);
+    private DateOnly fromDate = new(DateTime.Today.Year, 1, 1);
+    private DateOnly toDate = DateOnly.FromDateTime(DateTime.Today);
+    private ProjectReportViewModel? report;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        // 1. Load Project Header
-        project = await ProjectService.GetProjectByIdAsync(Id);
+        isLoading = true;
+        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty;
+        projects = companyId == Guid.Empty
+            ? new List<Project>()
+            : await ProjectService.GetProjectsAsync(companyId);
+        if (Id.HasValue)
+            selectedProjectId = Id;
 
-        if (project != null)
+        activeReport = ReportType?.ToLowerInvariant() switch
         {
-            // 2. Load Financials (P&L)
-            pl = await ProjectService.GetProjectPLAsync(Id);
+            "balance-sheet" => ReportTab.BalanceSheet,
+            "general-ledger" => ReportTab.GeneralLedger,
+            _ => ReportTab.ProfitAndLoss
+        };
+        await LoadReport();
+    }
 
-            // 3. Load Raw Transactions History
-            // NOTE: Ensure your ProjectService has this method implemented as discussed
-            transactions = await ProjectService.GetProjectTransactionsAsync(Id);
-        }
+    private async Task SelectProject(Guid? projectId)
+    {
+        selectedProjectId = projectId;
+        await LoadReport();
+    }
+
+    private async Task LoadReport()
+    {
+        isLoading = true;
+        report = companyId == Guid.Empty || selectedProjectId is null || fromDate > toDate
+            ? null
+            : await ProjectService.GetProjectReportAsync(companyId, selectedProjectId.Value, fromDate, toDate);
         isLoading = false;
     }
 
-    private string GetProgress(decimal actual, decimal budget)
+    private string ReportNavClass(ReportTab tab) => activeReport == tab
+        ? "px-4 py-2.5 border-b-2 border-slate-900 text-sm font-bold text-slate-900"
+        : "px-4 py-2.5 border-b-2 border-transparent text-sm font-semibold text-slate-500 hover:text-slate-900";
+
+    private static string FormatAmount(decimal amount, bool credit = false)
     {
-        if (budget == 0) return "0";
-        var pct = (actual / budget) * 100;
-        return Math.Min(pct, 100).ToString("0");
+        var formatted = Math.Abs(amount).ToString("N2");
+        return amount < 0 || (credit && amount > 0) ? $"({formatted})" : amount.ToString("N2");
     }
 
-    private string GetStatusColor(ProjectStatus s) => s switch
-    {
-        ProjectStatus.Active => "bg-emerald-100 text-emerald-700",
-        ProjectStatus.Completed => "bg-indigo-100 text-indigo-700",
-        ProjectStatus.OnHold => "bg-amber-100 text-amber-700",
-        ProjectStatus.Cancelled => "bg-rose-100 text-rose-700",
-        _ => "bg-slate-100 text-slate-600"
-    };
+    private RenderFragment AccountTable(List<ProjectAccountBalanceRow> rows) => @<div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Account</th><th class="p-3">Description</th><th class="p-3 text-right">Debit</th><th class="p-3 text-right">Credit</th><th class="p-3 text-right">Balance</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var row in rows)
+                {
+                    <tr><td class="p-3 font-mono">@row.AccountCode</td><td class="p-3">@row.AccountName</td><td class="p-3 text-right font-mono">@FormatAmount(row.Debit)</td><td class="p-3 text-right font-mono">@FormatAmount(row.Credit, credit: true)</td><td class="p-3 text-right font-mono font-bold">@FormatAmount(row.Balance, credit: !row.IsDebitNormal)</td></tr>
+                }
+                @if (rows.Count == 0) { <tr><td colspan="5" class="p-8 text-center text-slate-400">No tagged account activity.</td></tr> }
+            </tbody>
+        </table>
+    </div>;
 }

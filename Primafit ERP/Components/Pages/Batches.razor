@@ -83,6 +83,13 @@
                         <option value="Posted">Posted</option>
                     </select>
                 </div>
+
+                <div class="w-full sm:flex-1 sm:min-w-[280px]">
+                    <label class="sr-only" for="batch-search">Search batches</label>
+                    <input id="batch-search" type="search" @bind="batchSearch" @bind:event="oninput" @bind:after="OnBatchSearchChanged"
+                           placeholder="Search document number, reference, note or type…" autocomplete="off" disabled="@(!HasCompany)"
+                           class="input-class w-full text-sm" />
+                </div>
             </div>
         }
 
@@ -503,6 +510,7 @@
     private DateTime filterFromDate = DateTime.Today.AddDays(-30);
     private DateTime filterToDate = DateTime.Today;
     private string statusFilter = "";
+    private string batchSearch = "";
 
     // Pagination
     private int currentPage = 1;
@@ -510,6 +518,7 @@
 
     // In-memory Datasets
     private List<GLBatch> batches = new();
+    private Dictionary<Guid, string> batchSearchFields = new();
     private Dictionary<string, string> userNames = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, SegChartOfAccount> accountMap = new();
 
@@ -521,7 +530,16 @@
     private bool busy;
     private string? loadError;
 
-    private IEnumerable<GLBatch> FilteredBatches => batches;
+    private IEnumerable<GLBatch> FilteredBatches
+    {
+        get
+        {
+            var term = batchSearch.Trim();
+            if (term.Length == 0) return batches;
+            return batches.Where(batch => batchSearchFields.TryGetValue(batch.Id, out var searchableText)
+                && searchableText.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+    }
     private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)FilteredBatches.Count() / pageSize));
     private IEnumerable<GLBatch> PaginatedBatches => FilteredBatches.Skip((currentPage - 1) * pageSize).Take(pageSize);
 
@@ -560,6 +578,8 @@
         await LoadBatches();
     }
 
+    private void OnBatchSearchChanged() => currentPage = 1;
+
     private async Task LoadAccountMap()
     {
         await using var ctx = await DbFactory.CreateDbContextAsync();
@@ -594,6 +614,7 @@
             }
 
             batches = await q.OrderByDescending(b => b.CreatedAt).ToListAsync();
+            await LoadBatchSearchFieldsAsync(ctx);
             var userIds = batches.SelectMany(b => new[] { b.CreatedByUserId, b.ReleasedByUserId, b.PostedByUserId })
                 .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
             var users = await ctx.Users.AsNoTracking().Where(u => userIds.Contains(u.Id))
@@ -610,6 +631,50 @@
         {
             isLoading = false;
         }
+    }
+
+    private async Task LoadBatchSearchFieldsAsync(AppDbContext ctx)
+    {
+        var searchableParts = batches.ToDictionary(
+            batch => batch.Id,
+            batch => new List<string>
+            {
+                batch.BatchName,
+                batch.Description ?? string.Empty,
+                batch.Type.ToString(),
+                batch.RejectionReason ?? string.Empty
+            });
+        var batchIds = searchableParts.Keys.ToArray();
+        if (batchIds.Length == 0)
+        {
+            batchSearchFields = new();
+            return;
+        }
+
+        var journals = await ctx.GLJournalHeaders.AsNoTracking()
+            .Where(journal => batchIds.Contains(journal.BatchId))
+            .Select(journal => new { journal.BatchId, journal.JournalNumber, journal.Narration })
+            .ToListAsync();
+        foreach (var journal in journals)
+        {
+            if (!searchableParts.TryGetValue(journal.BatchId, out var parts)) continue;
+            parts.Add(journal.JournalNumber);
+            if (!string.IsNullOrWhiteSpace(journal.Narration)) parts.Add(journal.Narration);
+        }
+
+        var lineReferences = await ctx.GLJournalLines.AsNoTracking()
+            .Where(line => batchIds.Contains(line.Header!.BatchId))
+            .Select(line => new { BatchId = line.Header!.BatchId, line.Reference })
+            .ToListAsync();
+        foreach (var line in lineReferences)
+        {
+            if (line.Reference is not null && searchableParts.TryGetValue(line.BatchId, out var parts))
+                parts.Add(line.Reference);
+        }
+
+        batchSearchFields = searchableParts.ToDictionary(
+            entry => entry.Key,
+            entry => string.Join(" ", entry.Value));
     }
 
     private async Task ViewBatch(Guid batchId)

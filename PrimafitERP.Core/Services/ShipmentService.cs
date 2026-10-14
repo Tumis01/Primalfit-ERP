@@ -123,6 +123,7 @@ namespace Primafit_ERP.Services
                 if (shipment.Status != ShipmentStatus.Pending) return "Shipment is already processed.";
 
                 var glLines = new List<GLJournalLine>();
+                var stockMovements = new List<StockLedger>();
                 bool isPartial = false;
 
                 foreach (var inputLine in actualShippedLines)
@@ -158,7 +159,7 @@ namespace Primafit_ERP.Services
                         return $"Fulfillment failed: Insufficient physical stock for {freshItem.Name}. Have: {currentStock}, Need: {inputLine.QtyShipped}";
 
                     // 1. Physical Stock Ledger Entry
-                    ctx.StockLedgers.Add(new StockLedger
+                    var stockMovement = new StockLedger
                     {
                         Id = Guid.NewGuid(),
                         CompanyId = shipment.CompanyId,
@@ -169,7 +170,9 @@ namespace Primafit_ERP.Services
                         CostAtTime = resolvedUnitCost, // Injected the dynamically resolved method cost
                         Reference = shipment.ShipmentNumber,
                         Date = DateTime.UtcNow
-                    });
+                    };
+                    ctx.StockLedgers.Add(stockMovement);
+                    stockMovements.Add(stockMovement);
 
                     // 2. Financial GL Entry Balancing Pair (COGS vs Inventory Asset)
                     decimal totalCogsValue = Math.Round(inputLine.QtyShipped * resolvedUnitCost, 2);
@@ -200,6 +203,8 @@ namespace Primafit_ERP.Services
                         if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
 
                         shipment.ShipmentBatchId = batchId;
+                        foreach (var stockMovement in stockMovements)
+                            stockMovement.GLBatchId = batchId;
                     }
                 }
 

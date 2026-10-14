@@ -1,4 +1,4 @@
-﻿namespace Primafit_ERP.Components.Models
+namespace Primafit_ERP.Components.Models
 {
     public class FinancialDashboardSnapshot
     {
@@ -90,7 +90,7 @@
     public class LowStockSummary
     {
         public string ItemName { get; set; } = string.Empty;
-        public string SKU { get; set; } = string.Empty;
+        public string Code { get; set; } = string.Empty;
         public decimal CurrentQty { get; set; }
         public decimal ReorderLevel { get; set; }
     }

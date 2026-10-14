@@ -29,6 +29,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(PurchaseOrderId))]
         public PurchaseOrder? PurchaseOrder { get; set; }
 
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
         [Required]
         public string DebitNoteNumber { get; set; } = string.Empty;
 

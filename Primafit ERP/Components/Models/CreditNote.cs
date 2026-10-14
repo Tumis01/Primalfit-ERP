@@ -27,6 +27,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(SalesOrderId))]
         public SalesOrder? SalesOrder { get; set; }
 
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
         public DateTime TransactionDateTime { get; set; } = DateTime.Now;
 

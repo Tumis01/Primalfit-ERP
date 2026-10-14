@@ -9,6 +9,7 @@
 @inject CurrencyService CurrService
 @inject SegCoaService SegCoaService
 @inject GLSetupService GLService
+@inject ProjectService ProjectService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
@@ -217,6 +218,9 @@
                                     <div class="md:col-span-5">
                                         <label class="label">Description</label>
                                         <InputText @bind-Value="entryForm.Description" class="input-class py-2" placeholder="e.g. Sales, Expenses" />
+                                    </div>
+                                    <div class="md:col-span-12">
+                                        <ProjectSelect @bind-Value="entryForm.ProjectId" Projects="@projects" />
                                     </div>
 
                                     @if (selectedBatch.IsForeignCurrency)
@@ -450,6 +454,7 @@
 
     private CashbookBatch? selectedBatch;
     private CashbookEntry entryForm = new();
+    private List<Project> projects = new();
     private Guid newBatchAccountId;
     private bool newBatchClearAfterPost = true;
     private List<SegChartOfAccount> AvailableOffsetAccounts =>
@@ -520,6 +525,7 @@
             accountTypes = await SegCoaService.GetAccountTypesAsync();
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
             currencies = await CurrService.GetCurrenciesAsync(currentCompanyId);
+            projects = await ProjectService.GetActiveProjectsAsync(currentCompanyId);
 
             bankAccounts = allAccounts.Where(a =>
             {
@@ -676,7 +682,8 @@
             ForeignDebit = entry.ForeignDebit,
             ForeignCredit = entry.ForeignCredit,
             OffsetSegCoaId = entry.OffsetSegCoaId,
-            Reference = entry.Reference
+            Reference = entry.Reference,
+            ProjectId = entry.ProjectId
         };
         isEditing = true;
     }

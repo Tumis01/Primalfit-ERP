@@ -29,7 +29,7 @@
             </div>
             <p class="text-sm text-slate-500 mt-1">Real-time quantity and valuation (Services & Physical).</p>
         </div>
-        
+
         <div class="flex gap-4">
             <div class="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100 text-right">
                 <div class="text-[10px] font-bold text-slate-400 uppercase">Total Sales Value (Physical)</div>
@@ -70,14 +70,14 @@
                                 <td class="p-4">
                                     <div class="font-bold text-slate-900">@line.ItemName</div>
                                     <div class="text-xs text-slate-500 font-mono flex gap-2">
-                                        <span>@line.SKU</span>
+                                        <span>@line.Code</span>
                                         @if (line.IsService)
                                         {
                                             <span class="px-1.5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-bold uppercase tracking-wide">Service</span>
                                         }
                                     </div>
                                 </td>
-                                
+
                                 <td class="p-4">
                                     @if (line.IsService)
                                     {
@@ -96,7 +96,7 @@
                                 <td class="p-4 text-right font-mono font-bold">
                                     @if (line.IsService)
                                     {
-                                        <span class="text-2xl leading-none text-indigo-400">∞</span> 
+                                        <span class="text-2xl leading-none text-indigo-400">∞</span>
                                         }
                                     else
                                     {
@@ -160,7 +160,7 @@
             currentCompanyId = user.CompanyDetailsId.Value;
             var c = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             companyName = c?.CompanyName ?? "";
-            
+
             await LoadInventory();
         }
         isLoading = false;
@@ -190,11 +190,11 @@
             .AsNoTracking()
             .Where(s => s.CompanyId == currentCompanyId)
             .GroupBy(s => new { s.ItemId, s.WarehouseId })
-            .Select(g => new 
-            { 
-                g.Key.ItemId, 
-                g.Key.WarehouseId, 
-                TotalQty = g.Sum(x => x.QuantityChanged) 
+            .Select(g => new
+            {
+                g.Key.ItemId,
+                g.Key.WarehouseId,
+                TotalQty = g.Sum(x => x.QuantityChanged)
             })
             .Where(x => x.TotalQty != 0) // Filter out zero physical stock
             .ToListAsync();
@@ -218,7 +218,7 @@
                 {
                     ItemId = item.Id,
                     ItemName = item.Name,
-                    SKU = item.SKU,
+                    Code = item.Code,
                     SellingPrice = item.SellingPrice,
                     IsService = true,
                     Quantity = 0, // Placeholder
@@ -240,7 +240,7 @@
                         {
                             ItemId = item.Id,
                             ItemName = item.Name,
-                            SKU = item.SKU,
+                            Code = item.Code,
                             SellingPrice = item.SellingPrice,
                             ReorderLevel = item.ReorderLevel,
                             IsService = false,
@@ -253,7 +253,7 @@
                 }
                 else
                 {
-                   
+
                 }
             }
         }
@@ -266,7 +266,7 @@
     {
         public Guid ItemId { get; set; }
         public string ItemName { get; set; } = "";
-        public string SKU { get; set; } = "";
+        public string Code { get; set; } = "";
         public string WarehouseName { get; set; } = "";
         public decimal Quantity { get; set; }
         public decimal SellingPrice { get; set; }

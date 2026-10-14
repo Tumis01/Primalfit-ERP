@@ -9,6 +9,7 @@
 @using Microsoft.EntityFrameworkCore
 
 @inject TransactionMappingService MappingService
+@inject ProjectService ProjectService
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject UserManager<ApplicationUser> UserManager
@@ -116,6 +117,7 @@
                         <th class="p-4 pl-6 w-[45%]">Customer Profile Reference Identity</th>
                         <th class="p-4 text-right w-[22%]">Debit Amount (Dr - Increase)</th>
                         <th class="p-4 text-right w-[22%]">Credit Amount (Cr - Decrease)</th>
+                        <th class="p-4">Project</th>
                         <th class="p-4 text-center w-[11%] pr-6">Action</th>
                     </tr>
                 </thead>
@@ -155,6 +157,7 @@
                                 </div>
                             </td>
 
+                            <td class="p-3"><ProjectSelect @bind-Value="line.ProjectId" Projects="@projects" Label="" /></td>
                             <td class="p-3 text-center pr-6">
                                 <button type="button" @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
                                     <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -205,8 +208,8 @@
 <!-- ========================================================= -->
 @if (showRouteModal)
 {
-    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+    <div class="fixed inset-0 z-[120] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 route-config-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden route-config-dialog">
 
             <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
                 <div>
@@ -218,7 +221,7 @@
                 </button>
             </div>
 
-            <div class="p-6 overflow-visible space-y-5 flex-1">
+            <div class="p-6 overflow-visible space-y-5 flex-1 route-config-body">
                 <!-- Custom Template Profile Selector -->
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
@@ -305,7 +308,7 @@
                 </div>
             </div>
 
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] route-config-footer">
                 <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
                     Close
                 </button>
@@ -329,6 +332,7 @@
     private string creditAccountLabel = string.Empty;
 
     private List<Customer> customers = new();
+    private List<Project> projects = new();
     private List<SegChartOfAccount> allAccounts = new();
     private List<CustomTransactionType> customTemplates = new();
 
@@ -349,6 +353,7 @@
         public string EntityName { get; set; } = string.Empty;
         public decimal DebitAmount { get; set; }
         public decimal CreditAmount { get; set; }
+        public Guid? ProjectId { get; set; }
 
         public bool IsDebitReadOnly => CreditAmount > 0;
         public bool IsCreditReadOnly => DebitAmount > 0;
@@ -371,6 +376,7 @@
             currentUserId = user.Id;
             canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
             customers = await MasterService.GetCustomersAsync(currentCompanyId);
+            projects = await ProjectService.GetActiveProjectsAsync(currentCompanyId);
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
             await LoadActiveRoutingConfigurationLabels();
@@ -516,7 +522,8 @@
             {
                 EntityId = uiLine.EntityId,
                 EntityName = customers.FirstOrDefault(c => c.Id == uiLine.EntityId)?.Name ?? "Unknown Customer",
-                BalanceAmount = evaluatedAmount
+                BalanceAmount = evaluatedAmount,
+                ProjectId = uiLine.ProjectId
             });
         }
 

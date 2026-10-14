@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -32,7 +32,7 @@ namespace Primafit_ERP.Services
         /// Loads only posted invoices for a specific customer that have physical shipments processed.
         /// Used strictly by the Stock-Related Credit Note view.
         /// </summary>
-        /// 
+        ///
         public async Task<List<SalesOrder>> GetShippedInvoicesByCustomerAsync(Guid companyId, Guid customerId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -239,6 +239,7 @@ namespace Primafit_ERP.Services
 
                 var glLines = new List<GLJournalLine>();
                 var cogsGlLines = new List<GLJournalLine>();
+                var stockMovements = new List<StockLedger>();
                 decimal totalRevenueReversalBase = 0;
 
                 foreach (var line in cn.Lines)
@@ -253,7 +254,7 @@ namespace Primafit_ERP.Services
                     totalRevenueReversalBase += lineTotalBase;
 
                     // 2. Physical Inventory Movement Insertion (Drives + Stock counts)
-                    ctx.StockLedgers.Add(new StockLedger
+                    var stockMovement = new StockLedger
                     {
                         Id = Guid.NewGuid(),
                         CompanyId = cn.CompanyId,
@@ -264,14 +265,16 @@ namespace Primafit_ERP.Services
                         CostAtTime = line.Item.WeightedAverageCost,
                         Reference = cn.CreditNoteNumber,
                         Date = DateTime.UtcNow
-                    });
+                    };
+                    ctx.StockLedgers.Add(stockMovement);
+                    stockMovements.Add(stockMovement);
 
                     // 3. Asset Revaluation GL Pairing (Debit Inventory / Credit COGS)
                     decimal cogsValue = Math.Round(line.Quantity * line.Item.WeightedAverageCost, 2);
                     if (cogsValue > 0)
                     {
-                        cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = cogsValue, Credit = 0, Reference = $"Stock Return: {line.Item.SKU}" });
-                        cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = cogsValue, Reference = $"COGS Return: {line.Item.SKU}" });
+                        cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = cogsValue, Credit = 0, Reference = $"Stock Return: {line.Item.Code}" });
+                        cogsGlLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = 0, Credit = cogsValue, Reference = $"COGS Return: {line.Item.Code}" });
                     }
                 }
 
@@ -282,14 +285,23 @@ namespace Primafit_ERP.Services
                 // Commit balanced accounting bundles
                 var (err1, b1) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Sales Return", cn.CreditNoteNumber, glLines, userId.ToString());
                 if (!string.IsNullOrEmpty(err1)) throw new Exception(err1);
-                if (b1.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, b1.Value, userId.ToString());
+                if (!b1.HasValue) throw new Exception("GL staging did not create a review batch for this credit note.");
+                var salesReturnPostError = await _glOps.PostBatchAsync(cn.CompanyId, b1.Value, userId.ToString());
+                if (!string.IsNullOrEmpty(salesReturnPostError)) throw new Exception(salesReturnPostError);
 
+                Guid? inventoryBatchId = null;
                 if (cogsGlLines.Any())
                 {
                     var (err2, b2) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Inventory Revaluation", cn.CreditNoteNumber, cogsGlLines, userId.ToString());
                     if (!string.IsNullOrEmpty(err2)) throw new Exception(err2);
-                    if (b2.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, b2.Value, userId.ToString());
+                    if (!b2.HasValue) throw new Exception("GL staging did not create an inventory review batch for this credit note.");
+                    var inventoryPostError = await _glOps.PostBatchAsync(cn.CompanyId, b2.Value, userId.ToString());
+                    if (!string.IsNullOrEmpty(inventoryPostError)) throw new Exception(inventoryPostError);
+                    inventoryBatchId = b2;
                 }
+                inventoryBatchId ??= b1;
+                foreach (var stockMovement in stockMovements)
+                    stockMovement.GLBatchId = inventoryBatchId;
 
                 cn.Status = CreditNoteStatus.Posted;
                 cn.PostedAt = DateTime.UtcNow;

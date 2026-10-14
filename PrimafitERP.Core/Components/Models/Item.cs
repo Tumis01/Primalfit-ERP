@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -17,10 +17,10 @@ namespace Primafit_ERP.Components.Models
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         [Required] public Guid CompanyId { get; set; }
 
-        [Required] public string SKU { get; set; } = string.Empty;
+        [Required] public string Code { get; set; } = string.Empty;
         [Required] public string Name { get; set; } = string.Empty;
         public bool IsService { get; set; }
-        public string UoM { get; set; } = "Each"; 
+        public string UoM { get; set; } = "Each";
         [Column(TypeName = "decimal(18,2)")]
         public decimal ReorderLevel { get; set; } = 10;
         public CostingMethod CostingType { get; set; } = CostingMethod.WACC;
@@ -29,7 +29,7 @@ namespace Primafit_ERP.Components.Models
         public decimal WeightedAverageCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
-        public decimal StandardCost { get; set; } 
+        public decimal StandardCost { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal UserSpecifiedCost { get; set; }
@@ -38,7 +38,7 @@ namespace Primafit_ERP.Components.Models
         public decimal MostRecentCost { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
-        public decimal SellingPrice { get; set; } 
+        public decimal SellingPrice { get; set; }
         public Guid? CategoryId { get; set; }
         public virtual ItemCategory? Category { get; set; }
 
@@ -61,7 +61,7 @@ namespace Primafit_ERP.Components.Models
     }
     public class ItemCategory
     {
-        [Key] public Guid Id { get; set; } 
+        [Key] public Guid Id { get; set; }
         [Required] public Guid CompanyId { get; set; }
 
         [Required, StringLength(100)] public string Name { get; set; } = string.Empty;

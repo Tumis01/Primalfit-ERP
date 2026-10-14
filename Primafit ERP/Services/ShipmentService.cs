@@ -263,6 +263,61 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
+        public async Task<string> DeleteDraftShipmentAsync(Guid companyId, Guid shipmentId, string userId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var transaction = await ctx.Database.BeginTransactionAsync();
+
+            try
+            {
+                var shipment = await ctx.SalesShipments
+                    .Include(s => s.Lines)
+                    .FirstOrDefaultAsync(s => s.Id == shipmentId && s.CompanyId == companyId);
+
+                if (shipment == null) return "Shipment draft not found.";
+                if (shipment.Status != ShipmentStatus.Pending)
+                    return "Only an unshipped draft can be deleted.";
+
+                GLBatch? linkedBatch = null;
+                if (shipment.ShipmentBatchId.HasValue)
+                {
+                    linkedBatch = await ctx.GLBatches
+                        .Include(b => b.Journals).ThenInclude(j => j.Lines)
+                        .FirstOrDefaultAsync(b => b.Id == shipment.ShipmentBatchId.Value && b.CompanyId == companyId);
+
+                    if (linkedBatch == null) return "The linked GL batch could not be found; the shipment was not deleted.";
+                    if (linkedBatch.Status != BatchStatus.Draft || linkedBatch.IsLocked)
+                        return "This shipment has been submitted for review and can no longer be deleted as a draft.";
+
+                    if (await ctx.SalesShipments.AnyAsync(s => s.Id != shipmentId && s.ShipmentBatchId == linkedBatch.Id))
+                        return "The linked GL batch is used by another shipment and cannot be deleted.";
+
+                    ctx.GLBatches.Remove(linkedBatch);
+                }
+
+                ctx.AuditLogs.Add(new AuditLog
+                {
+                    CompanyId = companyId,
+                    UserId = userId,
+                    Action = "ShipmentDraftDeleted",
+                    EntityType = nameof(SalesShipment),
+                    EntityId = shipment.Id,
+                    Details = $"Deleted unsubmitted shipment draft '{shipment.ShipmentNumber}'.",
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                ctx.SalesShipments.Remove(shipment);
+                await ctx.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return $"Shipment draft could not be deleted: {ex.Message}";
+            }
+        }
+
         public async Task<string> UpdateShipmentRouteAsync(Guid shipmentId, Guid? customTemplateId, Guid? overrideCogsId, Guid? overrideAssetId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
@@ -443,7 +498,8 @@ namespace Primafit_ERP.Services
                         $"Ship {shipment.ShipmentNumber}",
                         glLines,
                         userId,
-                        existingBatchId: shipment.ShipmentBatchId);
+                        existingBatchId: shipment.ShipmentBatchId,
+                        inheritedProjectId: shipment.SalesOrder?.ProjectId);
 
                     if (!string.IsNullOrEmpty(err)) throw new Exception($"Journal Creation Failed: {err}");
 
@@ -511,7 +567,9 @@ namespace Primafit_ERP.Services
                     UomConversionFactor = UomConversion.NormalizeFactor(line.UomConversionFactor),
                     QuantityInUom = UomConversion.FromBase(line.QtyShipped, line.UomConversionFactor),
                     Type = StockMovementType.Sale, CostAtTime = unitCost,
-                    Reference = shipment.ShipmentNumber, Date = DateTime.UtcNow
+                    ProjectId = shipment.SalesOrder?.ProjectId,
+                    Reference = shipment.ShipmentNumber, Date = DateTime.UtcNow,
+                    GLBatchId = shipment.ShipmentBatchId
                 });
 
                 var soLine = shipment.SalesOrder?.Lines.FirstOrDefault(l => l.Id == line.SalesOrderLineId);

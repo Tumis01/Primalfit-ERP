@@ -1,0 +1,30 @@
+@using Primafit_ERP.Components.Models
+
+<div class="@ContainerClass">
+    @if (!string.IsNullOrWhiteSpace(Label))
+    {
+        <label class="@LabelClass">@Label</label>
+    }
+    <select @bind:get="Value" @bind:set="SetValue" class="@InputClass" disabled="@Disabled">
+        <option value="">@(ActiveProjects.Any() ? "No project" : "No active projects")</option>
+        @foreach (var project in ActiveProjects)
+        {
+            <option @key="project.Id" value="@project.Id">@project.ProjectCode - @project.Name</option>
+        }
+    </select>
+</div>
+
+@code {
+    [Parameter] public Guid? Value { get; set; }
+    [Parameter] public EventCallback<Guid?> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyCollection<Project> Projects { get; set; } = Array.Empty<Project>();
+    [Parameter] public string Label { get; set; } = "Project (Optional)";
+    [Parameter] public string ContainerClass { get; set; } = "";
+    [Parameter] public string LabelClass { get; set; } = "label";
+    [Parameter] public string InputClass { get; set; } = "input-class";
+    [Parameter] public bool Disabled { get; set; }
+
+    private IEnumerable<Project> ActiveProjects => Projects.Where(x => x.IsActive).OrderBy(x => x.ProjectCode);
+
+    private Task SetValue(Guid? projectId) => ValueChanged.InvokeAsync(projectId);
+}

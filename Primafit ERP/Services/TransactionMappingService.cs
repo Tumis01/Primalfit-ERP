@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -185,13 +185,13 @@ namespace Primafit_ERP.Services
 
                     if (line.BalanceAmount > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AR Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = absoluteAmount, Credit = 0, ProjectId = line.ProjectId, Reference = $"AR Adj Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = 0, Credit = absoluteAmount, ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AR Adj Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = arBalancingAccount, Debit = absoluteAmount, Credit = 0, ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = customerArAccount, Debit = 0, Credit = absoluteAmount, ProjectId = line.ProjectId, Reference = $"AR Adj Cr - {line.EntityName}" });
                     }
                 }
 
@@ -283,13 +283,13 @@ namespace Primafit_ERP.Services
 
                     if (line.BalanceAmount > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AP Adj Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0, ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = 0, Credit = absoluteAmount, ProjectId = line.ProjectId, Reference = $"AP Adj Cr - {line.EntityName}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = absoluteAmount, Credit = 0, Reference = $"AP Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = 0, Credit = absoluteAmount, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = vendorApAccount, Debit = absoluteAmount, Credit = 0, ProjectId = line.ProjectId, Reference = $"AP Adj Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = apBalancingAccount, Debit = 0, Credit = absoluteAmount, ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
                     }
                 }
 
@@ -331,6 +331,7 @@ namespace Primafit_ERP.Services
             try
             {
                 var glLines = new List<GLJournalLine>();
+                var stagedStockMovements = new List<StockLedger>();
 
                 foreach (var line in validLines)
                 {
@@ -351,13 +352,13 @@ namespace Primafit_ERP.Services
 
                     if (line.IsDebitInventory)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = finalLineCostChange, Credit = 0, Reference = $"Inv Adj Dr - {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = 0, Credit = finalLineCostChange, Reference = $"Inv Adj Bal Cr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = finalLineCostChange, Credit = 0, ProjectId = line.ProjectId, Reference = $"Inv Adj Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = 0, Credit = finalLineCostChange, ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Cr - {item.Name}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = finalLineCostChange, Credit = 0, Reference = $"Inv Adj Bal Dr - {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = finalLineCostChange, Reference = $"Inv Adj Cr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = finalLineCostChange, Credit = 0, ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = finalLineCostChange, ProjectId = line.ProjectId, Reference = $"Inv Adj Cr - {item.Name}" });
                     }
 
                     decimal absoluteValueShift = line.IsDebitInventory ? finalLineCostChange : -finalLineCostChange;
@@ -383,7 +384,7 @@ namespace Primafit_ERP.Services
 
                     if (line.QuantityChange != 0)
                     {
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = companyId,
@@ -391,21 +392,28 @@ namespace Primafit_ERP.Services
                             WarehouseId = line.WarehouseId,
                             QuantityChanged = line.QuantityChange,
                             Type = StockMovementType.Adjustment,
+                            ProjectId = line.ProjectId,
                             CostAtTime = item.WeightedAverageCost,
                             Reference = $"ADJ-{postingDate:yyMMdd}",
                             Date = DateTime.UtcNow
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
+                        stagedStockMovements.Add(stockMovement);
                     }
                 }
 
                 string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMddHHmm}";
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
                 if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
+                if (stagedStockMovements.Count > 0 && !batchId.HasValue)
+                    throw new Exception("GL staging did not create a review batch for this inventory adjustment.");
 
                 if (batchId.HasValue)
                 {
                     var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                    foreach (var stockMovement in stagedStockMovements)
+                        stockMovement.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -522,10 +530,13 @@ namespace Primafit_ERP.Services
             }
             else
             {
-                ctx.CustomTransactionTypes.Update(customType);
+                var existing = await ctx.CustomTransactionTypes.FirstOrDefaultAsync(x => x.Id == customType.Id && x.CompanyId == customType.CompanyId);
+                if (existing == null) return "This transaction type no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(customType);
             }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This transaction type changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
         public async Task<bool> IsRouteConfigVisibleAsync(Guid companyId)

@@ -22,6 +22,7 @@ namespace Primafit_ERP.Services
         public async Task<(string err, Guid id)> StartReconciliationAsync(
              Guid companyId,
              Guid bankSegCoaId, // CHANGED: Renamed for clarity
+             DateOnly statementStartDate,
              DateOnly statementDate,
              decimal endingBalance,
              ReconType type,
@@ -32,6 +33,7 @@ namespace Primafit_ERP.Services
             {
                 if (companyId == Guid.Empty) return ("Select a company.", Guid.Empty);
                 if (bankSegCoaId == Guid.Empty) return ("Select a bank account.", Guid.Empty);
+                if (statementStartDate > statementDate) return ("The statement start date must be on or before the end date.", Guid.Empty);
 
                 await using var db = await _dbFactory.CreateDbContextAsync();
 
@@ -42,10 +44,12 @@ namespace Primafit_ERP.Services
                         r.CompanyId == companyId &&
                         r.BankAccountId == bankSegCoaId && // CHANGED
                         r.StatementDate == statementDate &&
+                        (r.StatementStartDate == statementStartDate || r.StatementStartDate == null) &&
                         r.Status == ReconStatus.Draft);
 
                 if (existingDraft != null)
                 {
+                    existingDraft.StatementStartDate = statementStartDate;
                     existingDraft.StatementEndingBalance = endingBalance;
                     existingDraft.Type = type;
                     existingDraft.PreparedByUserId = userId;
@@ -62,6 +66,8 @@ namespace Primafit_ERP.Services
                             var rows = await _statementImport.ParseAsync(uploadedFile.Name, uploadedFile.ContentType, stream);
 
                             if (rows.Count == 0) return ("No valid transactions found.", Guid.Empty);
+                            if (rows.Any(r => r.Date < statementStartDate || r.Date > statementDate))
+                                return ("The uploaded statement contains transactions outside the selected statement period.", Guid.Empty);
 
                             await using var tx = await db.Database.BeginTransactionAsync();
                             var oldLines = await db.BankStatementLines.Where(x => x.ReconciliationId == existingDraft.Id).ToListAsync();
@@ -94,6 +100,7 @@ namespace Primafit_ERP.Services
                     Id = Guid.NewGuid(),
                     CompanyId = companyId,
                     BankAccountId = bankSegCoaId, // CHANGED
+                    StatementStartDate = statementStartDate,
                     StatementDate = statementDate,
                     StatementEndingBalance = endingBalance,
                     Type = type,
@@ -108,6 +115,8 @@ namespace Primafit_ERP.Services
                     await using var stream = uploadedFile.OpenReadStream(10 * 1024 * 1024);
                     var rows = await _statementImport.ParseAsync(uploadedFile.Name, uploadedFile.ContentType, stream);
                     if (rows.Count == 0) return ("File is empty.", Guid.Empty);
+                    if (rows.Any(r => r.Date < statementStartDate || r.Date > statementDate))
+                        return ("The uploaded statement contains transactions outside the selected statement period.", Guid.Empty);
 
                     foreach (var r in rows)
                     {
@@ -148,34 +157,116 @@ namespace Primafit_ERP.Services
                 .OrderBy(l => l.Date)
                 .ToListAsync();
 
-            // Load Candidates (GL Transactions)
-            // CRITICAL FIX: Query SegCoaId, not AccountId
-            var txns = await db.GLTransactions
+            // Load history to calculate the opening book balance, but only expose
+            // transactions inside the selected statement period for reconciliation.
+            var allAccountTransactions = await db.GLTransactions
                 .Where(t =>
                     t.CompanyId == companyId &&
                     t.SegCoaId == recon.BankAccountId &&
-                    (t.BankReconciliationId == null || t.BankReconciliationId == reconId) &&
                     t.PostingDate <= recon.StatementDate)
                 .OrderBy(t => t.PostingDate)
                 .ToListAsync();
 
+            // Filter using the exact start date entered for this statement period.
+            // Legacy reconciliations without a stored start date fall back to their
+            // statement date rather than an inferred earliest transaction date.
+            var periodStartDate = recon.StatementStartDate ?? recon.StatementDate;
+
+            var beforePeriod = allAccountTransactions.Where(t => t.PostingDate < periodStartDate).ToList();
+            var periodTransactions = allAccountTransactions
+                .Where(t => t.PostingDate >= periodStartDate && t.PostingDate <= recon.StatementDate)
+                .ToList();
+            var candidates = periodTransactions;
+            var outstandingTransactions = candidates.Where(t => t.BankReconciliationId == null).ToList();
+
+            decimal Net(GLTransaction transaction) => transaction.Debit - transaction.Credit;
+
             return new ReconViewModel
             {
                 Reconciliation = recon,
-                CandidateGLTransactions = txns
+                CandidateGLTransactions = candidates,
+                PeriodStartDate = periodStartDate,
+                OpeningBookBalance = beforePeriod.Sum(Net),
+                PeriodDebits = periodTransactions.Sum(t => t.Debit),
+                PeriodCredits = periodTransactions.Sum(t => t.Credit),
+                BookClosingBalance = allAccountTransactions.Sum(Net),
+                OutstandingDeposits = outstandingTransactions.Sum(t => t.Debit),
+                OutstandingPayments = outstandingTransactions.Sum(t => t.Credit)
             };
+        }
+
+        public async Task<DateOnly> GetSuggestedPeriodStartDateAsync(Guid companyId, Guid bankSegCoaId)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            var lastFinalizedEndDate = await db.BankReconciliations
+                .Where(r => r.CompanyId == companyId
+                    && r.BankAccountId == bankSegCoaId
+                    && r.Status == ReconStatus.Finalized)
+                .OrderByDescending(r => r.StatementDate)
+                .Select(r => (DateOnly?)r.StatementDate)
+                .FirstOrDefaultAsync();
+
+            if (lastFinalizedEndDate.HasValue)
+                return lastFinalizedEndDate.Value.AddDays(1);
+
+            var firstTransactionDate = await db.GLTransactions
+                .Where(t => t.CompanyId == companyId
+                    && t.SegCoaId == bankSegCoaId)
+                .Select(t => (DateOnly?)t.PostingDate)
+                .MinAsync();
+
+            return firstTransactionDate ?? DateOnly.FromDateTime(DateTime.Today);
+        }
+
+        public async Task<List<BankReconciliation>> GetReconciliationHistoryAsync(
+            Guid companyId, Guid? bankAccountId, DateOnly startDate, DateOnly endDate)
+        {
+            if (startDate > endDate) return new List<BankReconciliation>();
+
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var query = db.BankReconciliations
+                .AsNoTracking()
+                .Where(r => r.CompanyId == companyId
+                    && r.StatementDate >= startDate
+                    && (r.StatementStartDate == null || r.StatementStartDate <= endDate));
+
+            if (bankAccountId.HasValue && bankAccountId.Value != Guid.Empty)
+                query = query.Where(r => r.BankAccountId == bankAccountId.Value);
+
+            return await query
+                .OrderByDescending(r => r.StatementDate)
+                .ThenByDescending(r => r.CreatedAt)
+                .ToListAsync();
         }
 
         public async Task ToggleTransactionClearedAsync(Guid txnId, Guid reconId, bool isChecked)
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
-            var txn = await db.GLTransactions.FirstOrDefaultAsync(t => t.Id == txnId);
-            if (txn == null) return;
+            var reconciliation = await db.BankReconciliations
+                .FirstOrDefaultAsync(r => r.Id == reconId);
+            if (reconciliation == null) return;
+
+            var txn = await db.GLTransactions.FirstOrDefaultAsync(t =>
+                t.Id == txnId
+                && t.CompanyId == reconciliation.CompanyId
+                && t.SegCoaId == reconciliation.BankAccountId
+                && t.PostingDate >= (reconciliation.StatementStartDate ?? reconciliation.StatementDate)
+                && t.PostingDate <= reconciliation.StatementDate);
+            if (txn == null || (isChecked && txn.BankReconciliationId.HasValue && txn.BankReconciliationId != reconId)) return;
 
             if (isChecked)
+            {
                 txn.BankReconciliationId = reconId;
+                txn.IsReconciled = true;
+                txn.ReconciledAt = DateTime.UtcNow;
+            }
             else if (txn.BankReconciliationId == reconId)
+            {
                 txn.BankReconciliationId = null;
+                txn.IsReconciled = false;
+                txn.ReconciledAt = null;
+            }
 
             await db.SaveChangesAsync();
         }
@@ -193,9 +284,10 @@ namespace Primafit_ERP.Services
             var glTransactions = await db.GLTransactions
                 .Where(t =>
                     t.CompanyId == companyId &&
-                    t.SegCoaId == recon.BankAccountId && // CHANGED
+                    t.SegCoaId == recon.BankAccountId &&
                     t.BankReconciliationId == null &&
-                    t.PostingDate <= recon.StatementDate.AddDays(10)) // Grace period
+                    t.PostingDate >= (recon.StatementStartDate ?? recon.StatementDate) &&
+                    t.PostingDate <= recon.StatementDate)
                 .ToListAsync();
 
             int matched = 0;
@@ -222,6 +314,8 @@ namespace Primafit_ERP.Services
                 if (match == null) continue;
 
                 match.BankReconciliationId = reconId;
+                match.IsReconciled = true;
+                match.ReconciledAt = DateTime.UtcNow;
                 line.IsMatched = true;
                 line.MatchedGLTransactionId = match.Id;
 
@@ -243,12 +337,22 @@ namespace Primafit_ERP.Services
                 var line = await db.BankStatementLines.FirstOrDefaultAsync(l => l.Id == statementLineId);
                 if (line == null) return "Statement line not found.";
 
+                var recon = await db.BankReconciliations.FirstOrDefaultAsync(r =>
+                    r.Id == line.ReconciliationId && r.CompanyId == companyId);
+                if (recon == null) return "Reconciliation not found.";
+
                 var txn = await db.GLTransactions.FirstOrDefaultAsync(t => t.Id == txnId && t.CompanyId == companyId);
                 if (txn == null) return "GL transaction not found.";
+                if (txn.SegCoaId != recon.BankAccountId
+                    || txn.PostingDate < (recon.StatementStartDate ?? recon.StatementDate)
+                    || txn.PostingDate > recon.StatementDate)
+                    return "The selected GL transaction is outside this bank account or statement period.";
 
                 if (line.IsMatched || txn.BankReconciliationId != null) return "Item already matched.";
 
                 txn.BankReconciliationId = line.ReconciliationId;
+                txn.IsReconciled = true;
+                txn.ReconciledAt = DateTime.UtcNow;
                 line.IsMatched = true;
                 line.MatchedGLTransactionId = txn.Id;
 

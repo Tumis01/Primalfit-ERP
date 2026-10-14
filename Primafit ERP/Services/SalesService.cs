@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -289,6 +289,7 @@ namespace Primafit_ERP.Services
                 }
 
                 existing.CustomerId = order.CustomerId;
+                existing.ProjectId = order.ProjectId;
                 existing.WarehouseId = order.WarehouseId;
                 existing.CurrencyId = order.CurrencyId;
                 existing.ExchangeRate = order.ExchangeRate;
@@ -357,6 +358,7 @@ namespace Primafit_ERP.Services
                 TaxId = quote.TaxId,
                 TaxGLAccountId = quote.TaxGLAccountId,
                 CustomerId = quote.CustomerId,
+                ProjectId = quote.ProjectId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
                 TransactionDateTime = DateTime.Now,
                 Status = OrderStatus.Order,
@@ -412,6 +414,7 @@ namespace Primafit_ERP.Services
                 TaxId = order.TaxId,
                 TaxGLAccountId = order.TaxGLAccountId,
                 CustomerId = order.CustomerId,
+                ProjectId = order.ProjectId,
                 Date = DateOnly.FromDateTime(DateTime.Today),
                 TransactionDateTime = DateTime.Now,
                 Status = OrderStatus.Draft,
@@ -464,6 +467,7 @@ namespace Primafit_ERP.Services
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var glLines = new List<GLJournalLine>();
+            var stockMovements = new List<StockLedger>();
             bool physicalItemsProcessed = false;
 
             foreach (var line in order.Lines)
@@ -489,7 +493,7 @@ namespace Primafit_ERP.Services
                     return $"Fulfillment failed: Insufficient physical stock for {line.Item.Name}. Have: {currentStock}, Balanced Target Need: {netQtyToShip}";
 
                 // 4. Log physical stock ledger depletion matching the balanced quantity
-                ctx.StockLedgers.Add(new StockLedger
+                var stockMovement = new StockLedger
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = order.CompanyId,
@@ -497,17 +501,20 @@ namespace Primafit_ERP.Services
                     WarehouseId = warehouseId,
                     QuantityChanged = -netQtyToShip,
                     Type = StockMovementType.Sale,
+                    ProjectId = order.ProjectId,
                     CostAtTime = line.Item.WeightedAverageCost,
                     Reference = order.OrderNumber,
                     Date = DateTime.UtcNow
-                });
+                };
+                ctx.StockLedgers.Add(stockMovement);
+                stockMovements.Add(stockMovement);
 
                 // 5. Compute true Cost of Goods Sold (COGS) strictly on what is physically leaving
                 decimal cogsValueBase = Math.Round(netQtyToShip * line.Item.WeightedAverageCost, 2);
                 if (cogsValueBase > 0)
                 {
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.SKU} (Net Shipped)" });
-                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.SKU} (Net Shipped)" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.CostOfGoodsSoldAccountId, Debit = cogsValueBase, Credit = 0, Reference = $"COGS {line.Item.Code} (Net Shipped)" });
+                    glLines.Add(new GLJournalLine { SegCoaId = line.Item.InventoryAssetAccountId, Debit = 0, Credit = cogsValueBase, Reference = $"Stock Out {line.Item.Code} (Net Shipped)" });
                 }
 
                 line.QtyShipped = netQtyToShip; // Save the exact net count dispatched to database records
@@ -516,10 +523,17 @@ namespace Primafit_ERP.Services
             // 6. Post balanced inventory revaluation components to the general ledger
             if (glLines.Any())
             {
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment Fulfillment", $"Ship {order.OrderNumber}", glLines, userId);
+                var (err, batchId) = await _glOps.CreateJournalEntryAsync(order.CompanyId, order.Date, "Shipment Fulfillment", $"Ship {order.OrderNumber}", glLines, userId, inheritedProjectId: order.ProjectId);
                 if (!string.IsNullOrEmpty(err)) return err;
-
-                if (batchId.HasValue) await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
+                if (stockMovements.Count > 0 && !batchId.HasValue)
+                    return "GL staging did not create a review batch for this shipment.";
+                if (batchId.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(order.CompanyId, batchId.Value, userId);
+                    if (!string.IsNullOrEmpty(postError)) return postError;
+                    foreach (var stockMovement in stockMovements)
+                        stockMovement.GLBatchId = batchId;
+                }
                 order.ShipmentBatchId = batchId;
             }
 
@@ -693,7 +707,8 @@ namespace Primafit_ERP.Services
                     sourceReference: order.OrderNumber,
                     lines: glLines,
                     userId: userId,
-                    existingBatchId: order.InvoiceBatchId
+                    existingBatchId: order.InvoiceBatchId,
+                    inheritedProjectId: order.ProjectId
                 );
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception($"GL Staging Error: {err}");
@@ -938,7 +953,8 @@ namespace Primafit_ERP.Services
                     sourceReference: invoice.OrderNumber,
                     lines: glLines,
                     userId: userId,
-                    existingBatchId: batchToUpdate
+                    existingBatchId: batchToUpdate,
+                    inheritedProjectId: invoice.ProjectId
                 );
 
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
@@ -1183,7 +1199,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { OrderStatus.PartiallyInvoiced, OrderStatus.Invoiced };
 
-            // 1. Fetch sales lines matching parameters. 
+            // 1. Fetch sales lines matching parameters.
             // CRITICAL FIX: Explicitly ignore direct invoices by filtering out entries without an Item ID
             var query = ctx.SalesOrderLines
                 .Include(l => l.Header).ThenInclude(h => h.Customer)
@@ -1302,4 +1318,4 @@ namespace Primafit_ERP.Services
             return reportData;
         }
     }
-}   
+}

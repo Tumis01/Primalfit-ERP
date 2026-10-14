@@ -368,11 +368,11 @@
                         </div>
 
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm whitespace-nowrap min-w-[640px]">
+                            <table class="w-full text-left text-sm min-w-[900px]">
                                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                                     <tr>
                                         <th class="p-4 pl-6 w-[28%]">Item Name</th>
-                                        <th class="p-4 text-center">UOM</th>
+                                        <th class="p-4 text-center w-64 min-w-[16rem]">UOM</th>
                                         <th class="p-4 text-center">Unit Price</th>
                                         <th class="p-4 text-center bg-amber-50/40 text-amber-700">Total Shipped</th>
                                         <th class="p-4 text-center bg-rose-50/40 text-rose-700">Max Returnable</th>
@@ -387,16 +387,16 @@
                                         <tr class="hover:bg-slate-50/60 transition-colors align-middle @(atMax ? "bg-rose-50/30" : "")">
                                             <td class="p-4 pl-6">
                                                 <div class="font-bold text-slate-800">@(line.Item?.Name ?? "Unknown Item")</div>
-                                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">@(line.Item?.SKU ?? "")</div>
+                                                <div class="text-[10px] text-slate-400 font-mono mt-0.5">@(line.Item?.Code ?? "")</div>
                                             </td>
-                                            <td class="p-4 text-center">
-                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class py-1.5 text-xs font-semibold">
+                                            <td class="p-4 text-center w-64 min-w-[16rem]">
+                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class w-full min-w-[220px] px-3 py-2 text-sm font-semibold">
                                                     @foreach (var uom in GetItemUoms(line.Item))
                                                     {
                                                         <option value="@uom.Id">@GetUomOptionLabel(line.Item, uom)</option>
                                                     }
                                                 </select>
-                                                <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                <div class="mt-1 block whitespace-normal break-words text-left text-[11px] leading-snug text-slate-500">@GetUomConversionText(line)</div>
                                             </td>
                                             <td class="p-4 text-center font-mono text-slate-500 text-xs">@GetDisplayedUnitPrice(line).ToString("N4")</td>
                                             <td class="p-4 text-center bg-amber-50/30">
@@ -533,8 +533,8 @@
 <!-- ROUTE CONFIGURATION MODAL -->
 @if (showRouteModal)
 {
-    <div class="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-visible">
+    <div class="fixed inset-0 z-[120] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 route-config-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden route-config-dialog">
 
             <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
                 <div>
@@ -546,7 +546,7 @@
                 </button>
             </div>
 
-            <div class="p-6 overflow-visible space-y-5 flex-1">
+            <div class="p-6 overflow-visible space-y-5 flex-1 route-config-body">
                 <!-- Custom Template Profile Selector -->
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
@@ -665,7 +665,7 @@
                 </div>
             </div>
 
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10]">
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] route-config-footer">
                 <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
                     Close
                 </button>
@@ -1043,7 +1043,36 @@
     private decimal GetLineFactor(ReceiptRefundLine line) => line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
     private decimal GetDisplayedQuantity(decimal baseQuantity, ReceiptRefundLine line) => UomConversion.FromBase(baseQuantity, GetLineFactor(line));
     private decimal GetDisplayedUnitPrice(ReceiptRefundLine line) => UomConversion.PriceFromBase(line.UnitPrice, GetLineFactor(line));
-    private string GetUomConversionText(ReceiptRefundLine line) => GetLineFactor(line) == 1m ? "1:1" : $"1 {line.Item?.PrimaryUom?.Name ?? line.Item?.UoM ?? "primary"} = {1m / GetLineFactor(line):N4} {line.UomName}";
+    private string GetUomConversionText(ReceiptRefundLine line)
+    {
+        var item = line.Item;
+        if (item == null) return "UOM conversion unavailable";
+
+        var primaryName = item.PrimaryUom?.Name ?? item.UoM ?? "primary";
+        var selectedName = GetSelectedUomName(item, line.UomId);
+        if (!item.UomId.HasValue || item.UomId.Value == line.UomId.GetValueOrDefault())
+            return $"1 {primaryName} = 1 {selectedName}";
+
+        if (!line.UomId.HasValue) return $"1 {primaryName}";
+
+        var itemConversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == line.UomId);
+        decimal? primaryToSelectedFactor = itemConversion?.ConversionFactorToBase;
+        primaryToSelectedFactor ??= UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, ConversionMap);
+
+        return primaryToSelectedFactor.HasValue && primaryToSelectedFactor.Value > 0
+            ? $"1 {primaryName} = {primaryToSelectedFactor.Value:0.####} {selectedName}"
+            : $"{selectedName} conversion is not configured";
+    }
+
+    private string GetSelectedUomName(Item? item, Guid? selectedUomId)
+    {
+        if (item == null || !selectedUomId.HasValue) return item?.UoM ?? "UOM";
+        if (selectedUomId == item.UomId) return item.PrimaryUom?.Name ?? item.UoM;
+
+        return itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == selectedUomId.Value)?.Uom?.Name
+            ?? uoms.FirstOrDefault(x => x.Id == selectedUomId.Value)?.Name
+            ?? "UOM";
+    }
 
     private string GetUomOptionLabel(Item? item, UnitOfMeasure uom)
     {
@@ -1065,7 +1094,7 @@
     {
         if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
         line.UomId = selectedId;
-        line.UomName = UomConversion.NameFor(line.Item, selectedId);
+        line.UomName = GetSelectedUomName(line.Item, selectedId);
         line.UomConversionFactor = GetItemFactor(line.Item, selectedId);
     }
 

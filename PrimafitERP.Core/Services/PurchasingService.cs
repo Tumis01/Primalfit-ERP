@@ -487,6 +487,7 @@ namespace Primafit_ERP.Services
                 ctx.GoodsReceipts.Add(grn);
 
                 var glLines = new List<GLJournalLine>();
+                var stagedStockMovements = new List<StockLedger>();
                 decimal totalReceivedValueBase = 0;
 
                 // Post Inventory & Financials
@@ -502,7 +503,7 @@ namespace Primafit_ERP.Services
                     if (!item.IsService)
                     {
                         // 1. Physical Stock Increase
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = grn.CompanyId,
@@ -513,7 +514,9 @@ namespace Primafit_ERP.Services
                             Type = StockMovementType.Purchase,
                             QuantityChanged = grnLine.QuantityReceived,
                             CostAtTime = poLine.UnitCost
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
+                        stagedStockMovements.Add(stockMovement);
 
                         // 2. Debit: Inventory Asset
                         if (item.InventoryAssetAccountId != Guid.Empty)
@@ -541,7 +544,15 @@ namespace Primafit_ERP.Services
 
                     var (glErr, batchId) = await _glOps.CreateJournalEntryAsync(grn.CompanyId, DateOnly.FromDateTime(grn.DateReceived), "Goods Receipt", $"GRN {grn.GrnNumber}", glLines, userId);
                     if (!string.IsNullOrEmpty(glErr)) throw new Exception(glErr);
-                    if (batchId.HasValue) await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                    if (stagedStockMovements.Count > 0 && !batchId.HasValue)
+                        throw new Exception("GL staging did not create a review batch for this goods receipt.");
+                    if (batchId.HasValue)
+                    {
+                        var postError = await _glOps.PostBatchAsync(grn.CompanyId, batchId.Value, userId);
+                        if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                        foreach (var stockMovement in stagedStockMovements)
+                            stockMovement.GLBatchId = batchId;
+                    }
                 }
 
                 // Update PO Status Tracking

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -27,9 +27,15 @@ namespace Primafit_ERP.Services
                 return "A branch with this name already exists.";
 
             if (branch.Id == Guid.Empty) { branch.Id = Guid.NewGuid(); ctx.Branches.Add(branch); }
-            else { ctx.Branches.Update(branch); }
+            else
+            {
+                var existing = await ctx.Branches.FirstOrDefaultAsync(x => x.Id == branch.Id && x.CompanyId == branch.CompanyId);
+                if (existing == null) return "This branch no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(branch);
+            }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This branch changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
 
@@ -47,9 +53,15 @@ namespace Primafit_ERP.Services
                 return "A department with this name already exists.";
 
             if (dept.Id == Guid.Empty) { dept.Id = Guid.NewGuid(); ctx.Departments.Add(dept); }
-            else { ctx.Departments.Update(dept); }
+            else
+            {
+                var existing = await ctx.Departments.FirstOrDefaultAsync(x => x.Id == dept.Id && x.CompanyId == dept.CompanyId);
+                if (existing == null) return "This department no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(dept);
+            }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This department changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
 
@@ -68,9 +80,15 @@ namespace Primafit_ERP.Services
                 return "This job role already exists in the selected department.";
 
             if (role.Id == Guid.Empty) { role.Id = Guid.NewGuid(); ctx.JobRoles.Add(role); }
-            else { ctx.JobRoles.Update(role); }
+            else
+            {
+                var existing = await ctx.JobRoles.FirstOrDefaultAsync(x => x.Id == role.Id && x.CompanyId == role.CompanyId);
+                if (existing == null) return "This job role no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(role);
+            }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This job role changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
 
@@ -85,9 +103,15 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (structure.Id == Guid.Empty) { structure.Id = Guid.NewGuid(); ctx.SalaryStructures.Add(structure); }
-            else { ctx.SalaryStructures.Update(structure); }
+            else
+            {
+                var existing = await ctx.SalaryStructures.FirstOrDefaultAsync(x => x.Id == structure.Id && x.CompanyId == structure.CompanyId);
+                if (existing == null) return "This salary structure no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(structure);
+            }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This salary structure changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
         // Add these to HrSetupService.cs

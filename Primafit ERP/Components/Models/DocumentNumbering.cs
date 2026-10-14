@@ -29,7 +29,8 @@ public enum SequenceTargetType
     AP_Adjustment,
     CustomerCode,
     VendorCode,
-    ItemCategoryCode
+    ItemCategoryCode,
+    ItemCode
 }
 
 public enum ResetInterval

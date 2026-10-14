@@ -5,7 +5,8 @@
 
     @if (SelectedAccount != null && !isSearching)
     {
-        <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 cursor-pointer hover:border-slate-300"
+        <div class="flex items-center justify-between p-2.5 border rounded-xl bg-slate-50 border-slate-200 @(Disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:border-slate-300")"
+             aria-disabled="@Disabled"
              @onclick="EnableSearch">
             <div class="flex flex-col">
                 <span class="text-sm font-bold text-slate-900">@SelectedAccount.AccountCode</span>
@@ -22,26 +23,27 @@
                @bind:event="oninput"
                @onfocus="() => showDropdown = true"
                @onblur="OnBlur"
+               disabled="@Disabled"
                class="w-full rounded-xl border border-slate-200 p-2.5 text-sm focus:border-slate-900 focus:outline-none @(IsInvalid ? "border-red-300 bg-red-50" : "")"
                placeholder="@Placeholder" />
 
         @if (showDropdown)
         {
-            <div class="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div class="searchable-gl-account-menu absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
                 @if (FilteredAccounts.Any())
                 {
                     @foreach (var acc in FilteredAccounts)
                     {
-                        <div class="cursor-pointer px-4 py-2 hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                        <div class="cursor-pointer px-4 py-2 hover:bg-indigo-50 border-b border-slate-50 last:border-0 text-sm"
                              @onmousedown="() => Select(acc)">
-                            <div class="font-bold text-sm text-slate-900">@acc.AccountCode</div>
+                            <div class="text-indigo-900 font-bold">@acc.AccountCode</div>
                             <div class="text-xs text-slate-500">@acc.Description</div>
                         </div>
                     }
                 }
                 else
                 {
-                    <div class="p-3 text-xs text-slate-400 text-center">No accounts found.</div>
+                    <div class="px-4 py-3 text-xs text-slate-400 text-center">No accounts found.</div>
                 }
             </div>
         }
@@ -55,6 +57,7 @@
     [Parameter] public Guid Value { get; set; }
     [Parameter] public EventCallback<Guid> ValueChanged { get; set; }
     [Parameter] public bool IsInvalid { get; set; }
+    [Parameter] public bool Disabled { get; set; }
 
     private string searchTerm = "";
     private bool isSearching = false;
@@ -72,6 +75,7 @@
 
     private void EnableSearch()
     {
+        if (Disabled) return;
         isSearching = true;
         showDropdown = true;
         searchTerm = "";

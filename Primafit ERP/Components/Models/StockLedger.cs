@@ -33,5 +33,8 @@ namespace Primafit_ERP.Components.Models
 
         public string Reference { get; set; } = string.Empty; // e.g., "INV-1001" or "PO-55"
         public Guid? GLBatchId { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
     }
 }

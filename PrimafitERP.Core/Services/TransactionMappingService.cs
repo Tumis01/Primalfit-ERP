@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -325,7 +325,7 @@ namespace Primafit_ERP.Services
                 if (batchId.HasValue)
                 {
                     var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
-                    // FIXED: Removed stray closing parenthesis right here 
+                    // FIXED: Removed stray closing parenthesis right here
                     if (!string.IsNullOrEmpty(postError)) return $"LEDGER POSTING FAILURE: {postError}";
                 }
 
@@ -357,6 +357,7 @@ namespace Primafit_ERP.Services
             try
             {
                 var glLines = new List<GLJournalLine>();
+                var stagedStockMovements = new List<StockLedger>();
 
                 foreach (var line in validLines)
                 {
@@ -417,7 +418,7 @@ namespace Primafit_ERP.Services
                     // 5. Append Physical Warehouse Movement Logging entries
                     if (line.QuantityChange != 0)
                     {
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = companyId,
@@ -428,7 +429,9 @@ namespace Primafit_ERP.Services
                             CostAtTime = item.WeightedAverageCost,
                             Reference = $"ADJ-{postingDate:yyMMdd}",
                             Date = DateTime.UtcNow
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
+                        stagedStockMovements.Add(stockMovement);
                     }
                 }
 
@@ -436,11 +439,15 @@ namespace Primafit_ERP.Services
                 string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMDDHHmm}";
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
                 if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
+                if (stagedStockMovements.Count > 0 && !batchId.HasValue)
+                    throw new Exception("GL staging did not create a review batch for this inventory adjustment.");
 
                 if (batchId.HasValue)
                 {
                     var postError = await _glOps.PostBatchAsync(companyId, batchId.Value, userId);
                     if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                    foreach (var stockMovement in stagedStockMovements)
+                        stockMovement.GLBatchId = batchId;
                 }
 
                 await ctx.SaveChangesAsync();
@@ -494,10 +501,13 @@ namespace Primafit_ERP.Services
             }
             else
             {
-                ctx.CustomTransactionTypes.Update(customType);
+                var existing = await ctx.CustomTransactionTypes.FirstOrDefaultAsync(x => x.Id == customType.Id && x.CompanyId == customType.CompanyId);
+                if (existing == null) return "This transaction type no longer exists. Reload the list and try again.";
+                ctx.Entry(existing).CurrentValues.SetValues(customType);
             }
 
-            await ctx.SaveChangesAsync();
+            try { await ctx.SaveChangesAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This transaction type changed while you were editing it. Reload and try again."; }
             return string.Empty;
         }
     }

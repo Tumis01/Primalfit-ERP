@@ -10,6 +10,8 @@ namespace Primafit_ERP.Services
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly IWebHostEnvironment _environment;
 
+        public event Action<Guid>? CompanyProfileUpdated;
+
         
         public CompanyApiService(IDbContextFactory<AppDbContext> dbFactory, IWebHostEnvironment environment)
         {
@@ -91,6 +93,7 @@ namespace Primafit_ERP.Services
 
             await SyncBaseCurrencyAsync(context, entity);
             await context.SaveChangesAsync();
+            CompanyProfileUpdated?.Invoke(entity.CompanyDetailsId);
             return true;
         }
 

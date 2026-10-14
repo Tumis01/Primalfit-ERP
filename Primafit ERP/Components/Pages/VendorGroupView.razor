@@ -1,4 +1,4 @@
-﻿@page "/md/vendor-groups"
+@page "/md/vendor-groups"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -80,7 +80,7 @@
                                 <option value="@sequence.Id">@sequence.Name</option>
                             }
                         </select>
-                        <p class="text-xs text-slate-400 mt-1">Vendors in this group use this sequence for suggested codes.</p>
+                        <p class="text-xs text-slate-400 mt-1">When assigned, vendor codes are generated and read-only. Without a sequence, enter codes manually.</p>
                     </div>
 
                     <div>
@@ -105,10 +105,11 @@
 
     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-slate-600 min-w-[600px]">
+            <table class="w-full text-left text-sm text-slate-600 min-w-[760px]">
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="px-6 py-4">Group Name</th>
+                        <th class="px-6 py-4">Vendor Code Sequence</th>
                         <th class="px-6 py-4">Default A/P GL</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
@@ -119,6 +120,16 @@
                         var gl = apAccounts.FirstOrDefault(a => a.Id == item.PayablesAccountId);
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
+                            <td class="px-6 py-4">
+                                @if (item.SequenceDefinition is not null)
+                                {
+                                    <span class="inline-flex rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">@item.SequenceDefinition.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-xs text-slate-400">Manual vendor codes</span>
+                                }
+                            </td>
                             <td class="px-6 py-4">
                                 @if (gl != null)
                                 {
@@ -146,7 +157,7 @@
                     }
                     @if (!groups.Any())
                     {
-                        <tr><td colspan="3" class="p-8 text-center text-slate-400">No groups found.</td></tr>
+                        <tr><td colspan="4" class="p-8 text-center text-slate-400">No groups found.</td></tr>
                     }
                 </tbody>
             </table>
@@ -215,7 +226,6 @@
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();
-            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.VendorCode);
             codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.VendorCode);
         }
     }

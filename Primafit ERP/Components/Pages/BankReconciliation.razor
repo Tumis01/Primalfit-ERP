@@ -96,19 +96,28 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                         <SearchableGlAccount Label="Bank Account (Cash/Bank)"
                                              Placeholder="Select bank accounts..."
                                              Accounts="@bankAccounts"
-                                             @bind-Value="selectedBankAccountId"
+                                             Value="@selectedBankAccountId"
+                                             ValueChanged="OnBankAccountChanged"
                                              IsInvalid="@(selectedBankAccountId == Guid.Empty)" />
                     </div>
                     <div>
-                        <label class="label">Statement Ending Date</label>
+                        <label class="label">Statement Start Date</label>
+                        <InputDate class="input-class" @bind-Value="statementStartDate" />
+                    </div>
+                    <div>
+                        <label class="label">Statement End Date</label>
                         <InputDate class="input-class" @bind-Value="statementDate" />
                     </div>
                 </div>
+                @if (statementStartDate > statementDate)
+                {
+                    <div class="-mt-6 text-xs font-semibold text-rose-600">The start date must be on or before the end date.</div>
+                }
 
                 <div>
                     <label class="label">Statement Ending Balance</label>
@@ -162,7 +171,12 @@
     }
     else if (vm != null)
     {
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm">
+            <div><span class="font-bold text-slate-700">Statement period:</span> @vm.PeriodStartDate.ToString("dd MMM yyyy") – @vm.Reconciliation.StatementDate.ToString("dd MMM yyyy")</div>
+            <div class="text-xs font-bold uppercase tracking-wide text-slate-500">@vm.Reconciliation.Type · @vm.Reconciliation.Status</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-slate-900 text-white p-5 rounded-2xl shadow-md">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Statement Balance</span>
                 <div class="text-2xl font-mono font-bold mt-1">@vm.Reconciliation.StatementEndingBalance.ToString("N4")</div>
@@ -170,8 +184,8 @@
 
             <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Book Balance (Cleared)</span>
-                <div class="text-2xl font-mono font-bold mt-1 text-indigo-600">@ReconciledBalance.ToString("N4")</div>
-                <div class="text-[10px] text-slate-400 mt-1">Sum of all checked items</div>
+                <div class="text-2xl font-mono font-bold mt-1 text-indigo-600">@vm.ClearedBookBalance.ToString("N4")</div>
+                <div class="text-[10px] text-slate-400 mt-1">Opening ledger balance plus cleared activity for this period</div>
             </div>
 
             <div class="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
@@ -179,10 +193,11 @@
                 <div class="text-2xl font-mono font-bold mt-1 @(Difference == 0 ? "text-emerald-500" : "text-rose-500")">
                     @Difference.ToString("N4")
                 </div>
-                <div class="text-[10px] text-slate-400 mt-1">Target is 0.00</div>
+                <div class="text-[10px] text-slate-400 mt-1">Target is 0.0000</div>
             </div>
+        </div>
 
-            <div class="flex flex-col justify-center gap-2">
+        <div class="flex flex-col sm:flex-row sm:justify-end gap-2">
                 @if (vm.Reconciliation.Type == ReconType.Automatic)
                 {
                     <PermissionGate Key="RECON_START">
@@ -193,14 +208,13 @@
                         </Authorized>
                     </PermissionGate>
                 }
-                    <PermissionGate Key="RECON_FINALIZE">
-                        <Authorized>
-                            <button @onclick="Finalize" class="w-full py-2 px-4 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                 Finalize & Close
-                            </button>
-                        </Authorized>
-                    </PermissionGate>
-            </div>
+            <PermissionGate Key="RECON_FINALIZE">
+                <Authorized>
+                    <button @onclick="Finalize" class="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        Finalize & Close
+                    </button>
+                </Authorized>
+            </PermissionGate>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
@@ -266,6 +280,7 @@
                             @foreach (var txn in vm.CandidateGLTransactions)
                             {
                                 bool isCleared = txn.BankReconciliationId == vm.Reconciliation.Id;
+                                bool isClearedElsewhere = txn.BankReconciliationId.HasValue && !isCleared;
 
                                 <tr class="hover:bg-slate-50 transition-colors @(isCleared ? "bg-slate-50/60" : "") @(selectedTxn?.Id == txn.Id ? "ring-1 ring-indigo-200 bg-indigo-50" : "")"
                                     @onclick="() => selectedTxn = txn">
@@ -281,11 +296,17 @@
                                         {
                                             <input type="checkbox" checked="@isCleared"
                                                    @onchange="@(e => ToggleCleared(txn, (bool)e.Value!))"
+                                                   disabled="@isClearedElsewhere"
+                                                   title="@(isClearedElsewhere ? "This transaction is cleared in another reconciliation." : "")"
                                                    class="w-5 h-5 text-slate-900 rounded border-slate-300 focus:ring-slate-900 cursor-pointer" />
                                         }
                                         else if (isCleared)
                                         {
                                             <span class="text-emerald-500 font-bold text-xs">✓</span>
+                                        }
+                                        else if (isClearedElsewhere)
+                                        {
+                                            <span class="text-slate-400 text-[10px]" title="Cleared in another reconciliation">Prior</span>
                                         }
                                     </td>
                                 </tr>
@@ -351,6 +372,7 @@
     private List<SegAccountType> accountTypes = new();
 
     private Guid selectedBankAccountId = Guid.Empty;
+    private DateOnly statementStartDate = DateOnly.FromDateTime(DateTime.Today);
     private DateOnly statementDate = DateOnly.FromDateTime(DateTime.Today);
     private decimal endingBalance;
     private ReconType reconType = ReconType.Manual;
@@ -366,13 +388,14 @@
     private GLTransaction? selectedTxn;
 
     // Computed Properties
-    private bool CanStartRecon => HasCompany && selectedBankAccountId != Guid.Empty && (reconType == ReconType.Manual || uploadedFile != null);
+    private bool CanStartRecon => HasCompany && selectedBankAccountId != Guid.Empty
+        && statementStartDate <= statementDate
+        && (reconType == ReconType.Manual || uploadedFile != null);
     private int UnmatchedCount => vm?.Reconciliation?.StatementLines?.Count(l => !l.IsMatched) ?? 0;
     private bool isBusy = false;
-    private decimal TotalClearedDeposits => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId == vm.Reconciliation.Id).Sum(t => t.Debit) ?? 0;
-    private decimal TotalClearedPayments => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId == vm.Reconciliation.Id).Sum(t => t.Credit) ?? 0;
-    private decimal ReconciledBalance => (TotalClearedDeposits - TotalClearedPayments);
-    private decimal Difference => (vm?.Reconciliation.StatementEndingBalance ?? 0) - ReconciledBalance;
+    private decimal TotalClearedDeposits => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId.HasValue).Sum(t => t.Debit) ?? 0;
+    private decimal TotalClearedPayments => vm?.CandidateGLTransactions.Where(t => t.BankReconciliationId.HasValue).Sum(t => t.Credit) ?? 0;
+    private decimal Difference => vm?.Difference ?? 0m;
 
     protected override async Task OnInitializedAsync()
     {
@@ -386,7 +409,10 @@
             {
                 selectedCompanyId = currentUser.CompanyDetailsId.Value;
                 var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-                if (company != null) companyName = company.CompanyName;
+                if (company != null)
+                {
+                    companyName = company.CompanyName;
+                }
                 await LoadContextData();
             }
         }
@@ -438,6 +464,14 @@
 
     private void HandleFileUpload(InputFileChangeEventArgs e) => uploadedFile = e.File;
 
+    private async Task OnBankAccountChanged(Guid accountId)
+    {
+        selectedBankAccountId = accountId;
+        if (accountId == Guid.Empty) return;
+
+        statementStartDate = await ReconService.GetSuggestedPeriodStartDateAsync(selectedCompanyId, accountId);
+    }
+
     private void ExitRecon()
     {
         reconId = null;
@@ -459,7 +493,7 @@
             if (user == null) { await JS.InvokeVoidAsync("alert", "User not found."); return; }
 
             var (err, id) = await ReconService.StartReconciliationAsync(
-                selectedCompanyId, selectedBankAccountId, statementDate, endingBalance, reconType, uploadedFile, user.Id);
+                selectedCompanyId, selectedBankAccountId, statementStartDate, statementDate, endingBalance, reconType, uploadedFile, user.Id);
 
             if (!string.IsNullOrEmpty(err))
             {
@@ -487,6 +521,14 @@
     {
         await ReconService.ToggleTransactionClearedAsync(txn.Id, vm!.Reconciliation.Id, isChecked);
         txn.BankReconciliationId = isChecked ? vm.Reconciliation.Id : null;
+        txn.IsReconciled = isChecked;
+        txn.ReconciledAt = isChecked ? DateTime.UtcNow : null;
+
+        // Cleared items stop contributing to outstanding deposits/payments;
+        // those totals feed AdjustedStatementBalance and Difference.
+        var outstandingAdjustment = isChecked ? -1m : 1m;
+        vm.OutstandingDeposits += txn.Debit * outstandingAdjustment;
+        vm.OutstandingPayments += txn.Credit * outstandingAdjustment;
         StateHasChanged();
     }
 

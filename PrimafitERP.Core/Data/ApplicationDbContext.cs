@@ -1,4 +1,4 @@
-﻿    using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+    using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
     using Microsoft.EntityFrameworkCore;
     using Primafit_ERP.Components.Models;
     using PrimafitERP.Data.Seed;
@@ -116,6 +116,13 @@
                     relationship.DeleteBehavior = DeleteBehavior.Restrict;
                 }
             }
+
+            // Unposted/rejected linked inventory movements must not affect any
+            // balance, report, or availability query. Null batch IDs are kept
+            // visible for historical ledger rows created before GL linking.
+            builder.Entity<StockLedger>().HasQueryFilter(x =>
+                x.GLBatchId == null || GLBatches.Any(batch => batch.Id == x.GLBatchId
+                    && batch.CompanyId == x.CompanyId && batch.Status == BatchStatus.Posted));
 
 
             builder.Entity<CreditNote>(entity =>

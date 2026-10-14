@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -55,11 +55,17 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    ctx.Employees.Update(employee);
+                    var existing = await ctx.Employees.FirstOrDefaultAsync(x => x.Id == employee.Id && x.CompanyId == employee.CompanyId);
+                    if (existing == null) return "This employee no longer exists. Reload the list and try again.";
+                    ctx.Entry(existing).CurrentValues.SetValues(employee);
                 }
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return "This employee changed while you were editing it. Reload and try again.";
             }
             catch (Exception ex)
             {

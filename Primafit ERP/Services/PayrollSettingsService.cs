@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -47,11 +47,17 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    ctx.PayrollSettings.Update(settings);
+                    var existing = await ctx.PayrollSettings.FirstOrDefaultAsync(x => x.Id == settings.Id && x.CompanyId == settings.CompanyId);
+                    if (existing == null) return "These payroll settings no longer exist. Reload the page and try again.";
+                    ctx.Entry(existing).CurrentValues.SetValues(settings);
                 }
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return "These payroll settings changed while you were editing them. Reload and try again.";
             }
             catch (Exception ex)
             {

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -8,136 +8,185 @@ namespace Primafit_ERP.Services
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-        public ProjectService(IDbContextFactory<AppDbContext> dbFactory)
-        {
-            _dbFactory = dbFactory;
-        }
-
-        // --- CRUD OPERATIONS ---
+        public ProjectService(IDbContextFactory<AppDbContext> dbFactory) => _dbFactory = dbFactory;
 
         public async Task<List<Project>> GetProjectsAsync(Guid companyId)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Projects
-                .AsNoTracking()
-                .Where(p => p.CompanyId == companyId)
-                .OrderByDescending(p => p.StartDate)
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Projects.AsNoTracking()
+                .Where(p => p.CompanyId == companyId && p.IsAccountingProject)
+                .OrderBy(p => p.ProjectCode)
+                .ToListAsync();
+        }
+
+        public async Task<List<Project>> GetActiveProjectsAsync(Guid companyId)
+        {
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Projects.AsNoTracking()
+                .Where(p => p.CompanyId == companyId && p.IsAccountingProject && p.IsActive)
+                .OrderBy(p => p.ProjectCode)
                 .ToListAsync();
         }
 
         public async Task<Project?> GetProjectByIdAsync(Guid projectId)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.Projects.FindAsync(projectId);
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            return await ctx.Projects.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == projectId && p.IsAccountingProject);
         }
 
         public async Task<string> SaveProjectAsync(Project project)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            if (string.IsNullOrWhiteSpace(project.Name)) return "Project Name is required.";
             if (project.CompanyId == Guid.Empty) return "Company ID is missing.";
+            project.ProjectCode = (project.ProjectCode ?? string.Empty).Trim();
+            project.Name = (project.Name ?? string.Empty).Trim();
+            if (project.ProjectCode.Length == 0) return "Project Code is required.";
+            if (project.Name.Length == 0) return "Project Name is required.";
 
-            var existing = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == project.Id);
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var duplicate = await ctx.Projects.AnyAsync(p => p.CompanyId == project.CompanyId
+                && p.IsAccountingProject && p.ProjectCode == project.ProjectCode && p.Id != project.Id);
+            if (duplicate) return "A project with this code already exists.";
 
             try
             {
-                if (existing == null)
+                if (project.Id == Guid.Empty)
                 {
-                    if (project.Id == Guid.Empty) project.Id = Guid.NewGuid();
+                    project.Id = Guid.NewGuid();
+                    project.IsAccountingProject = true;
+                    // These legacy columns remain in the database for existing
+                    // installations; they are not part of the new project setup.
+                    project.BudgetedRevenue = 0;
+                    project.BudgetedCost = 0;
+                    project.Status = ProjectStatus.Active;
+                    project.StartDate = DateTime.Today;
+                    project.EndDate = null;
                     ctx.Projects.Add(project);
                 }
                 else
                 {
-                    project.CompanyId = existing.CompanyId; // Protect Data
-                    ctx.Entry(existing).CurrentValues.SetValues(project);
+                    var existing = await ctx.Projects.FirstOrDefaultAsync(p => p.Id == project.Id
+                        && p.CompanyId == project.CompanyId && p.IsAccountingProject);
+                    if (existing == null) return "Project not found.";
+                    existing.ProjectCode = project.ProjectCode;
+                    existing.Name = project.Name;
+                    existing.Description = project.Description?.Trim();
+                    existing.IsActive = project.IsActive;
                 }
 
                 await ctx.SaveChangesAsync();
                 return string.Empty;
             }
-            catch (Exception ex)
+            catch (DbUpdateException)
             {
-                return $"Error saving project: {ex.Message}";
+                return "The project could not be saved. Check that its code is unique.";
             }
         }
 
-        public async Task<List<GLTransaction>> GetProjectTransactionsAsync(Guid projectId)
+        public async Task<string> DeleteProjectAsync(Guid companyId, Guid projectId)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var project = await ctx.Projects.FirstOrDefaultAsync(p =>
+                p.Id == projectId && p.CompanyId == companyId && p.IsAccountingProject);
+            if (project == null) return "Project not found.";
 
-            return await ctx.GLTransactions
-                .AsNoTracking()
-                .Where(t => t.ProjectId == projectId)
-                .OrderByDescending(t => t.PostingDate)
-                .Take(100)
-                .ToListAsync();
+            var hasPostedReportActivity = await ctx.GLTransactions.AnyAsync(transaction =>
+                transaction.CompanyId == companyId && transaction.ProjectId == projectId
+                && ctx.GLBatches.Any(batch => batch.Id == transaction.BatchId
+                    && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted));
+            if (hasPostedReportActivity)
+                return "This project has posted report activity and cannot be deleted.";
+
+            ctx.Projects.Remove(project);
+            try
+            {
+                await ctx.SaveChangesAsync();
+                return string.Empty;
+            }
+            catch (DbUpdateException)
+            {
+                return "This project is attached to transaction records and cannot be deleted. Deactivate it instead.";
+            }
         }
 
-        // --- REPORTING: PROJECT P&L (Corrected for Segmented COA) ---
-        public async Task<ProjectPLViewModel> GetProjectPLAsync(Guid projectId)
+        public async Task<ProjectReportViewModel?> GetProjectReportAsync(
+            Guid companyId, Guid projectId, DateOnly fromDate, DateOnly toDate)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var project = await ctx.Projects.AsNoTracking().FirstOrDefaultAsync(p =>
+                p.CompanyId == companyId && p.Id == projectId && p.IsAccountingProject);
+            if (project == null) return null;
 
-            // 1. Fetch all GL Transactions tagged to this Project
-            var txns = await ctx.GLTransactions
-                .AsNoTracking()
-                .Where(t => t.ProjectId == projectId)
+            var allToDate = await ctx.GLTransactions.AsNoTracking()
+                .Include(t => t.SegCoa)
+                .Where(t => t.CompanyId == companyId && t.ProjectId == projectId && t.PostingDate <= toDate
+                    && ctx.GLBatches.Any(batch => batch.Id == t.BatchId && batch.CompanyId == companyId
+                        && batch.Status == BatchStatus.Posted))
                 .ToListAsync();
+            var types = await ctx.Set<SegAccountType>().AsNoTracking().ToDictionaryAsync(x => x.Id);
+            var report = new ProjectReportViewModel { Project = project, FromDate = fromDate, ToDate = toDate };
 
-            if (!txns.Any()) return new ProjectPLViewModel { ProjectId = projectId };
+            report.Transactions = allToDate.Where(t => t.PostingDate >= fromDate)
+                .OrderByDescending(t => t.PostingDate).ToList();
 
-            // 2. Identify Account Types (Revenue vs Expense)
-            // Use SegCoaId to find the Account, then the AccountType
-            var accountIds = txns.Select(t => t.SegCoaId).Distinct().ToList();
+            report.ProfitAndLossAccounts = BuildAccountRows(
+                allToDate.Where(t => t.PostingDate >= fromDate && t.SegCoa != null
+                    && types.TryGetValue(t.SegCoa.SegAccountTypeId, out var type) && !type.IsBalanceSheet), types);
 
-            var accounts = await ctx.SegChartOfAccounts
-                .AsNoTracking()
-                .Where(a => accountIds.Contains(a.Id))
-                .ToListAsync();
+            report.BalanceSheetAccounts = BuildAccountRows(
+                allToDate.Where(t => t.SegCoa != null
+                    && types.TryGetValue(t.SegCoa.SegAccountTypeId, out var type) && type.IsBalanceSheet), types);
+            return report;
+        }
 
-            // 3. Get Account Type Definitions (to check IsBalanceSheet/IsDebit)
-            var types = await ctx.Set<SegAccountType>().AsNoTracking().ToListAsync();
-
-            // 4. Aggregate Data
-            var model = new ProjectPLViewModel { ProjectId = projectId };
-
-            foreach (var t in txns)
-            {
-                var acct = accounts.FirstOrDefault(a => a.Id == t.SegCoaId);
-                if (acct == null) continue;
-
-                var type = types.FirstOrDefault(x => x.Id == acct.SegAccountTypeId);
-                if (type == null) continue;
-
-                // LOGIC: Project P&L only cares about Income Statement items (IsBalanceSheet = false)
-                if (type.IsBalanceSheet == false)
+        private static List<ProjectAccountBalanceRow> BuildAccountRows(
+            IEnumerable<GLTransaction> transactions, IReadOnlyDictionary<int, SegAccountType> types)
+        {
+            return transactions.Where(t => t.SegCoa != null)
+                .GroupBy(t => t.SegCoa!)
+                .Select(group =>
                 {
-                    if (type.IsDebit == false)
+                    var account = group.Key;
+                    types.TryGetValue(account.SegAccountTypeId, out var type);
+                    var debit = group.Sum(x => x.Debit);
+                    var credit = group.Sum(x => x.Credit);
+                    var debitNormal = type?.IsDebit ?? true;
+                    return new ProjectAccountBalanceRow
                     {
-                        // INCOME ACCOUNTS (Credit Normal)
-                        // Net Impact = Credit - Debit
-                        model.ActualRevenue += (t.Credit - t.Debit);
-                    }
-                    else
-                    {
-                        // EXPENSE ACCOUNTS (Debit Normal)
-                        // Net Impact = Debit - Credit
-                        model.ActualCost += (t.Debit - t.Credit);
-                    }
-                }
-            }
-
-            return model;
+                        AccountCode = account.AccountCode,
+                        AccountName = account.Description,
+                        AccountType = type?.Description ?? string.Empty,
+                        Debit = debit,
+                        Credit = credit,
+                        Balance = debitNormal ? debit - credit : credit - debit,
+                        IsDebitNormal = debitNormal
+                    };
+                })
+                .OrderBy(x => x.AccountCode)
+                .ToList();
         }
     }
 
-    public class ProjectPLViewModel
+    public class ProjectReportViewModel
     {
-        public Guid ProjectId { get; set; }
-        public decimal ActualRevenue { get; set; }
-        public decimal ActualCost { get; set; }
-        public decimal Margin => ActualRevenue - ActualCost;
-        public decimal MarginPercent => ActualRevenue != 0 ? (Margin / ActualRevenue) * 100 : 0;
+        public Project Project { get; set; } = new();
+        public DateOnly FromDate { get; set; }
+        public DateOnly ToDate { get; set; }
+        public List<ProjectAccountBalanceRow> ProfitAndLossAccounts { get; set; } = new();
+        public List<ProjectAccountBalanceRow> BalanceSheetAccounts { get; set; } = new();
+        public List<GLTransaction> Transactions { get; set; } = new();
+        public decimal Revenue => ProfitAndLossAccounts.Where(x => !x.IsDebitNormal).Sum(x => x.Balance);
+        public decimal Expenses => ProfitAndLossAccounts.Where(x => x.IsDebitNormal).Sum(x => x.Balance);
+    }
+
+    public class ProjectAccountBalanceRow
+    {
+        public string AccountCode { get; set; } = string.Empty;
+        public string AccountName { get; set; } = string.Empty;
+        public string AccountType { get; set; } = string.Empty;
+        public decimal Debit { get; set; }
+        public decimal Credit { get; set; }
+        public decimal Balance { get; set; }
+        public bool IsDebitNormal { get; set; }
     }
 }

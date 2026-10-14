@@ -1,4 +1,4 @@
-﻿@page "/md/customer-groups"
+@page "/md/customer-groups"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -34,7 +34,7 @@
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                         Export CSV
                     </button>
-                    
+
                     <label class="px-4 py-2 bg-slate-50 text-slate-700 rounded-lg font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors flex items-center gap-2 cursor-pointer mb-0">
                         @if (isImporting)
                         {
@@ -80,7 +80,7 @@
                                 <option value="@sequence.Id">@sequence.Name</option>
                             }
                         </select>
-                        <p class="text-xs text-slate-400 mt-1">Customers in this group use this sequence for suggested codes.</p>
+                        <p class="text-xs text-slate-400 mt-1">Assigned sequences generate customer codes automatically and make the code read-only. Leave as manual for user-entered codes.</p>
                     </div>
 
                     <div>
@@ -88,7 +88,7 @@
                                              Placeholder="Search A/R accounts..."
                                              Accounts="@arAccounts"
                                              @bind-Value="ReceivablesAccountIdWrapper" />
-                        
+
                         <p class="text-[10px] text-slate-400 mt-1">
                             Selecting this group on a customer will auto-fill this GL Account.
                         </p>
@@ -105,10 +105,11 @@
 
     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-slate-600 min-w-[600px]">
+            <table class="w-full text-left text-sm text-slate-600 min-w-[760px]">
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="px-6 py-4">Group Name</th>
+                        <th class="px-6 py-4">Customer Code Sequence</th>
                         <th class="px-6 py-4">Default A/R GL</th>
                         <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
@@ -119,6 +120,16 @@
                         var gl = arAccounts.FirstOrDefault(a => a.Id == item.ReceivablesAccountId);
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="px-6 py-4 font-bold text-slate-900">@item.Name</td>
+                            <td class="px-6 py-4">
+                                @if (item.SequenceDefinition is not null)
+                                {
+                                    <span class="inline-flex rounded-md bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">@item.SequenceDefinition.Name</span>
+                                }
+                                else
+                                {
+                                    <span class="text-xs text-slate-400">Manual customer codes</span>
+                                }
+                            </td>
                             <td class="px-6 py-4">
                                 @if (gl != null)
                                 {
@@ -144,7 +155,7 @@
                     }
                     @if (!groups.Any())
                     {
-                        <tr><td colspan="3" class="p-8 text-center text-slate-400">No groups found.</td></tr>
+                        <tr><td colspan="4" class="p-8 text-center text-slate-400">No groups found.</td></tr>
                     }
                 </tbody>
             </table>
@@ -202,12 +213,12 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-            
+
             // Load AR Accounts (Assets)
             // Rule: IsBalanceSheet = TRUE (Asset) AND IsDebit = TRUE
             var types = await SegCoaService.GetAccountTypesAsync();
             var allCoa = await SegCoaService.GetActiveCoaAsync(currentCompanyId);
-            
+
             arAccounts = allCoa.Where(a =>
             {
                 var t = types.FirstOrDefault(x => x.Id == a.SegAccountTypeId);
@@ -215,7 +226,6 @@
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();
-            await NumberingService.GetActiveDefinitionAsync(currentCompanyId, SequenceTargetType.CustomerCode);
             codeSequences = await NumberingService.GetDefinitionsAsync(currentCompanyId, SequenceTargetType.CustomerCode);
         }
     }
@@ -278,13 +288,13 @@
                 // Wrap strings in quotes to prevent comma breaking
                 var name = $"\"{g.Name?.Replace("\"", "\"\"")}\"";
                 var code = $"\"{gl?.AccountCode ?? ""}\"";
-                
+
                 sb.AppendLine($"{name},{code}");
             }
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
             using var streamRef = new DotNetStreamReference(stream: new MemoryStream(bytes));
-            
+
             // Calls the JS function you already have wired up for your PDFs
             await JS.InvokeVoidAsync("downloadFileFromStream", "CustomerGroups_Export.csv", streamRef);
         }
@@ -311,7 +321,7 @@
             using var stream = file.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
             using var reader = new StreamReader(stream);
             var content = await reader.ReadToEndAsync();
-            
+
             var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             if (lines.Length <= 1)
             {
@@ -322,19 +332,19 @@
             int successCount = 0;
 
             // Start loop at 1 to skip the header row
-            for (int i = 1; i < lines.Length; i++) 
+            for (int i = 1; i < lines.Length; i++)
             {
                 var line = lines[i];
                 // Simple CSV parsing (handles standard exports, does not handle complex quoted commas perfectly without a dedicated lib)
                 var cols = line.Split(',');
-                
+
                 if (cols.Length >= 1)
                 {
                     var groupName = cols[0].Replace("\"", "").Trim();
                     if (string.IsNullOrWhiteSpace(groupName)) continue;
 
                     // Update existing group or create a new one
-                    var group = groups.FirstOrDefault(g => g.Name.Equals(groupName, StringComparison.OrdinalIgnoreCase)) 
+                    var group = groups.FirstOrDefault(g => g.Name.Equals(groupName, StringComparison.OrdinalIgnoreCase))
                                 ?? new CustomerGroup { CompanyId = currentCompanyId, Name = groupName };
 
                     // Map the GL account if a code was provided in column 2

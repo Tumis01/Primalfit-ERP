@@ -1,4 +1,4 @@
-﻿@page "/md/vendors"
+@page "/md/vendors"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -68,7 +68,13 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div>
                         <label class="label">Vendor Code <span class="text-rose-500">*</span></label>
-                        <InputText @bind-Value="currentVendor.Code" class="input-class" placeholder="Suggested code; editable" />
+                        <InputText @bind-Value="currentVendor.Code" readonly="@IsVendorCodeReadOnly" class="@(IsVendorCodeReadOnly ? "input-class bg-slate-100 text-slate-600" : "input-class")" placeholder="Enter vendor code" />
+                        <ValidationMessage For="@(() => currentVendor.Code)" class="mt-1 block text-xs font-semibold text-rose-600" />
+                        <p class="mt-1 text-xs text-slate-500">@VendorCodeHint</p>
+                        @if (!string.IsNullOrWhiteSpace(vendorCodeError))
+                        {
+                            <p role="alert" class="mt-1 text-xs font-semibold text-rose-600">@vendorCodeError</p>
+                        }
                     </div>
                     <div>
                         <label class="label">Name <span class="text-rose-500">*</span></label>
@@ -128,7 +134,7 @@
     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
             <div class="relative w-full sm:max-w-md">
-                
+
                 <input type="text" @bind="vendorSearch" @bind:event="oninput" class="input-class bg-white pl-10 pr-10" placeholder="Search vendors by name, email, phone, or group..." />
                 @if (!string.IsNullOrWhiteSpace(vendorSearch))
                 {
@@ -138,9 +144,10 @@
             <div class="text-xs font-bold uppercase tracking-wider text-slate-400">@FilteredVendors.Count() of @vendors.Count vendors</div>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[800px]">
+            <table class="w-full text-left text-sm text-slate-600 whitespace-nowrap min-w-[900px]">
                 <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200 tracking-wider">
                     <tr>
+                        <th class="px-6 py-4">Code</th>
                         <th class="px-6 py-4">Name</th>
                         <th class="px-6 py-4">Group</th>
                         <th class="px-6 py-4">Contact</th>
@@ -154,6 +161,7 @@
                     {
                         var apAccount = apAccounts.FirstOrDefault(a => a.Id == v.PayablesAccountId);
                         <tr class="hover:bg-slate-50 transition-colors">
+                            <td class="px-6 py-4 font-mono font-semibold text-slate-700">@(string.IsNullOrWhiteSpace(v.Code) ? "—" : v.Code)</td>
                             <td class="px-6 py-4 font-bold text-slate-900">@v.Name</td>
                             <td class="px-6 py-4">
                                 @if (v.Group != null)
@@ -301,19 +309,40 @@
 
     private async Task LoadData() => vendors = await MasterService.GetVendorsAsync(currentCompanyId);
 
+    private Guid? pendingVendorCodeSequenceId;
+    private string? vendorCodeError;
+    private VendorGroup? SelectedVendorGroup => groups.FirstOrDefault(x => x.Id == currentVendor.VendorGroupId);
+    private bool IsVendorCodeReadOnly => SelectedVendorGroup?.SequenceDefinitionId.HasValue == true;
+    private string VendorCodeHint => IsVendorCodeReadOnly
+        ? "This vendor group assigns codes automatically. The preview is checked and reserved when you save."
+        : "No code sequence is assigned to this group. Enter a vendor code manually.";
+
     private async Task OnGroupChanged(ChangeEventArgs e)
     {
+        vendorCodeError = null;
+        var previousGroup = groups.FirstOrDefault(x => x.Id == currentVendor.VendorGroupId);
         if (Guid.TryParse(e.Value?.ToString(), out var gId))
         {
-            currentVendor.VendorGroupId = gId;
             var group = groups.FirstOrDefault(x => x.Id == gId);
+            if (group is null) return;
+            currentVendor.VendorGroupId = gId;
 
-            if (group != null)
+            if (group.SequenceDefinitionId is Guid sequenceId
+                && (previousGroup?.SequenceDefinitionId != sequenceId || string.IsNullOrWhiteSpace(currentVendor.Code)))
             {
-                currentVendor.Code = group.SequenceDefinitionId.HasValue
-                    ? await NumberingService.GenerateAndReserveNextNumberAsync(group.SequenceDefinitionId.Value)
-                    : await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.VendorCode);
+                pendingVendorCodeSequenceId = sequenceId;
+                try
+                {
+                    currentVendor.Code = await NumberingService.PeekNextNumberAsync(sequenceId, exceptEntityId: currentVendor.Id);
+                }
+                catch (Exception ex)
+                {
+                    currentVendor.Code = string.Empty;
+                    vendorCodeError = $"Could not preview a vendor code from this group's sequence: {ex.Message}";
+                }
             }
+            else if (group.SequenceDefinitionId is null)
+                pendingVendorCodeSequenceId = null;
 
             if (group != null && group.PayablesAccountId.HasValue)
             {
@@ -323,6 +352,7 @@
         else
         {
             currentVendor.VendorGroupId = Guid.Empty;
+            pendingVendorCodeSequenceId = null;
         }
     }
 
@@ -333,6 +363,8 @@
             CompanyId = currentCompanyId,
             CurrencyId = currencies.FirstOrDefault()?.Id ?? Guid.Empty
         };
+        vendorCodeError = null;
+        pendingVendorCodeSequenceId = null;
         showForm = true;
         isEditing = false;
     }
@@ -352,6 +384,8 @@
             PayablesAccountId = v.PayablesAccountId,
             VendorGroupId = v.VendorGroupId
         };
+        vendorCodeError = null;
+        pendingVendorCodeSequenceId = null;
         showForm = true;
         isEditing = true;
     }
@@ -366,14 +400,48 @@
 
     private async Task Save()
     {
-        var err = await MasterService.SaveVendorAsync(currentVendor);
+        if (!IsVendorCodeReadOnly) vendorCodeError = null;
+        if (!string.IsNullOrWhiteSpace(vendorCodeError)) return;
+        if (!IsVendorCodeReadOnly)
+        {
+            if (string.IsNullOrWhiteSpace(currentVendor.Code))
+            {
+                vendorCodeError = "Enter a vendor code.";
+                return;
+            }
+            if (!await NumberingService.IsCodeAvailableAsync(currentCompanyId, SequenceTargetType.VendorCode, currentVendor.Code, currentVendor.Id))
+            {
+                vendorCodeError = $"Vendor Code '{currentVendor.Code.Trim()}' already exists in this company.";
+                return;
+            }
+        }
+        var previewedVendorCode = currentVendor.Code;
+        if (pendingVendorCodeSequenceId.HasValue)
+            currentVendor.Code = string.Empty;
+
+        string err;
+        try
+        {
+            err = await MasterService.SaveVendorAsync(currentVendor);
+        }
+        catch (Exception ex)
+        {
+            if (pendingVendorCodeSequenceId.HasValue)
+                currentVendor.Code = previewedVendorCode;
+            vendorCodeError = $"Could not save the vendor: {ex.Message}";
+            return;
+        }
         if (string.IsNullOrEmpty(err))
         {
             showForm = false;
+            vendorCodeError = null;
+            pendingVendorCodeSequenceId = null;
             await LoadData();
         }
         else
         {
+            if (pendingVendorCodeSequenceId.HasValue)
+                currentVendor.Code = previewedVendorCode;
             await JS.InvokeVoidAsync("alert", err);
         }
     }
@@ -385,7 +453,7 @@
         {
             var sb = new StringBuilder();
             // Headers match our import parsing structure
-            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ApGlAccountCode");
+            sb.AppendLine("Name,Email,Phone,Address,GroupName,CurrencyCode,ApGlAccountCode,Code");
 
             foreach (var v in vendors)
             {
@@ -394,7 +462,7 @@
                 var glCode = apAccounts.FirstOrDefault(a => a.Id == v.PayablesAccountId)?.AccountCode ?? "";
 
                 // Wrap fields in quotes to safely handle commas inside addresses or names
-                sb.AppendLine($"\"{v.Name?.Replace("\"", "\"\"")}\",\"{v.Email?.Replace("\"", "\"\"")}\",\"{v.Phone?.Replace("\"", "\"\"")}\",\"{v.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\"");
+                sb.AppendLine($"\"{v.Name?.Replace("\"", "\"\"")}\",\"{v.Email?.Replace("\"", "\"\"")}\",\"{v.Phone?.Replace("\"", "\"\"")}\",\"{v.Address?.Replace("\"", "\"\"")}\",\"{groupName}\",\"{curCode}\",\"{glCode}\",\"{v.Code?.Replace("\"", "\"\"")}\"");
             }
 
             var bytes = Encoding.UTF8.GetBytes(sb.ToString());
@@ -433,6 +501,7 @@
             }
 
             int successCount = 0;
+            var importErrors = new List<string>();
 
             // Start loop at 1 to skip header row
             for (int i = 1; i < lines.Length; i++)
@@ -476,14 +545,19 @@
                         var gl = apAccounts.FirstOrDefault(a => a.AccountCode == cols[6].Trim());
                         if (gl != null) vendor.PayablesAccountId = gl.Id;
                     }
+                    if (cols.Count > 7) vendor.Code = cols[7].Trim();
 
-                    await MasterService.SaveVendorAsync(vendor);
-                    successCount++;
+                    var saveError = await MasterService.SaveVendorAsync(vendor);
+                    if (string.IsNullOrEmpty(saveError)) successCount++;
+                    else importErrors.Add($"Row {i + 1}: {saveError}");
                 }
             }
 
             await LoadData();
-            await JS.InvokeVoidAsync("alert", $"Import complete. {successCount} vendors processed and mapped successfully.");
+            var summary = $"Import complete. {successCount} vendors saved.";
+            if (importErrors.Count > 0)
+                summary += $" {importErrors.Count} rows failed: {string.Join(" | ", importErrors.Take(10))}";
+            await JS.InvokeVoidAsync("alert", summary);
         }
         catch (Exception ex)
         {

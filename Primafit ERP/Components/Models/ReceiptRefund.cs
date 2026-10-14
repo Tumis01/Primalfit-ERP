@@ -24,6 +24,9 @@ namespace Primafit_ERP.Components.Models
         public Guid SalesOrderId { get; set; }
         public Guid CustomerId { get; set; }
         public Guid CurrencyId { get; set; }
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
 
         public string RefundNumber { get; set; } = string.Empty;
         public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);

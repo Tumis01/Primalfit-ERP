@@ -77,5 +77,7 @@ namespace Primafit_ERP.Components.Models
         public string Reference { get; set; } = "";
         public bool IsPosted { get; set; } = false;
         public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
     }
 }

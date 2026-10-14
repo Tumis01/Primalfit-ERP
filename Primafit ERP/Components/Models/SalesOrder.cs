@@ -18,6 +18,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(CustomerId))]
         public virtual Customer? Customer { get; set; }
 
+        public Guid? ProjectId { get; set; }
+        [ForeignKey(nameof(ProjectId))]
+        public Project? Project { get; set; }
+
         public Guid WarehouseId { get; set; }
         public string OrderNumber { get; set; } = string.Empty;
         // Accounting still posts by Date, while this timestamp records the

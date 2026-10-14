@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject SalesService SalesService
+@inject ProjectService ProjectService
 @inject IDocumentNumberingService NumberingService
 @inject ShipmentService ShipmentService
 @inject MasterDataService MasterService
@@ -472,6 +473,8 @@
                                                  CurrentRate="@currentOrder.ExchangeRate"
                                                  CurrentRateChanged="OnExchangeRateChanged"
                                                  Disabled="@IsLocked" />
+
+                            <ProjectSelect @bind-Value="currentOrder.ProjectId" Projects="@projects" Disabled="@IsLocked" />
 
                             <div>
                                 <label class="label">Tax / VAT</label>
@@ -1039,6 +1042,7 @@
     }
 
     private List<SalesOrder> orders = new();
+    private List<Project> projects = new();
     private SalesOrder currentOrder = new();
     private bool _isNewOrderForm;
     private List<Customer> customers = new();
@@ -1113,6 +1117,7 @@
         {
             currentUserId = user.Id;
             selectedCompanyId = user.CompanyDetailsId.Value;
+            projects = await ProjectService.GetActiveProjectsAsync(selectedCompanyId);
             canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(selectedCompanyId);
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
             if (company != null)

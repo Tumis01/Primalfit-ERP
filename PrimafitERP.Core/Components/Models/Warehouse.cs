@@ -40,6 +40,7 @@ namespace Primafit_ERP.Components.Models
 
         // Transit Tracking
         public TransferStatus Status { get; set; } = TransferStatus.InTransit;
+        public Guid? GLBatchId { get; set; }
 
         public DateTime DateShipped { get; set; } = DateTime.UtcNow;
         public DateTime? DateReceived { get; set; }

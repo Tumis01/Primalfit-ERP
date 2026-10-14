@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -30,7 +30,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
 
-            // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor) 
+            // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor)
             // via the @onchange event, so we just save whatever the model contains here.
 
             if (customer.Id == Guid.Empty || !await ctx.Customers.AnyAsync(x => x.Id == customer.Id))
@@ -95,7 +95,7 @@ namespace Primafit_ERP.Services
 
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
-            if (string.IsNullOrWhiteSpace(item.SKU)) return "Code is required.";
+            if (string.IsNullOrWhiteSpace(item.Code)) return "Code is required.";
 
             if (!item.IsService && item.InventoryAssetAccountId == Guid.Empty)
                 return "Inventory Asset Account is required for physical goods.";
@@ -103,8 +103,8 @@ namespace Primafit_ERP.Services
             if (item.SalesIncomeAccountId == Guid.Empty) return "Sales Income Account is required.";
             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return "COGS/Expense Account is required.";
 
-            bool isSkuDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.SKU == item.SKU && i.Id != item.Id);
-            if (isSkuDuplicate) return ($"The SKU '{item.SKU}' is already in use.");
+            bool isCodeDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.Code == item.Code && i.Id != item.Id);
+            if (isCodeDuplicate) return ($"The item code '{item.Code}' is already in use.");
 
             bool isNameDuplicate = await ctx.Items.AnyAsync(i => i.CompanyId == item.CompanyId && i.Name == item.Name && i.Id != item.Id);
             if (isNameDuplicate) return ($"The Item Name '{item.Name}' is already in use.");
@@ -239,7 +239,7 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
         // --- UNIT OF MEASURE ---
-       
+
         public async Task<List<UnitOfMeasure>> GetUnitOfMeasuresAsync(Guid companyId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();

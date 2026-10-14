@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -116,6 +116,7 @@ namespace Primafit_ERP.Services
                 CompanyId = so.CompanyId,
                 SalesOrderId = so.Id,
                 CustomerId = so.CustomerId,
+                ProjectId = so.ProjectId,
                 CurrencyId = so.CurrencyId,
                 ExchangeRate = so.ExchangeRate,
                 Date = DateOnly.FromDateTime(DateTime.Today),
@@ -214,6 +215,9 @@ namespace Primafit_ERP.Services
                 return "Cannot modify posted accounting entries.";
 
             existing.Date = refund.Date;
+            existing.ProjectId = await ctx.SalesOrders.AsNoTracking()
+                .Where(x => x.Id == existing.SalesOrderId && x.CompanyId == existing.CompanyId)
+                .Select(x => x.ProjectId).FirstOrDefaultAsync();
             existing.TransactionDateTime = refund.TransactionDateTime;
             existing.Reason = refund.Reason;
             existing.RefundType = refund.RefundType;
@@ -356,7 +360,7 @@ namespace Primafit_ERP.Services
                         };
 
                         // 1. Log inventory intake in StockLedger
-                        ctx.StockLedgers.Add(new StockLedger
+                        var stockMovement = new StockLedger
                         {
                             Id = Guid.NewGuid(),
                             CompanyId = refund.CompanyId,
@@ -368,10 +372,12 @@ namespace Primafit_ERP.Services
                             UomConversionFactor = line.UomConversionFactor,
                             QuantityInUom = UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                             Type = StockMovementType.SalesReturn,
+                            ProjectId = refund.ProjectId ?? refund.SalesOrder?.ProjectId,
                             CostAtTime = resolvedUnitCost,
                             Reference = refund.RefundNumber,
                             Date = DateTime.UtcNow
-                        });
+                        };
+                        ctx.StockLedgers.Add(stockMovement);
 
                         // 2. Double-entry routing: DR Inventory Asset | CR COGS
                         decimal lineCogsValueBase = Math.Round(line.Quantity * resolvedUnitCost, 2);
@@ -399,8 +405,8 @@ namespace Primafit_ERP.Services
                             if (cogsAccount == Guid.Empty)
                                 return $"Posting Aborted: Item '{line.Item.Name}' is missing a Cost of Goods Sold (COGS) GL Account mapping.";
 
-                            glLines.Add(new GLJournalLine { SegCoaId = inventoryAssetAccount, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.SKU}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = cogsAccount, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.SKU}" });
+                            glLines.Add(new GLJournalLine { SegCoaId = inventoryAssetAccount, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.Code}" });
+                            glLines.Add(new GLJournalLine { SegCoaId = cogsAccount, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.Code}" });
                         }
                     }
                 }
@@ -465,9 +471,22 @@ namespace Primafit_ERP.Services
                     return $"Posting Aborted: Ledger imbalance. Debits ({totalDebits:N2}) do not match Credits ({totalCredits:N2}).";
                 }
 
-                var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString(), existingBatchId: refund.GlBatchId);
+                var (err1, b1) = await _glOps.CreateJournalEntryAsync(refund.CompanyId, refund.Date, "Receipt Return Refund", refund.RefundNumber, glLines, userId.ToString(), existingBatchId: refund.GlBatchId, inheritedProjectId: refund.ProjectId ?? refund.SalesOrder?.ProjectId);
                 if (!string.IsNullOrEmpty(err1)) throw new Exception(err1);
-                if (b1.HasValue) await _glOps.PostBatchAsync(refund.CompanyId, b1.Value, userId.ToString());
+                var stagedStockMovements = ctx.ChangeTracker.Entries<StockLedger>()
+                    .Where(entry => entry.State == EntityState.Added && entry.Entity.Reference == refund.RefundNumber)
+                    .Select(entry => entry.Entity)
+                    .ToList();
+                if (stagedStockMovements.Count > 0 && !b1.HasValue)
+                    throw new Exception("GL staging did not create a review batch for this stock refund.");
+                if (b1.HasValue)
+                {
+                    var postError = await _glOps.PostBatchAsync(refund.CompanyId, b1.Value, userId.ToString());
+                    if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
+                }
+
+                foreach (var stockMovement in stagedStockMovements)
+                    stockMovement.GLBatchId = b1;
 
                 refund.Status = ReceiptRefundStatus.Posted;
                 refund.PostedAt = DateTime.UtcNow;
