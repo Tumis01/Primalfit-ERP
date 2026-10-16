@@ -2,13 +2,19 @@
 @page "/projects/report/{ReportType}"
 @page "/projects/{Id:guid}"
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Services
+@using PrimafitERP.Data
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject ProjectService ProjectService
+@inject ReportExportService ReportExporter
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 @rendermode InteractiveServer
 
@@ -16,18 +22,14 @@
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
             <div>
-                <a href="/projects/setup" class="text-xs font-bold text-indigo-600 hover:underline">← Project setup</a>
                 <h1 class="text-2xl font-bold text-slate-900 mt-2">Project Reports</h1>
-                @if (selectedProject is not null)
-                {
-                    <p class="text-sm text-slate-500 mt-1">@selectedProject.ProjectCode · @selectedProject.Name</p>
-                }
+                <p class="text-sm text-slate-500 mt-1">@(selectedProject is not null ? $"{selectedProject.ProjectCode} · {selectedProject.Name}" : "All projects")</p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-end">
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Project</label>
-                    <select @bind:get="selectedProjectId" @bind:set="SelectProject" class="w-full min-w-56 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
-                        <option value="">Select a project</option>
+                    <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Project</label>
+                    <select @bind:get="selectedProjectId" @bind:set="SelectProject" class="w-full min-w-56 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10">
+                        <option value="">All projects</option>
                         @foreach (var project in projects)
                         {
                             <option @key="project.Id" value="@project.Id">@project.ProjectCode - @project.Name@(project.IsActive ? "" : " (Inactive)")</option>
@@ -35,14 +37,14 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">From</label>
-                    <InputDate @bind-Value="fromDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                    <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">From</label>
+                    <InputDate @bind-Value="fromDate" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10" />
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">To</label>
-                    <InputDate @bind-Value="toDate" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                    <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">To</label>
+                    <InputDate @bind-Value="toDate" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10" />
                 </div>
-                <button @onclick="LoadReport" class="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold hover:bg-slate-700">Apply</button>
+                <button @onclick="LoadReport" disabled="@isLoading" class="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-sm transition hover:bg-slate-700 disabled:opacity-50">Apply</button>
             </div>
         </div>
     </div>
@@ -55,11 +57,24 @@
     {
         <div class="p-8 rounded-2xl border border-slate-200 bg-white text-slate-500">No projects have been set up yet.</div>
     }
-    else if (selectedProjectId is null)
+    else if (activeReport == ReportTab.GeneralLedger && selectedProjectId.HasValue && report is null)
     {
-        <div class="p-8 rounded-2xl border border-dashed border-slate-300 bg-white text-center text-slate-500">Choose a project to view its reports.</div>
+        <div class="p-8 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800">
+            @(fromDate > toDate ? "The start date must be on or before the end date." : "Project not found.")
+        </div>
     }
-    else if (report is null)
+    else if (activeReport == ReportTab.GeneralLedger && report is not null)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <div>
+                <h2 class="text-sm font-bold text-slate-900">Project General Ledger</h2>
+                <p class="text-xs text-slate-500">@selectedProject?.ProjectCode · @selectedProject?.Name · @ReportPeriod</p>
+            </div>
+            @ExportButtons
+        </div>
+        @GeneralLedgerSection(report, showProjectHeading: false)
+    }
+    else if (projectReports.Count == 0)
     {
         <div class="p-8 rounded-2xl border border-amber-200 bg-amber-50 text-amber-800">
             @(fromDate > toDate ? "The start date must be on or before the end date." : "Project not found.")
@@ -67,49 +82,58 @@
     }
     else
     {
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Revenue</div><div class="mt-2 text-xl font-mono font-bold text-emerald-700">@FormatAmount(report.Revenue, credit: true)</div></div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Expenses</div><div class="mt-2 text-xl font-mono font-bold text-rose-700">@FormatAmount(report.Expenses)</div></div>
-            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Net Result</div><div class="mt-2 text-xl font-mono font-bold text-slate-900">@FormatAmount(report.Revenue - report.Expenses)</div></div>
+        @if (activeReport == ReportTab.GeneralLedger)
+        {
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900">Project General Ledger</h2>
+                    <p class="text-xs text-slate-500">All projects grouped by project · @ReportPeriod</p>
+                </div>
+                @ExportButtons
+            </div>
+            @foreach (var projectReport in projectReports)
+            {
+                @GeneralLedgerSection(projectReport, showProjectHeading: true)
+            }
+        }
+        else
+        {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="bg-slate-50/50 border-b border-slate-100 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900">@(activeReport == ReportTab.ProfitAndLoss ? "Project Profit & Loss" : "Project Balance Sheet")</h2>
+                    <p class="text-xs text-slate-500">@projectReports.Count project@(projectReports.Count == 1 ? "" : "s") · @ReportPeriod</p>
+                </div>
+                @ExportButtons
+            </div>
         </div>
 
-        <nav class="flex flex-wrap gap-2 border-b border-slate-200" aria-label="Project reports">
-            <NavLink href="/projects/report/profit-and-loss" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.ProfitAndLoss)">Profit &amp; Loss</NavLink>
-            <NavLink href="/projects/report/balance-sheet" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.BalanceSheet)">Balance Sheet</NavLink>
-            <NavLink href="/projects/report/general-ledger" Match="NavLinkMatch.All" class="@ReportNavClass(ReportTab.GeneralLedger)">General Ledger</NavLink>
-        </nav>
-
-        @switch (activeReport)
+        @foreach (var projectReport in projectReports)
         {
-            case ReportTab.ProfitAndLoss:
-                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project Profit and Loss</h2><p class="text-xs text-slate-500">Posted project activity from @report.FromDate.ToString("yyyy-MM-dd") to @report.ToDate.ToString("yyyy-MM-dd"). Credit balances are shown in brackets.</p></div>
-                    @AccountTable(report.ProfitAndLossAccounts)
-                </section>
-                break;
-            case ReportTab.BalanceSheet:
-                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project Balance Sheet</h2><p class="text-xs text-slate-500">Cumulative posted balances through @report.ToDate.ToString("yyyy-MM-dd"). Credit balances are shown in brackets.</p></div>
-                    @AccountTable(report.BalanceSheetAccounts)
-                </section>
-                break;
-            case ReportTab.GeneralLedger:
-                <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div class="p-5 border-b border-slate-100"><h2 class="font-bold text-slate-900">Project General Ledger Activity</h2><p class="text-xs text-slate-500">Posted activity from @report.FromDate.ToString("yyyy-MM-dd") to @report.ToDate.ToString("yyyy-MM-dd"). Credit values are shown in brackets.</p></div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Date</th><th class="p-3">Account</th><th class="p-3">Narration</th><th class="p-3 text-right">Debit</th><th class="p-3 text-right">Credit</th></tr></thead>
-                            <tbody class="divide-y divide-slate-100">
-                                @foreach (var transaction in report.Transactions)
-                                {
-                                    <tr><td class="p-3">@transaction.PostingDate.ToString("yyyy-MM-dd")</td><td class="p-3">@transaction.SegCoa?.AccountCode - @transaction.SegCoa?.Description</td><td class="p-3">@transaction.Narration</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Debit)</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Credit, credit: true)</td></tr>
-                                }
-                                @if (report.Transactions.Count == 0) { <tr><td colspan="5" class="p-8 text-center text-slate-400">No posted project activity for this period.</td></tr> }
-                            </tbody>
-                        </table>
+            var accountRows = activeReport == ReportTab.ProfitAndLoss
+                ? projectReport.ProfitAndLossAccounts
+                : projectReport.BalanceSheetAccounts;
+            <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div class="p-5 border-b border-slate-100">
+                    <h3 class="font-bold text-slate-900">@projectReport.Project.ProjectCode · @projectReport.Project.Name</h3>
+                    <p class="text-xs text-slate-500">
+                        @(activeReport == ReportTab.ProfitAndLoss
+                        ? $"Posted project activity from {projectReport.FromDate:yyyy-MM-dd} to {projectReport.ToDate:yyyy-MM-dd}. Credit balances are shown in brackets."
+                        : $"Cumulative posted balances through {projectReport.ToDate:yyyy-MM-dd}. Credit balances are shown in brackets.")
+                        @if (!string.IsNullOrWhiteSpace(companyBaseCurrency)) { <span> Currency: @companyBaseCurrency.</span> }
+                    </p>
+                </div>
+                @if (activeReport == ReportTab.ProfitAndLoss)
+                {
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 border-b border-slate-100">
+                        <div class="rounded-xl bg-slate-50 p-4"><div class="text-xs font-bold uppercase text-slate-400">Revenue</div><div class="mt-2 text-lg font-mono font-bold text-emerald-700">@FormatAmount(projectReport.Revenue)</div></div>
+                        <div class="rounded-xl bg-slate-50 p-4"><div class="text-xs font-bold uppercase text-slate-400">Expenses</div><div class="mt-2 text-lg font-mono font-bold text-rose-700">@FormatAmount(projectReport.Expenses)</div></div>
+                        <div class="rounded-xl bg-slate-50 p-4"><div class="text-xs font-bold uppercase text-slate-400">Net Result</div><div class="mt-2 text-lg font-mono font-bold text-slate-900">@FormatAmount(projectReport.Revenue - projectReport.Expenses)</div></div>
                     </div>
-                </section>
-                break;
+                }
+                @AccountTable(accountRows)
+            </section>
+        }
         }
     }
 </div>
@@ -123,20 +147,47 @@
     private bool isLoading = true;
     private Guid companyId;
     private Guid? selectedProjectId;
+    private string companyName = "Primafit Enterprise";
+    private string companyBaseCurrency = string.Empty;
+    private string generatedBy = "System User";
     private List<Project> projects = new();
     private Project? selectedProject => projects.FirstOrDefault(project => project.Id == selectedProjectId);
     private DateOnly fromDate = new(DateTime.Today.Year, 1, 1);
     private DateOnly toDate = DateOnly.FromDateTime(DateTime.Today);
     private ProjectReportViewModel? report;
+    private List<ProjectReportViewModel> projectReports = new();
+    private bool isExportingPdf;
+    private bool isExportingExcel;
+    private bool isExporting => isExportingPdf || isExportingExcel;
+    private string ReportPeriod => activeReport switch
+    {
+        ReportTab.BalanceSheet => $"As of {toDate:MMM dd, yyyy}",
+        _ => $"{fromDate:MMM dd, yyyy} to {toDate:MMM dd, yyyy}"
+    };
 
     protected override async Task OnParametersSetAsync()
     {
         isLoading = true;
-        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+        generatedBy = authState.User.Identity?.Name ?? "System User";
         companyId = user?.CompanyDetailsId ?? Guid.Empty;
         projects = companyId == Guid.Empty
             ? new List<Project>()
             : await ProjectService.GetProjectsAsync(companyId);
+        if (companyId != Guid.Empty)
+        {
+            await using var context = await DbFactory.CreateDbContextAsync();
+            var company = await context.CompanyDetails.AsNoTracking()
+                .Where(company => company.CompanyDetailsId == companyId)
+                .Select(company => new { company.CompanyName, company.BaseCurrency })
+                .FirstOrDefaultAsync();
+            if (company is not null)
+            {
+                companyName = company.CompanyName;
+                companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+            }
+        }
         if (Id.HasValue)
             selectedProjectId = Id;
 
@@ -158,11 +209,187 @@
     private async Task LoadReport()
     {
         isLoading = true;
-        report = companyId == Guid.Empty || selectedProjectId is null || fromDate > toDate
-            ? null
-            : await ProjectService.GetProjectReportAsync(companyId, selectedProjectId.Value, fromDate, toDate);
+        report = null;
+        projectReports.Clear();
+        if (companyId != Guid.Empty && fromDate <= toDate)
+        {
+            if (activeReport == ReportTab.GeneralLedger)
+            {
+                if (selectedProjectId.HasValue)
+                    report = await ProjectService.GetProjectReportAsync(companyId, selectedProjectId.Value, fromDate, toDate);
+                else
+                    projectReports = await ProjectService.GetProjectReportsAsync(companyId, null, fromDate, toDate);
+            }
+            else
+            {
+                projectReports = await ProjectService.GetProjectReportsAsync(companyId, selectedProjectId, fromDate, toDate);
+            }
+        }
         isLoading = false;
     }
+
+    private async Task ExportReportAsync(bool asPdf)
+    {
+        var hasLedgerReport = activeReport == ReportTab.GeneralLedger
+            && (report is not null || projectReports.Count > 0);
+        if (isExporting || (activeReport == ReportTab.GeneralLedger
+            ? !hasLedgerReport
+            : projectReports.Count == 0)) return;
+        if (asPdf) isExportingPdf = true;
+        else isExportingExcel = true;
+
+        try
+        {
+            await Task.Delay(50);
+            var exportData = activeReport == ReportTab.GeneralLedger
+                ? BuildLedgerExportData()
+                : BuildExportData();
+            var fileBytes = await Task.Run(() => asPdf
+                ? ReportExporter.GeneratePdf(exportData)
+                : ReportExporter.GenerateExcel(exportData));
+            var extension = asPdf ? ".pdf" : ".xlsx";
+            var mimeType = asPdf
+                ? "application/pdf"
+                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            var safeName = exportData.ReportName.Replace(" ", "_").Replace("&", "and");
+            var fileName = $"{safeName}_{DateTime.Now:yyyyMMdd}{extension}";
+            await JS.InvokeVoidAsync("downloadReportFile", fileName, Convert.ToBase64String(fileBytes), mimeType);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Export failed: {ex.Message}");
+        }
+        finally
+        {
+            isExportingPdf = false;
+            isExportingExcel = false;
+        }
+    }
+
+    private StandardReportData BuildExportData()
+    {
+        var isProfitAndLoss = activeReport == ReportTab.ProfitAndLoss;
+        var data = new StandardReportData
+        {
+            CompanyName = companyName,
+            ReportName = isProfitAndLoss ? "Project Profit and Loss" : "Project Balance Sheet",
+            ReportingPeriod = ReportPeriod,
+            Currency = companyBaseCurrency,
+            GeneratedBy = generatedBy,
+            DateGenerated = DateTime.Now,
+            Headers = new List<string> { "Project", "Account Code", "Account Name", "Debit", "Credit", "Balance" }
+        };
+
+        foreach (var projectReport in projectReports)
+        {
+            var rows = isProfitAndLoss ? projectReport.ProfitAndLossAccounts : projectReport.BalanceSheetAccounts;
+            if (rows.Count == 0)
+            {
+                data.Rows.Add(new List<string>
+                {
+                    $"{projectReport.Project.ProjectCode} - {projectReport.Project.Name}",
+                    "", "No tagged account activity", "", "", ""
+                });
+                continue;
+            }
+
+            foreach (var row in rows)
+            {
+                data.Rows.Add(new List<string>
+                {
+                    $"{projectReport.Project.ProjectCode} - {projectReport.Project.Name}",
+                    row.AccountCode,
+                    row.AccountName,
+                    row.Debit.ToString("N2"),
+                    row.Credit.ToString("N2"),
+                    row.Balance.ToString("N2")
+                });
+            }
+        }
+
+        return data;
+    }
+
+    private StandardReportData BuildLedgerExportData()
+    {
+        var ledgerReports = selectedProjectId.HasValue
+            ? (report is null ? new List<ProjectReportViewModel>() : new List<ProjectReportViewModel> { report! })
+            : projectReports;
+        var data = new StandardReportData
+        {
+            CompanyName = companyName,
+            ReportName = "Project General Ledger",
+            ReportingPeriod = ReportPeriod,
+            Currency = companyBaseCurrency,
+            GeneratedBy = generatedBy,
+            DateGenerated = DateTime.Now,
+            Headers = new List<string> { "Project", "Date", "Account", "Narration", "Debit", "Credit" }
+        };
+
+        foreach (var projectReport in ledgerReports)
+        {
+            var projectLabel = $"{projectReport.Project.ProjectCode} - {projectReport.Project.Name}";
+            if (projectReport.Transactions.Count == 0)
+            {
+                data.Rows.Add(new List<string> { projectLabel, "", "", "No posted project activity", "", "" });
+                continue;
+            }
+
+            foreach (var transaction in projectReport.Transactions)
+            {
+                data.Rows.Add(new List<string>
+                {
+                    projectLabel,
+                    transaction.PostingDate.ToString("yyyy-MM-dd"),
+                    $"{transaction.SegCoa?.AccountCode} - {transaction.SegCoa?.Description}",
+                    transaction.Narration ?? string.Empty,
+                    transaction.Debit.ToString("N2"),
+                    transaction.Credit.ToString("N2")
+                });
+            }
+        }
+
+        return data;
+    }
+
+    private RenderFragment ExportButtons => @<div class="flex gap-2">
+        <button @onclick="() => ExportReportAsync(true)" disabled="@isExporting" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-rose-200 text-rose-700 text-xs font-bold rounded hover:bg-rose-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+            @(isExportingPdf ? "PDF..." : "PDF")
+        </button>
+        <button @onclick="() => ExportReportAsync(false)" disabled="@isExporting" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-emerald-200 text-emerald-700 text-xs font-bold rounded hover:bg-emerald-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+            @(isExportingExcel ? "Excel..." : "Excel")
+        </button>
+    </div>;
+
+    private RenderFragment GeneralLedgerSection(ProjectReportViewModel ledgerReport, bool showProjectHeading) => @<div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Revenue</div><div class="mt-2 text-xl font-mono font-bold text-emerald-700">@FormatAmount(ledgerReport.Revenue)</div></div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Expenses</div><div class="mt-2 text-xl font-mono font-bold text-rose-700">@FormatAmount(ledgerReport.Expenses)</div></div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200"><div class="text-xs font-bold uppercase text-slate-400">Net Result</div><div class="mt-2 text-xl font-mono font-bold text-slate-900">@FormatAmount(ledgerReport.Revenue - ledgerReport.Expenses)</div></div>
+        </div>
+        <section class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div class="p-5 border-b border-slate-100">
+                <h2 class="font-bold text-slate-900">@(showProjectHeading ? $"{ledgerReport.Project.ProjectCode} · {ledgerReport.Project.Name} — General Ledger Activity" : "Project General Ledger Activity")</h2>
+                <p class="text-xs text-slate-500">
+                    Posted activity from @ledgerReport.FromDate.ToString("yyyy-MM-dd") to @ledgerReport.ToDate.ToString("yyyy-MM-dd").
+                    @if (!string.IsNullOrWhiteSpace(companyBaseCurrency)) { <span> Currency: @companyBaseCurrency.</span> }
+                    Credit values are shown in brackets.
+                </p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Date</th><th class="p-3">Account</th><th class="p-3">Narration</th><th class="p-3 text-right">Debit</th><th class="p-3 text-right">Credit</th></tr></thead>
+                    <tbody class="divide-y divide-slate-100">
+                        @foreach (var transaction in ledgerReport.Transactions)
+                        {
+                            <tr><td class="p-3">@transaction.PostingDate.ToString("yyyy-MM-dd")</td><td class="p-3">@transaction.SegCoa?.AccountCode - @transaction.SegCoa?.Description</td><td class="p-3">@transaction.Narration</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Debit)</td><td class="p-3 text-right font-mono">@FormatAmount(transaction.Credit)</td></tr>
+                        }
+                        @if (ledgerReport.Transactions.Count == 0) { <tr><td colspan="5" class="p-8 text-center text-slate-400">No posted project activity for this period.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>;
 
     private string ReportNavClass(ReportTab tab) => activeReport == tab
         ? "px-4 py-2.5 border-b-2 border-slate-900 text-sm font-bold text-slate-900"
@@ -176,7 +403,7 @@
 
     private RenderFragment AccountTable(List<ProjectAccountBalanceRow> rows) => @<div class="overflow-x-auto">
         <table class="w-full text-left text-sm">
-            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Account</th><th class="p-3">Description</th><th class="p-3 text-right">Debit</th><th class="p-3 text-right">Credit</th><th class="p-3 text-right">Balance</th></tr></thead>
+            <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500"><tr><th class="p-3">Account</th><th class="p-3">Description</th><th class="p-3 text-right">Debit </th><th class="p-3 text-right">Credit </th><th class="p-3 text-right">Balance </th></tr></thead>
             <tbody class="divide-y divide-slate-100">
                 @foreach (var row in rows)
                 {

@@ -23,7 +23,7 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Stock at Hand by UOM</h1>
-            <p class="text-sm text-slate-500 mt-1">View stock in its primary UOM and the active conversion UOMs currently attached to each item.</p>
+            <p class="text-sm text-slate-500 mt-1">View stock in its primary UOM and the equivalent UOMs inherited from its UOM setup.</p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -85,7 +85,7 @@
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
             <div class="px-6 py-4 border-b border-slate-100 bg-slate-50/50 text-xs text-slate-500">
-                Items are grouped by warehouse. Each primary UOM row is followed by the active item-specific conversion UOMs. Stock value is shown on the primary row only.
+                Items are grouped by warehouse. Each primary UOM row is followed by the equivalent UOMs configured for that primary UOM. Stock value is shown on the primary row only. @if (!string.IsNullOrWhiteSpace(companyBaseCurrency)) { <span>Currency: @companyBaseCurrency.</span> }
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm whitespace-nowrap">
@@ -94,8 +94,8 @@
                             <th class="p-4">Item</th>
                             <th class="p-4">UOM</th>
                             <th class="p-4 text-right">Qty</th>
-                            <th class="p-4 text-right">Unit Cost</th>
-                            <th class="p-4 text-right">Stock Value</th>
+                            <th class="p-4 text-right">Unit Cost </th>
+                            <th class="p-4 text-right">Stock Value </th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
@@ -140,6 +140,7 @@
 @code {
     private Guid companyId;
     private string companyName = "Primalfit Group";
+    private string companyBaseCurrency = string.Empty;
     private string currentUserName = "System User";
     private bool isLoading = true;
     private bool isExportingPdf;
@@ -172,7 +173,10 @@
                 currentUserName = user.UserName ?? user.Email ?? currentUserName;
                 var company = await CompanyService.GetCompanyByIdAsync(companyId);
                 if (company != null && !string.IsNullOrWhiteSpace(company.CompanyName))
+                {
                     companyName = company.CompanyName;
+                    companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+                }
 
                 await LoadReportAsync();
             }
@@ -212,20 +216,21 @@
             .Include(x => x.PrimaryUom)
             .Where(x => x.CompanyId == companyId && !x.IsService)
             .ToDictionaryAsync(x => x.Id);
-        var stockItemIds = items.Keys.ToList();
         var uoms = await ctx.UnitOfMeasures
             .AsNoTracking()
             .Where(x => x.CompanyId == companyId)
             .ToDictionaryAsync(x => x.Id, x => x.Name);
-        var itemLines = await ctx.ItemUomConversionLines
+        var primaryUomIds = items.Values
+            .Select(item => item.UomId ?? uoms.FirstOrDefault(x =>
+                string.Equals(x.Value, item.UoM, StringComparison.OrdinalIgnoreCase)).Key)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        var conversionRules = await ctx.UomConversionRules
             .AsNoTracking()
-            .Include(x => x.Uom)
-            .Where(x => x.IsActive &&
-                        stockItemIds.Contains(x.ItemId))
+            .Where(x => x.CompanyId == companyId && x.IsActive && primaryUomIds.Contains(x.FromUomId))
+            .OrderBy(x => x.ToUomId)
             .ToListAsync();
-        var itemLinesByItemId = itemLines
-            .GroupBy(x => x.ItemId)
-            .ToDictionary(x => x.Key, x => x.ToList());
         var warehouseMap = warehouses.ToDictionary(x => x.Id, x => x.Name);
 
         var stockQuery = ctx.StockLedgers
@@ -252,8 +257,7 @@
         {
             if (!items.TryGetValue(position.ItemId, out var item)) continue;
 
-            var itemConversions = itemLinesByItemId.GetValueOrDefault(item.Id) ?? new List<ItemUomConversionLine>();
-            var options = GetUomOptions(item, itemConversions, uoms).ToList();
+            var options = GetUomOptions(item, conversionRules, uoms).ToList();
             if (!options.Any())
                 options.Add(new UomOption(Guid.Empty, string.IsNullOrWhiteSpace(item.UoM) ? "Primary" : item.UoM, 1m, true));
 
@@ -291,7 +295,7 @@
 
     private static IEnumerable<UomOption> GetUomOptions(
         Item item,
-        IEnumerable<ItemUomConversionLine> itemConversions,
+        IEnumerable<UomConversionRule> conversionRules,
         IReadOnlyDictionary<Guid, string> uoms)
     {
         var options = new List<UomOption>();
@@ -299,7 +303,7 @@
         var primaryUomId = item.UomId;
 
         // Older item records may have a primary UOM name but no UomId. Resolve
-        // that name so the primary row and its attached offset UOM rows can
+        // that name so the primary row and its attached equivalent UOM rows can
         // still be reported together.
         if (!primaryUomId.HasValue && !string.IsNullOrWhiteSpace(item.UoM))
         {
@@ -325,25 +329,23 @@
                 true));
         }
 
-        // Offset/conversion rows come only from the active item setup lines.
-        // Global conversion rules and the legacy alternate-UOM fields are not
-        // report sources because they do not represent UOMs currently attached
-        // to this specific item.
-        var configuredLines = itemConversions
+        // Equivalent UOM rows are inherited directly from the selected primary UOM.
+        var configuredLines = conversionRules
             .Where(x => x.IsActive &&
-                        x.ItemId == item.Id &&
-                        (!primaryUomId.HasValue || x.UomId != primaryUomId.Value) &&
-                        x.ConversionFactorToBase > 0)
-            .OrderBy(x => x.Uom?.Name)
+                        primaryUomId.HasValue &&
+                        x.FromUomId == primaryUomId.Value &&
+                        x.ToUomId != primaryUomId.Value &&
+                        x.ConversionFactor > 0)
+            .OrderBy(x => uoms.GetValueOrDefault(x.ToUomId, "UOM"))
             .ToList();
 
         foreach (var line in configuredLines)
         {
-            if (!seen.Add(line.UomId)) continue;
+            if (!seen.Add(line.ToUomId)) continue;
             options.Add(new UomOption(
-                line.UomId,
-                line.Uom?.Name ?? uoms.GetValueOrDefault(line.UomId, "UOM"),
-                1m / UomConversion.NormalizeFactor(line.ConversionFactorToBase),
+                line.ToUomId,
+                uoms.GetValueOrDefault(line.ToUomId, "UOM"),
+                1m / UomConversion.NormalizeFactor(line.ConversionFactor),
                 false));
         }
 
@@ -405,6 +407,7 @@
         {
             ReportName = "Stock at Hand by UOM",
             CompanyName = companyName,
+            Currency = companyBaseCurrency,
             ReportingPeriod = $"Warehouse: {warehouseLabel}",
             GeneratedBy = currentUserName,
             Headers = new List<string> { "Warehouse", "Item", "Code", "UOM", "Qty", "Unit Cost", "Stock Value" },

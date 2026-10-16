@@ -124,18 +124,62 @@ namespace Primafit_ERP.Services
                         && batch.Status == BatchStatus.Posted))
                 .ToListAsync();
             var types = await ctx.Set<SegAccountType>().AsNoTracking().ToDictionaryAsync(x => x.Id);
-            var report = new ProjectReportViewModel { Project = project, FromDate = fromDate, ToDate = toDate };
+            return BuildProjectReport(project, allToDate, fromDate, toDate, types);
+        }
 
-            report.Transactions = allToDate.Where(t => t.PostingDate >= fromDate)
-                .OrderByDescending(t => t.PostingDate).ToList();
+        public async Task<List<ProjectReportViewModel>> GetProjectReportsAsync(
+            Guid companyId, Guid? projectId, DateOnly fromDate, DateOnly toDate)
+        {
+            if (fromDate > toDate) return new List<ProjectReportViewModel>();
+
+            await using var ctx = await _dbFactory.CreateDbContextAsync();
+            var projectsQuery = ctx.Projects.AsNoTracking()
+                .Where(project => project.CompanyId == companyId && project.IsAccountingProject);
+            if (projectId.HasValue)
+                projectsQuery = projectsQuery.Where(project => project.Id == projectId.Value);
+
+            var projects = await projectsQuery.OrderBy(project => project.ProjectCode).ToListAsync();
+            if (projects.Count == 0) return new List<ProjectReportViewModel>();
+
+            var projectIds = projects.Select(project => project.Id).ToList();
+            var transactions = await ctx.GLTransactions.AsNoTracking()
+                .Include(transaction => transaction.SegCoa)
+                .Where(transaction => transaction.CompanyId == companyId
+                    && transaction.ProjectId.HasValue && projectIds.Contains(transaction.ProjectId.Value)
+                    && transaction.PostingDate <= toDate
+                    && ctx.GLBatches.Any(batch => batch.Id == transaction.BatchId
+                        && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))
+                .ToListAsync();
+            var types = await ctx.Set<SegAccountType>().AsNoTracking().ToDictionaryAsync(type => type.Id);
+
+            return projects.Select(project =>
+            {
+                var projectTransactions = transactions
+                    .Where(transaction => transaction.ProjectId == project.Id)
+                    .ToList();
+                return BuildProjectReport(project, projectTransactions, fromDate, toDate, types);
+            }).ToList();
+        }
+
+        private static ProjectReportViewModel BuildProjectReport(
+            Project project,
+            List<GLTransaction> allToDate,
+            DateOnly fromDate,
+            DateOnly toDate,
+            IReadOnlyDictionary<int, SegAccountType> types)
+        {
+            var report = new ProjectReportViewModel { Project = project, FromDate = fromDate, ToDate = toDate };
+            report.Transactions = allToDate.Where(transaction => transaction.PostingDate >= fromDate)
+                .OrderByDescending(transaction => transaction.PostingDate)
+                .ToList();
 
             report.ProfitAndLossAccounts = BuildAccountRows(
-                allToDate.Where(t => t.PostingDate >= fromDate && t.SegCoa != null
-                    && types.TryGetValue(t.SegCoa.SegAccountTypeId, out var type) && !type.IsBalanceSheet), types);
+                allToDate.Where(transaction => transaction.PostingDate >= fromDate && transaction.SegCoa != null
+                    && types.TryGetValue(transaction.SegCoa.SegAccountTypeId, out var type) && !type.IsBalanceSheet), types);
 
             report.BalanceSheetAccounts = BuildAccountRows(
-                allToDate.Where(t => t.SegCoa != null
-                    && types.TryGetValue(t.SegCoa.SegAccountTypeId, out var type) && type.IsBalanceSheet), types);
+                allToDate.Where(transaction => transaction.SegCoa != null
+                    && types.TryGetValue(transaction.SegCoa.SegAccountTypeId, out var type) && type.IsBalanceSheet), types);
             return report;
         }
 
@@ -143,18 +187,23 @@ namespace Primafit_ERP.Services
             IEnumerable<GLTransaction> transactions, IReadOnlyDictionary<int, SegAccountType> types)
         {
             return transactions.Where(t => t.SegCoa != null)
-                .GroupBy(t => t.SegCoa!)
+                .GroupBy(t => new
+                {
+                    t.SegCoaId,
+                    t.SegCoa!.AccountCode,
+                    t.SegCoa.Description
+                })
                 .Select(group =>
                 {
-                    var account = group.Key;
-                    types.TryGetValue(account.SegAccountTypeId, out var type);
+                    var accountTypeId = group.First().SegCoa!.SegAccountTypeId;
+                    types.TryGetValue(accountTypeId, out var type);
                     var debit = group.Sum(x => x.Debit);
                     var credit = group.Sum(x => x.Credit);
                     var debitNormal = type?.IsDebit ?? true;
                     return new ProjectAccountBalanceRow
                     {
-                        AccountCode = account.AccountCode,
-                        AccountName = account.Description,
+                        AccountCode = group.Key.AccountCode,
+                        AccountName = group.Key.Description,
                         AccountType = type?.Description ?? string.Empty,
                         Debit = debit,
                         Credit = credit,

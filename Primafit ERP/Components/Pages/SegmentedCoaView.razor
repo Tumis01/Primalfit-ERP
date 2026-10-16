@@ -688,6 +688,7 @@
     private List<SegChartOfAccount> coa = new();
     private List<Currency> currencyList = new();
     private Currency? baseCurrency => currencyList.FirstOrDefault(c => c.IsBaseCurrency);
+    private string companyBaseCurrency = string.Empty;
 
     private SegCoaService.SegCoaDraft draft = new();
     private string draftCode = "";
@@ -709,7 +710,11 @@
             {
                 selectedCompanyId = currentUser.CompanyDetailsId.Value;
                 var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-                if (company != null) companyName = company.CompanyName;
+                if (company != null)
+                {
+                    companyName = company.CompanyName;
+                    companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+                }
 
                 cfg = await Service.GetOrCreateConfigAsync(selectedCompanyId);
                 ResetDraft();
@@ -1018,6 +1023,7 @@
         {
             CompanyName = companyName,
             ReportName = "Segmented Chart of Accounts",
+            Currency = companyBaseCurrency,
             Headers = new List<string> { "Account Code", "Description", "Account Type", "Currency Code" },
             Rows = FilteredCoa.Select(a => new List<string>
             {

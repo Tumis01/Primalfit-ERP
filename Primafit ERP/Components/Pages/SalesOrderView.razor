@@ -546,13 +546,16 @@
                                             <td class="p-2 align-top pt-3">
                                                 @if (!isService)
                                                 {
-                                                    <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" class="input-class py-2 text-xs font-bold" disabled="@IsLocked">
+                                                    <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" class="input-class py-2 text-xs font-semibold" disabled="@(IsLocked || !line.ItemId.HasValue || line.ItemId == Guid.Empty)">
                                                         @foreach (var uom in GetItemUoms(line.ItemId))
                                                         {
                                                             <option value="@uom.Id">@GetUomOptionLabel(line.ItemId, uom)</option>
                                                         }
                                                     </select>
-                                                    <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                    @if (line.ItemId.HasValue && line.ItemId != Guid.Empty)
+                                                    {
+                                                        <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
+                                                    }
                                                 }
                                                 else
                                                 {
@@ -1050,7 +1053,6 @@
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
     private List<UomConversionRule> conversionRules = new();
-    private List<ItemUomConversionLine> itemUomLines = new();
     private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
         conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
     private List<Warehouse> warehouses = new();
@@ -1212,7 +1214,6 @@
             items = await MasterService.GetItemsAsync(selectedCompanyId);
             uoms = await MasterService.GetUnitOfMeasuresAsync(selectedCompanyId);
             conversionRules = await MasterService.GetUomConversionRulesAsync(selectedCompanyId);
-            itemUomLines = await MasterService.GetItemUomConversionLinesAsync(selectedCompanyId, true);
         warehouses = await WhService.GetWarehousesAsync(selectedCompanyId, WarehouseType.Sales);
         taxes = await ctx.Taxes.Where(t => t.CompanyId == selectedCompanyId).ToListAsync();
         salesWithholdingTaxes = await ctx.WithholdingTaxes.AsNoTracking()
@@ -1272,10 +1273,10 @@
                 var item = items.FirstOrDefault(x => x.Id == line.ItemId);
                 if (item == null) continue;
                 line.UomId ??= item.UomId;
-                line.UomName = GetItemUoms(item.Id).FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.PrimaryUom?.Name ?? item.UoM;
-                var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id)
-                    .ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
-                line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId, itemFactors, ConversionMap);
+                var itemUoms = GetItemUoms(item.Id);
+                if (!itemUoms.Any(x => x.Id == line.UomId)) line.UomId = item.UomId;
+                line.UomName = itemUoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.PrimaryUom?.Name ?? item.UoM;
+                line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId, ConversionMap);
             }
             activeTab = 1;
             var c = currencies.FirstOrDefault(x => x.Id == o.CurrencyId);
@@ -1411,13 +1412,12 @@
         var item = items.FirstOrDefault(x => x.Id == line.ItemId);
         if (item != null)
         {
-            var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id).ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
             var selectedUomId = preserveUom && GetItemUoms(item.Id).Any(x => x.Id == line.UomId)
                 ? line.UomId
                 : item.UomId;
             line.UomId = selectedUomId;
             line.UomName = GetItemUoms(item.Id).FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? item.PrimaryUom?.Name ?? item.UoM;
-            line.UomConversionFactor = UomConversion.FactorFor(item, selectedUomId, itemFactors, ConversionMap);
+            line.UomConversionFactor = UomConversion.FactorFor(item, selectedUomId, ConversionMap);
             decimal rate = currentOrder.ExchangeRate > 0 ? currentOrder.ExchangeRate : 1;
             line.UnitPrice = UomConversion.PriceToBase(item.SellingPrice / rate, line.UomConversionFactor);
             if (item.IsService) line.Quantity = 1;
@@ -1433,29 +1433,14 @@
             result.Add(item.PrimaryUom ?? uoms.FirstOrDefault(x => x.Id == item.UomId.Value) ?? new UnitOfMeasure { Id = item.UomId.Value, Name = item.UoM });
         else if (!string.IsNullOrWhiteSpace(item.UoM))
             result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
-        foreach (var line in itemUomLines.Where(x => x.ItemId == item.Id && result.All(r => r.Id != x.UomId)))
-            result.Add(line.Uom ?? uoms.FirstOrDefault(x => x.Id == line.UomId) ?? new UnitOfMeasure { Id = line.UomId, Name = "UOM" });
-
-        // Global UOM conversion rules also define valid transaction UOMs. Walk
-        // the conversion graph so indirect conversions (e.g. box -> dozen ->
-        // each) are available as well as item-specific conversion rows.
         if (item.UomId.HasValue)
         {
-            var reachable = new HashSet<Guid> { item.UomId.Value };
-            var pending = new Queue<Guid>();
-            pending.Enqueue(item.UomId.Value);
-            while (pending.Count > 0)
+            foreach (var rule in conversionRules.Where(x => x.FromUomId == item.UomId.Value)
+                .OrderBy(x => x.ToUom?.Name ?? uoms.FirstOrDefault(u => u.Id == x.ToUomId)?.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var current = pending.Dequeue();
-                foreach (var rule in conversionRules.Where(x => x.FromUomId == current || x.ToUomId == current))
-                {
-                    var next = rule.FromUomId == current ? rule.ToUomId : rule.FromUomId;
-                    if (reachable.Add(next)) pending.Enqueue(next);
-                }
+                var equivalent = rule.ToUom ?? uoms.FirstOrDefault(x => x.Id == rule.ToUomId);
+                if (equivalent != null && result.All(x => x.Id != equivalent.Id)) result.Add(equivalent);
             }
-
-            foreach (var uomId in reachable.Where(x => result.All(r => r.Id != x) && x != item.UomId.Value))
-                result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
         }
         return result;
     }
@@ -1473,9 +1458,9 @@
     {
         var item = items.FirstOrDefault(x => x.Id == itemId);
         if (item == null || item.UomId == uom.Id) return $"{uom.Name} (Primary)";
-        var conversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == uom.Id);
-        var factor = conversion?.ConversionFactorToBase
-            ?? (item.UomId.HasValue ? UomConversion.FactorBetween(item.UomId.Value, uom.Id, ConversionMap) : null);
+        var factor = item.UomId.HasValue
+            ? conversionRules.FirstOrDefault(x => x.FromUomId == item.UomId.Value && x.ToUomId == uom.Id)?.ConversionFactor
+            : null;
         return factor.HasValue
             ? $"{uom.Name} (1 {GetPrimaryUomName(itemId)} = {factor.Value:N4} {uom.Name})"
             : uom.Name;
@@ -1498,8 +1483,7 @@
         var baseQuantity = line.Quantity;
         var basePrice = line.UnitPrice;
         line.UomName = GetItemUoms(line.ItemId).FirstOrDefault(x => x.Id == selectedId)?.Name ?? UomConversion.NameFor(item, selectedId);
-        var itemFactors = itemUomLines.Where(x => x.ItemId == item.Id).ToDictionary(x => x.UomId, x => x.ConversionFactorToBase);
-        line.UomConversionFactor = UomConversion.FactorFor(item, selectedId, itemFactors, ConversionMap);
+        line.UomConversionFactor = UomConversion.FactorFor(item, selectedId, ConversionMap);
         // Stored values are always base values; changing the display UOM must not change them.
         line.Quantity = baseQuantity;
         line.UnitPrice = basePrice;

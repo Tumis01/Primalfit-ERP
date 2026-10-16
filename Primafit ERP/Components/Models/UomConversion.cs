@@ -29,6 +29,9 @@ public static class UomConversion
         {
             // Transaction factors are selected-UOM -> primary-UOM. Global
             // rules are stored in the opposite, human-readable direction.
+            if (rules.TryGetValue((item.UomId.Value, selectedUomId.Value), out var directFactor))
+                return 1m / NormalizeFactor(directFactor);
+
             var primaryToSelected = FactorBetween(item.UomId.Value, selectedUomId.Value, rules);
             if (primaryToSelected.HasValue) return 1m / NormalizeFactor(primaryToSelected.Value);
         }
@@ -40,6 +43,18 @@ public static class UomConversion
         IReadOnlyDictionary<Guid, decimal>? itemUomFactors,
         IReadOnlyDictionary<(Guid From, Guid To), decimal>? rules = null)
     {
+        // The primary UOM's master conversion rules are the live source of
+        // truth. Retain item-specific rows only as a fallback for legacy units
+        // that have no corresponding master conversion path.
+        if (selectedUomId.HasValue && item.UomId.HasValue && rules != null)
+        {
+            if (rules.TryGetValue((item.UomId.Value, selectedUomId.Value), out var directFactor))
+                return 1m / NormalizeFactor(directFactor);
+
+            var primaryToSelected = FactorBetween(item.UomId.Value, selectedUomId.Value, rules);
+            if (primaryToSelected.HasValue) return 1m / NormalizeFactor(primaryToSelected.Value);
+        }
+
         if (selectedUomId.HasValue && itemUomFactors != null && itemUomFactors.TryGetValue(selectedUomId.Value, out var itemFactor))
             return 1m / NormalizeFactor(itemFactor);
         return FactorFor(item, selectedUomId, rules);

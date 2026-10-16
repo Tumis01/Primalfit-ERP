@@ -249,6 +249,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Customer Statement",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
+                Currency = company?.BaseCurrency?.Trim() ?? string.Empty,
                 CompanyName = company?.CompanyName ?? "",
                 CompanyAddress = company?.PhysicalAddress ?? company?.PostalAddress ?? "",
                 CompanyEmail = company?.CompanyEmail ?? "",
@@ -431,7 +432,7 @@ namespace Primafit_ERP.Services
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetMarginTop(10));
 
-            document.Add(new Paragraph(report.ReportingPeriod)
+            document.Add(new Paragraph(report.ReportingPeriod + (string.IsNullOrWhiteSpace(report.Currency) ? "" : $" | Currency: {report.Currency.Trim()}"))
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetFontSize(9)
                 .SetMarginBottom(8));
@@ -448,7 +449,8 @@ namespace Primafit_ERP.Services
             var table = new Table(UnitValue.CreatePercentArray(new float[] { 1.1f, 2.2f, 1.6f, 1.5f, 3f, 1.3f, 1.3f, 1.4f }))
                 .UseAllAvailableWidth();
 
-            string[] headers = { "Date", "Customer", "Reference", "Type", "Description", "Debit", "Credit", "Balance" };
+            string currencySuffix = string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency.Trim()})";
+            string[] headers = { "Date", "Customer", "Reference", "Type", "Description", $"Debit{currencySuffix}", $"Credit{currencySuffix}", $"Balance{currencySuffix}" };
 
             foreach (var header in headers)
             {
@@ -489,9 +491,10 @@ namespace Primafit_ERP.Services
 
             ws.Cell(1, 1).Value = report.ReportName;
             ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(2, 1).Value = report.ReportingPeriod;
+            ws.Cell(2, 1).Value = report.ReportingPeriod + (string.IsNullOrWhiteSpace(report.Currency) ? "" : $" | Currency: {report.Currency.Trim()}");
 
-            string[] headers = { "Date", "Customer", "Reference", "Type", "Description", "Debit", "Credit", "Balance" };
+            string currencySuffix = string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency.Trim()})";
+            string[] headers = { "Date", "Customer", "Reference", "Type", "Description", $"Debit{currencySuffix}", $"Credit{currencySuffix}", $"Balance{currencySuffix}" };
 
             int row = 4;
 
@@ -680,6 +683,7 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Vendor Statement",
                 ReportingPeriod = $"{startDate:MMM dd, yyyy} to {endDate:MMM dd, yyyy}",
+                Currency = company?.BaseCurrency?.Trim() ?? string.Empty,
                 CompanyName = company?.CompanyName ?? "",
                 CompanyAddress = company?.PhysicalAddress ?? company?.PostalAddress ?? "",
                 CompanyEmail = company?.CompanyEmail ?? "",
@@ -892,7 +896,7 @@ namespace Primafit_ERP.Services
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetMarginTop(10));
 
-            document.Add(new Paragraph(report.ReportingPeriod)
+            document.Add(new Paragraph(report.ReportingPeriod + (string.IsNullOrWhiteSpace(report.Currency) ? "" : $" | Currency: {report.Currency.Trim()}"))
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetFontSize(9)
                 .SetMarginBottom(8));
@@ -907,7 +911,8 @@ namespace Primafit_ERP.Services
             var table = new Table(UnitValue.CreatePercentArray(new float[] { 1.1f, 2.2f, 1.6f, 1.5f, 3f, 1.3f, 1.3f, 1.4f }))
                 .UseAllAvailableWidth();
 
-            string[] headers = { "Date", "Vendor", "Reference", "Type", "Description", "Debit", "Credit", "Balance" };
+            string currencySuffix = string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency.Trim()})";
+            string[] headers = { "Date", "Vendor", "Reference", "Type", "Description", $"Debit{currencySuffix}", $"Credit{currencySuffix}", $"Balance{currencySuffix}" };
 
             foreach (var header in headers)
             {
@@ -948,9 +953,10 @@ namespace Primafit_ERP.Services
 
             ws.Cell(1, 1).Value = report.ReportName;
             ws.Cell(1, 1).Style.Font.Bold = true;
-            ws.Cell(2, 1).Value = report.ReportingPeriod;
+            ws.Cell(2, 1).Value = report.ReportingPeriod + (string.IsNullOrWhiteSpace(report.Currency) ? "" : $" | Currency: {report.Currency.Trim()}");
 
-            string[] headers = { "Date", "Vendor", "Reference", "Type", "Description", "Debit", "Credit", "Balance" };
+            string currencySuffix = string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency.Trim()})";
+            string[] headers = { "Date", "Vendor", "Reference", "Type", "Description", $"Debit{currencySuffix}", $"Credit{currencySuffix}", $"Balance{currencySuffix}" };
 
             int row = 4;
 

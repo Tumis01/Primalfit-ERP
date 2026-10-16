@@ -184,10 +184,6 @@ namespace Primafit_ERP.Services
             var conversionMap = await ctx.UomConversionRules.AsNoTracking()
                 .Where(x => x.CompanyId == order.CompanyId && x.IsActive)
                 .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
-            var itemUomMap = await ctx.ItemUomConversionLines.AsNoTracking()
-                .Where(x => x.Item!.CompanyId == order.CompanyId && x.IsActive)
-                .GroupBy(x => new { x.ItemId, x.UomId })
-                .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
             var companyUomIds = await ctx.UnitOfMeasures.AsNoTracking()
                 .Where(x => x.CompanyId == order.CompanyId).Select(x => x.Id).ToHashSetAsync();
             foreach (var line in order.Lines.Where(x => x.ItemId.HasValue && itemsMap.ContainsKey(x.ItemId.Value)))
@@ -196,12 +192,9 @@ namespace Primafit_ERP.Services
                 if (!line.UomId.HasValue) line.UomId = item.UomId;
                 if (line.UomId.HasValue && !companyUomIds.Contains(line.UomId.Value)) return "Selected line UOM is invalid.";
                 if (line.UomId.HasValue && line.UomId != item.UomId
-                    && !itemUomMap.ContainsKey((line.ItemId.Value, line.UomId.Value))
                     && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
                     return $"The selected UOM for '{item.Name}' is not configured on this item.";
-                var itemFactors = itemUomMap.Where(x => x.Key.ItemId == line.ItemId!.Value)
-                    .ToDictionary(x => x.Key.UomId, x => x.Value);
-                var expected = UomConversion.FactorFor(item, line.UomId, itemFactors, conversionMap);
+                var expected = UomConversion.FactorFor(item, line.UomId, conversionMap);
                 if (line.UomConversionFactor <= 0 || Math.Abs(line.UomConversionFactor - expected) > 0.0001m)
                     line.UomConversionFactor = expected;
             }
@@ -1054,10 +1047,9 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "Customer Transaction Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                // UPDATED: Appended Credit Note and Net Total headers for audit visibility
                 Headers = new List<string> {
             "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
-            "Order Discount", "Order Tax", "Credit Applied", "Net Invoice Total", "Amount Paid (Foreign)", "Amount Paid (Base)"
+            "Order Discount", "Order Tax", "Credit Applied", "Net Invoice Total", "Amount Paid"
         },
                 Rows = new List<List<string>>()
             };
@@ -1073,18 +1065,21 @@ namespace Primafit_ERP.Services
 
                 decimal paidForeign = payments.TryGetValue(o.Id, out var pAmt) ? pAmt : 0;
                 decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1;
-                decimal paidBase = paidForeign * rate;
+                decimal paidBase = Math.Round(paidForeign * rate, 2);
 
                 // FIXED: Replaced undeclared discountedSubTotal with netForeign variable to fix compilation error
                 decimal rawGrandTotal = netForeign + taxForeign;
                 decimal creditedForeign = creditNotesMap.TryGetValue(o.Id, out var credAmt) ? credAmt : 0;
-                decimal netGrandTotalForeign = rawGrandTotal - creditedForeign;
-
-                string curr = o.Currency?.CurrencyCode ?? "";
+                decimal discountBase = Math.Round(discountForeign * rate, 2);
+                decimal taxBase = Math.Round(taxForeign * rate, 2);
+                decimal creditAppliedBase = Math.Round(creditedForeign * rate, 2);
+                decimal netGrandTotalBase = Math.Round(rawGrandTotal * rate, 2) - creditAppliedBase;
 
                 bool isFirstLine = true;
                 foreach (var line in o.Lines)
                 {
+                    decimal unitPriceBase = Math.Round(line.UnitPrice * rate, 2);
+                    decimal lineTotalBase = Math.Round(line.Quantity * line.UnitPrice * rate, 2);
                     var row = new List<string>
             {
                 isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
@@ -1092,14 +1087,13 @@ namespace Primafit_ERP.Services
                 isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
                 line.Item?.Name ?? "Unknown",
                 line.Quantity.ToString("N2"),
-                line.UnitPrice.ToString("N2"),
-                (line.Quantity * line.UnitPrice).ToString("N2"),
-                isFirstLine ? discountForeign.ToString("N2") : "",
-                isFirstLine ? taxForeign.ToString("N2") : "",
+                unitPriceBase.ToString("N2"),
+                lineTotalBase.ToString("N2"),
+                isFirstLine ? discountBase.ToString("N2") : "",
+                isFirstLine ? taxBase.ToString("N2") : "",
                 // FIXED: Mapping the actual credit adjustments onto the data grid rows row-by-row
-                isFirstLine ? (creditedForeign > 0 ? $"({creditedForeign.ToString("N2")})" : "0.00") : "",
-                isFirstLine ? netGrandTotalForeign.ToString("N2") : "",
-                isFirstLine ? $"{curr} {paidForeign:N2}" : "",
+                isFirstLine ? (creditAppliedBase > 0 ? $"({creditAppliedBase.ToString("N2")})" : "0.00") : "",
+                isFirstLine ? netGrandTotalBase.ToString("N2") : "",
                 isFirstLine ? paidBase.ToString("N2") : ""
             };
                     reportData.Rows.Add(row);
@@ -1159,10 +1153,14 @@ namespace Primafit_ERP.Services
                     decimal discount = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
                     decimal net = subTotal - discount;
                     decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
-                    decimal grandTotal = net + (net * (taxPer / 100));
+                    decimal grandTotalForeign = net + (net * (taxPer / 100));
 
-                    decimal paid = payments.TryGetValue(o.Id, out var paidAmt) ? paidAmt : 0;
-                    decimal credited = creditNotesMap.TryGetValue(o.Id, out var creditedAmt) ? creditedAmt : 0;
+                    decimal paidForeign = payments.TryGetValue(o.Id, out var paidAmt) ? paidAmt : 0;
+                    decimal creditedForeign = creditNotesMap.TryGetValue(o.Id, out var creditedAmt) ? creditedAmt : 0;
+                    decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1m;
+                    decimal grandTotal = Math.Round(grandTotalForeign * rate, 2);
+                    decimal paid = Math.Round(paidForeign * rate, 2);
+                    decimal credited = Math.Round(creditedForeign * rate, 2);
                     decimal balance = grandTotal - paid - credited;
 
                     if (balance > 0.01m)

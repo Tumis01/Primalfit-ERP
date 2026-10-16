@@ -158,29 +158,26 @@
                         <div class="md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                             <div class="flex items-center justify-between mb-3">
                                 <div>
-                                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Additional Item UOMs</h4>
-                                    <p class="text-[10px] text-slate-500">Add UOMs that may be selected during sales and purchases. Each line is expressed in the configured direction from the primary UOM.</p>
+                                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Equivalent UOMs</h4>
+                                    <p class="text-[10px] text-slate-500">Inherited from the selected primary UOM. Manage these conversions on the UOM setup page.</p>
                                 </div>
                             </div>
-                            @if (currentItem.Id == Guid.Empty)
+                            @if (!currentItem.UomId.HasValue)
                             {
-                                <p class="mb-3 text-xs text-indigo-700">Adding a conversion saves the item and conversion together. The form stays open so you can continue setup.</p>
+                                <p class="text-xs text-slate-500">Select a primary UOM to see its equivalent UOMs.</p>
                             }
-                            @if (!string.IsNullOrWhiteSpace(itemUomError))
+                            else if (!GetPrimaryUomConversionRules().Any())
                             {
-                                <p role="alert" class="mb-3 text-xs font-semibold text-rose-600">@itemUomError</p>
+                                <p class="text-xs text-slate-500">No equivalent UOMs are configured for this primary UOM.</p>
                             }
-                            <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
-                                <div><label class="label">Transaction UOM</label><SearchableUom Units="@uoms.Where(x => x.Id != currentItem.UomId).ToList()" @bind-Value="itemLineUomId" /></div>
-                                <div><label class="label">Units per Primary UOM</label><InputNumber @bind-Value="itemLineFactor" class="input-class font-mono" min="0.0001" /></div>
-                                <button type="button" @onclick="SaveItemUomLine" class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white">@(editingItemLineId.HasValue ? "Update" : "Add")</button>
-                            </div>
-                            @foreach (var line in itemUomLines)
+                            else
                             {
-                                <div class="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
-                                    <span class="font-medium">1 @(uoms.FirstOrDefault(x => x.Id == currentItem.UomId)?.Name ?? "primary") = <b>@line.ConversionFactorToBase.ToString("N4")</b> @(line.Uom?.Name ?? uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name)</span>
-                                    <span><button type="button" @onclick="() => EditItemUomLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => DeleteItemUomLine(line)" class="text-rose-600 font-bold">Delete</button></span>
-                                </div>
+                                @foreach (var rule in GetPrimaryUomConversionRules())
+                                {
+                                    <div class="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
+                                        @GetItemUomConversionDisplay(rule)
+                                    </div>
+                                }
                             }
                         </div>
                     }
@@ -344,7 +341,7 @@
 @code {
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
-    private List<ItemUomConversionLine> itemUomLines = new();
+    private List<UomConversionRule> conversionRules = new();
     private List<ItemCategory> categories = new();
 
     private List<SegChartOfAccount> allAccounts = new();
@@ -360,12 +357,8 @@
     private bool IsItemCodeReadOnly;
     private Guid? pendingItemCodeSequenceId;
     private string? itemCodeError;
-    private string? itemUomError;
     private Guid currentCompanyId;
     private string itemSearch = string.Empty;
-    private Guid? itemLineUomId;
-    private decimal itemLineFactor = 1m;
-    private Guid? editingItemLineId;
 
     private IEnumerable<Item> FilteredItems => items
         .Where(i => string.IsNullOrWhiteSpace(itemSearch)
@@ -392,6 +385,7 @@
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
             uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
+            conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
             categories = await MasterService.GetItemCategoriesAsync(currentCompanyId);
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -415,20 +409,20 @@
             .ToList();
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
+        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
         currentItem = new Item { CompanyId = currentCompanyId, CostingType = CostingMethod.WACC };
         pendingItemCodeSequenceId = null;
         IsItemCodeReadOnly = false;
         itemCodeError = null;
-        itemUomError = null;
-        itemUomLines = new(); itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
         showForm = true;
         isEditing = false;
     }
 
     private async Task Edit(Item i)
     {
+        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
         currentItem = new Item
         {
             Id = i.Id,
@@ -456,23 +450,12 @@
         pendingItemCodeSequenceId = null;
         IsItemCodeReadOnly = categories.FirstOrDefault(c => c.Id == i.CategoryId)?.ItemCodeSequenceDefinitionId.HasValue == true;
         itemCodeError = null;
-        itemUomError = null;
-        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(i.Id);
-        itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
     }
 
-    private void OnPrimaryUomChanged(ChangeEventArgs e)
+    private async Task OnPrimaryUomChanged(ChangeEventArgs e)
     {
-        var previousPrimaryId = currentItem.UomId;
         currentItem.UomId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
-        if (previousPrimaryId != currentItem.UomId)
-        {
-            itemUomLines = new();
-            itemLineUomId = null;
-            itemLineFactor = 1m;
-            editingItemLineId = null;
-            itemUomError = null;
-        }
+        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
     }
 
     private async Task OnCategorySelected(ChangeEventArgs e)
@@ -594,33 +577,9 @@
         }
         if (string.IsNullOrEmpty(err))
         {
-            // The parent item is committed now. Do not request another code if
-            // saving a staged conversion needs to be retried.
             pendingItemCodeSequenceId = null;
-            var persistedLines = currentItem.Id == Guid.Empty
-                ? new List<ItemUomConversionLine>()
-                : await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
-            foreach (var stale in persistedLines.Where(x => itemUomLines.All(line => line.Id != x.Id)))
-                await MasterService.DeleteItemUomConversionLineAsync(stale.Id);
-
-            // Persist inherited/edited item conversion lines after the item has
-            // an ID. Global UOM rules remain unchanged.
-            foreach (var line in itemUomLines)
-            {
-                line.ItemId = currentItem.Id;
-                var lineError = await MasterService.SaveItemUomConversionLineAsync(line, currentCompanyId);
-                if (!string.IsNullOrEmpty(lineError))
-                {
-                    itemUomError = lineError;
-                    items = await MasterService.GetItemsAsync(currentCompanyId);
-                    return;
-                }
-            }
-            if (currentItem.Id != Guid.Empty)
-                itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
             showForm = false;
             itemCodeError = null;
-            itemUomError = null;
             items = await MasterService.GetItemsAsync(currentCompanyId);
         }
         else
@@ -631,82 +590,19 @@
         }
     }
 
-    private async Task SaveItemUomLine()
+    private IEnumerable<UomConversionRule> GetPrimaryUomConversionRules()
     {
-        itemUomError = null;
-        if (!itemLineUomId.HasValue || itemLineFactor <= 0)
-        {
-            itemUomError = "Select an additional UOM and enter a factor greater than zero.";
-            return;
-        }
-        if (itemLineUomId == currentItem.UomId)
-        {
-            itemUomError = "The primary UOM is already configured on the item.";
-            return;
-        }
-        if (itemUomLines.Any(x => x.UomId == itemLineUomId.Value && x.Id != editingItemLineId))
-        {
-            itemUomError = "This UOM is already configured for the item.";
-            return;
-        }
-        if (!currentItem.UomId.HasValue)
-        {
-            itemUomError = "Select a primary UOM before adding conversion UOMs.";
-            return;
-        }
-
-        var line = new ItemUomConversionLine
-        {
-            Id = editingItemLineId ?? Guid.NewGuid(),
-            ItemId = currentItem.Id,
-            UomId = itemLineUomId.Value,
-            ConversionFactorToBase = itemLineFactor
-        };
-        var previewedItemCode = currentItem.Code;
-        var isNewItem = currentItem.Id == Guid.Empty;
-        if (pendingItemCodeSequenceId.HasValue)
-            currentItem.Code = string.Empty;
-
-        string err;
-        try
-        {
-            err = await MasterService.SaveItemWithUomConversionAsync(currentItem, line);
-        }
-        catch (Exception ex)
-        {
-            if (pendingItemCodeSequenceId.HasValue)
-                currentItem.Code = previewedItemCode;
-            if (isNewItem)
-                currentItem.Id = Guid.Empty;
-            itemUomError = $"Could not save the item and its conversion UOM: {ex.Message}";
-            return;
-        }
-        if (!string.IsNullOrEmpty(err))
-        {
-            if (pendingItemCodeSequenceId.HasValue)
-                currentItem.Code = previewedItemCode;
-            itemUomError = err;
-            return;
-        }
-
-        pendingItemCodeSequenceId = null;
-        IsItemCodeReadOnly = categories.FirstOrDefault(c => c.Id == currentItem.CategoryId)?.ItemCodeSequenceDefinitionId.HasValue == true;
-        isEditing = true;
-        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
-        items = await MasterService.GetItemsAsync(currentCompanyId);
-        itemLineUomId = null; itemLineFactor = 1m; editingItemLineId = null;
+        if (!currentItem.UomId.HasValue) return Enumerable.Empty<UomConversionRule>();
+        return conversionRules
+            .Where(x => x.IsActive && x.FromUomId == currentItem.UomId.Value)
+            .OrderBy(x => x.ToUom?.Name ?? uoms.FirstOrDefault(u => u.Id == x.ToUomId)?.Name);
     }
 
-    private void EditItemUomLine(ItemUomConversionLine line)
+    private string GetItemUomConversionDisplay(UomConversionRule rule)
     {
-        editingItemLineId = line.Id; itemLineUomId = line.UomId; itemLineFactor = line.ConversionFactorToBase;
-    }
-
-    private async Task DeleteItemUomLine(ItemUomConversionLine line)
-    {
-        if (!await JS.InvokeAsync<bool>("confirm", "Delete this item UOM conversion?")) return;
-        await MasterService.DeleteItemUomConversionLineAsync(line.Id);
-        itemUomLines = await MasterService.GetItemUomConversionLinesAsync(currentItem.Id);
+        var primaryName = uoms.FirstOrDefault(x => x.Id == rule.FromUomId)?.Name ?? "primary";
+        var equivalentName = rule.ToUom?.Name ?? uoms.FirstOrDefault(x => x.Id == rule.ToUomId)?.Name ?? "UOM";
+        return $"1 {primaryName} = {rule.ConversionFactor:N4} {equivalentName}";
     }
 
     // --- CSV EXPORT LOGIC ---

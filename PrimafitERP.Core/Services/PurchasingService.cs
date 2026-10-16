@@ -1018,7 +1018,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "PO Number", "Vendor", "Order Date",
-                    "Days Outstanding", "Order Value (Base)", "Status", "Aging Bucket"
+                    "Days Outstanding", "Order Value", "Status", "Aging Bucket"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1103,7 +1103,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "GRN Number", "PO Number", "Vendor", "Date Received",
-                    "Item", "Qty Received", "Unit Cost", "Line Value (Base)"
+                    "Item", "Qty Received", "Unit Cost", "Line Value"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1119,9 +1119,10 @@ namespace Primafit_ERP.Services
                 foreach (var line in grn.Lines.Where(l => l.QuantityReceived > 0))
                 {
                     var poLine = po?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
-                    decimal unitCost = poLine?.UnitCost ?? 0;
+                    decimal unitCostForeign = poLine?.UnitCost ?? 0;
                     decimal rate = po?.ExchangeRate ?? 1;
-                    decimal lineValue = Math.Round(line.QuantityReceived * unitCost * rate, 2);
+                    decimal unitCostBase = Math.Round(unitCostForeign * rate, 2);
+                    decimal lineValue = Math.Round(line.QuantityReceived * unitCostForeign * rate, 2);
                     string itemName = poLine != null ? items.GetValueOrDefault(poLine.ItemId, "Unknown") : "Unknown";
 
                     reportData.Rows.Add(new List<string>
@@ -1132,7 +1133,7 @@ namespace Primafit_ERP.Services
                         grn.DateReceived.ToString("MMM dd, yyyy"),
                         itemName,
                         line.QuantityReceived.ToString("N2"),
-                        unitCost.ToString("N2"),
+                        unitCostBase.ToString("N2"),
                         lineValue.ToString("N2")
                     });
 
@@ -1285,7 +1286,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "PO Number", "Vendor", "Order Date",
-                    "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value (Base)"
+                    "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1373,7 +1374,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Payment Date", "Vendor", "Bill Reference",
-                    "Payment Reference", "Bank Account", "Amount Paid (Base)"
+                    "Payment Reference", "Bank Account", "Amount Paid"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1437,7 +1438,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Vendor", "No. of Bills",
-                    "Total Billed (Base)", "Total Paid (Base)", "Outstanding Balance (Base)"
+                    "Total Billed", "Total Paid", "Outstanding Balance"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1517,7 +1518,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "PO Number", "Vendor", "Order Date",
-                    "Gross Value (Base)", "Discount Type", "Discount Amount (Base)", "Net Value (Base)"
+                    "Gross Value", "Discount Type", "Discount Amount", "Net Value"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1606,7 +1607,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Bill Date", "Bill Reference", "Vendor",
-                    "Linked PO", "Bill Amount (Base)", "Variance Reason"
+                    "Linked PO", "Bill Amount", "Variance Reason"
                 },
                 Rows = new List<List<string>>()
             };

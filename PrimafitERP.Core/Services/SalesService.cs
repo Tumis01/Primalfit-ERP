@@ -767,7 +767,7 @@ namespace Primafit_ERP.Services
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string> {
                     "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
-                    "Order Discount", "Order Tax", "Amount Paid (Foreign)", "Amount Paid (Base)"
+                    "Order Discount", "Order Tax", "Amount Paid"
                 },
                 Rows = new List<List<string>>()
             };
@@ -784,13 +784,15 @@ namespace Primafit_ERP.Services
                 decimal paidForeign = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
 
                 decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1;
-                decimal paidBase = paidForeign * rate;
-
-                string curr = o.Currency?.CurrencyCode ?? "";
+                decimal paidBase = Math.Round(paidForeign * rate, 2);
+                decimal discountBase = Math.Round(discountForeign * rate, 2);
+                decimal taxBase = Math.Round(taxForeign * rate, 2);
 
                 bool isFirstLine = true;
                 foreach (var line in o.Lines)
                 {
+                    decimal unitPriceBase = Math.Round(line.UnitPrice * rate, 2);
+                    decimal lineTotalBase = Math.Round(line.Quantity * line.UnitPrice * rate, 2);
                     var row = new List<string>
                     {
                         isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
@@ -798,12 +800,11 @@ namespace Primafit_ERP.Services
                         isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
                         line.Item?.Name ?? "Unknown",
                         line.Quantity.ToString("N2"),
-                        line.UnitPrice.ToString("N2"),
-                        (line.Quantity * line.UnitPrice).ToString("N2"),
-                        isFirstLine ? discountForeign.ToString("N2") : "",
-                        isFirstLine ? taxForeign.ToString("N2") : "",
-                        isFirstLine ? $"{curr} {paidForeign:N2}" : "",
-                        isFirstLine ? paidBase.ToString("N2") : ""
+                        unitPriceBase.ToString("N2"),
+                        lineTotalBase.ToString("N2"),
+                        isFirstLine ? discountBase.ToString("N2") : "",
+                        isFirstLine ? taxBase.ToString("N2") : "",
+                        isFirstLine ? paidBase.ToString("N2") : "",
                     };
                     reportData.Rows.Add(row);
                     isFirstLine = false;
@@ -854,9 +855,12 @@ namespace Primafit_ERP.Services
                     decimal discount = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
                     decimal net = subTotal - discount;
                     decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
-                    decimal grandTotal = net + (net * (taxPer / 100));
+                    decimal grandTotalForeign = net + (net * (taxPer / 100));
 
-                    decimal paid = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
+                    decimal paidForeign = payments.ContainsKey(o.Id) ? payments[o.Id] : 0;
+                    decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1m;
+                    decimal grandTotal = Math.Round(grandTotalForeign * rate, 2);
+                    decimal paid = Math.Round(paidForeign * rate, 2);
                     decimal balance = grandTotal - paid;
 
                     if (balance > 0.01m)

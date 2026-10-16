@@ -33,7 +33,7 @@
         <div class="flex gap-4">
             <div class="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100 text-right">
                 <div class="text-[10px] font-bold text-slate-400 uppercase">Total Sales Value (Physical)</div>
-                <div class="text-lg font-mono font-bold text-emerald-600">@GrandTotalValue.ToString("C0")</div>
+                <div class="text-lg font-mono font-bold text-emerald-600">@GrandTotalValue.ToString("N0")@(string.IsNullOrWhiteSpace(companyBaseCurrency) ? "" : $" {companyBaseCurrency}")</div>
             </div>
         </div>
     </div>
@@ -58,8 +58,8 @@
                             <th class="p-4">Item Details</th>
                             <th class="p-4">Warehouse</th>
                             <th class="p-4 text-right">Quantity</th>
-                            <th class="p-4 text-right">Selling Price</th>
-                            <th class="p-4 text-right">Total Potential</th>
+                            <th class="p-4 text-right">Selling Price </th>
+                            <th class="p-4 text-right">Total Potential </th>
                             <th class="p-4 text-right">Action</th>
                         </tr>
                     </thead>
@@ -140,6 +140,7 @@
     private bool isLoading = true;
     private Guid currentCompanyId;
     private string companyName = "";
+    private string companyBaseCurrency = string.Empty;
     private List<StockSummaryRow> inventoryLines = new();
 
     // Sum only Physical items (Services are infinite, so we can't sum value)
@@ -160,6 +161,7 @@
             currentCompanyId = user.CompanyDetailsId.Value;
             var c = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
             companyName = c?.CompanyName ?? "";
+            companyBaseCurrency = c?.BaseCurrency?.Trim() ?? string.Empty;
 
             await LoadInventory();
         }

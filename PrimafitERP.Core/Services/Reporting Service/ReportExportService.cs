@@ -46,7 +46,11 @@ namespace Primafit_ERP.Services
                 .SetFont(fontBold)
                 .SetMarginBottom(2));
 
-            document.Add(new Paragraph($"Reporting Period: {data.ReportingPeriod ?? "N/A"}  |  Currency: {data.Currency ?? "Base"}")
+            var reportPeriodHeader = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}";
+            if (!string.IsNullOrWhiteSpace(data.Currency))
+                reportPeriodHeader += $"  |  Currency: {data.Currency.Trim()}";
+
+            document.Add(new Paragraph(reportPeriodHeader)
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetFontSize(10)
                 .SetFontColor(ColorConstants.DARK_GRAY)
@@ -193,7 +197,10 @@ namespace Primafit_ERP.Services
             worksheet.Cell(2, 1).Style.Font.Bold = true;
             worksheet.Cell(2, 1).Style.Font.FontSize = 12;
 
-            worksheet.Cell(3, 1).Value = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}  |  Currency: {data.Currency ?? "Base"}";
+            var reportPeriodHeader = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}";
+            if (!string.IsNullOrWhiteSpace(data.Currency))
+                reportPeriodHeader += $"  |  Currency: {data.Currency.Trim()}";
+            worksheet.Cell(3, 1).Value = reportPeriodHeader;
             worksheet.Cell(3, 1).Style.Font.FontColor = XLColor.DarkGray;
 
             int currentRow = 5;
@@ -724,7 +731,11 @@ namespace Primafit_ERP.Services
                 .SetFont(fontBold)
                 .SetMarginBottom(2));
 
-            document.Add(new Paragraph($"Reporting Period: {data.ReportingPeriod ?? "N/A"}")
+            var reportPeriodHeader = $"Reporting Period: {data.ReportingPeriod ?? "N/A"}";
+            if (!string.IsNullOrWhiteSpace(data.Currency))
+                reportPeriodHeader += $"  |  Currency: {data.Currency.Trim()}";
+
+            document.Add(new Paragraph(reportPeriodHeader)
                 .SetTextAlignment(TextAlignment.CENTER)
                 .SetFontSize(10)
                 .SetFontColor(ColorConstants.DARK_GRAY)
@@ -847,7 +858,10 @@ namespace Primafit_ERP.Services
             worksheet.Cell(2, 1).Style.Font.Bold = true;
             worksheet.Cell(2, 1).Style.Font.FontSize = 12;
 
-            worksheet.Cell(3, 1).Value = $"Period: {data.ReportingPeriod ?? "N/A"}";
+            var reportPeriodHeader = $"Period: {data.ReportingPeriod ?? "N/A"}";
+            if (!string.IsNullOrWhiteSpace(data.Currency))
+                reportPeriodHeader += $"  |  Currency: {data.Currency.Trim()}";
+            worksheet.Cell(3, 1).Value = reportPeriodHeader;
             worksheet.Cell(3, 1).Style.Font.FontColor = XLColor.DarkGray;
 
             int currentRow = 5;

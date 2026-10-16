@@ -492,17 +492,76 @@ namespace Primafit_ERP.Services
         public async Task<List<ItemUomConversionLine>> GetItemUomConversionLinesAsync(Guid itemId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.ItemUomConversionLines.AsNoTracking().Include(x => x.Uom)
-                .Where(x => x.ItemId == itemId && x.IsActive).OrderBy(x => x.Uom!.Name).ToListAsync();
+            var item = await ctx.Items.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == itemId);
+            if (item == null) return new List<ItemUomConversionLine>();
+
+            Guid? primaryUomId = item.UomId;
+            if (!primaryUomId.HasValue && !string.IsNullOrWhiteSpace(item.UoM))
+            {
+                primaryUomId = await ctx.UnitOfMeasures.AsNoTracking()
+                    .Where(x => x.CompanyId == item.CompanyId && x.Name.ToLower() == item.UoM.ToLower())
+                    .Select(x => (Guid?)x.Id)
+                    .FirstOrDefaultAsync();
+            }
+            if (!primaryUomId.HasValue) return new List<ItemUomConversionLine>();
+
+            var rules = await ctx.UomConversionRules.AsNoTracking().Include(x => x.ToUom)
+                .Where(x => x.CompanyId == item.CompanyId && x.FromUomId == primaryUomId.Value && x.IsActive)
+                .OrderBy(x => x.ToUom!.Name)
+                .ToListAsync();
+            return rules.Select(x => ToInheritedItemUomLine(item.Id, x)).ToList();
         }
 
         public async Task<List<ItemUomConversionLine>> GetItemUomConversionLinesAsync(Guid companyId, bool byCompany)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            return await ctx.ItemUomConversionLines.AsNoTracking().Include(x => x.Uom)
-                .Where(x => x.IsActive && x.Item!.CompanyId == companyId)
+            var companyUoms = await ctx.UnitOfMeasures.AsNoTracking()
+                .Where(x => x.CompanyId == companyId)
+                .Select(x => new { x.Id, x.Name })
                 .ToListAsync();
+            var uomIdsByName = companyUoms
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First().Id, StringComparer.OrdinalIgnoreCase);
+            var items = await ctx.Items.AsNoTracking()
+                .Where(x => x.CompanyId == companyId)
+                .Select(x => new { x.Id, x.UomId, x.UoM })
+                .ToListAsync();
+            var itemsWithPrimaryUom = items.Select(item =>
+                {
+                    var primaryUomId = item.UomId;
+                    if (!primaryUomId.HasValue && !string.IsNullOrWhiteSpace(item.UoM)
+                        && uomIdsByName.TryGetValue(item.UoM, out var matchedUomId))
+                        primaryUomId = matchedUomId;
+                    return new { item.Id, UomId = primaryUomId ?? Guid.Empty };
+                })
+                .Where(item => item.UomId != Guid.Empty)
+                .ToList();
+            var primaryUomIds = itemsWithPrimaryUom.Select(x => x.UomId).Distinct().ToList();
+            if (primaryUomIds.Count == 0) return new List<ItemUomConversionLine>();
+
+            var rules = await ctx.UomConversionRules.AsNoTracking().Include(x => x.ToUom)
+                .Where(x => x.CompanyId == companyId && x.IsActive && primaryUomIds.Contains(x.FromUomId))
+                .OrderBy(x => x.ToUom!.Name)
+                .ToListAsync();
+            var rulesByPrimaryUom = rules.GroupBy(x => x.FromUomId)
+                .ToDictionary(x => x.Key, x => x.ToList());
+
+            return itemsWithPrimaryUom.SelectMany(item => rulesByPrimaryUom.TryGetValue(item.UomId, out var primaryRules)
+                    ? primaryRules.Select(rule => ToInheritedItemUomLine(item.Id, rule))
+                    : Enumerable.Empty<ItemUomConversionLine>())
+                .ToList();
         }
+
+        private static ItemUomConversionLine ToInheritedItemUomLine(Guid itemId, UomConversionRule rule) => new()
+        {
+            Id = Guid.NewGuid(),
+            ItemId = itemId,
+            UomId = rule.ToUomId,
+            Uom = rule.ToUom,
+            ConversionFactorToBase = rule.ConversionFactor,
+            IsActive = true
+        };
 
         public async Task<string> SaveItemUomConversionLineAsync(ItemUomConversionLine line, Guid companyId)
         {

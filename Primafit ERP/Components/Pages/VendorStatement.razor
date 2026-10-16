@@ -70,7 +70,10 @@
             <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
                     <div class="text-sm font-bold text-slate-900">Statement Output</div>
-                    <div class="text-xs text-slate-500">@report.ReportingPeriod</div>
+                    <div class="text-xs text-slate-500">
+                        @report.ReportingPeriod
+                        @if (!string.IsNullOrWhiteSpace(report.Currency)) { <span> · Currency: @report.Currency</span> }
+                    </div>
                 </div>
 
                 <div class="flex gap-2">
@@ -92,9 +95,9 @@
                             <th class="p-4">Reference</th>
                             <th class="p-4">Type</th>
                             <th class="p-4">Description</th>
-                            <th class="p-4 text-right">Debit</th>
-                            <th class="p-4 text-right">Credit</th>
-                            <th class="p-4 pr-6 text-right">Balance</th>
+                            <th class="p-4 text-right">Debit@(string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency})")</th>
+                            <th class="p-4 text-right">Credit@(string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency})")</th>
+                            <th class="p-4 pr-6 text-right">Balance@(string.IsNullOrWhiteSpace(report.Currency) ? "" : $" ({report.Currency})")</th>
                         </tr>
                     </thead>
 

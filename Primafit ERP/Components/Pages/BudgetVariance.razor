@@ -101,6 +101,10 @@
     else if (reportData != null)
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+            @if (!string.IsNullOrWhiteSpace(reportData.Currency))
+            {
+                <div class="border-b border-slate-100 px-6 py-3 text-xs font-semibold text-slate-500">Currency: @reportData.Currency</div>
+            }
             <div class="overflow-x-auto flex-1">
                 <table class="w-full text-left text-sm whitespace-nowrap">
                     <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -183,6 +187,7 @@
 @code {
     private Guid companyId = Guid.Empty;
     private string companyName = "";
+    private string companyBaseCurrency = string.Empty;
     private bool isLoading = true;
     
     private bool isExportingPdf = false;
@@ -209,7 +214,11 @@
         {
             companyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(companyId);
-            if (company != null) companyName = company.CompanyName;
+            if (company != null)
+            {
+                companyName = company.CompanyName;
+                companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+            }
 
             availableBudgets = await BudgetService.GetAllBudgetsAsync(companyId);
             await GenerateReport();
@@ -234,6 +243,8 @@
 
         // Fetch using the new method with the optional AccountFilter string
         reportData = await BudgetService.GeneratePeriodicVarianceReportAsync(companyId, start, end, AccountFilter, selectedBudgetId);
+        if (reportData is not null)
+            reportData.Currency = companyBaseCurrency;
 
         isLoading = false;
         await InvokeAsync(StateHasChanged);

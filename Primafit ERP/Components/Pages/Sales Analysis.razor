@@ -7,6 +7,7 @@
 
 @inject SalesService SalesService
 @inject ReportExportService ExportEngine
+@inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
@@ -86,7 +87,10 @@
             <div class="p-6 bg-slate-50/50 border-b border-slate-200 flex justify-between items-center">
                 <div>
                     <h3 class="text-sm font-bold text-slate-800">@activeReportData.ReportName</h3>
-                    <p class="text-xs text-slate-400 font-medium mt-0.5">Active Period Frame: @activeReportData.ReportingPeriod</p>
+                    <p class="text-xs text-slate-400 font-medium mt-0.5">
+                        Active Period Frame: @activeReportData.ReportingPeriod
+                        @if (!string.IsNullOrWhiteSpace(activeReportData.Currency)) { <span> · Currency: @activeReportData.Currency</span> }
+                    </p>
                 </div>
             </div>
 
@@ -167,6 +171,7 @@
 
 @code {
     private Guid companyId;
+    private string companyBaseCurrency = string.Empty;
     private string currentUserName = "";
     private ReportViewer? reportViewerRef;
     private StandardReportData? activeReportData;
@@ -193,6 +198,8 @@
         {
             companyId = user.CompanyDetailsId.Value;
             currentUserName = user.UserName ?? "ERP User";
+            var company = await CompanyService.GetCompanyByIdAsync(companyId);
+            companyBaseCurrency = company?.BaseCurrency?.Trim() ?? string.Empty;
         }
     }
 
@@ -212,6 +219,8 @@
                 activeReportData = await SalesService.GenerateSalesAnalysisReportAsync(companyId, localStartDate, localEndDate, committedSearchQuery);
             }
         }
+        if (activeReportData != null)
+            activeReportData.Currency = companyBaseCurrency;
         StateHasChanged();
     }
 
@@ -232,6 +241,7 @@
             activeReportData.GeneratedBy = currentUserName;
             activeReportData.DateGenerated = DateTime.Now;
             activeReportData.CompanyName = "Primafit Enterprise Operations";
+            activeReportData.Currency = companyBaseCurrency;
 
             byte[] fileBytesArray;
             string generatedFileName;
@@ -270,6 +280,7 @@
     private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
     {
         activeReportData = await SalesService.GenerateSalesAnalysisReportAsync(companyId, localStartDate, localEndDate, committedSearchQuery);
+        activeReportData.Currency = companyBaseCurrency;
         return activeReportData;
     }
 }

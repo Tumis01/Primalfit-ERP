@@ -133,6 +133,10 @@
     else if (HasCompany)
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+            @if (!string.IsNullOrWhiteSpace(companyBaseCurrency))
+            {
+                <div class="border-b border-slate-100 px-6 py-3 text-xs font-semibold text-slate-500">Currency: @companyBaseCurrency</div>
+            }
             <div class="overflow-x-auto flex-1">
                 <table class="w-full text-left text-sm whitespace-nowrap">
                     <thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -142,8 +146,8 @@
                             <th class="px-6 py-4 text-center">Primary / Base UoM</th>
                             <th class="px-6 py-4 text-center">Qty on Hand (Primary / Base)</th>
                             <th class="px-6 py-4 text-center">Costing Method</th>
-                            <th class="px-6 py-4 text-right">Unit Cost (Primary UOM)</th>
-                            <th class="px-6 py-4 text-right">Total Value</th>
+                            <th class="px-6 py-4 text-right">Unit Cost (Primary UOM@(string.IsNullOrWhiteSpace(companyBaseCurrency) ? "" : $" · {companyBaseCurrency}"))</th>
+                            <th class="px-6 py-4 text-right">Total Value </th>
                             <th class="px-6 py-4 text-center w-24">Actions</th>
                         </tr>
                     </thead>
@@ -291,6 +295,7 @@
 @code {
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
+    private string companyBaseCurrency = string.Empty;
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
@@ -402,7 +407,11 @@
         {
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-            if (company != null) companyName = company.CompanyName;
+            if (company != null)
+            {
+                companyName = company.CompanyName;
+                companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+            }
 
             using var ctx = await DbFactory.CreateDbContextAsync();
             conversionRules = await ctx.UomConversionRules.AsNoTracking()
@@ -538,6 +547,7 @@
         var data = new StandardReportData
         {
             ReportName = "Inventory Valuation Report",
+            Currency = companyBaseCurrency,
             ReportingPeriod = FilterMode == "AsOf"
                 ? $"As of {FilterAsOfDate:MMM dd, yyyy}"
                 : $"{FilterStartDate:MMM dd, yyyy} to {FilterEndDate:MMM dd, yyyy}",

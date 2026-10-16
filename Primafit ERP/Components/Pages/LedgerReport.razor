@@ -112,6 +112,10 @@
                     }
                 </div>
                 <div class="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                    @if (!string.IsNullOrWhiteSpace(companyBaseCurrency))
+                    {
+                        <span class="mr-2">Currency: @companyBaseCurrency</span>
+                    }
                     Transactions: @rows.Count
                 </div>
             </div>
@@ -223,6 +227,7 @@
 @code {
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
+    private string companyBaseCurrency = string.Empty;
     private bool HasCompany => selectedCompanyId != Guid.Empty;
     private bool isLoading = true;
 
@@ -270,7 +275,11 @@
         {
             selectedCompanyId = user.CompanyDetailsId.Value;
             var company = await CompanyService.GetCompanyByIdAsync(selectedCompanyId);
-            if (company != null) companyName = company.CompanyName;
+            if (company != null)
+            {
+                companyName = company.CompanyName;
+                companyBaseCurrency = company.BaseCurrency?.Trim() ?? string.Empty;
+            }
 
             using var ctx = await DbFactory.CreateDbContextAsync();
             allAccounts = await ctx.SegChartOfAccounts

@@ -194,10 +194,6 @@ namespace Primafit_ERP.Services
             var conversionMap = await ctx.UomConversionRules.AsNoTracking()
                 .Where(x => x.CompanyId == po.CompanyId && x.IsActive)
                 .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
-            var itemUomMap = await ctx.ItemUomConversionLines.AsNoTracking()
-                .Where(x => x.Item!.CompanyId == po.CompanyId && x.IsActive)
-                .GroupBy(x => new { x.ItemId, x.UomId })
-                .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
             var companyUomIds = await ctx.UnitOfMeasures.AsNoTracking()
                 .Where(x => x.CompanyId == po.CompanyId).Select(x => x.Id).ToHashSetAsync();
             foreach (var line in po.Lines.Where(x => itemMap.ContainsKey(x.ItemId)))
@@ -206,12 +202,9 @@ namespace Primafit_ERP.Services
                 if (!line.UomId.HasValue) line.UomId = item.UomId;
                 if (line.UomId.HasValue && !companyUomIds.Contains(line.UomId.Value)) return "Selected line UOM is invalid.";
                 if (line.UomId.HasValue && line.UomId != item.UomId
-                    && !itemUomMap.ContainsKey((line.ItemId, line.UomId.Value))
                     && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
                     return $"The selected UOM for '{item.Name}' is not configured on this item.";
-                var itemFactors = itemUomMap.Where(x => x.Key.ItemId == line.ItemId)
-                    .ToDictionary(x => x.Key.UomId, x => x.Value);
-                var expected = UomConversion.FactorFor(item, line.UomId, itemFactors, conversionMap);
+                var expected = UomConversion.FactorFor(item, line.UomId, conversionMap);
                 if (line.UomConversionFactor <= 0 || Math.Abs(line.UomConversionFactor - expected) > 0.0001m)
                     line.UomConversionFactor = expected;
             }
@@ -729,11 +722,6 @@ namespace Primafit_ERP.Services
                 var conversionMap = await ctx.UomConversionRules.AsNoTracking()
                     .Where(x => x.CompanyId == grn.CompanyId && x.IsActive)
                     .ToDictionaryAsync(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
-                var itemFactors = await ctx.ItemUomConversionLines.AsNoTracking()
-                    .Where(x => x.IsActive && x.Item!.CompanyId == grn.CompanyId)
-                    .GroupBy(x => new { x.ItemId, x.UomId })
-                    .ToDictionaryAsync(g => (g.Key.ItemId, g.Key.UomId), g => g.First().ConversionFactorToBase);
-
                 // Validate Quantities to prevent over-receiving
                 var poLineIds = po.Lines.Select(l => l.Id).ToList();
                 var pastReceipts = await ctx.GoodsReceiptLines.Where(l => poLineIds.Contains(l.PurchaseOrderLineId)).ToListAsync();
@@ -746,11 +734,10 @@ namespace Primafit_ERP.Services
                     var item = await ctx.Items.FindAsync(poLine.ItemId);
                     if (item == null) return $"STOP: Item master reference is missing for purchase line {poLine.Id}.";
 
-                    var factorsForItem = itemFactors
-                        .Where(x => x.Key.ItemId == item.Id)
-                        .ToDictionary(x => x.Key.UomId, x => x.Value);
                     decimal expectedFactor = line.UomId.HasValue
-                        ? UomConversion.FactorFor(item, line.UomId, factorsForItem, conversionMap)
+                        ? line.UomId == poLine.UomId
+                            ? UomConversion.NormalizeFactor(poLine.UomConversionFactor)
+                            : UomConversion.FactorFor(item, line.UomId, conversionMap)
                         : UomConversion.NormalizeFactor(line.UomConversionFactor);
                     if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
                         return $"STOP: Invalid UOM conversion selected for item '{item.Name}'. Reload the receipt and try again.";
@@ -1688,7 +1675,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Invoice Order Number", "Vendor", "Order Date",
-                    "Days Outstanding", "Order Value (Base)", "Status", "Aging Bucket"
+                    "Days Outstanding", "Order Value", "Status", "Aging Bucket"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1786,7 +1773,7 @@ namespace Primafit_ERP.Services
                 {
                     "GRN Number", "Invoice Number", "Vendor", "Date Received",
                     "Item", "Transaction UOM", "Qty Received (UOM)", "Qty Received (Primary)",
-                    "Unit Cost (Transaction UOM)", "Line Value (Base)", "GL Status"
+                    "Unit Cost (Transaction UOM)", "Line Value", "GL Status"
                 },
                 Rows = new List<List<string>>()
             };
@@ -1811,8 +1798,8 @@ namespace Primafit_ERP.Services
                     decimal unitCostPrimary = poLine?.UnitCost ?? 0m;
                     decimal factor = UomConversion.NormalizeFactor(line.UomConversionFactor);
                     decimal quantityInUom = UomConversion.FromBase(line.QuantityReceived, factor);
-                    decimal unitCostInUom = UomConversion.PriceFromBase(unitCostPrimary, factor);
                     decimal rate = po.ExchangeRate > 0 ? po.ExchangeRate : 1m;
+                    decimal unitCostInUomBase = Math.Round(UomConversion.PriceFromBase(unitCostPrimary, factor) * rate, 4);
                     decimal lineValue = Math.Round(line.QuantityReceived * unitCostPrimary * rate, 2);
                     string itemName = item?.Name ?? "Unknown";
                     string uomName = string.IsNullOrWhiteSpace(line.UomName)
@@ -1829,7 +1816,7 @@ namespace Primafit_ERP.Services
                         uomName,
                         quantityInUom.ToString("N4"),
                         line.QuantityReceived.ToString("N4"),
-                        unitCostInUom.ToString("N4"),
+                        unitCostInUomBase.ToString("N4"),
                         lineValue.ToString("N2"),
                         glStatus
                     });
@@ -2006,7 +1993,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Invoice Order Number", "Vendor", "Order Date",
-                    "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value (Base)"
+                    "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value"
                 },
                 Rows = new List<List<string>>()
             };
@@ -2098,7 +2085,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Payment Date", "Vendor", "Invoice Order Number",
-                    "Payment Reference", "Bank Account", "Amount Paid (Base)"
+                    "Payment Reference", "Bank Account", "Amount Paid"
                 },
                 Rows = new List<List<string>>()
             };
@@ -2186,7 +2173,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Vendor", "No. of Bills",
-                    "Total Billed (Base)", "Total Paid (Base)", "Outstanding Balance (Base)"
+                    "Total Billed", "Total Paid", "Outstanding Balance"
                 },
                 Rows = new List<List<string>>()
             };
@@ -2289,7 +2276,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Invoice Order Number", "Vendor", "Order Date",
-                    "Gross Value (Base)", "Discount Type", "Discount Amount (Base)", "Net Value (Base)"
+                    "Gross Value", "Discount Type", "Discount Amount", "Net Value"
                 },
                 Rows = new List<List<string>>()
             };
@@ -2379,7 +2366,7 @@ namespace Primafit_ERP.Services
                 Headers = new List<string>
                 {
                     "Bill Date", "Bill Reference", "Vendor",
-                    "Linked PO", "Bill Amount (Base)", "Variance Reason"
+                    "Linked PO", "Bill Amount", "Variance Reason"
                 },
                 Rows = new List<List<string>>()
             };

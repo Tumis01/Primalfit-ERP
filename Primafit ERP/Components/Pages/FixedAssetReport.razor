@@ -81,6 +81,10 @@
     else
     {
         <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            @if (!string.IsNullOrWhiteSpace(companyBaseCurrency))
+            {
+                <div class="border-b border-slate-100 px-5 py-3 text-xs font-semibold text-slate-500">Currency: @companyBaseCurrency</div>
+            }
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm whitespace-nowrap">
                     <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
@@ -88,10 +92,10 @@
                             <th class="px-4 py-4">Asset Tag</th>
                             <th class="px-4 py-4">Asset Name</th>
                             <th class="px-4 py-4">Category</th>
-                            <th class="px-4 py-4 text-right">Cost</th>
-                            <th class="px-4 py-4 text-right text-rose-600">Accum. Depr.</th>
-                            <th class="px-4 py-4 text-right border-l border-slate-100 bg-slate-50/50">Book Value</th>
-                            <th class="px-4 py-4 text-right">Salvage Value</th>
+                            <th class="px-4 py-4 text-right">Cost </th>
+                            <th class="px-4 py-4 text-right text-rose-600">Accum. Depr. </th>
+                            <th class="px-4 py-4 text-right border-l border-slate-100 bg-slate-50/50">Book Value </th>
+                            <th class="px-4 py-4 text-right">Salvage Value </th>
                             <th class="px-4 py-4 text-center">Last Depr. Date</th>
                         </tr>
                     </thead>
@@ -163,6 +167,7 @@
 @code {
     private Guid companyId = Guid.Empty;
     private string companyName = "";
+    private string companyBaseCurrency = string.Empty;
     private string userName = "";
     
     private bool isLoading = true;
@@ -194,7 +199,11 @@
             userName = user.FullName ?? user.UserName ?? "System User";
             
             var comp = await CompanyService.GetCompanyByIdAsync(companyId);
-            if (comp != null) companyName = comp.CompanyName;
+            if (comp != null)
+            {
+                companyName = comp.CompanyName;
+                companyBaseCurrency = comp.BaseCurrency?.Trim() ?? string.Empty;
+            }
 
             await LoadData();
         }
@@ -226,7 +235,7 @@
             ReportName = "Fixed Asset Valuation & Depreciation Report",
             CompanyName = companyName,
             ReportingPeriod = $"{fromDate:dd MMM, yyyy} to {toDate:dd MMM, yyyy}",
-            Currency = "Base",
+            Currency = companyBaseCurrency,
             GeneratedBy = userName,
             DateGenerated = DateTime.Now,
             Headers = new List<string> { "Asset Tag", "Asset Name", "Category", "Purchase Cost", "Accum. Depr.", "Book Value", "Salvage Value", "Last Depr. Date" },

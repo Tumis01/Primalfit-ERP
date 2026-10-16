@@ -5,7 +5,7 @@
     {
         public string ReportName { get; set; } = string.Empty;
         public string CompanyName { get; set; } = "Primalfit Group";
-        public string Currency { get; set; } = "Base";
+        public string Currency { get; set; } = string.Empty;
         public string ReportingPeriod { get; set; } = string.Empty;
         public string GeneratedBy { get; set; } = "System Automator";
         public DateTime DateGenerated { get; set; } = DateTime.Now;
@@ -18,6 +18,7 @@
     {
         public string ReportName { get; set; } = "Customer Statement";
         public string ReportingPeriod { get; set; } = "";
+        public string Currency { get; set; } = string.Empty;
         public string CompanyName { get; set; } = "";
         public string CompanyAddress { get; set; } = "";
         public string CompanyEmail { get; set; } = "";
@@ -45,6 +46,7 @@
     {
         public string ReportName { get; set; } = "Vendor Statement";
         public string ReportingPeriod { get; set; } = "";
+        public string Currency { get; set; } = string.Empty;
         public string CompanyName { get; set; } = "";
         public string CompanyAddress { get; set; } = "";
         public string CompanyEmail { get; set; } = "";
