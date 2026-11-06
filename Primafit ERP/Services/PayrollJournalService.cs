@@ -23,7 +23,7 @@ namespace Primafit_ERP.Services
 
             try
             {
-                var run = await ctx.PayrollRuns.Include(r => r.PayrollItems).FirstOrDefaultAsync(r => r.Id == runId);
+                var run = await ctx.PayrollRuns.FromSqlInterpolated($"SELECT * FROM [PayrollRuns] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {runId}").Include(r => r.PayrollItems).FirstOrDefaultAsync();
                 if (run == null) return "Payroll run not found.";
                 if (run.Status != PayrollRunStatus.Draft)
                 {
@@ -41,34 +41,20 @@ namespace Primafit_ERP.Services
 
                 var glLines = new List<GLJournalLine>();
 
-                // --- 1. CALCULATE EXACT CREDITS FROM LINE ITEMS ---
-                decimal totalPaye = run.PayrollItems.Sum(i => i.PAYETax);
-                decimal totalPension = run.PayrollItems.Sum(i => i.EmployeePension + i.EmployerPension);
-                decimal totalOtherDeductions = run.PayrollItems.Sum(i => i.OtherDeductions);
-                decimal totalNetPay = run.PayrollItems.Sum(i => i.NetPay);
-
-                // --- 2. CALCULATE EXACT DEBIT ---
-                decimal totalExpense = totalPaye + totalPension + totalOtherDeductions + totalNetPay;
-
-                // Dr: Salaries Expense
-                if (totalExpense > 0)
-                    glLines.Add(new GLJournalLine { SegCoaId = settings.SalariesExpenseAccountId, Debit = totalExpense, Credit = 0, Reference = $"Payroll Expense: {run.Period}" });
-
-                // Cr: PAYE Payable (Liability)
-                if (totalPaye > 0)
-                    glLines.Add(new GLJournalLine { SegCoaId = settings.PAYEPayableAccountId, Debit = 0, Credit = totalPaye, Reference = $"PAYE Liability: {run.Period}" });
-
-                // Cr: Pension Payable (Liability)
-                if (totalPension > 0)
-                    glLines.Add(new GLJournalLine { SegCoaId = settings.PensionPayableAccountId, Debit = 0, Credit = totalPension, Reference = $"Pension Liability: {run.Period}" });
-
-                // Cr: Other Deductions
-                if (totalOtherDeductions > 0)
-                    glLines.Add(new GLJournalLine { SegCoaId = settings.SalariesExpenseAccountId, Debit = 0, Credit = totalOtherDeductions, Reference = $"Other Deductions Withheld: {run.Period}" });
-
-                // Cr: Salaries Payable (Net Pay Liability)
-                if (totalNetPay > 0)
-                    glLines.Add(new GLJournalLine { SegCoaId = settings.SalariesPayableAccountId, Debit = 0, Credit = totalNetPay, Reference = $"Net Pay Liability: {run.Period}" });
+                foreach (var item in run.PayrollItems)
+                {
+                    void Leg(Guid account, decimal debit, decimal credit, string reference)
+                    {
+                        if (debit > 0 || credit > 0) glLines.Add(new GLJournalLine { SegCoaId = account, Debit = debit, Credit = credit,
+                            Reference = reference, DimensionSetId = item.DimensionSetId, IsDimensionDetail = true });
+                    }
+                    var pension = item.EmployeePension + item.EmployerPension;
+                    Leg(settings.SalariesExpenseAccountId, item.PAYETax + pension + item.OtherDeductions + item.NetPay, 0, $"Payroll Expense: {run.Period}");
+                    Leg(settings.PAYEPayableAccountId, 0, item.PAYETax, $"PAYE Liability: {run.Period}");
+                    Leg(settings.PensionPayableAccountId, 0, pension, $"Pension Liability: {run.Period}");
+                    Leg(settings.SalariesExpenseAccountId, 0, item.OtherDeductions, $"Other Deductions Withheld: {run.Period}");
+                    Leg(settings.SalariesPayableAccountId, 0, item.NetPay, $"Net Pay Liability: {run.Period}");
+                }
 
                 // Post to GL Engine
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(run.RunDate), "Payroll Accrual", $"PR-{run.Period}", glLines, userId, existingBatchId: run.GLBatchId);
@@ -102,7 +88,7 @@ namespace Primafit_ERP.Services
 
             try
             {
-                var run = await ctx.PayrollRuns.FirstOrDefaultAsync(r => r.Id == runId);
+                var run = await ctx.PayrollRuns.FromSqlInterpolated($"SELECT * FROM [PayrollRuns] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {runId}").Include(r => r.PayrollItems).FirstOrDefaultAsync();
                 if (run == null) return "Payroll run not found.";
                 if (run.Status != PayrollRunStatus.Approved && run.Status != PayrollRunStatus.Paid)
                     return "Payroll must be Approved before disbursement.";
@@ -126,6 +112,7 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = run.TotalNetPay, Reference = $"Salary Payout: {run.Period} - {reference}" }
                 };
 
+                DimensionService.AllocateSummaryLines(glLines, run.PayrollItems.Select(x => (x.DimensionSetId, x.NetPay)));
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Salary Disbursement", reference, glLines, userId, existingBatchId: run.DisbursementGLBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);
 
@@ -157,7 +144,7 @@ namespace Primafit_ERP.Services
 
             try
             {
-                var run = await ctx.PayrollRuns.Include(r => r.PayrollItems).FirstOrDefaultAsync(r => r.Id == runId);
+                var run = await ctx.PayrollRuns.FromSqlInterpolated($"SELECT * FROM [PayrollRuns] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {runId}").Include(r => r.PayrollItems).FirstOrDefaultAsync();
                 if (run == null) return "Payroll run not found.";
                 if (run.Status == PayrollRunStatus.Draft) return "Payroll must be Approved before remitting taxes.";
 
@@ -204,6 +191,7 @@ namespace Primafit_ERP.Services
                     new() { SegCoaId = bankAccountId, Debit = 0, Credit = amount, Reference = $"{typeName} Remittance: {run.Period} - {reference}" }
                 };
 
+                DimensionService.AllocateSummaryLines(glLines, run.PayrollItems.Select(x => (x.DimensionSetId, isPaye ? x.PAYETax : x.EmployeePension + x.EmployerPension)));
                 var existingRemittanceBatchId = isPaye ? run.PayeRemittanceGLBatchId : run.PensionRemittanceGLBatchId;
                 var (err, batchId) = await _glOps.CreateJournalEntryAsync(run.CompanyId, DateOnly.FromDateTime(paymentDate), "Statutory Remittance", reference, glLines, userId, existingBatchId: existingRemittanceBatchId);
                 if (!string.IsNullOrEmpty(err)) throw new Exception(err);

@@ -120,6 +120,16 @@ namespace Primafit_ERP.Services
             if (bank == null)
                 throw new InvalidOperationException("Selected bank account does not exist or is Inactive.");
 
+            var bankCurrency = bank.CurrencyId ?? await ctx.Currencies.Where(x => x.CompanyId == companyId && x.IsBaseCurrency).Select(x => (Guid?)x.Id).SingleOrDefaultAsync();
+            if (!bankCurrency.HasValue) throw new InvalidOperationException("Configure a currency for the bank account or a company base currency.");
+            var currency = await ctx.Currencies.AsNoTracking().SingleOrDefaultAsync(x => x.Id == bankCurrency && x.CompanyId == companyId)
+                ?? throw new InvalidOperationException("The bank account currency is unavailable in this company.");
+            if (currencyId.HasValue && currencyId != Guid.Empty && currencyId != currency.Id) throw new InvalidOperationException("Cashbook currency is inherited from the selected bank account.");
+            isForeign = !currency.IsBaseCurrency;
+            currencyId = currency.Id;
+            var currencyError = await DocumentCurrencyPolicy.ValidateAsync(ctx, companyId, currency.Id, isForeign ? exchangeRate : 1m);
+            if (currencyError != null) throw new InvalidOperationException(currencyError);
+
             decimal openingBal = await ctx.GLTransactions
                 .Where(t => t.CompanyId == companyId && t.SegCoaId == bankAccountId)
                 .SumAsync(t => t.Debit - t.Credit);
@@ -291,20 +301,20 @@ namespace Primafit_ERP.Services
 
                 // Debit Bank / Credit Offset or vice-versa
                 glLines.Add(new GLJournalLine
-                {
+                { DimensionSetId = entry.DimensionSetId, IsDimensionDetail = true,
                     SegCoaId = entry.OffsetSegCoaId,
                     Debit = entry.Credit,
                     Credit = entry.Debit,
-                    ProjectId = entry.ProjectId,
+                     ProjectId = entry.ProjectId,
                     Reference = $"{entry.Reference}: {entry.Description}"
                 });
 
                 glLines.Add(new GLJournalLine
-                {
+                { DimensionSetId = entry.DimensionSetId, IsDimensionDetail = true,
                     SegCoaId = batch.BankSegCoaId,
                     Debit = entry.Debit,
                     Credit = entry.Credit,
-                    ProjectId = entry.ProjectId,
+                     ProjectId = entry.ProjectId,
                     Reference = $"Cashbook: {entry.Reference}"
                 });
             }

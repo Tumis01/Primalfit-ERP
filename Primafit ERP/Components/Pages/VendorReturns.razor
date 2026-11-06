@@ -2,6 +2,7 @@
 @page "/purchases/vendor-returns/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
@@ -144,7 +145,7 @@
                                     <th class="px-6 py-4">Return #</th>
                                     <th class="px-6 py-4">Date</th>
                                     <th class="px-6 py-4">Vendor</th>
-                                    <th class="px-6 py-4">Purchase Order</th>
+                                    <th class="px-6 py-4">Source Document</th>
                                     <th class="px-6 py-4">Type</th>
                                     <th class="px-6 py-4 text-center">Status</th>
                                     <th class="px-6 py-4 text-right pr-8">Refund / Return Value</th>
@@ -167,7 +168,7 @@
                                         <td class="px-6 py-4 font-mono font-bold text-slate-900">@vr.ReturnNumber</td>
                                         <td class="px-6 py-4 text-slate-500 font-medium">@vr.TransactionDateTime.ToString("yyyy-MM-dd HH:mm")</td>
                                         <td class="px-6 py-4 font-bold text-slate-900">@(vr.Vendor?.Name ?? "Unknown Vendor")</td>
-                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(vr.PurchaseOrder?.OrderNumber ?? "N/A")</td>
+                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(vr.PurchaseInvoice?.PurchaseInvoiceNumber ?? vr.PurchaseOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="px-6 py-4">
                                             <span class="text-[11px] font-bold px-2.5 py-1 rounded-md @(vr.ReturnType == VendorReturnType.QuantityOnly ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : vr.ReturnType == VendorReturnType.PaymentOnly ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-purple-50 text-purple-700 border border-purple-200")">
                                                 @(vr.ReturnType == VendorReturnType.QuantityOnly ? "Quantity Only" : vr.ReturnType == VendorReturnType.PaymentOnly ? "Payment Refund Only" : "Both (Stock & Cash)")
@@ -225,7 +226,7 @@
                     </div>
 
                     <div class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-bold text-slate-500">
-                        <div>Showing @((currentPage - 1) * pageSize + 1) to @Math.Min(currentPage * pageSize, TotalFilteredCount) of @TotalFilteredCount items</div>
+                        <div>Showing @(TotalFilteredCount == 0 ? 0 : (currentPage - 1) * pageSize + 1) to @Math.Min(currentPage * pageSize, TotalFilteredCount) of @TotalFilteredCount items</div>
                         <div class="flex items-center gap-2">
                             <button type="button" @onclick="() => { if (currentPage > 1) currentPage--; }" disabled="@(currentPage == 1)" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40">Previous</button>
                             <span class="px-3 font-semibold text-slate-700">Page @currentPage of @TotalPages</span>
@@ -241,39 +242,27 @@
             <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6">
                 <div>
                     <h3 class="text-base font-bold text-slate-900 uppercase tracking-wider">Initialize Vendor Return</h3>
-                    <p class="text-xs text-slate-500 mt-1">Select vendor partner, target purchase order, and the desired return configuration.</p>
+                    <p class="text-xs text-slate-500 mt-1">Select a supplier, source invoice, and return type.</p>
                 </div>
 
                 <div class="space-y-4">
                     <div>
                         <label class="label">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
-                        <select value="@selectedVendorId" @onchange="OnVendorSelected" class="input-class font-bold">
-                            <option value="@Guid.Empty">-- Select Vendor --</option>
-                            @foreach (var ven in vendors)
-                            {
-                                <option value="@ven.Id">@ven.Name</option>
-                            }
-                        </select>
+                        <SearchableGuidSelect Options="@(vendors.Select(v => new DropdownOption(v.Id, v.Name)).ToList())" Value="@(selectedVendorId == Guid.Empty ? null : selectedVendorId)" ValueChanged="OnVendorSelected" Disabled="@_loadingOrders" Placeholder="Search supplier" />
                     </div>
 
                     @if (selectedVendorId != Guid.Empty)
                     {
                         <div class="animate-in fade-in duration-300">
                             <label class="label">Step 2: Choose Target Purchase Order / Invoice <span class="text-rose-500">*</span></label>
-                            <select @bind="selectedOrderId" class="input-class font-mono font-bold">
-                                <option value="@Guid.Empty">-- Select Document --</option>
-                                @foreach (var po in eligibleOrders)
-                                {
-                                    <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("yyyy-MM-dd HH:mm")) - Cash Refundable: @po.GrandTotalForeign.ToString("N4")</option>
-                                }
-                            </select>
+                            <SearchableGuidSelect Options="@(eligibleOrders.Select(po => new DropdownOption(po.Id, po.OrderNumber, po.OrderDate.ToString("yyyy-MM-dd"))).ToList())" Value="@(selectedOrderId == Guid.Empty ? null : selectedOrderId)" ValueChanged="@(id => selectedOrderId = id ?? Guid.Empty)" Placeholder="Search invoice or order number" />
                             @if (_loadingOrders)
                             {
                                 <p class="text-xs text-rose-600 font-bold mt-2 animate-pulse">Scanning eligible transactions...</p>
                             }
                             else if (!eligibleOrders.Any())
                             {
-                                <p class="text-xs text-amber-600 font-bold mt-2">No eligible purchase orders found for this vendor.</p>
+                                <p class="text-xs text-amber-600 font-bold mt-2">No eligible invoices or orders found for this supplier.</p>
                             }
                         </div>
 
@@ -327,7 +316,7 @@
                         <div>
                             <label class="label">Purchase Order Reference</label>
                             <div class="font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">
-                                @(currentReturn.PurchaseOrder?.OrderNumber ?? "N/A")
+                                @(currentReturn.PurchaseInvoice?.PurchaseInvoiceNumber ?? currentReturn.PurchaseOrder?.OrderNumber ?? "N/A")
                             </div>
                         </div>
 
@@ -351,28 +340,14 @@
                         @if (currentReturn.ReturnType == VendorReturnType.QuantityOnly || currentReturn.ReturnType == VendorReturnType.Both)
                         {
                             <div>
-                                <label class="label">Source Warehouse (Stock Deduction) <span class="text-rose-500">*</span></label>
-                                <select @bind="currentReturn.WarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/30 text-indigo-900" disabled="@IsPosted">
-                                    <option value="@Guid.Empty">-- Select Warehouse --</option>
-                                    @foreach (var w in warehouses)
-                                    {
-                                        <option value="@w.Id">@w.Name</option>
-                                    }
-                                </select>
+                                <SearchableGuidSelect Label="Source warehouse" Required="true" Options="@(warehouses.Select(w => new DropdownOption(w.Id, w.Name)).ToList())" Value="@currentReturn.WarehouseId" ValueChanged="@(id => currentReturn.WarehouseId = id)" Disabled="@IsPosted" Placeholder="Search warehouse" />
                             </div>
                         }
 
                         @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly || currentReturn.ReturnType == VendorReturnType.Both)
                         {
                             <div>
-                                <label class="label">Deposit Bank Account (Cash Inflow) <span class="text-rose-500">*</span></label>
-                                <select @bind="currentReturn.BankAccountId" class="input-class font-bold border-emerald-200 bg-emerald-50/30 text-emerald-900" disabled="@IsPosted">
-                                    <option value="@Guid.Empty">-- Select Bank / Asset Account --</option>
-                                    @foreach (var b in bankAccounts)
-                                    {
-                                        <option value="@b.Id">@b.AccountCode - @b.Description</option>
-                                    }
-                                </select>
+                                <SearchableGuidSelect Label="Deposit bank account" Required="true" Options="@(bankAccounts.Select(b => new DropdownOption(b.Id, b.AccountCode, b.Description)).ToList())" Value="@currentReturn.BankAccountId" ValueChanged="@(id => currentReturn.BankAccountId = id)" Disabled="@IsPosted" Placeholder="Search bank account" />
                             </div>
                         }
 
@@ -442,7 +417,8 @@
                             </div>
 
                             <div class="overflow-x-auto flex-1 p-6">
-                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly) { <div class="mb-4 rounded-xl border p-4"><h3 class="mb-2 text-sm font-bold">Refund dimensions</h3><p class="mb-2 text-xs text-slate-500">Leave blank to inherit the invoice line dimensions.</p><DimensionSelect CompanyId="@currentReturn.CompanyId" @bind-Value="currentReturn.DimensionSetId" Disabled="@(currentReturn.Status != VendorReturnStatus.Draft)" /></div> }
+<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
                                             <th class="px-4 py-3">Item Details</th>
@@ -452,7 +428,7 @@
                                             <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
                                             <th class="px-4 py-3 text-right">Unit Cost</th>
                                             <th class="px-4 py-3 text-right w-36">Return Qty</th>
-                                        </tr>
+                                        <th class="p-3">Dimensions</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in currentReturn.Lines)
@@ -460,12 +436,7 @@
                                             <tr class="bg-white hover:bg-slate-50 transition-colors">
                                                 <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
                                                 <td class="px-4 py-3 text-center">
-                                                    <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class py-1.5 text-xs font-semibold">
-                                                        @foreach (var uom in GetItemUoms(line.Item))
-                                                        {
-                                                            <option value="@uom.Id">@GetUomOptionLabel(line.Item, uom)</option>
-                                                        }
-                                                    </select>
+                                                    <SearchableGuidSelect Options="@(GetItemUoms(line.Item).Select(uom => new DropdownOption(uom.Id, GetUomOptionLabel(line.Item, uom))).ToList())" Value="@line.UomId" ValueChanged="@(id => OnLineUomChanged(line, id))" Disabled="@IsPosted" AllowClear="false" InlineMenu="true" Placeholder="Search unit" />
                                                     <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
                                                 </td>
                                                 <td class="px-4 py-3 text-center font-mono text-slate-500">@GetDisplayedQuantity(line.OriginalReceivedQty, line).ToString("N2")</td>
@@ -482,10 +453,10 @@
                                                            placeholder="0.00"
                                                             class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 appearance-none outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                                 </td>
-                                            </tr>
+                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@currentReturn.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentReturn.Status != VendorReturnStatus.Draft)" /></td></tr>
                                         }
                                     </tbody>
-                                </table>
+                                </table></div>
                             </div>
                         }
 
@@ -621,14 +592,7 @@
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         }
-                        <select value="@(currentReturn.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
-                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
-                            <option value="">-- Standard Vendor Return Route (Default) --</option>
-                            @foreach (var custom in customTemplates)
-                            {
-                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
-                            }
-                        </select>
+                        <SearchableGuidSelect Options="@(customTemplates.Select(t => new DropdownOption(t.Id, t.Name)).ToList())" Value="@currentReturn.CustomTransactionTypeId" ValueChanged="@(id => OnCustomTemplateSelected(new ChangeEventArgs { Value = id?.ToString() }))" Placeholder="Search routing profile" ClearLabel="Use standard route" Disabled="@IsPosted" />
                     </div>
                 </div>
 
@@ -812,7 +776,8 @@
         .Where(d => string.IsNullOrWhiteSpace(listSearchTerm)
                  || d.ReturnNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
                  || (d.Vendor?.Name != null && d.Vendor.Name.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase))
-                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
+                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase))
+                 || (d.PurchaseInvoice?.PurchaseInvoiceNumber != null && d.PurchaseInvoice.PurchaseInvoiceNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
 
     private int TotalFilteredCount => FilteredReturns.Count();
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalFilteredCount / (double)pageSize));
@@ -873,6 +838,7 @@
             .AsNoTracking()
             .Include(d => d.Vendor)
             .Include(d => d.PurchaseOrder)
+            .Include(d => d.PurchaseInvoice)
             .Include(d => d.Currency)
             .Include(d => d.Lines)
             .Where(d => d.CompanyId == currentCompanyId)
@@ -922,14 +888,14 @@
             currentBatchRejectionReason = batch?.RejectionReason;
             isCreateMode = false;
             selectedVendorId = currentReturn.VendorId;
-            selectedOrderId = currentReturn.PurchaseOrderId ?? Guid.Empty;
+            selectedOrderId = currentReturn.PurchaseInvoiceId ?? currentReturn.PurchaseOrderId ?? Guid.Empty;
 
             var vendor = vendors.FirstOrDefault(v => v.Id == currentReturn.VendorId);
             defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
 
-            if (currentReturn.PurchaseOrderId.HasValue)
+            if (currentReturn.PurchaseInvoiceId.HasValue || currentReturn.PurchaseOrderId.HasValue)
             {
-                cashSummary = await ReturnService.GetCashRefundSummaryAsync(currentReturn.PurchaseOrderId.Value, currentReturn.Id);
+                cashSummary = await ReturnService.GetCashRefundSummaryAsync(selectedOrderId, currentReturn.Id);
             }
         }
         else
@@ -941,9 +907,10 @@
         StateHasChanged();
     }
 
-    private async Task OnVendorSelected(ChangeEventArgs e)
+    private async Task OnVendorSelected(Guid? selectedId)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
+        selectedOrderId = Guid.Empty;
+        if (selectedId is Guid venId && venId != Guid.Empty)
         {
             selectedVendorId = venId;
             var vendor = vendors.FirstOrDefault(v => v.Id == venId);
@@ -1009,7 +976,7 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
+            .Where(t => t.CompanyId == currentCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AP))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -1099,8 +1066,8 @@
         foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
             result.Add(conversion.Uom ?? uoms.FirstOrDefault(x => x.Id == conversion.UomId) ?? new UnitOfMeasure { Id = conversion.UomId, Name = "UOM" });
         if (item.UomId.HasValue)
-            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value, conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
-                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId) && UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap).HasValue)
+            foreach (var uomId in UomConversion.ConfiguredUoms(item))
+                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId))
                     result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
         return result;
     }
@@ -1126,9 +1093,10 @@
         return UomConversion.FactorFor(item, selectedId, factors, ConversionMap);
     }
 
-    private void OnLineUomChanged(VendorReturnLine line, ChangeEventArgs e)
+    private void OnLineUomChanged(VendorReturnLine line, Guid? id)
     {
-        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
+        if (!id.HasValue || line.Item == null || !GetItemUoms(line.Item).Any(x => x.Id == id.Value)) return;
+        var selectedId = id.Value;
         line.UomId = selectedId;
         line.UomName = uoms.FirstOrDefault(x => x.Id == selectedId)?.Name ?? line.Item.UoM;
         line.UomConversionFactor = GetItemFactor(line.Item, selectedId);

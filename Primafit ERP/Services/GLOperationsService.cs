@@ -83,6 +83,8 @@ namespace Primafit_ERP.Services
             List<GLJournalLine> lines,
             bool requireAllowJournal)
         {
+            var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, lines.Select(x => x.DimensionSetId), false);
+            if (dimensionError.Length > 0) return dimensionError;
             var ids = lines.Select(x => x.SegCoaId).Where(x => x != Guid.Empty).Distinct().ToList();
             if (ids.Count == 0) return "No valid accounts selected.";
 
@@ -127,6 +129,13 @@ namespace Primafit_ERP.Services
             {
                 foreach (var line in lines.Where(x => !x.ProjectId.HasValue))
                     line.ProjectId = inheritedProjectId;
+            }
+
+            DimensionService.AllocateSummaryLines(lines, lines.Where(x => x.IsDimensionDetail).Select(x => (x.DimensionSetId, x.Debit + x.Credit)).ToList());
+            await using (var validationContext = await _dbFactory.CreateDbContextAsync())
+            {
+                var dimensionError = await DimensionService.ValidateAsync(validationContext, companyId, lines.Select(x => x.DimensionSetId), true);
+                if (dimensionError.Length > 0) return (dimensionError, null);
             }
 
             string journalNumber = string.IsNullOrWhiteSpace(journalNumberOverride)
@@ -340,6 +349,8 @@ namespace Primafit_ERP.Services
 
             foreach (var j in batch.Journals)
             {
+                var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, j.Lines.Select(x => x.DimensionSetId), true);
+                if (dimensionError.Length > 0) return dimensionError;
                 var lineError = ValidateJournalLines(j.Lines);
                 if (!string.IsNullOrWhiteSpace(lineError))
                     return $"Journal '{j.JournalNumber}' failed validation: {lineError}";
@@ -388,6 +399,82 @@ namespace Primafit_ERP.Services
             return $"Batch is not available for posting. Current Status: {batch.Status}";
         }
 
+        // Stages a new subledger batch in the caller's transaction. The caller
+        // saves both the source document and this batch together, so a failed
+        // source save cannot leave a review batch without its transaction.
+        public async Task<(string Error, Guid? BatchId)> StageNewSubledgerBatchAsync(
+            AppDbContext ctx, Guid companyId, DateOnly txnDate, string batchName, string? description,
+            string journalNumber, List<GLJournalLine> lines, string userId, Guid? inheritedProjectId = null)
+        {
+            if (ctx.Database.CurrentTransaction == null) return ("A transaction is required for subledger staging.", null);
+            if (inheritedProjectId.HasValue)
+                foreach (var line in lines.Where(x => !x.ProjectId.HasValue)) line.ProjectId = inheritedProjectId;
+            DimensionService.AllocateSummaryLines(lines, lines.Where(x => x.IsDimensionDetail).Select(x => (x.DimensionSetId, x.Debit + x.Credit)).ToList());
+            var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, lines.Select(x => x.DimensionSetId), true);
+            if (dimensionError.Length > 0) return (dimensionError, null);
+            var cleanLines = lines.Where(x => x.SegCoaId != Guid.Empty && (x.Debit > 0 || x.Credit > 0)).ToList();
+            var lineError = ValidateJournalLines(cleanLines);
+            if (!string.IsNullOrWhiteSpace(lineError)) return (lineError!, null);
+            AccountingPeriod period;
+            try { period = await ResolvePeriodOrThrow(ctx, companyId, txnDate); }
+            catch (Exception ex) { return (ex.Message, null); }
+            var accountError = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal: false);
+            if (!string.IsNullOrWhiteSpace(accountError)) return (accountError!, null);
+
+            var batch = new GLBatch
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, AccountingPeriodId = period.Id,
+                BatchName = batchName, Description = description, Type = BatchType.Standard,
+                Status = BatchStatus.Ready, CreatedByUserId = userId, ReleasedByUserId = userId,
+                ReleasedAt = DateTime.UtcNow, ClearAfterPost = false
+            };
+            batch.Journals.Add(new GLJournalHeader
+            {
+                Id = Guid.NewGuid(), CompanyId = companyId, AccountingPeriodId = period.Id,
+                JournalNumber = journalNumber, Narration = description, TransactionDate = txnDate,
+                Lines = cleanLines
+            });
+            ctx.GLBatches.Add(batch);
+            AddAudit(ctx, companyId, userId, "BatchCreated", nameof(GLBatch), batch.Id,
+                $"Created subledger batch '{batchName}' with journal '{journalNumber}' for review.");
+            AddAudit(ctx, companyId, userId, "BatchSubmittedForReview", nameof(GLBatch), batch.Id,
+                $"Batch '{batchName}' passed validation and was submitted for review.");
+            return (string.Empty, batch.Id);
+        }
+
+        public async Task<(string Error, Guid? BatchId)> RestageSubledgerBatchAsync(
+            AppDbContext ctx, Guid companyId, Guid batchId, DateOnly date, string description,
+            string number, List<GLJournalLine> lines, string userId, Guid? projectId = null)
+        {
+            if (ctx.Database.CurrentTransaction == null) return ("A transaction is required for staging.", null);
+            var batch = await ctx.GLBatches
+                .FromSqlInterpolated($"SELECT * FROM [GLBatches] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {batchId} AND [CompanyId] = {companyId}")
+                .Include(x => x.Journals).ThenInclude(x => x.Lines).FirstOrDefaultAsync();
+            if (batch == null || batch.Status == BatchStatus.Posted) return ("The review batch is missing or already posted.", null);
+            if (batch.Journals.Any(x => x.Lines.Any(l => l.IsPosted))) return ("Posted journal lines cannot be replaced.", null);
+            if (projectId.HasValue) foreach (var line in lines.Where(x => !x.ProjectId.HasValue)) line.ProjectId = projectId;
+            DimensionService.AllocateSummaryLines(lines, lines.Where(x => x.IsDimensionDetail).Select(x => (x.DimensionSetId, x.Debit + x.Credit)).ToList());
+            var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, lines.Select(x => x.DimensionSetId), true);
+            if (dimensionError.Length > 0) return (dimensionError, null);
+            var clean = lines.Where(x => x.SegCoaId != Guid.Empty && (x.Debit > 0 || x.Credit > 0)).ToList();
+            var error = ValidateJournalLines(clean);
+            if (!string.IsNullOrEmpty(error)) return (error, null);
+            error = await ValidateSegmentedAccountsAsync(ctx, companyId, clean, requireAllowJournal: false);
+            if (!string.IsNullOrEmpty(error)) return (error, null);
+            AccountingPeriod period;
+            try { period = await ResolvePeriodOrThrow(ctx, companyId, date); }
+            catch (InvalidOperationException ex) { return (ex.Message, null); }
+            ctx.Set<GLJournalHeader>().RemoveRange(batch.Journals);
+            batch.Journals.Clear();
+            var header = new GLJournalHeader { Id = Guid.NewGuid(), CompanyId = companyId, BatchId = batch.Id,
+                AccountingPeriodId = period.Id, JournalNumber = number, Narration = description, TransactionDate = date, Lines = clean };
+            ctx.GLJournalHeaders.Add(header);
+            batch.AccountingPeriodId = period.Id; batch.Status = BatchStatus.Ready; batch.IsLocked = true;
+            batch.Description = description; batch.RejectionReason = null; batch.RejectedAt = null; batch.RejectedByUserId = null;
+            AddAudit(ctx, companyId, userId, "BatchStaged", nameof(GLBatch), batch.Id, $"Updated invoice {number} in its existing review batch.");
+            return (string.Empty, batch.Id);
+        }
+
         // =========================================================
         // 5) Approve and Post Batch (Atomic, Segmented)
         // =========================================================
@@ -399,6 +486,7 @@ namespace Primafit_ERP.Services
             try
             {
                 var batch = await ctx.GLBatches
+                    .FromSqlInterpolated($"SELECT * FROM [GLBatches] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {batchId} AND [CompanyId] = {companyId}")
                     .Include(b => b.Journals)
                     .ThenInclude(j => j.Lines)
                     .FirstOrDefaultAsync(b => b.Id == batchId && b.CompanyId == companyId);
@@ -429,6 +517,8 @@ namespace Primafit_ERP.Services
                     if (!pendingLines.Any())
                         continue;
 
+                    var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, pendingLines.Select(x => x.DimensionSetId), true);
+                    if (dimensionError.Length > 0) return dimensionError;
                     var lineError = ValidateJournalLines(pendingLines);
                     if (!string.IsNullOrWhiteSpace(lineError))
                         return $"Journal '{journal.JournalNumber}' failed validation: {lineError}";
@@ -450,7 +540,7 @@ namespace Primafit_ERP.Services
                             Debit = line.Debit,
                             Credit = line.Credit,
                             Narration = line.Reference ?? journal.Narration,
-                            ProjectId = line.ProjectId,
+                            DimensionSetId = line.DimensionSetId, ProjectId = line.ProjectId,
                             CreatedAt = DateTime.UtcNow
                         });
 
@@ -570,7 +660,7 @@ namespace Primafit_ERP.Services
 
         // Notice the query no longer explicitly ignores Anonymous, 
         // as we are now assuming all Standard batches originate from a real user ID.
-        
+
 
         public async Task<string> DeleteDraftBatchAsync(Guid batchId)
         {
@@ -603,6 +693,8 @@ namespace Primafit_ERP.Services
 
             foreach (var j in batch.Journals)
             {
+                var dimensionError = await DimensionService.ValidateAsync(ctx, batch.CompanyId, j.Lines.Select(x => x.DimensionSetId), true);
+                if (dimensionError.Length > 0) return dimensionError;
                 var lineError = ValidateJournalLines(j.Lines.Where(l => !l.IsPosted));
                 if (!string.IsNullOrWhiteSpace(lineError))
                     return $"Journal '{j.JournalNumber}' failed validation: {lineError}";
@@ -738,6 +830,9 @@ namespace Primafit_ERP.Services
 
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
+            DimensionService.AllocateSummaryLines(lines, lines.Where(x => x.IsDimensionDetail).Select(x => (x.DimensionSetId, x.Debit + x.Credit)).ToList());
+            var dimensionError = await DimensionService.ValidateAsync(ctx, companyId, lines.Select(x => x.DimensionSetId), true);
+            if (dimensionError.Length > 0) return (dimensionError, null);
             var cleanLines = lines
                 .Where(l => l.SegCoaId != Guid.Empty && (l.Debit > 0 || l.Credit > 0))
                 .ToList();
@@ -872,6 +967,7 @@ namespace Primafit_ERP.Services
             existing.Reference = line.Reference;
             existing.Debit = line.Debit;
             existing.Credit = line.Credit;
+            existing.DimensionSetId = line.DimensionSetId;
             existing.ProjectId = line.ProjectId;
 
             await ctx.SaveChangesAsync();

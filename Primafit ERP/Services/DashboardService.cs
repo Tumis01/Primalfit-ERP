@@ -64,7 +64,7 @@ namespace Primafit_ERP.Services
             snapshot.PendingTransfersCount = await ctx.StockTransfers
                 .CountAsync(t => t.CompanyId == companyId && t.Status == TransferStatus.InTransit);
 
-            snapshot.APExceptionsCount = await ctx.VendorBills
+            snapshot.APExceptionsCount = await ctx.PurchaseInvoices
                 .CountAsync(b => b.CompanyId == companyId && b.MatchStatus == BillMatchStatus.Variance);
 
             // ═══════════════════════════════════════════════════════════════════
@@ -190,12 +190,20 @@ namespace Primafit_ERP.Services
             var unpaidInvoices = await ctx.SalesOrders
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
+                            !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == companyId && documentInvoice.Id == o.Id) &&
                             (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .AsNoTracking()
                 .ToListAsync();
 
-            var invoiceIds = unpaidInvoices.Select(o => o.Id).ToList();
+            var documentInvoices = await ctx.SalesInvoices.AsNoTracking()
+                .Where(x => x.CompanyId == companyId && x.Date <= today
+                    && (x.Status == SalesInvoiceStatus.Posted
+                        || (x.Status == SalesInvoiceStatus.InReview && x.GLBatchId.HasValue
+                            && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                .ToListAsync();
+
+            var invoiceIds = unpaidInvoices.Select(o => o.Id).Concat(documentInvoices.Select(x => x.Id)).Distinct().ToList();
             var arPayments = await ctx.PaymentApplications
                 .Where(pa => invoiceIds.Contains(pa.InvoiceId))
                 .GroupBy(pa => pa.InvoiceId)
@@ -227,7 +235,23 @@ namespace Primafit_ERP.Services
                 else snapshot.ARAging.DaysOver60 += balBase;
             }
 
-            var unpaidBills = await ctx.VendorBills.Include(b => b.Payments)
+            foreach (var inv in documentInvoices)
+            {
+                var rate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1m;
+                var invoiceTotalBase = inv.TotalAmount > 0
+                    ? inv.TotalAmount
+                    : Math.Round(inv.TotalAmountForeign * rate, 2, MidpointRounding.AwayFromZero);
+                var paidBase = arPayments.GetValueOrDefault(inv.Id, 0) * rate;
+                var balance = invoiceTotalBase - paidBase;
+                if (balance <= 0.01m) continue;
+                var age = today.DayNumber - inv.Date.DayNumber;
+                if (age <= 0) snapshot.ARAging.Current += balance;
+                else if (age <= 30) snapshot.ARAging.Days1To30 += balance;
+                else if (age <= 60) snapshot.ARAging.Days31To60 += balance;
+                else snapshot.ARAging.DaysOver60 += balance;
+            }
+
+            var unpaidBills = await ctx.PurchaseInvoices.Include(b => b.Payments)
                 .Where(b => b.CompanyId == companyId && b.IsPosted)
                 .AsNoTracking()
                 .ToListAsync();
@@ -262,22 +286,41 @@ namespace Primafit_ERP.Services
                 .Include(o => o.Customer)
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId &&
+                            !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == companyId && documentInvoice.Id == o.Id) &&
                             (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                             (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced) &&
                             o.Date >= DateOnly.FromDateTime(startOfMonth))
                 .ToListAsync();
 
-            snapshot.TopCustomers = mtdInvoices
-                .GroupBy(o => o.Customer?.Name ?? "Unknown")
+            var mtdDocumentInvoices = await ctx.SalesInvoices.AsNoTracking()
+                .Include(x => x.Customer).Include(x => x.Lines)
+                .Where(x => x.CompanyId == companyId && x.Date >= DateOnly.FromDateTime(startOfMonth)
+                    && (x.Status == SalesInvoiceStatus.Posted
+                        || (x.Status == SalesInvoiceStatus.InReview && x.GLBatchId.HasValue
+                            && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                .ToListAsync();
+
+            var topCustomerRevenue = mtdInvoices.Select(o => new
+                {
+                    CustomerName = o.Customer?.Name ?? "Unknown",
+                    Revenue = (o.Lines.Sum(l => l.Quantity * l.UnitPrice)
+                        - (o.DiscountPercentage > 0 ? o.Lines.Sum(l => l.Quantity * l.UnitPrice) * o.DiscountPercentage / 100m : o.DiscountAmount))
+                        * (o.ExchangeRate > 0 ? o.ExchangeRate : 1m)
+                })
+                .Concat(mtdDocumentInvoices.Select(o => new
+                {
+                    CustomerName = o.Customer?.Name ?? "Unknown",
+                    Revenue = (o.Lines.Sum(l => l.Amount)
+                        - (o.DiscountPercentage > 0 ? o.Lines.Sum(l => l.Amount) * o.DiscountPercentage / 100m : Math.Min(o.DiscountAmount, o.Lines.Sum(l => l.Amount))))
+                        * (o.ExchangeRate > 0 ? o.ExchangeRate : 1m)
+                }));
+
+            snapshot.TopCustomers = topCustomerRevenue
+                .GroupBy(x => x.CustomerName)
                 .Select(g => new TopCustomerSummary
                 {
                     CustomerName = g.Key,
-                    RevenueMTD = g.Sum(o =>
-                    {
-                        decimal sub = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                        decimal disc = o.DiscountPercentage > 0 ? sub * (o.DiscountPercentage / 100) : o.DiscountAmount;
-                        return (sub - disc) * (o.ExchangeRate > 0 ? o.ExchangeRate : 1);
-                    }),
+                    RevenueMTD = g.Sum(x => x.Revenue),
                     InvoiceCount = g.Count()
                 })
                 .OrderByDescending(c => c.RevenueMTD)
@@ -307,7 +350,7 @@ namespace Primafit_ERP.Services
                 DaysOld = today.DayNumber - o.Date.DayNumber
             }).ToList();
 
-            var apExcBills = await ctx.VendorBills
+            var apExcBills = await ctx.PurchaseInvoices
                 .AsNoTracking()
                 .Where(b => b.CompanyId == companyId && b.MatchStatus == BillMatchStatus.Variance)
                 .Take(20)

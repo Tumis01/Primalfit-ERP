@@ -1,6 +1,7 @@
 @page "/sales/receipt-refunds/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
@@ -28,9 +29,9 @@
                 @(IsNew ? "Receipt Returns & Payout Refunds" : $"Voucher Window: {currentRefund.RefundNumber}")
             </h1>
             <div class="flex items-center gap-2 mt-1.5 flex-wrap">
-                @if (!IsNew && currentRefund.SalesOrder != null)
+                @if (!IsNew && (currentRefund.SalesInvoice != null || currentRefund.SalesOrder != null))
                 {
-                    <span class="text-xs text-slate-400 font-mono font-bold">Linked Invoice: @currentRefund.SalesOrder.OrderNumber</span>
+                    <span class="text-xs text-slate-400 font-mono font-bold">Linked Invoice: @(currentRefund.SalesInvoice?.InvoiceNumber ?? currentRefund.SalesOrder?.OrderNumber)</span>
                 }
                 @if (!IsNew)
                 {
@@ -137,7 +138,7 @@
                                     <tr class="hover:bg-slate-50/80 transition-all align-middle">
                                         <td class="p-4 font-mono font-bold text-indigo-700">@rfd.RefundNumber</td>
                                         <td class="p-4 font-mono text-slate-600 text-xs">@rfd.TransactionDateTime.ToString("dd MMM, yyyy HH:mm")</td>
-                                        <td class="p-4 font-mono font-bold text-slate-700">@(rfd.SalesOrder?.OrderNumber ?? "N/A")</td>
+                                        <td class="p-4 font-mono font-bold text-slate-700">@(rfd.SalesInvoice?.InvoiceNumber ?? rfd.SalesOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="p-4 font-medium text-slate-900">@(rfd.Customer?.Name ?? "Unknown")</td>
                                         <td class="p-4 text-xs font-bold text-slate-500">
                                             <span class="px-2 py-0.5 bg-slate-100 rounded border border-slate-200">@rfd.RefundType.ToString()</span>
@@ -200,70 +201,14 @@
                     <p class="text-xs text-slate-400">Select parameters to open an un-mutated draft work session.</p>
                 </div>
 
-                <div class="relative overflow-visible">
-                    <label class="label block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">Step 1: Choose Customer Account <span class="text-rose-500">*</span></label>
-                    <div @onclick="ToggleCustomerDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
-                        <span class="@(selectedCustomerId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">@selectedCustomerName</span>
-                        <svg class="w-4 h-4 text-slate-400 transition-transform @(isCustomerDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                        </svg>
-                    </div>
-                    @if (isCustomerDropdownOpen)
-                    {
-                        <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-[100] p-3 space-y-3 animate-in fade-in zoom-in-95 duration-100">
-                            <input type="text" @bind="customerSearchQuery" @bind:event="oninput"
-                                   class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all font-medium"
-                                   placeholder="Type to look up customer..." @onclick:stopPropagation />
-                            <div class="max-h-44 overflow-y-auto pr-1 divide-y divide-slate-50">
-                                @foreach (var cust in customers.Where(c => c.Name.Contains(customerSearchQuery, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    <div @onclick="() => SelectCustomer(cust)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900 rounded-lg transition-colors cursor-pointer">
-                                        @cust.Name
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
+                <div>
+                    <SearchableGuidSelect Label="Customer" Required="true" Options="@(customers.Select(c => new DropdownOption(c.Id, c.Name)).ToList())" Value="@(selectedCustomerId == Guid.Empty ? null : selectedCustomerId)" ValueChanged="SelectCustomerId" Disabled="@isBusy" Placeholder="Search customer" />
                 </div>
-
                 @if (selectedCustomerId != Guid.Empty)
                 {
-                    <div class="relative overflow-visible animate-in fade-in duration-300">
-                        <label class="label block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">Step 2: Link to Invoiced Document <span class="text-rose-500">*</span></label>
-
-                        <div @onclick="ToggleInvoiceDropdown" class="w-full p-3 border border-slate-200 rounded-xl font-bold text-sm text-slate-900 bg-white shadow-sm hover:border-slate-300 transition-all flex items-center justify-between cursor-pointer select-none">
-                            <span class="@(selectedInvoiceId == Guid.Empty ? "text-slate-400 font-medium" : "text-slate-900")">
-                                @selectedInvoiceNumberDisplay
-                            </span>
-                            <svg class="w-4 h-4 text-slate-400 transition-transform @(isInvoiceDropdownOpen ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </div>
-
-                        @if (isInvoiceDropdownOpen)
-                        {
-                            <div class="absolute w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl z-[100] p-3 space-y-3 animate-in fade-in zoom-in-95 duration-100">
-                                <input type="text" @bind="invoiceSearchQuery" @bind:event="oninput"
-                                       class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all font-medium"
-                                       placeholder="Type invoice reference code to filter..." @onclick:stopPropagation />
-                                <div class="max-h-44 overflow-y-auto pr-1 divide-y divide-slate-50">
-                                    @foreach (var inv in FilteredInvoices)
-                                    {
-                                        <div @onclick="() => SelectInvoice(inv)" class="px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900 rounded-lg transition-colors cursor-pointer">
-                                            @inv.OrderNumber (Dated: @inv.TransactionDateTime.ToString("yyyy-MM-dd HH:mm"))
-                                        </div>
-                                    }
-                                    @if (!FilteredInvoices.Any())
-                                    {
-                                        <div class="p-3 text-xs text-slate-400 italic text-center">No matching open invoices found.</div>
-                                    }
-                                </div>
-                            </div>
-                        }
-                        @if (!eligibleInvoices.Any() && !isBusy)
-                        {
-                            <p class="text-xs text-rose-600 font-bold mt-2">⚠️ No records with items shipped or cash paid are open for return.</p>
-                        }
+                    <div>
+                        <SearchableGuidSelect Label="Source invoice" Required="true" Options="@(eligibleInvoices.Select(i => new DropdownOption(i.Id, i.OrderNumber, i.Date.ToString("yyyy-MM-dd"))).ToList())" Value="@(selectedInvoiceId == Guid.Empty ? null : selectedInvoiceId)" ValueChanged="@(id => selectedInvoiceId = id ?? Guid.Empty)" Disabled="@isBusy" Placeholder="Search invoice number" />
+                        @if (!eligibleInvoices.Any() && !isBusy) { <p class="mt-2 text-xs text-amber-700">No invoices with returnable stock or refundable payments were found.</p> }
                     </div>
                 }
 
@@ -314,14 +259,7 @@
                     @if (currentRefund.RefundType == ReceiptRefundType.QuantityOnly || currentRefund.RefundType == ReceiptRefundType.Both)
                     {
                         <div class="animate-in fade-in duration-300">
-                            <label class="label">Receiving Warehouse Destination</label>
-                            <select @bind="currentRefund.DestinationWarehouseId" class="input-class font-bold text-sm bg-white" disabled="@IsPosted">
-                                <option value="">-- Choose Target Storehouse --</option>
-                                @foreach (var w in warehouses)
-                                {
-                                    <option value="@w.Id">@w.Name</option>
-                                }
-                            </select>
+                            <SearchableGuidSelect Label="Receiving warehouse" Required="true" Options="@(warehouses.Select(w => new DropdownOption(w.Id, w.Name)).ToList())" Value="@currentRefund.DestinationWarehouseId" ValueChanged="@(id => currentRefund.DestinationWarehouseId = id)" Disabled="@IsPosted" Placeholder="Search warehouse" />
                         </div>
                     }
                 </div>
@@ -331,18 +269,7 @@
                     {
                         <div class="pt-2 space-y-3">
                             <div>
-                                <label class="block text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
-                                    Disbursing Bank Account
-                                </label>
-                                <select @bind="currentRefund.BankAccountId"
-                                        class="w-full rounded-xl border border-slate-200 bg-white text-slate-900 px-3 py-2 text-sm font-bold outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 transition-all cursor-pointer disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                        disabled="@IsPosted">
-                                    <option value="" class="text-slate-400">-- Select Cash / Bank COA --</option>
-                                    @foreach (var bank in bankAccounts)
-                                    {
-                                        <option value="@bank.Id">@bank.AccountCode - @bank.Description</option>
-                                    }
-                                </select>
+                                <SearchableGuidSelect Label="Disbursing bank account" Required="true" Options="@(bankAccounts.Select(b => new DropdownOption(b.Id, b.AccountCode, b.Description)).ToList())" Value="@currentRefund.BankAccountId" ValueChanged="@(id => currentRefund.BankAccountId = id)" Disabled="@IsPosted" Placeholder="Search bank account" />
                             </div>
                         </div>
                     }
@@ -368,7 +295,8 @@
                         </div>
 
                         <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm min-w-[900px]">
+                            @if (currentRefund.RefundType == ReceiptRefundType.PaymentOnly) { <div class="mb-4 rounded-xl border p-4"><h3 class="mb-2 text-sm font-bold">Refund dimensions</h3><p class="mb-2 text-xs text-slate-500">Leave blank to inherit the invoice line dimensions.</p><DimensionSelect CompanyId="@currentRefund.CompanyId" @bind-Value="currentRefund.DimensionSetId" Disabled="@(currentRefund.Status != ReceiptRefundStatus.Draft)" /></div> }
+<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm min-w-[900px]">
                                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                                     <tr>
                                         <th class="p-4 pl-6 w-[28%]">Item Name</th>
@@ -378,7 +306,7 @@
                                         <th class="p-4 text-center bg-rose-50/40 text-rose-700">Max Returnable</th>
                                         <th class="p-4 text-center w-32">Return Qty</th>
                                         <th class="p-4 text-right pr-6">Return Value</th>
-                                    </tr>
+                                    <th class="p-3">Dimensions</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in currentRefund.Lines)
@@ -390,12 +318,7 @@
                                                 <div class="text-[10px] text-slate-400 font-mono mt-0.5">@(line.Item?.Code ?? "")</div>
                                             </td>
                                             <td class="p-4 text-center w-64 min-w-[16rem]">
-                                                <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" disabled="@IsPosted" class="input-class w-full min-w-[220px] px-3 py-2 text-sm font-semibold">
-                                                    @foreach (var uom in GetItemUoms(line.Item))
-                                                    {
-                                                        <option value="@uom.Id">@GetUomOptionLabel(line.Item, uom)</option>
-                                                    }
-                                                </select>
+                                                <SearchableGuidSelect Options="@(GetItemUoms(line.Item).Select(uom => new DropdownOption(uom.Id, GetUomOptionLabel(line.Item, uom))).ToList())" Value="@line.UomId" ValueChanged="@(id => OnLineUomChanged(line, id))" Disabled="@IsPosted" AllowClear="false" InlineMenu="true" Placeholder="Search unit" />
                                                 <div class="mt-1 block whitespace-normal break-words text-left text-[11px] leading-snug text-slate-500">@GetUomConversionText(line)</div>
                                             </td>
                                             <td class="p-4 text-center font-mono text-slate-500 text-xs">@GetDisplayedUnitPrice(line).ToString("N4")</td>
@@ -426,10 +349,10 @@
                                             <td class="p-4 pr-6 text-right font-mono font-black text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N4"))
                                             </td>
-                                        </tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentRefund.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentRefund.Status != ReceiptRefundStatus.Draft)" /></td></tr>
                                     }
                                 </tbody>
-                            </table>
+                            </table></div>
                         </div>
 
                         <div class="bg-gradient-to-r from-slate-50 to-white border-t border-slate-200 p-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -560,14 +483,7 @@
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         }
-                        <select value="@(currentRefund.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
-                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
-                            <option value="">-- Standard Receipt Refund Route (Default) --</option>
-                            @foreach (var custom in customTemplates)
-                            {
-                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
-                            }
-                        </select>
+                        <SearchableGuidSelect Options="@(customTemplates.Select(t => new DropdownOption(t.Id, t.Name)).ToList())" Value="@currentRefund.CustomTransactionTypeId" ValueChanged="@(id => OnCustomTemplateSelected(new ChangeEventArgs { Value = id?.ToString() }))" Placeholder="Search routing profile" ClearLabel="Use standard route" Disabled="@IsPosted" />
                     </div>
                 </div>
 
@@ -785,6 +701,7 @@
         .Where(r => string.IsNullOrWhiteSpace(tableSearchTerm)
                  || r.RefundNumber.Contains(tableSearchTerm, StringComparison.OrdinalIgnoreCase)
                  || (r.SalesOrder != null && r.SalesOrder.OrderNumber.Contains(tableSearchTerm, StringComparison.OrdinalIgnoreCase))
+                 || (r.SalesInvoice != null && r.SalesInvoice.InvoiceNumber.Contains(tableSearchTerm, StringComparison.OrdinalIgnoreCase))
                  || (r.Customer != null && r.Customer.Name.Contains(tableSearchTerm, StringComparison.OrdinalIgnoreCase)))
         .OrderByDescending(r => r.Date);
 
@@ -835,7 +752,7 @@
 
                 if (record.RefundType == ReceiptRefundType.PaymentOnly || record.RefundType == ReceiptRefundType.Both)
                 {
-                    var dto = await RefundService.GetCashRefundSummaryAsync(record.SalesOrderId, record.Id);
+                    var dto = await RefundService.GetCashRefundSummaryAsync(record.SalesInvoiceId ?? record.SalesOrderId.GetValueOrDefault(), record.Id);
                     cashSummary.TotalPaid = dto.TotalPaid;
                     cashSummary.PriorCashRefunded = dto.PriorCashRefunded;
                     cashSummary.MaxRefundable = dto.MaxRefundable;
@@ -885,6 +802,7 @@
         allHistoricalRefunds = await ctx.ReceiptRefunds
             .Include(r => r.Customer)
             .Include(r => r.SalesOrder)
+            .Include(r => r.SalesInvoice)
             .Where(r => r.CompanyId == companyId)
             .ToListAsync();
         batchStatuses = await ctx.GLBatches
@@ -894,6 +812,13 @@
 
     private void ToggleCustomerDropdown() => isCustomerDropdownOpen = !isCustomerDropdownOpen;
     private void ToggleInvoiceDropdown() => isInvoiceDropdownOpen = !isInvoiceDropdownOpen;
+
+    private async Task SelectCustomerId(Guid? id)
+    {
+        var customer = customers.FirstOrDefault(x => x.Id == id);
+        if (customer != null) await SelectCustomer(customer);
+        else { selectedCustomerId = Guid.Empty; selectedInvoiceId = Guid.Empty; eligibleInvoices.Clear(); }
+    }
 
     private async Task SelectCustomer(Customer cust)
     {
@@ -951,7 +876,7 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentRefund.CompanyId)
+            .Where(t => t.CompanyId == currentRefund.CompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AR))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -1034,8 +959,8 @@
         foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
             result.Add(conversion.Uom ?? uoms.FirstOrDefault(x => x.Id == conversion.UomId) ?? new UnitOfMeasure { Id = conversion.UomId, Name = "UOM" });
         if (item.UomId.HasValue)
-            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value, conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
-                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId) && UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap).HasValue)
+            foreach (var uomId in UomConversion.ConfiguredUoms(item))
+                if (uomId != item.UomId.Value && result.All(x => x.Id != uomId))
                     result.Add(uoms.FirstOrDefault(x => x.Id == uomId) ?? new UnitOfMeasure { Id = uomId, Name = "UOM" });
         return result;
     }
@@ -1057,7 +982,7 @@
 
         var itemConversion = itemUomLines.FirstOrDefault(x => x.ItemId == item.Id && x.UomId == line.UomId);
         decimal? primaryToSelectedFactor = itemConversion?.ConversionFactorToBase;
-        primaryToSelectedFactor ??= UomConversion.FactorBetween(item.UomId.Value, line.UomId.Value, ConversionMap);
+        primaryToSelectedFactor ??= item.UomConversions.FirstOrDefault(x => x.IsActive && x.UomId == line.UomId)?.ConversionFactorToBase;
 
         return primaryToSelectedFactor.HasValue && primaryToSelectedFactor.Value > 0
             ? $"1 {primaryName} = {primaryToSelectedFactor.Value:0.####} {selectedName}"
@@ -1090,9 +1015,10 @@
         return UomConversion.FactorFor(item, selectedId, factors, ConversionMap);
     }
 
-    private void OnLineUomChanged(ReceiptRefundLine line, ChangeEventArgs e)
+    private void OnLineUomChanged(ReceiptRefundLine line, Guid? id)
     {
-        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId) || line.Item == null) return;
+        if (!id.HasValue || line.Item == null || !GetItemUoms(line.Item).Any(x => x.Id == id.Value)) return;
+        var selectedId = id.Value;
         line.UomId = selectedId;
         line.UomName = GetSelectedUomName(line.Item, selectedId);
         line.UomConversionFactor = GetItemFactor(line.Item, selectedId);

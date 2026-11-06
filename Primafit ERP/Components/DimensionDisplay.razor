@@ -1,0 +1,18 @@
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject DimensionService Dimensions
+<span class="text-xs text-slate-600">@text</span>
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public Guid? Value { get; set; }
+    private Guid company; private Guid? loaded; private string text = "—";
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CompanyId == company && Value == loaded) return;
+        company = CompanyId; loaded = Value; text = "—";
+        if (!Value.HasValue || CompanyId == Guid.Empty) return;
+        var selected = await Dimensions.GetSelectionsAsync(CompanyId, Value);
+        var types = await Dimensions.GetTypesAsync(CompanyId); var values = await Dimensions.GetValuesAsync(CompanyId);
+        text = string.Join(" · ", types.Where(t => selected.ContainsKey(t.Id)).Select(t => $"{t.Name}: {values.FirstOrDefault(v => v.Id == selected[t.Id])?.Name ?? "Unavailable"}"));
+    }
+}

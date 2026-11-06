@@ -25,6 +25,7 @@ namespace Primafit_ERP.Services
             using var stream = new MemoryStream();
             using var writer = new PdfWriter(stream);
             using var pdf = new PdfDocument(writer);
+            if (data.Headers.Count > 6) pdf.SetDefaultPageSize(iText.Kernel.Geom.PageSize.A4.Rotate());
             using var document = new Document(pdf);
 
             var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
@@ -263,7 +264,7 @@ namespace Primafit_ERP.Services
                             }
                             else
                             {
-                               
+
                                 cell.Value = cellText;
                             }
 
@@ -611,7 +612,7 @@ namespace Primafit_ERP.Services
             document.Close();
             return stream.ToArray();
         }
-        public byte[] GenerateVendorBillPdf(VendorBill bill, CompanyDetails company, string vendorName, string currencyCode)
+        public byte[] GeneratePurchaseInvoicePdf(PurchaseInvoice bill, CompanyDetails company, string vendorName, string currencyCode)
         {
             using var stream = new MemoryStream();
             using var writer = new PdfWriter(stream);
@@ -666,15 +667,15 @@ namespace Primafit_ERP.Services
             decimal subTotal = 0;
             foreach (var line in bill.Lines)
             {
-                // FIX: Look at the line description directly, since it was moved from the header
-                string lineDescription = string.IsNullOrWhiteSpace(line.Description) ? "Expense / Ad-Hoc Service" : line.Description;
+                string lineDescription = !string.IsNullOrWhiteSpace(line.Item?.Name) ? line.Item.Name
+                    : !string.IsNullOrWhiteSpace(line.Description) ? line.Description : "Expense / Ad-Hoc Service";
 
                 decimal lineTotal = line.LineTotal;
                 subTotal += lineTotal;
 
                 itemTable.AddCell(new Cell().Add(new Paragraph(lineDescription)).SetPadding(5));
-                itemTable.AddCell(new Cell().Add(new Paragraph(line.QuantityBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
-                itemTable.AddCell(new Cell().Add(new Paragraph(line.UnitCostBilled.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(UomConversion.FromBase(line.QuantityBilled, line.UomConversionFactor).ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
+                itemTable.AddCell(new Cell().Add(new Paragraph(UomConversion.PriceFromBase(line.UnitCostBilled, line.UomConversionFactor).ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
                 itemTable.AddCell(new Cell().Add(new Paragraph(lineTotal.ToString("N2"))).SetTextAlignment(TextAlignment.RIGHT).SetPadding(5));
             }
             document.Add(itemTable);
@@ -682,8 +683,9 @@ namespace Primafit_ERP.Services
             // --- TOTALS AND TAX ---
             var totalsTable = new Table(UnitValue.CreatePercentArray(new float[] { 7, 3 })).UseAllAvailableWidth();
 
-            // Since we added Tax fields to VendorBill, we must calculate the tax difference for the summary section
-            decimal taxAmount = bill.TotalAmountForeign - subTotal;
+            // Since we added Tax fields to PurchaseInvoice, we must calculate the tax difference for the summary section
+            decimal discount = bill.DiscountPercentage > 0 ? subTotal * bill.DiscountPercentage / 100m : Math.Min(subTotal, bill.DiscountAmount);
+            decimal taxAmount = bill.TotalAmountForeign - (subTotal - discount);
 
             void AddTotalRow(string label, decimal amount, bool isBold = false)
             {
@@ -692,6 +694,7 @@ namespace Primafit_ERP.Services
             }
 
             AddTotalRow("Subtotal:", subTotal);
+            if (discount > 0) AddTotalRow("Discount:", -discount);
             if (taxAmount > 0) AddTotalRow("Tax / VAT:", taxAmount);
 
             totalsTable.AddCell(new Cell().Add(new Paragraph($"Grand Total ({currencyCode}):").SetFont(fontBold).SetFontSize(12)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1)).SetTextAlignment(TextAlignment.RIGHT).SetPaddingTop(5));

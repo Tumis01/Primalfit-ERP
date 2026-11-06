@@ -1,5 +1,6 @@
 @page "/sc/items"
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
@@ -111,15 +112,8 @@
                     @if (!currentItem.IsService)
                     {
                         <div>
-                            <label class="label">Attached / Primary UOM</label>
-                            <select value="@currentItem.UomId" @onchange="OnPrimaryUomChanged" class="input-class">
-                                <option value="">-- Select UOM --</option>
-                                @foreach (var u in uoms)
-                                {
-                                    <option value="@u.Id">@u.Name</option>
-                                }
-                            </select>
-                            <p class="text-[10px] text-slate-400 mt-1">The item price is defined in this UOM.</p>
+                            <SearchableGuidSelect Label="Primary UOM" Required="true" Options="@(uoms.Select(u => new DropdownOption(u.Id, u.Name)).ToList())" Value="@currentItem.UomId" ValueChanged="OnPrimaryUomSelected" Placeholder="Search unit of measure" AllowClear="false" />
+                            <p class="text-xs text-slate-500 mt-1">Stock, costs and prices use this unit. Define this item's other units below.</p>
                         </div>
                         <div>
                             <label class="label">Reorder Level</label>
@@ -159,23 +153,28 @@
                             <div class="flex items-center justify-between mb-3">
                                 <div>
                                     <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Equivalent UOMs</h4>
-                                    <p class="text-[10px] text-slate-500">Inherited from the selected primary UOM. Manage these conversions on the UOM setup page.</p>
+                                    <p class="text-xs text-slate-500">Set conversions for this item only. For example, 1 Carton = 10 Pieces for one item, and 1 Carton = 24 Pieces for another.</p>
                                 </div>
+                                <button type="button" @onclick="AddEquivalentUom" disabled="@(!currentItem.UomId.HasValue || stagedUoms.Count >= uoms.Count - 1)" class="ml-4 shrink-0 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm font-bold text-indigo-700 disabled:opacity-40">Add UOM</button>
                             </div>
                             @if (!currentItem.UomId.HasValue)
                             {
-                                <p class="text-xs text-slate-500">Select a primary UOM to see its equivalent UOMs.</p>
+                                <p class="text-xs text-slate-500">Select the primary UOM before defining equivalent units.</p>
                             }
-                            else if (!GetPrimaryUomConversionRules().Any())
+                            else if (stagedUoms.Count == 0)
                             {
-                                <p class="text-xs text-slate-500">No equivalent UOMs are configured for this primary UOM.</p>
+                                <p class="text-xs text-slate-500">This item currently uses its primary UOM only.</p>
                             }
                             else
                             {
-                                @foreach (var rule in GetPrimaryUomConversionRules())
+                                @foreach (var equivalent in stagedUoms)
                                 {
-                                    <div class="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                                        @GetItemUomConversionDisplay(rule)
+                                    <div @key="equivalent.Id" class="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-[1fr_auto_1fr_1fr_auto] sm:items-end">
+                                        <div><label class="label" for="@($"primary-quantity-{equivalent.Id}")">@PrimaryUomName quantity</label><InputNumber id="@($"primary-quantity-{equivalent.Id}")" @bind-Value="equivalent.PrimaryQuantity" min="0.0001" step="0.0001" class="input-class font-mono" /></div>
+                                        <div class="pb-3 font-bold text-slate-500">=</div>
+                                        <div><label class="label" for="@($"uom-quantity-{equivalent.Id}")">Equivalent quantity</label><InputNumber id="@($"uom-quantity-{equivalent.Id}")" @bind-Value="equivalent.EquivalentQuantity" min="0.0001" step="any" class="input-class font-mono" /></div>
+                                        <SearchableGuidSelect Label="Equivalent UOM" Required="true" Options="@(uoms.Where(u => u.Id != currentItem.UomId && !stagedUoms.Any(x => x != equivalent && x.UomId == u.Id)).Select(u => new DropdownOption(u.Id, u.Name)).ToList())" Value="@(equivalent.UomId == Guid.Empty ? null : equivalent.UomId)" ValueChanged="@(id => equivalent.UomId = id ?? Guid.Empty)" Placeholder="Search unit" AllowClear="false" />
+                                        <button type="button" @onclick="() => stagedUoms.Remove(equivalent)" class="rounded-lg px-3 py-3 text-sm font-bold text-rose-700 hover:bg-rose-50" aria-label="Remove equivalent UOM">Remove</button>
                                     </div>
                                 }
                             }
@@ -341,7 +340,15 @@
 @code {
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
-    private List<UomConversionRule> conversionRules = new();
+    private sealed class EquivalentUomRow
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid UomId { get; set; }
+        public decimal PrimaryQuantity { get; set; } = 1m;
+        public decimal EquivalentQuantity { get; set; } = 1m;
+    }
+    private List<EquivalentUomRow> stagedUoms = new();
+    private string PrimaryUomName => uoms.FirstOrDefault(x => x.Id == currentItem.UomId)?.Name ?? "primary UOM";
     private List<ItemCategory> categories = new();
 
     private List<SegChartOfAccount> allAccounts = new();
@@ -385,7 +392,6 @@
 
             items = await MasterService.GetItemsAsync(currentCompanyId);
             uoms = await MasterService.GetUnitOfMeasuresAsync(currentCompanyId);
-            conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
             categories = await MasterService.GetItemCategoriesAsync(currentCompanyId);
 
             accountTypes = await SegCoaService.GetAccountTypesAsync();
@@ -411,7 +417,7 @@
 
     private async Task CreateNew()
     {
-        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
+        stagedUoms = new();
         currentItem = new Item { CompanyId = currentCompanyId, CostingType = CostingMethod.WACC };
         pendingItemCodeSequenceId = null;
         IsItemCodeReadOnly = false;
@@ -422,7 +428,13 @@
 
     private async Task Edit(Item i)
     {
-        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
+        stagedUoms = (await MasterService.GetItemUomConversionLinesAsync(i.Id)).Select(x =>
+        {
+            var inverse = x.ConversionFactorToBase > 0 ? Math.Round(1m / x.ConversionFactorToBase, 4) : 1m;
+            var useInverse = x.ConversionFactorToBase > 0 && x.ConversionFactorToBase < 1 && inverse > 0
+                && Math.Abs(1m / inverse - x.ConversionFactorToBase) < 0.000000000001m;
+            return new EquivalentUomRow { Id = x.Id, UomId = x.UomId, PrimaryQuantity = useInverse ? inverse : 1m, EquivalentQuantity = useInverse ? 1m : x.ConversionFactorToBase };
+        }).ToList();
         currentItem = new Item
         {
             Id = i.Id,
@@ -452,11 +464,15 @@
         itemCodeError = null;
     }
 
-    private async Task OnPrimaryUomChanged(ChangeEventArgs e)
+    private async Task OnPrimaryUomSelected(Guid? id)
     {
-        currentItem.UomId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null;
-        conversionRules = await MasterService.GetUomConversionRulesAsync(currentCompanyId);
+        if (id == currentItem.UomId) return;
+        if (stagedUoms.Count > 0 && !await JS.InvokeAsync<bool>("confirm", "Changing the primary UOM clears the equivalent UOMs in this form. Continue?")) return;
+        currentItem.UomId = id;
+        stagedUoms.Clear();
     }
+
+    private void AddEquivalentUom() { if (currentItem.UomId.HasValue) stagedUoms.Add(new EquivalentUomRow()); }
 
     private async Task OnCategorySelected(ChangeEventArgs e)
     {
@@ -532,6 +548,11 @@
     private async Task SaveItem()
     {
         itemCodeError = null;
+        if (!currentItem.IsService && stagedUoms.Any(x => x.PrimaryQuantity <= 0 || x.EquivalentQuantity <= 0))
+        {
+            itemCodeError = "Enter positive quantities on both sides of each UOM conversion.";
+            return;
+        }
         if (!IsItemCodeReadOnly)
         {
             if (string.IsNullOrWhiteSpace(currentItem.Code))
@@ -566,7 +587,11 @@
         string err;
         try
         {
-            err = await MasterService.SaveItemAsync(currentItem);
+            var conversions = currentItem.IsService ? new List<ItemUomConversionLine>() : stagedUoms.Select(x => new ItemUomConversionLine {
+                Id = x.Id, ItemId = currentItem.Id, UomId = x.UomId,
+                ConversionFactorToBase = Math.Round(x.EquivalentQuantity / x.PrimaryQuantity, 16, MidpointRounding.AwayFromZero), IsActive = true
+            }).ToList();
+            err = await MasterService.SaveItemWithUomConversionsAsync(currentItem, conversions);
         }
         catch (Exception ex)
         {
@@ -588,21 +613,6 @@
                 currentItem.Code = previewedItemCode;
             itemCodeError = err;
         }
-    }
-
-    private IEnumerable<UomConversionRule> GetPrimaryUomConversionRules()
-    {
-        if (!currentItem.UomId.HasValue) return Enumerable.Empty<UomConversionRule>();
-        return conversionRules
-            .Where(x => x.IsActive && x.FromUomId == currentItem.UomId.Value)
-            .OrderBy(x => x.ToUom?.Name ?? uoms.FirstOrDefault(u => u.Id == x.ToUomId)?.Name);
-    }
-
-    private string GetItemUomConversionDisplay(UomConversionRule rule)
-    {
-        var primaryName = uoms.FirstOrDefault(x => x.Id == rule.FromUomId)?.Name ?? "primary";
-        var equivalentName = rule.ToUom?.Name ?? uoms.FirstOrDefault(x => x.Id == rule.ToUomId)?.Name ?? "UOM";
-        return $"1 {primaryName} = {rule.ConversionFactor:N4} {equivalentName}";
     }
 
     // --- CSV EXPORT LOGIC ---

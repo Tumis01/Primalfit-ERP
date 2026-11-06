@@ -39,6 +39,11 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         var scope = await ScopePeriodKeyAsync(db, definition, date);
         var tracker = await db.SequenceTrackers.AsNoTracking()
             .FirstOrDefaultAsync(x => x.SequenceDefinitionId == definition.Id && x.ScopePeriodKey == scope);
+        var fiscalYear = await GetFiscalYearAsync(db, definition.CompanyId, date);
+        var released = await db.ReleasedDocumentNumbers.AsNoTracking().Where(x => x.CompanyId == definition.CompanyId && x.TargetType == definition.TargetType).ToListAsync();
+        foreach (var candidate in ReleasedCandidates(released, components, date, fiscalYear, tracker?.LastNumber ?? 0))
+            if (await ScopePeriodKeyAsync(db, definition, candidate.Row.DocumentDate) == scope && !await IsNumberInUseAsync(db, definition, candidate.Row.DocumentNumber))
+                return candidate.Row.DocumentNumber;
         var number = (tracker?.LastNumber ?? 0) + 1;
         while (await IsNumberInUseAsync(db, definition, FormatNumber(components, number, date, await GetFiscalYearAsync(db, definition.CompanyId, date)), exceptEntityId))
             number++;
@@ -48,6 +53,15 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
 
     public async Task<string> GenerateAndReserveNextNumberAsync(Guid sequenceDefinitionId, DateTime? referenceDate = null)
     {
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await GenerateAndReserveCoreAsync(sequenceDefinitionId, referenceDate); }
+            catch (Exception ex) when (attempt < 3 && IsAllocationConflict(ex)) { await Task.Delay(25 * (attempt + 1)); }
+        }
+    }
+
+    private async Task<string> GenerateAndReserveCoreAsync(Guid sequenceDefinitionId, DateTime? referenceDate)
+    {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var definition = await db.SequenceDefinitions.Include(x => x.Components)
             .FirstOrDefaultAsync(x => x.Id == sequenceDefinitionId);
@@ -56,12 +70,15 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         var components = ValidateAndNormalize(definition);
         var date = referenceDate ?? DateTime.Today;
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        var resource = ReleasedDocumentNumber.LockKey(definition.CompanyId, definition.TargetType);
+        await db.Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000; IF @result < 0 THROW 51000, 'Document numbering is busy. Please try again.', 1;");
         var scope = await ScopePeriodKeyAsync(db, definition, date);
 
         // The unique period index plus SERIALIZABLE protects both an existing tracker
         // row and the empty-key range while concurrent callers allocate the first number.
         var tracker = await db.SequenceTrackers
-            .FirstOrDefaultAsync(x => x.SequenceDefinitionId == definition.Id && x.ScopePeriodKey == scope);
+            .FromSqlInterpolated($"SELECT * FROM [SequenceTrackers] WITH (UPDLOCK, HOLDLOCK) WHERE [SequenceDefinitionId] = {definition.Id} AND [ScopePeriodKey] = {scope}")
+            .SingleOrDefaultAsync();
         if (tracker is null)
         {
             tracker = new SequenceTracker { SequenceDefinitionId = definition.Id, ScopePeriodKey = scope };
@@ -70,6 +87,20 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
 
         var fiscalYear = await GetFiscalYearAsync(db, definition.CompanyId, date);
         var number = tracker.LastNumber + 1;
+        // Keep the high-water mark while atomically consuming released numbers.
+        // Remove all copies so another allocation cannot reuse an in-flight number.
+        var released = await db.ReleasedDocumentNumbers
+            .FromSqlInterpolated($"SELECT * FROM [ReleasedDocumentNumbers] WITH (UPDLOCK, HOLDLOCK) WHERE [CompanyId] = {definition.CompanyId} AND [TargetType] = {(int)definition.TargetType}")
+            .ToListAsync();
+        foreach (var candidate in ReleasedCandidates(released, components, date, fiscalYear, tracker.LastNumber))
+        {
+            if (await ScopePeriodKeyAsync(db, definition, candidate.Row.DocumentDate) != scope) continue;
+            db.ReleasedDocumentNumbers.RemoveRange(released.Where(x => x.DocumentNumber == candidate.Row.DocumentNumber));
+            if (await IsNumberInUseAsync(db, definition, candidate.Row.DocumentNumber)) continue;
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return candidate.Row.DocumentNumber;
+        }
         string formatted;
         do
         {
@@ -103,7 +134,8 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         var date = referenceDate ?? DateTime.Today;
         var scope = await ScopePeriodKeyAsync(db, definition, date);
         var tracker = await db.SequenceTrackers
-            .FirstOrDefaultAsync(x => x.SequenceDefinitionId == definition.Id && x.ScopePeriodKey == scope);
+            .FromSqlInterpolated($"SELECT * FROM [SequenceTrackers] WITH (UPDLOCK, HOLDLOCK) WHERE [SequenceDefinitionId] = {definition.Id} AND [ScopePeriodKey] = {scope}")
+            .SingleOrDefaultAsync();
         if (tracker is null)
         {
             tracker = new SequenceTracker { SequenceDefinitionId = definition.Id, ScopePeriodKey = scope };
@@ -222,8 +254,10 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
             {
                 component.Id = Guid.NewGuid();
                 component.SequenceDefinitionId = existing.Id;
+                component.SequenceDefinition = existing;
             }
             existing.Components = normalized;
+            db.SequenceComponents.AddRange(normalized);
         }
 
         await db.SaveChangesAsync();
@@ -483,24 +517,59 @@ public sealed class DocumentNumberingService : IDocumentNumberingService
         var companyId = definition.CompanyId;
         return definition.TargetType switch
         {
-            SequenceTargetType.AR_Quote or SequenceTargetType.AR_Order or SequenceTargetType.AR_Invoice =>
+            SequenceTargetType.AR_Quote =>
+                await db.SalesQuotes.AnyAsync(x => x.CompanyId == companyId && x.QuoteNumber == number)
+                || await db.SalesOrders.AnyAsync(x => x.CompanyId == companyId && x.Status == OrderStatus.Quote && x.OrderNumber == number),
+            SequenceTargetType.AR_Order =>
                 await db.SalesOrders.AnyAsync(x => x.CompanyId == companyId && x.OrderNumber == number),
+            SequenceTargetType.AR_Invoice =>
+                await db.SalesInvoices.AnyAsync(x => x.CompanyId == companyId && x.InvoiceNumber == number)
+                || await db.SalesOrders.AnyAsync(x => x.CompanyId == companyId && x.OrderNumber == number
+                    && (x.Status == OrderStatus.Draft || x.IsDirectInvoice || x.InvoiceBatchId.HasValue)),
             SequenceTargetType.AR_CreditNote => await db.CreditNotes.AnyAsync(x => x.CompanyId == companyId && x.CreditNoteNumber == number),
             SequenceTargetType.AR_ReceiptRefund => await db.ReceiptRefunds.AnyAsync(x => x.CompanyId == companyId && x.RefundNumber == number),
             SequenceTargetType.AR_Shipment => await db.SalesShipments.AnyAsync(x => x.CompanyId == companyId && x.ShipmentNumber == number),
             SequenceTargetType.AR_CustomerReceipt => await db.CustomerPayments.AnyAsync(x => x.CompanyId == companyId && x.Reference == number),
             SequenceTargetType.AR_Adjustment or SequenceTargetType.AP_Adjustment => await db.GLJournalHeaders.AnyAsync(x => x.CompanyId == companyId && x.JournalNumber == number),
-            SequenceTargetType.AP_Request or SequenceTargetType.AP_PurchaseOrder or SequenceTargetType.AP_Invoice =>
+            SequenceTargetType.AP_Request =>
+                await db.PurchaseRequests.AnyAsync(x => x.CompanyId == companyId && x.RequestNumber == number)
+                || await db.PurchaseOrders.AnyAsync(x => x.CompanyId == companyId && x.Status == PurchaseOrderStatus.Request && x.OrderNumber == number),
+            SequenceTargetType.AP_PurchaseOrder =>
                 await db.PurchaseOrders.AnyAsync(x => x.CompanyId == companyId && x.OrderNumber == number),
+            SequenceTargetType.AP_Invoice =>
+                await db.PurchaseInvoices.AnyAsync(x => x.CompanyId == companyId && x.PurchaseInvoiceNumber == number)
+                || await db.PurchaseOrders.AnyAsync(x => x.CompanyId == companyId && x.OrderNumber == number
+                    && (x.Status == PurchaseOrderStatus.DraftInvoice || x.IsDirectInvoice || x.ConvertedFromPONumber != null)),
             SequenceTargetType.AP_DebitNote => await db.DebitNotes.AnyAsync(x => x.CompanyId == companyId && x.DebitNoteNumber == number),
             SequenceTargetType.AP_ReturnToVendor => await db.VendorReturns.AnyAsync(x => x.CompanyId == companyId && x.ReturnNumber == number),
-            SequenceTargetType.AP_GoodsReceipt => await db.GoodsReceipts.AnyAsync(x => x.CompanyId == companyId && x.GrnNumber == number),
-            SequenceTargetType.AP_VendorPayment => await db.VendorPayments.AnyAsync(x => x.VendorBill != null && x.VendorBill.CompanyId == companyId && x.Reference == number),
+            SequenceTargetType.AP_GoodsReceipt => await db.GoodsReceipts.AnyAsync(x => x.CompanyId == companyId && x.GrnNumber == number)
+                || await db.GoodsReceiptDrafts.AnyAsync(x => x.CompanyId == companyId && x.GrnNumber == number),
+            SequenceTargetType.AP_VendorPayment => await db.VendorPayments.AnyAsync(x => x.PurchaseInvoice != null && x.PurchaseInvoice.CompanyId == companyId && x.Reference == number),
             SequenceTargetType.CustomerCode => await db.Customers.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
             SequenceTargetType.VendorCode => await db.Vendors.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
             SequenceTargetType.ItemCategoryCode => await db.ItemCategories.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
             SequenceTargetType.ItemCode => await db.Items.AnyAsync(x => x.CompanyId == companyId && x.Code.ToLower() == number.ToLower() && (!exceptEntityId.HasValue || x.Id != exceptEntityId.Value)),
             _ => false
         };
+    }
+
+    private static IEnumerable<(ReleasedDocumentNumber Row, long Value)> ReleasedCandidates(IEnumerable<ReleasedDocumentNumber> rows,
+        IReadOnlyCollection<SequenceComponent> components, DateTime date, int fiscalYear, long highWater)
+    {
+        var ordered = components.OrderBy(x => x.OrderIndex).ToList();
+        var offset = ordered.TakeWhile(x => x.ComponentType != SequenceComponentType.SequenceNumber).Sum(x => x.Length);
+        var length = ordered.Single(x => x.ComponentType == SequenceComponentType.SequenceNumber).Length;
+        var total = ordered.Sum(x => x.Length);
+        return rows.Where(x => x.DocumentNumber.Length == total)
+            .Select(x => (Row: x, Value: long.TryParse(x.DocumentNumber.Substring(offset, length), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0))
+            .Where(x => x.Value > 0 && x.Value <= highWater && FormatNumber(components, x.Value, date, fiscalYear) == x.Row.DocumentNumber)
+            .DistinctBy(x => x.Row.DocumentNumber).OrderBy(x => x.Value);
+    }
+
+    private static bool IsAllocationConflict(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+            if (current is DbUpdateConcurrencyException || current is Microsoft.Data.SqlClient.SqlException { Number: 1205 }) return true;
+        return false;
     }
 }

@@ -1,0 +1,354 @@
+@page "/ar/sales-invoices"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
+@using Primafit_ERP.Services
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject DocumentWorkflowService Workflow
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject CurrencyService CurrencyService
+@inject TransactionMappingService MappingService
+@inject Primafit_ERP.Services.ReportExportService ExportService
+@rendermode InteractiveServer
+
+<PageTitle>Sales Invoices</PageTitle>
+<div class="mx-auto max-w-[1400px] space-y-6 px-4 py-8 sm:px-6 lg:px-8 font-sans text-slate-800 pb-16">
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div class="shrink-0"><h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales Invoices</h1><p class="mt-1 text-sm text-slate-500">Invoice inventory items manually or from posted shipments.</p>@if (!string.IsNullOrWhiteSpace(companyName)) { <span class="inline-flex rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200 mt-2">@companyName</span> }</div>
+        <div class="flex min-w-0 flex-col lg:flex-row flex-wrap gap-4 items-stretch lg:items-center w-full xl:w-auto xl:justify-end">
+            @if (!showCreate) { <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 h-[42px]"><input type="date" @bind="fromDate" aria-label="Invoices from date" class="px-2 py-1.5 text-xs font-bold bg-transparent outline-none" /><span class="text-slate-400">–</span><input type="date" @bind="toDate" aria-label="Invoices to date" class="px-2 py-1.5 text-xs font-bold bg-transparent outline-none" /></div><input type="search" value="@search" @oninput="OnSearch" placeholder="Search invoice, customer, item..." aria-label="Search sales invoices" class="h-[42px] w-full md:w-64 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" /> }
+            <div class="flex max-w-full min-w-0 bg-slate-100 p-1 rounded-xl overflow-x-auto whitespace-nowrap"><button type="button" @onclick="BackToList" class="px-4 py-2 rounded-lg text-sm font-bold @(!showCreate ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")">All Invoices</button><PermissionGate Key="SALES_INVOICE_CREATE"><Authorized><button type="button" @onclick="NewFromShipment" class="px-4 py-2 rounded-lg text-sm font-bold @(showCreate ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")">New Invoice</button></Authorized></PermissionGate></div>
+        </div>
+    </div>
+    <PageNotice Message="@message" IsError="@isError" Revision="@saveAttempt" />
+    @if (isLoading) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">Loading sales invoices...</div> }
+    else if (companyId == Guid.Empty) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">Company context is unavailable.</div> }
+    else if (showCreate)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible">
+            <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-wrap justify-between gap-4 rounded-t-2xl"><div><h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Record Details</h2><p class="mt-1 text-xs text-slate-500">Choose manual item lines or posted shipments. One invoice uses one entry method. Choose whether to invoice the shipped quantity or the full remaining ordered quantity.</p></div><span class="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">@(readOnly ? "View Sales Invoice" : editingId.HasValue ? "Edit Sales Invoice" : "New Sales Invoice")</span></div>
+            <fieldset disabled="@readOnly" class="p-6 sm:p-8 space-y-6 min-w-0">
+                <DocumentNumberPreview CompanyId="@companyId" Target="SequenceTargetType.AR_Invoice" Date="@HeaderTerms.InvoiceDate" Number="@editingNumber" />
+                @if (!string.IsNullOrEmpty(sourceReference)) { <p class="text-xs text-slate-500">Source documents: @sourceReference</p> }
+                @if (!readOnly && canConfigureRoute) { <button type="button" @onclick="() => routeEditor!.Open()" class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700">Configure Route</button> }
+                <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm"><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+                    <SearchableGuidSelect Label="Customer" Required="true" Options="@CustomerOptions" Value="@filterCustomerId" ValueChanged="OnSourcePartnerChanged" Placeholder="Select customer" ClearLabel="Clear selection" />
+                    @if (readOnly && filterSiteId.HasValue) { <div><span class="text-xs font-bold text-slate-600">Warehouse</span><p class="mt-2 text-sm">@SiteName(filterSiteId)</p></div> }
+                    @if (!manualEntry) { <SearchableGuidSelect Label="Warehouse" Options="@SiteOptions" Value="@filterSiteId" ValueChanged="OnSourceWarehouseChanged" Placeholder="All warehouses" ClearLabel="All warehouses" /> }
+                    <DocumentCurrency Code="@(currencies.GetValueOrDefault(filterCurrencyId ?? Guid.Empty))" />
+                    <label class="text-xs font-bold text-slate-600">Invoice date<input type="date" @bind="HeaderTerms.InvoiceDate" disabled="@(!filterCustomerId.HasValue)" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+                </div>                <section aria-label="Invoice header terms" class="mt-5 rounded-xl border border-slate-200 p-5">
+                    <h3 class="mb-4 text-xs font-bold uppercase tracking-wider text-slate-700">Invoice header terms</h3>
+                    <fieldset disabled="@(!filterCustomerId.HasValue)" class="min-w-0"><PurchaseDocumentTerms CompanyId="@companyId" Terms="@HeaderTerms" OnTermsChanged="@(() => headerTermsEdited = true)" /></fieldset>
+                </section></div>
+
+                @if (!editingId.HasValue) { <fieldset aria-label="Invoice entry method" class="flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <legend class="px-1 text-xs font-bold text-slate-600">Invoice entry method</legend>
+                    <button type="button" @onclick="() => ChangeEntryMethod(true)" aria-pressed="@manualEntry.ToString().ToLowerInvariant()" class="rounded-xl border px-4 py-2 text-sm font-bold @(manualEntry ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600")">Manual items</button>
+                    <button type="button" @onclick="() => ChangeEntryMethod(false)" aria-pressed="@((!manualEntry).ToString().ToLowerInvariant())" class="rounded-xl border px-4 py-2 text-sm font-bold @(!manualEntry ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600")">From shipments</button>
+                </fieldset> }
+
+                @if (!manualEntry)
+                {
+                <div class="border border-slate-200 rounded-xl overflow-hidden shadow-sm"><div class="p-4 bg-slate-50/50 border-b border-slate-200 flex flex-wrap justify-between gap-3"><div><h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">Available Shipments</h3><p class="mt-1 text-xs text-slate-500">The header checkbox selects the displayed available lines in that shipment. Change the filters to find more lines.</p></div><span class="text-xs font-bold text-indigo-700">@selectedLineIds.Count selected</span></div><div class="space-y-3 border-b border-slate-200 p-4"><div class="max-w-sm"><SearchableGuidSelect Label="Shipment" Options="@ShipmentOptions" Value="@filterShipmentId" ValueChanged="@(id => filterShipmentId = id)" Placeholder="Search shipment" ClearLabel="All shipments" /></div><div class="mt-4 flex flex-wrap items-center justify-between gap-3"><input type="search" @bind="sourceSearch" @bind:event="oninput" placeholder="Search shipment, customer or item..." aria-label="Search available shipment lines" class="w-full sm:w-80 rounded-xl border border-slate-200 bg-white p-2.5 text-sm focus:border-indigo-500 focus:outline-none" /><div class="flex gap-3 text-xs font-bold"><button type="button" @onclick="SelectVisible" class="text-indigo-700 hover:text-indigo-900">Select visible lines</button><button type="button" @onclick="ClearSelection" class="text-slate-500 hover:text-slate-700">Clear selection</button></div></div></div><div class="relative overflow-x-auto"><table class="w-full min-w-[900px] text-left text-sm"><thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase"><tr><th class="p-3 w-14">Select</th><th class="p-3">Shipment</th><th class="p-3">Customer / Warehouse / Currency</th><th class="p-3">Item</th><th class="p-3 text-center">Qty</th><th class="p-3 text-right">Unit Price</th><th class="p-3 text-right">Total</th></tr></thead><tbody class="divide-y divide-slate-100">
+                    @foreach (var group in FilteredSource.GroupBy(x => x.DocumentId))
+                    {
+                        var first = group.First();
+                        <tr class="bg-slate-50/80 font-bold"><td class="p-3"><input type="checkbox" checked="@group.All(x => selectedLineIds.Contains(x.Id))" @onchange="e => ToggleGroup(group.Select(x => x.Id), e)" aria-label="Select displayed lines for @first.DocumentNumber" class="accent-indigo-600" /></td><td class="p-3 font-mono">@first.DocumentNumber <span class="block font-sans text-xs font-normal text-slate-500">@first.DocumentDate.ToString("dd MMM yyyy")</span></td><td class="p-3">@first.BusinessPartner <span class="block text-xs font-normal text-slate-500">@SiteName(first.SiteId) · @CurrencyName(first.CurrencyId)</span></td><td colspan="4" class="p-3 text-xs font-normal text-slate-500">@group.Count() available line(s)</td></tr>
+                        @foreach (var line in group) { <tr @key="line.Id" class="hover:bg-slate-50"><td class="p-3"><input type="checkbox" checked="@selectedLineIds.Contains(line.Id)" @onchange="e => ToggleLine(line.Id,e)" aria-label="Select @line.ItemName from @line.DocumentNumber" class="accent-indigo-600" /></td><td class="p-3 text-xs text-slate-400">@line.DocumentNumber</td><td></td><td class="p-3 font-medium">@line.ItemName</td><td class="p-3 text-center font-mono">@line.Quantity.ToString("N4") @line.UomName</td><td class="p-3 text-right font-mono">@line.UnitPrice.ToString("N4")</td><td class="p-3 text-right font-mono font-bold">@((line.Quantity * line.UnitPrice).ToString("N2"))</td></tr> }
+                    }
+                    @if (!FilteredSource.Any()) { <tr><td colspan="7" class="p-12 text-center text-slate-400">@(filterCustomerId.HasValue ? (filterCurrencyId.HasValue ? "No available shipment lines match these filters." : "Select a currency to see available shipment lines.") : "Select a customer to see available shipment lines.")</td></tr> }
+                </tbody></table></div></div>
+                }
+                @if (manualEntry && filterCustomerId.HasValue && filterCurrencyId.HasValue)
+                {
+                    <div class="rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4"><div><h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">Manual item lines</h3><p class="mt-1 text-xs text-slate-500">Enter quantities and prices in the selected unit and invoice currency.</p></div><button type="button" @onclick="AddManualLine" class="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-bold text-indigo-700">Add item line</button></div>
+                        <div class="relative overflow-x-auto"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-left text-sm"><thead class="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr><th class="p-3">Item</th><th class="p-3">Unit</th><th class="p-3 text-right">Quantity</th><th class="p-3 text-right">Unit price</th><th class="p-3 text-right">Amount</th><th class="p-3"><span class="sr-only">Remove</span></th><th class="p-3">Dimensions</th></tr></thead><tbody class="divide-y divide-slate-100">
+                            @foreach (var row in manualLines)
+                            {
+                                <tr @key="row.Id"><td class="p-3 min-w-[240px]"><SearchableGuidSelect Options="@ItemOptions" Value="@row.ItemId" ValueChanged="@(id => SetManualItem(row, id))" Placeholder="Search item" InlineMenu="true" /></td><td class="p-3 min-w-[160px]"><SearchableGuidSelect Options="@ManualUomOptions(row)" Value="@row.UomId" ValueChanged="@(id => SetManualUom(row, id))" Disabled="@(!row.ItemId.HasValue || ManualUomOptions(row).Count == 0)" AllowClear="false" Placeholder="Search unit" InlineMenu="true" /></td><td class="p-3"><input type="number" min="0" step="0.0001" @bind="row.Quantity" @bind:after="MarkTermsChanged" aria-label="Manual line quantity" class="w-28 rounded-lg border border-slate-200 p-2 text-right font-mono" /></td><td class="p-3"><input type="number" min="0" step="0.0001" @bind="row.UnitPrice" @bind:after="MarkTermsChanged" aria-label="Manual line unit price" class="w-32 rounded-lg border border-slate-200 p-2 text-right font-mono" /></td><td class="p-3 text-right font-mono">@((row.Quantity * row.UnitPrice).ToString("N2"))</td><td class="p-3"><button type="button" @onclick="() => RemoveManualLine(row)" aria-label="Remove manual line" class="rounded-lg px-2 py-1 text-rose-700 hover:bg-rose-50">Remove</button></td><td class="p-3 align-top"><DimensionSelect CompanyId="@companyId" @bind-Value="row.DimensionSetId" Disabled="@readOnly" /></td></tr>
+                            }
+                            @if (manualLines.Count == 0) { <tr><td colspan="6" class="p-5 text-center text-xs text-slate-400">No manual lines added.</td></tr> }
+                        </tbody></table></div></div>
+                    </div>
+                }
+                @if (selectedLineIds.Count > 0)
+                {
+                    <section class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4" aria-label="Selected source lines">
+                        <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 class="text-sm font-bold text-slate-900">Selected shipment lines</h3><p class="mt-1 text-xs text-slate-600">These lines remain selected when you change the search or warehouse filter.</p></div><span class="text-xs font-bold text-indigo-700">@selectedLineIds.Count selected</span></div>
+                        <div class="relative mt-3 overflow-x-auto"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[600px] text-left text-sm"><thead class="text-xs font-bold text-slate-500"><tr><th class="py-2 pr-3">Source</th><th class="py-2 pr-3">Item</th><th class="py-2 pr-3 text-right">Quantity</th><th class="py-2 pr-3 text-right">Unit price</th><th class="py-2 text-right"><span class="sr-only">Remove</span></th><th class="p-3">Dimensions</th></tr></thead><tbody class="divide-y divide-indigo-100">
+                        @foreach (var line in eligibleLines.Where(x => selectedLineIds.Contains(x.Id)))
+                        {
+                            <tr @key="line.Id"><td class="py-2 pr-3 font-mono text-xs">@line.DocumentNumber</td><td class="py-2 pr-3 font-medium">@line.ItemName</td><td class="py-2 pr-3 text-right font-mono">@InvoiceQuantity(line).ToString("N4") @line.UomName @if (invoiceFullOrderQuantity && InvoiceQuantity(line) > line.Quantity) { <span class="block text-xs font-sans text-slate-500">Shipped: @line.Quantity.ToString("N4") @line.UomName</span> }</td><td class="py-2 pr-3 text-right font-mono">@line.UnitPrice.ToString("N4")</td><td class="py-2 text-right"><button type="button" @onclick="() => SetSelection(new[] { line.Id }, false)" aria-label="Remove @line.ItemName from @line.DocumentNumber" class="rounded-lg px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50">Remove</button></td><td class="p-3 align-top"><DimensionSelect CompanyId="@companyId" @bind-Value="line.DimensionSetId" Disabled="@readOnly" /></td></tr>
+                        }
+                        </tbody></table></div></div>
+                    </section>
+                }
+                @if (selectedLineIds.Count > 0)
+                {
+                    <fieldset class="rounded-xl border border-slate-200 bg-slate-50 p-4"><legend class="px-1 text-sm font-bold text-slate-900">Quantity to invoice</legend><div class="flex flex-col gap-3 sm:flex-row sm:gap-6"><label class="flex items-start gap-2 text-sm text-slate-700"><input type="radio" name="invoice-quantity-mode" checked="@(!invoiceFullOrderQuantity)" @onchange="() => SetInvoiceQuantityMode(false)" class="mt-1 accent-indigo-600" /><span><strong>Invoice what was shipped</strong><span class="block text-xs text-slate-500">Invoice the selected shipment quantities.</span></span></label><label class="flex items-start gap-2 text-sm text-slate-700"><input type="radio" name="invoice-quantity-mode" checked="@invoiceFullOrderQuantity" @onchange="() => SetInvoiceQuantityMode(true)" class="mt-1 accent-indigo-600" /><span><strong>Invoice all remaining order quantity</strong><span class="block text-xs text-slate-500">Includes any quantity still to be shipped for each selected order line.</span></span></label></div></fieldset>
+                }
+                @if (SelectedGroups.Any()) { <div class="flex flex-wrap justify-between items-center gap-3"><h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Review invoice</h3><p class="text-xs text-slate-500">Review the selected lines and terms before saving the draft.</p></div> }
+                @foreach (var group in SelectedGroups)
+                {
+                    var first = group.First(); var termsForGroup = GetTerms(first); var gross = SourceTotal(group) + manualLines.Sum(x => Math.Round(x.Quantity * x.UnitPrice, 2, MidpointRounding.AwayFromZero)); var discount = termsForGroup.DiscountPercentage > 0 ? gross * termsForGroup.DiscountPercentage / 100m : Math.Min(termsForGroup.DiscountAmount, gross); var tax = (gross - discount) * taxRates.GetValueOrDefault(termsForGroup.TaxId ?? Guid.Empty) / 100m; var total = gross - discount + tax;
+                    <div @key="(first.PartnerId, first.CurrencyId)" class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-visible"><div class="flex flex-wrap justify-between items-center gap-3 border-b border-slate-100 bg-slate-50/50 p-5 rounded-t-2xl"><div><h4 class="font-bold text-slate-900">@first.BusinessPartner</h4><p class="text-xs text-slate-500">@(group.Select(x => x.SiteId).Distinct().Count() == 1 ? SiteName(first.SiteId) : "Multiple warehouses") · @CurrencyName(first.CurrencyId) · @(group.Count(x => x.Id != Guid.Empty) + manualLines.Count) line(s)</p></div><span class="text-xs font-bold text-indigo-700">@string.Join(", ", group.Where(x => x.Id != Guid.Empty).Select(x => x.DocumentNumber).Distinct())</span></div><div class="p-5 space-y-5"><p class="text-xs text-slate-600">Totals use the invoice header terms above.</p>@if (group.Select(x => (x.ExchangeRate, x.TaxId, x.DiscountPercentage, x.DiscountAmount, x.WithholdingTaxId)).Distinct().Skip(1).Any()) { <div role="alert" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">The selected sales orders have different terms. Choose and confirm the terms for this invoice.</div> } @if (termsForGroup.DiscountAmount > 0) { <p class="text-xs text-amber-700">Review the flat discount when invoicing only part of an order or combining orders.</p> }<div class="flex justify-end"><div class="w-full md:w-80 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600"><div class="flex justify-between"><span>Subtotal</span><span class="font-mono">@gross.ToString("N4")</span></div><div class="flex justify-between"><span>Discount</span><span class="font-mono">− @discount.ToString("N4")</span></div><div class="flex justify-between"><span>Tax</span><span class="font-mono">+ @tax.ToString("N4")</span></div><div class="flex justify-between border-t pt-3 font-bold text-slate-900"><span>Total (@CurrencyName(first.CurrencyId))</span><span class="font-mono">@total.ToString("N4")</span></div><div class="flex justify-between text-emerald-700"><span>Total (@baseCurrency)</span><span class="font-mono font-bold">@((total * termsForGroup.ExchangeRate).ToString("N4"))</span></div>@if (termsForGroup.WithholdingTaxId.HasValue) { <div class="flex justify-between border-t border-slate-200 pt-2 text-amber-700"><span>Estimated withholding</span><span class="font-mono">@(((gross - discount) * withholdingRates.GetValueOrDefault(termsForGroup.WithholdingTaxId.Value) / 100m).ToString("N4"))</span></div><p class="text-[10px] text-slate-400">Withholding may be applied when the customer receipt is posted.</p> }</div></div></div></div>
+                }
+            </fieldset><div class="flex flex-wrap justify-end gap-3 border-t border-slate-100 bg-slate-50/50 p-5 rounded-b-2xl">
+                <button type="button" @onclick="BackToList" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Cancel</button>
+                @if (readOnly) { <button type="button" @onclick="DownloadInvoice" disabled="@saving" class="rounded-xl border border-indigo-200 px-5 py-2.5 text-sm font-bold text-indigo-700">Download Invoice</button> }
+                else {
+                    <PermissionGate Key="SALES_INVOICE_CREATE"><Authorized>@if (!editingInReview) { <button type="button" @onclick="() => CreateInvoices(false)" disabled="@saving" class="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">@(saving ? "Saving…" : "Save Invoice Draft")</button> }</Authorized></PermissionGate>
+                    <PermissionGate Key="SALES_INVOICE_POST"><Authorized><button type="button" @onclick="() => CreateInvoices(true)" disabled="@saving" class="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">@(editingInReview ? "Update Staged Invoice" : "Submit for GL Review")</button></Authorized></PermissionGate>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"><div class="relative overflow-x-auto"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm whitespace-nowrap min-w-[1100px]"><thead class="bg-slate-50/80 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider"><tr><th class="px-6 py-4">Date</th><th class="px-6 py-4">Reference #</th><th class="px-6 py-4">Linked From</th><th class="px-6 py-4">Customer</th><th class="px-6 py-4 w-[25%]">Items (Qty)</th><th class="px-6 py-4 text-center">Status</th><th class="px-6 py-4 text-right">Total (Foreign)</th><th class="px-6 py-4 text-right border-l border-slate-200">Total (Base)</th><th class="px-6 py-4 text-right">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">
+            @foreach (var invoice in PagedInvoices)
+            {
+                <tr class="hover:bg-slate-50/80 transition-colors align-top"><td class="px-6 py-4 text-slate-500 font-medium">@invoice.Date.ToString("MMM dd, yyyy")</td><td class="px-6 py-4"><div class="font-mono font-bold text-indigo-700">@invoice.InvoiceNumber</div></td><td class="px-6 py-4 font-mono text-xs text-slate-500">@SourceReferences(invoice)</td><td class="px-6 py-4 font-bold">@invoice.Customer?.Name <div class="text-xs font-normal text-slate-400">@invoice.Warehouse?.Name</div></td><td class="px-6 py-4">@foreach (var line in invoice.Lines.Take(2)) { <div class="text-xs mb-1">@(line.Item?.Name ?? line.Description ?? "Unknown") <span class="font-mono text-slate-500">(x@(UomConversion.FromBase(line.QuantityInvoiced, line.UomConversionFactor).ToString("G29")))</span></div> } @if (invoice.Lines.Count > 2) { <div class="text-[10px] font-bold text-indigo-500">+ @(invoice.Lines.Count - 2) more item(s)</div> }</td><td class="px-6 py-4 text-center"><span class="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600">@invoice.Status</span></td><td class="px-6 py-4 text-right font-mono font-bold">@invoice.TotalAmountForeign.ToString("N4") <div class="text-[10px] text-slate-400">@invoice.Currency?.CurrencyCode</div></td><td class="px-6 py-4 text-right font-mono font-bold text-emerald-700 bg-slate-50/30 border-l border-slate-100">@invoice.TotalAmount.ToString("N4") <div class="text-[10px] text-slate-400">@baseCurrency</div></td><td class="px-6 py-4 text-right">@if (IsPosted(invoice)) { <button type="button" @onclick="() => OpenInvoice(invoice, true)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 border rounded-lg">View</button> }
+                    else if (CanEdit(invoice)) { <PermissionGate Key="SALES_INVOICE_CREATE"><Authorized><button type="button" @onclick="() => OpenInvoice(invoice, false)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 border rounded-lg">@(invoice.GLBatchId.HasValue ? "Update Staging" : "Edit")</button></Authorized></PermissionGate> }
+                    @if (!IsPosted(invoice) && !invoice.GLBatchId.HasValue) { <PermissionGate Key="SALES_INVOICE_POST"><Authorized><button type="button" @onclick="() => PostInvoice(invoice.Id)" disabled="@saving" class="ml-2 rounded-lg border px-3 py-1.5 text-xs font-bold text-emerald-700">Submit for GL Review</button></Authorized></PermissionGate> }@if (invoice.Status == SalesInvoiceStatus.Draft && !invoice.IsDirectInvoice && !invoice.GLBatchId.HasValue && !invoice.InvoiceBatchId.HasValue) { <PermissionGate Key="SALES_INVOICE_CREATE"><Authorized><button type="button" @onclick="() => DeleteDraft(invoice.Id, invoice.InvoiceNumber)" disabled="@saving" class="ml-2 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-50 disabled:opacity-50">Delete draft</button></Authorized></PermissionGate> }</td></tr>
+
+            }
+            @if (!FilteredInvoices.Any()) { <tr><td colspan="9" class="p-16 text-center text-slate-400">No invoices match your filters.</td></tr> }
+        </tbody></table></div></div>@if (FilteredInvoices.Any()) { <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50"><div class="text-xs font-bold text-slate-500 uppercase">Showing @((CurrentPage - 1) * PageSize + 1) to @Math.Min(CurrentPage * PageSize, FilteredInvoices.Count()) of @FilteredInvoices.Count() records</div><div class="flex gap-2"><button @onclick="() => page--" disabled="@(CurrentPage <= 1)" class="px-3 py-1.5 rounded-lg border bg-white text-xs font-bold disabled:opacity-50">Previous</button><span class="px-3 py-1.5 text-xs font-bold">Page @CurrentPage of @PageCount</span><button @onclick="() => page++" disabled="@(CurrentPage >= PageCount)" class="px-3 py-1.5 rounded-lg border bg-white text-xs font-bold disabled:opacity-50">Next</button></div></div> }</div>
+    }
+</div>
+<InvoiceRouteEditor @ref="routeEditor" CompanyId="@companyId" Module="TransactionTemplateModule.AR" Value="@invoiceRoute" ValueChanged="@(value => invoiceRoute = value)" />
+@code {
+
+    private int saveAttempt;
+    private Guid? editingId;
+    private string? editingNumber;
+    private string sourceReference = "";
+    private bool readOnly, editingInReview, canConfigureRoute;
+    private InvoiceRoute invoiceRoute = new();
+    private InvoiceRouteEditor? routeEditor;
+    private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private bool IsPosted(SalesInvoice invoice) => invoice.Status == SalesInvoiceStatus.Posted || (invoice.GLBatchId.HasValue && batchStatuses.GetValueOrDefault(invoice.GLBatchId.Value) == BatchStatus.Posted);
+    private bool CanEdit(SalesInvoice invoice) => invoice.Status != SalesInvoiceStatus.Cancelled && !IsPosted(invoice) && invoice.Lines.All(x => !x.ShipmentLineId.HasValue);
+    private void OpenInvoice(SalesInvoice invoice, bool view)
+    {
+        if (view ? !IsPosted(invoice) : !CanEdit(invoice)) return;
+        editingId = invoice.Id; editingNumber = invoice.InvoiceNumber; readOnly = view;
+        editingInReview = invoice.GLBatchId.HasValue; sourceReference = SourceReferences(invoice);
+        showCreate = true; manualEntry = true; headerTermsEdited = true; message = "";
+        filterCustomerId = invoice.CustomerId; filterCurrencyId = invoice.CurrencyId;
+        filterSiteId = invoice.WarehouseId; selectedLineIds.Clear(); terms.Clear(); manualLines.Clear();
+        var header = HeaderTerms; header.InvoiceDate = invoice.Date.ToDateTime(TimeOnly.MinValue); header.ExchangeRate = invoice.ExchangeRate;
+        header.TaxId = invoice.TaxId; header.WithholdingTaxId = invoice.WithholdingTaxId;
+        header.DiscountPercentage = invoice.DiscountPercentage; header.DiscountAmount = invoice.DiscountAmount; header.Confirmed = true;
+
+        invoiceRoute = new InvoiceRoute { TemplateId = invoice.CustomTransactionTypeId, DebitAccountId = invoice.ReceivablesGlAccountId, CreditAccountId = invoice.DirectIncomeGlAccountId, TaxAccountId = invoice.TaxGLAccountId, DiscountAccountId = invoice.DiscountGlAccountId };
+        foreach (var line in invoice.Lines) manualLines.Add(new ManualRow { DimensionSetId = line.DimensionSetId,  ItemId = line.ItemId, UomId = line.UomId, UomName = line.UomName, Factor = line.UomConversionFactor, Quantity = UomConversion.FromBase(line.QuantityInvoiced, line.UomConversionFactor), UnitPrice = UomConversion.PriceFromBase(line.UnitPrice, line.UomConversionFactor) });
+    }
+    private async Task DownloadInvoice()
+    {
+        if (!readOnly || !editingId.HasValue || saving) return;
+        var invoice = invoices.FirstOrDefault(x => x.Id == editingId);
+        if (invoice == null || !IsPosted(invoice)) return;
+        saving = true;
+        try {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var company = await db.CompanyDetails.AsNoTracking().FirstAsync(x => x.CompanyDetailsId == companyId);
+            var print = new SalesOrder { OrderNumber = invoice.InvoiceNumber, Date = invoice.Date, Customer = invoice.Customer, Currency = invoice.Currency, Status = OrderStatus.Invoiced, DiscountPercentage = invoice.DiscountPercentage, DiscountAmount = invoice.DiscountAmount, GrandTotalForeign = invoice.TotalAmountForeign, Lines = invoice.Lines.Select(x => new SalesOrderLine { DimensionSetId = x.DimensionSetId,  Item = x.Item, Description = x.Description, Quantity = UomConversion.FromBase(x.QuantityInvoiced, x.UomConversionFactor), UnitPrice = UomConversion.PriceFromBase(x.UnitPrice, x.UomConversionFactor) }).ToList() }; var bytes = ExportService.GenerateInvoicePdf(print, company, CurrencyName(invoice.CurrencyId));
+            using var stream = new MemoryStream(bytes); using var reference = new DotNetStreamReference(stream); await JS.InvokeVoidAsync("downloadFileFromStream", $"Invoice_{invoice.InvoiceNumber}.pdf", reference);
+        } catch (Exception) { message = "The invoice could not be downloaded. Please try again."; isError = true; }
+        finally { saving = false; }
+    }
+
+    private bool manualEntry = true, headerTermsEdited;
+    private readonly DestinationDocumentTerms emptyHeaderTerms = new() { InvoiceDate = DateTime.Today };
+    private DestinationDocumentTerms HeaderTerms => filterCustomerId.HasValue && filterCurrencyId.HasValue
+        ? GetTerms(new WorkflowLineOption(Guid.Empty, Guid.Empty, filterCustomerId.Value, null, filterCurrencyId.Value, latestRates.GetValueOrDefault(filterCurrencyId.Value, 1m), "", "", "", DateTime.Today, 0, "", 0)) : emptyHeaderTerms;
+    private async Task ChangeEntryMethod(bool manual)
+    {
+        if (manualEntry == manual) return;
+        if ((selectedLineIds.Count > 0 || manualLines.Count > 0) && !await JS.InvokeAsync<bool>("confirm", "Changing the invoice entry method clears its lines. Continue?")) return;
+        manualEntry = manual; selectedLineIds.Clear(); manualLines.Clear(); invoiceFullOrderQuantity = false;
+        filterSiteId = filterShipmentId = null; sourceSearch = ""; MarkTermsChanged();
+    }
+
+    [SupplyParameterFromQuery(Name = "view")] public Guid? ViewSourceId { get; set; }
+    private Guid companyId; private string userId = "", companyName = "", baseCurrency = "BASE", search = "", sourceSearch = "", message = ""; private bool showCreate, saving, isLoading = true, isError, invoiceFullOrderQuantity;
+    private DateTime? fromDate, toDate; private int page = 1; private const int PageSize = 10;
+    private Guid? filterCustomerId, filterSiteId, filterCurrencyId, filterShipmentId;
+    private Dictionary<(Guid, Guid, Guid), DestinationDocumentTerms> terms = new(); private Dictionary<Guid, string> sites = new(), currencies = new(), sourceNumbers = new(), taxNames = new(); private Dictionary<Guid, decimal> taxRates = new(), withholdingRates = new(), latestRates = new(), sourceQuantities = new(); private Dictionary<Guid, Guid> sourceDocumentIds = new();
+    private List<SalesInvoice> invoices = new(); private List<WorkflowLineOption> eligibleLines = new(); private HashSet<Guid> selectedLineIds = new();
+    private sealed class ManualRow { public Guid? DimensionSetId { get; set; } public Guid Id { get; } = Guid.NewGuid(); public Guid? ItemId { get; set; } public Guid? UomId { get; set; } public string UomName { get; set; } = ""; public decimal Factor { get; set; } = 1m; public decimal Quantity { get; set; } = 1m; public decimal UnitPrice { get; set; } }
+    private List<ManualRow> manualLines = new(); private List<Customer> customers = new(); private List<Item> items = new(); private List<UnitOfMeasure> uoms = new(); private List<UomConversionRule> conversionRules = new(); private List<ItemUomConversionLine> itemUoms = new();
+    private IReadOnlyDictionary<(Guid, Guid), decimal> ConversionMap => conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+    private IReadOnlyCollection<DropdownOption> ItemOptions => items.Select(x => new DropdownOption(x.Id, x.Name, x.Code)).OrderBy(x => x.Label).ToList();
+    private IReadOnlyCollection<DropdownOption> ManualUomOptions(ManualRow row) { var item = items.FirstOrDefault(x => x.Id == row.ItemId); if (item == null) return Array.Empty<DropdownOption>(); var ids = item.UomId.HasValue ? UomConversion.ConfiguredUoms(item).ToHashSet() : new HashSet<Guid>(); foreach (var unit in itemUoms.Where(x => x.ItemId == item.Id)) ids.Add(unit.UomId); return uoms.Where(x => ids.Contains(x.Id)).Select(x => new DropdownOption(x.Id, x.Name)).ToList(); }
+    private string SourceReferences(SalesInvoice invoice) { var names = invoice.Lines.Where(x => x.ShipmentLineId.HasValue).Select(x => sourceNumbers.GetValueOrDefault(x.ShipmentLineId!.Value, "Unavailable")).Distinct().ToList(); return names.Count > 0 ? string.Join(", ", names) : "-"; }
+    private string SiteName(Guid? id) => id.HasValue ? sites.GetValueOrDefault(id.Value, "Unavailable") : "No warehouse"; private string CurrencyName(Guid id) => currencies.GetValueOrDefault(id, "Unavailable");
+    private IReadOnlyCollection<DropdownOption> CustomerOptions => customers.Select(x => new DropdownOption(x.Id, x.Name, x.Code)).OrderBy(x => x.Label).ToList();
+    private IReadOnlyCollection<DropdownOption> SiteOptions => eligibleLines.Where(x => x.SiteId.HasValue && x.PartnerId == filterCustomerId && x.CurrencyId == filterCurrencyId).Select(x => x.SiteId!.Value).Distinct().Select(x => new DropdownOption(x, SiteName(x))).OrderBy(x => x.Label).ToList();
+    private IReadOnlyCollection<DropdownOption> CurrencyOptions => currencies.Select(x => new DropdownOption(x.Key, x.Value)).OrderBy(x => x.Label).ToList();
+    private IReadOnlyCollection<DropdownOption> ShipmentOptions => eligibleLines.Where(x => x.PartnerId == filterCustomerId && x.CurrencyId == filterCurrencyId && (!filterSiteId.HasValue || x.SiteId == filterSiteId)).GroupBy(x => x.DocumentId).Select(x => new DropdownOption(x.Key, x.First().DocumentNumber, x.First().BusinessPartner)).OrderBy(x => x.Label).ToList();
+    private IEnumerable<WorkflowLineOption> FilteredSource => eligibleLines.Where(x => filterCustomerId.HasValue && x.PartnerId == filterCustomerId && (!filterSiteId.HasValue || x.SiteId == filterSiteId) && filterCurrencyId.HasValue && x.CurrencyId == filterCurrencyId && (!filterShipmentId.HasValue || x.DocumentId == filterShipmentId) && (string.IsNullOrWhiteSpace(sourceSearch) || x.DocumentNumber.Contains(sourceSearch, StringComparison.OrdinalIgnoreCase) || x.BusinessPartner.Contains(sourceSearch, StringComparison.OrdinalIgnoreCase) || x.ItemName.Contains(sourceSearch, StringComparison.OrdinalIgnoreCase)));
+    private IEnumerable<IGrouping<(Guid PartnerId, Guid CurrencyId), WorkflowLineOption>> SelectedGroups
+    {
+        get
+        {
+            var selected = eligibleLines.Where(x => selectedLineIds.Contains(x.Id)).ToList();
+            if (selected.Count == 0 && manualLines.Count > 0 && filterCustomerId.HasValue && filterCurrencyId.HasValue)
+                selected.Add(new WorkflowLineOption(Guid.Empty, Guid.Empty, filterCustomerId.Value, null, filterCurrencyId.Value, latestRates.GetValueOrDefault(filterCurrencyId.Value, 1m), "", customers.FirstOrDefault(x => x.Id == filterCustomerId)?.Name ?? "Customer", "", DateTime.Today, 0, "", 0));
+            return selected.GroupBy(x => (x.PartnerId, x.CurrencyId));
+        }
+    }
+    private IEnumerable<SalesInvoice> FilteredInvoices => invoices.Where(x => (!fromDate.HasValue || x.Date >= DateOnly.FromDateTime(fromDate.Value)) && (!toDate.HasValue || x.Date <= DateOnly.FromDateTime(toDate.Value)) && (string.IsNullOrWhiteSpace(search) || x.InvoiceNumber.Contains(search, StringComparison.OrdinalIgnoreCase) || (x.Customer?.Name ?? "").Contains(search, StringComparison.OrdinalIgnoreCase) || x.Lines.Any(l => (l.Item?.Name ?? l.Description ?? "").Contains(search, StringComparison.OrdinalIgnoreCase))));
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(FilteredInvoices.Count() / (double)PageSize)); private int CurrentPage => Math.Min(Math.Max(1, page), PageCount); private IEnumerable<SalesInvoice> PagedInvoices => FilteredInvoices.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
+        var user = await UserManager.GetUserAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty; userId = user?.Id ?? "";
+        if (companyId != Guid.Empty)
+        {
+            // Preserve existing source links while keeping the two invoice workspaces separate.
+            if (ViewSourceId.HasValue)
+            {
+                await using var db = await DbFactory.CreateDbContextAsync();
+                if (await db.SalesInvoices.AsNoTracking().AnyAsync(x => x.CompanyId == companyId && x.Id == ViewSourceId.Value && x.IsDirectInvoice))
+                {
+                    Navigation.NavigateTo($"/ar/direct-invoices?view={ViewSourceId.Value}", replace: true);
+                    return;
+                }
+            }
+            await LoadAsync();
+            var source = invoices.FirstOrDefault(x => x.Id == ViewSourceId);
+            if (source != null && (IsPosted(source) || CanEdit(source))) OpenInvoice(source, IsPosted(source));
+        }
+        isLoading = false;
+    }
+    private async Task LoadAsync() { await using var db = await DbFactory.CreateDbContextAsync(); canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(companyId); batchStatuses = await db.GLBatches.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.Status); var company = await db.CompanyDetails.AsNoTracking().FirstOrDefaultAsync(x => x.CompanyDetailsId == companyId); companyName = company?.CompanyName ?? ""; baseCurrency = company?.BaseCurrency ?? "BASE"; customers = await db.Customers.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); items = await db.Items.Include(x => x.UomConversions).AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); uoms = await db.UnitOfMeasures.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); conversionRules = await db.UomConversionRules.AsNoTracking().Where(x => x.CompanyId == companyId && x.IsActive).ToListAsync(); itemUoms = await db.ItemUomConversionLines.AsNoTracking().Where(x => x.IsActive && x.Item!.CompanyId == companyId).ToListAsync(); sites = await db.Warehouses.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.Name); currencies = await db.Currencies.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.CurrencyCode); var rateRows = await db.CurrencyManagements.AsNoTracking().Where(x => x.CompanyId == companyId && x.Rate > 0 && db.Currencies.Any(c => c.CompanyId == companyId && c.IsBaseCurrency && (c.Id == x.ExchangeCurrencyId || (!x.ExchangeCurrencyId.HasValue && c.CurrencyCode == x.ExchangeCurrency)))).OrderByDescending(x => x.Date).ToListAsync(); latestRates = rateRows.GroupBy(x => x.CurrencyId).ToDictionary(x => x.Key, x => x.First().Rate); var taxes = await db.Taxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); taxNames = taxes.ToDictionary(x => x.Id, x => x.TaxName); taxRates = taxes.ToDictionary(x => x.Id, x => x.Per); withholdingRates = await db.WithholdingTaxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.PercentageValue); var sourceData = await (from line in db.SalesShipmentLines.AsNoTracking() join shipment in db.SalesShipments.AsNoTracking() on line.ShipmentId equals shipment.Id where shipment.CompanyId == companyId select new { line.Id, DocumentId = shipment.Id, Number = shipment.ShipmentNumber, Quantity = line.QtyShipped }).ToListAsync(); sourceNumbers = sourceData.ToDictionary(x => x.Id, x => x.Number); sourceDocumentIds = sourceData.ToDictionary(x => x.Id, x => x.DocumentId); sourceQuantities = sourceData.ToDictionary(x => x.Id, x => x.Quantity); invoices = (await Workflow.GetSalesInvoicesAsync(companyId)).Where(x => !x.IsDirectInvoice).ToList(); eligibleLines = await Workflow.GetShipmentLinesReadyToInvoiceAsync(companyId); }
+    private async Task OnSourcePartnerChanged(Guid? id) { if (id == filterCustomerId) return; if (!await ConfirmLineReset()) return; filterCustomerId = id; selectedLineIds.Clear(); manualLines.Clear(); terms.Clear(); headerTermsEdited = false; filterSiteId = filterShipmentId = null; var currency = customers.FirstOrDefault(x => x.Id == id)?.CurrencyId; filterCurrencyId = currency.HasValue && currencies.ContainsKey(currency.Value) ? currency : null; sourceSearch = ""; if (filterCurrencyId.HasValue) { var rate = await CurrencyService.GetLatestExchangeRateAsync(companyId, filterCurrencyId.Value); if (filterCustomerId == id && !headerTermsEdited && selectedLineIds.Count == 0) HeaderTerms.ExchangeRate = rate; } }
+    private async Task OnSourceCurrencyChanged(Guid? id) { if (id == filterCurrencyId) return; if (!await ConfirmLineReset()) return; filterCurrencyId = id; filterSiteId = filterShipmentId = null; selectedLineIds.Clear(); manualLines.Clear(); terms.Clear(); }
+    private async Task<bool> ConfirmLineReset() => (selectedLineIds.Count == 0 && manualLines.Count == 0) || await JS.InvokeAsync<bool>("confirm", "Changing the customer or currency will remove the selected and manual lines. Continue?");
+    private void OnSourceWarehouseChanged(Guid? id) { filterSiteId = id; filterShipmentId = null; }
+    private void OnSearch(ChangeEventArgs e) { search = e.Value?.ToString() ?? ""; page = 1; }
+    private async Task BackToList() { if (!await ConfirmDiscardDraft()) return; showCreate = false; editingId = null; editingNumber = null; readOnly = editingInReview = false; selectedLineIds.Clear(); manualLines.Clear(); terms.Clear(); message = ""; await LoadAsync(); }
+    private void NewFromShipment() { if (showCreate && !editingId.HasValue) return; editingId = null; editingNumber = null; sourceReference = ""; readOnly = editingInReview = false; invoiceRoute = new(); manualEntry = true; headerTermsEdited = false; invoiceFullOrderQuantity = false; showCreate = true; message = ""; selectedLineIds.Clear(); manualLines.Clear(); terms.Clear(); sourceSearch = ""; filterCustomerId = filterSiteId = filterCurrencyId = filterShipmentId = null; }
+    private async Task<bool> ConfirmDiscardDraft() => readOnly || !showCreate || (selectedLineIds.Count == 0 && manualLines.Count == 0) || await JS.InvokeAsync<bool>("confirm", "Discard the invoice you are preparing and its selected lines?");
+    private void SetInvoiceQuantityMode(bool full) { invoiceFullOrderQuantity = full; MarkTermsChanged(); }
+    private decimal InvoiceQuantity(WorkflowLineOption line)
+    {
+        if (!invoiceFullOrderQuantity) return line.Quantity;
+        var selected = eligibleLines.Where(x => selectedLineIds.Contains(x.Id) && x.OrderLineId == line.OrderLineId).ToList();
+        if (selected.Count == 0 || selected[0].Id != line.Id) return line.Quantity;
+        var extra = Math.Max(0m, line.RemainingInvoiceQuantityBase - selected.Sum(x => UomConversion.ToBase(x.Quantity, x.UomConversionFactor)));
+        return line.Quantity + UomConversion.FromBase(extra, line.UomConversionFactor);
+    }
+    private decimal SourceTotal(IEnumerable<WorkflowLineOption> sourceLines)
+    {
+        var groups = sourceLines.Where(x => x.Id != Guid.Empty).GroupBy(x => x.OrderLineId);
+        decimal total = 0m;
+        foreach (var group in groups)
+        {
+            var lines = group.ToList();
+            var selectedBase = lines.Sum(x => UomConversion.ToBase(x.Quantity, x.UomConversionFactor));
+            var extra = invoiceFullOrderQuantity ? Math.Max(0m, lines[0].RemainingInvoiceQuantityBase - selectedBase) : 0m;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                var quantity = UomConversion.ToBase(line.Quantity, line.UomConversionFactor) + (i == 0 ? extra : 0m);
+                total += Math.Round(quantity * UomConversion.PriceToBase(line.UnitPrice, line.UomConversionFactor), 2, MidpointRounding.AwayFromZero);
+            }
+        }
+        return total;
+    }
+    private void MarkTermsChanged() { foreach (var value in terms.Values) value.Confirmed = false; }
+    private void AddManualLine() { if (!manualEntry) return; manualLines.Add(new ManualRow()); MarkTermsChanged(); }
+    private void RemoveManualLine(ManualRow row) { manualLines.Remove(row); MarkTermsChanged(); }
+    private void SetManualItem(ManualRow row, Guid? id)
+    {
+        var item = items.FirstOrDefault(x => x.Id == id); row.ItemId = item?.Id; row.UomId = item?.UomId;
+        row.UomName = item == null ? "" : uoms.FirstOrDefault(x => x.Id == item.UomId)?.Name ?? item.UoM;
+        row.Factor = 1m; row.Quantity = 1m; row.UnitPrice = 0m; MarkTermsChanged();
+    }
+    private void SetManualUom(ManualRow row, Guid? id)
+    {
+        var item = items.FirstOrDefault(x => x.Id == row.ItemId);
+        if (item == null || !id.HasValue || !ManualUomOptions(row).Any(x => x.Id == id)) return;
+        var factors = itemUoms.Where(x => x.ItemId == item.Id).GroupBy(x => x.UomId).ToDictionary(x => x.Key, x => x.First().ConversionFactorToBase);
+        var newFactor = UomConversion.FactorFor(item, id, factors, ConversionMap);
+        row.Quantity = UomConversion.FromBase(UomConversion.ToBase(row.Quantity, row.Factor), newFactor);
+        row.UnitPrice = UomConversion.PriceFromBase(UomConversion.PriceToBase(row.UnitPrice, row.Factor), newFactor);
+        row.UomId = id; row.UomName = uoms.First(x => x.Id == id).Name; row.Factor = newFactor; MarkTermsChanged();
+    }
+    private void SelectVisible() => SetSelection(FilteredSource.Select(x => x.Id).ToList(), true);
+    private void ClearSelection() { selectedLineIds.Clear(); MarkTermsChanged(); }
+    private void ToggleGroup(IEnumerable<Guid> ids, ChangeEventArgs e) => SetSelection(ids.ToList(), e.Value is bool selected && selected);
+    private void ToggleLine(Guid id, ChangeEventArgs e) => SetSelection(new[] { id }, e.Value is bool selected && selected);
+    private void SetSelection(IEnumerable<Guid> ids, bool selected)
+    {
+        if (manualEntry) return;
+        var hadSelection = selectedLineIds.Count > 0;
+        var changed = new HashSet<(Guid, Guid, Guid)>();
+        foreach (var id in ids)
+        {
+            var line = eligibleLines.FirstOrDefault(x => x.Id == id);
+            if (line == null || !(selected ? selectedLineIds.Add(id) : selectedLineIds.Remove(id))) continue;
+            changed.Add((line.PartnerId, Guid.Empty, line.CurrencyId));
+        }
+        foreach (var key in changed)
+        {
+            if (terms.TryGetValue(key, out var current)) current.Confirmed = false;
+        }
+        if (selected && !hadSelection && !headerTermsEdited && eligibleLines.FirstOrDefault(x => selectedLineIds.Contains(x.Id)) is { } first)
+        {
+            var header = HeaderTerms;
+            header.ExchangeRate = first.ExchangeRate; header.TaxId = first.TaxId;
+            header.DiscountPercentage = first.DiscountPercentage; header.DiscountAmount = first.DiscountAmount;
+            header.WithholdingTaxId = first.WithholdingTaxId; header.Confirmed = false;
+        }
+    }
+    private DestinationDocumentTerms GetTerms(WorkflowLineOption line) { var key = (line.PartnerId, Guid.Empty, line.CurrencyId); if (!terms.TryGetValue(key, out var value)) terms[key] = value = new DestinationDocumentTerms { PartnerId = key.Item1, SiteId = key.Item2, CurrencyId = key.Item3, ExchangeRate = line.ExchangeRate, TaxId = line.TaxId, DiscountPercentage = line.DiscountPercentage, DiscountAmount = line.DiscountAmount, WithholdingTaxId = line.WithholdingTaxId, InvoiceDate = DateTime.Today }; return value; }
+    private async Task CreateInvoices(bool submitForReview)
+    {
+        if (saving || readOnly) return;
+        saveAttempt++;
+        if (selectedLineIds.Count > 0 && manualLines.Count > 0) { message = "Choose one invoice entry method. Source lines and manual lines cannot be combined."; isError = true; return; }
+        var group = SelectedGroups.SingleOrDefault();
+        if (!filterCustomerId.HasValue || !filterCurrencyId.HasValue || group == null) { message = "Select a customer, currency and at least one line."; isError = true; return; }
+        if (manualLines.Any(x => !x.ItemId.HasValue || x.Quantity <= 0 || x.UnitPrice < 0)) { message = "Every manual line needs an item, positive quantity and non-negative unit price."; isError = true; return; }
+        var selectedTerms = GetTerms(group.First());
+        selectedTerms.InvoiceFullOrderQuantity = invoiceFullOrderQuantity; selectedTerms.Route = invoiceRoute;
+        if (!selectedTerms.InvoiceDate.HasValue) { message = "Enter an invoice date."; isError = true; return; }
+        saving = true;
+        try
+        {
+            selectedTerms.LineDimensionSets = eligibleLines.Where(x => selectedLineIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.DimensionSetId);
+            message = await Workflow.CreateNormalSalesInvoiceDraftAsync(companyId, filterCustomerId.Value, filterCurrencyId.Value, eligibleLines.Where(x => selectedLineIds.Contains(x.Id)).Select(x => x.Id).ToList(), manualLines.Select(x => new ManualSalesInvoiceLineInput(x.ItemId!.Value, x.UomId, x.UomName, x.Factor, x.Quantity, x.UnitPrice, x.DimensionSetId)).ToList(), selectedTerms, editingId, submitForReview ? (db, id) => Workflow.StageSalesInvoiceAsync(db, id, userId) : null);
+            isError = !string.IsNullOrEmpty(message);
+            if (!isError) { selectedLineIds.Clear(); manualLines.Clear(); terms.Clear(); showCreate = false; await LoadAsync(); message = submitForReview ? "Sales invoice sent to GL review." : "Sales invoice draft saved."; editingId = null; editingNumber = null; }
+        }
+        finally { saving = false; }
+    }
+    private async Task DeleteDraft(Guid id, string number)
+    {
+        if (saving || !await JS.InvokeAsync<bool>("confirm", $"Delete invoice draft {number}? Its source quantities will become available again.")) return;
+        saving = true;
+        try
+        {
+            message = await Workflow.DeleteNormalSalesInvoiceDraftAsync(companyId, id, userId);
+            isError = !string.IsNullOrEmpty(message);
+            if (!isError) { await LoadAsync(); message = $"Invoice draft {number} was deleted and its source quantities released."; }
+        }
+        finally { saving = false; }
+    }
+    private async Task PostInvoice(Guid invoiceId) { if (saving) return; saving = true; try { message = await Workflow.PostSalesInvoiceAsync(invoiceId, userId); isError = !string.IsNullOrEmpty(message); await LoadAsync(); if (!isError) message = "Sales invoice was sent to the GL review queue."; } finally { saving = false; } }
+}

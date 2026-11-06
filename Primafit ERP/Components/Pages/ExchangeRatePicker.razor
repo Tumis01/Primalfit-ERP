@@ -1,6 +1,7 @@
 @using System.Globalization
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
 @inject CurrencyService CurrencyService
 
 @if (IsForeign)
@@ -12,7 +13,7 @@
                 @CurrencyCode
             </div>
             <input type="number"
-                    
+                   min="0.0001" step="0.0001"
                    value="@FormattedRate"
                    @onchange="OnCustomRateChanged"
                    class="input-class w-2/3 text-right font-mono font-bold"
@@ -22,6 +23,12 @@
 
         @if (rates.Count > 0)
         {
+            @if (Searchable)
+            {
+                <SearchableGuidSelect Options="@RateOptions" Value="@selectedRateId" ValueChanged="OnSearchableRateSelected" Placeholder="Search saved exchange rates" Disabled="@Disabled" />
+            }
+            else
+            {
             <select class="input-class text-xs" @onchange="OnSavedRateSelected" disabled="@Disabled" aria-label="Saved exchange rates">
                 <option value="">Choose a saved rate...</option>
                 @foreach (var rate in rates)
@@ -29,8 +36,19 @@
                     <option value="@rate.Id">@rate.Rate.ToString("0.0000", CultureInfo.CurrentCulture) @rate.ExchangeCurrency — @rate.Date.ToString("dd MMM yyyy")</option>
                 }
             </select>
+            }
         }
         <p class="text-[10px] text-slate-400">Choose a dated rate or enter a custom rate. Up to four decimals are stored.</p>
+    </div>
+}
+else
+{
+    <div class="space-y-2">
+        <label class="label">Currency &amp; Rate</label>
+        <div class="flex gap-2">
+            <input type="text" value="@CurrencyCode" readonly aria-label="Document currency" class="input-class w-1/3 bg-slate-100 font-bold text-slate-600" />
+            <input type="number" value="1" readonly aria-label="Base currency exchange rate" class="input-class w-2/3 bg-slate-100 text-right font-mono text-slate-600" />
+        </div>
     </div>
 }
 
@@ -42,6 +60,10 @@
     [Parameter] public decimal CurrentRate { get; set; }
     [Parameter] public EventCallback<decimal> CurrentRateChanged { get; set; }
     [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool Searchable { get; set; }
+    private Guid? selectedRateId;
+    private IReadOnlyCollection<DropdownOption> RateOptions => rates.Select(r => new DropdownOption(r.Id, $"{r.Rate.ToString("0.0000", CultureInfo.CurrentCulture)} {r.ExchangeCurrency}", r.Date.ToString("dd MMM yyyy"))).ToList();
+    private async Task OnSearchableRateSelected(Guid? id) { selectedRateId = id; await OnSavedRateSelected(new ChangeEventArgs { Value = id?.ToString() }); }
 
     private List<CurrencyManagement> rates = new();
     private Guid loadedCompanyId;
@@ -51,12 +73,13 @@
         && !string.IsNullOrWhiteSpace(CurrencyCode)
         && !string.Equals(CurrencyCode.Trim(), CompanyBaseCurrency?.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private string FormattedRate => CurrentRate.ToString("0.00", CultureInfo.CurrentCulture);
+    private string FormattedRate => CurrentRate.ToString("0.####", CultureInfo.InvariantCulture);
 
     protected override async Task OnParametersSetAsync()
     {
         if (!IsForeign || CompanyId == Guid.Empty || CurrencyId == Guid.Empty)
         {
+            if (!Disabled && CurrencyId != Guid.Empty && !IsForeign && CurrentRate != 1m) await CurrentRateChanged.InvokeAsync(1m);
             rates.Clear();
             loadedCompanyId = Guid.Empty;
             loadedCurrencyId = Guid.Empty;
@@ -75,12 +98,14 @@
 
     private async Task OnCustomRateChanged(ChangeEventArgs e)
     {
+        if (Disabled || !IsForeign) return;
         if (TryParseDecimal(e.Value?.ToString(), out var value) && value > 0)
             await CurrentRateChanged.InvokeAsync(Math.Round(value, 4));
     }
 
     private async Task OnSavedRateSelected(ChangeEventArgs e)
     {
+        if (Disabled || !IsForeign) return;
         if (Guid.TryParse(e.Value?.ToString(), out var id))
         {
             var selected = rates.FirstOrDefault(r => r.Id == id);

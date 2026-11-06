@@ -8,6 +8,8 @@ namespace Primafit_ERP.Components.Models
     // =================================────────────────================
     public class PurchaseOrder
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
@@ -18,6 +20,10 @@ namespace Primafit_ERP.Components.Models
 
         [Required]
         public Guid VendorId { get; set; }
+        // Warehouse is the purchasing site used for PO grouping.
+        public Guid? WarehouseId { get; set; }
+        [ForeignKey(nameof(WarehouseId))]
+        public Warehouse? Warehouse { get; set; }
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
         public Project? Project { get; set; }
@@ -39,7 +45,7 @@ namespace Primafit_ERP.Components.Models
         public Guid? TaxGLAccountId { get; set; } 
 
         // Withholding carries across Requests, Purchase Orders and invoices.
-        // These values are copied to VendorBill as an immutable posting snapshot.
+        // These values are copied to PurchaseInvoice as an immutable posting snapshot.
         public Guid? WithholdingTaxId { get; set; }
         public string? WithholdingTaxName { get; set; }
         [Column(TypeName = "decimal(18,4)")]
@@ -82,10 +88,15 @@ namespace Primafit_ERP.Components.Models
             || OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
     }
 
-    public class PurchaseOrderLine
+    public class PurchaseOrderLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid PurchaseOrderId { get; set; }
+        public Guid? PurchaseRequestLineId { get; set; }
+        [ForeignKey(nameof(PurchaseRequestLineId))]
+        public PurchaseRequestLine? PurchaseRequestLine { get; set; }
         public Guid ItemId { get; set; }
         public Guid? UomId { get; set; }
         public string UomName { get; set; } = string.Empty;
@@ -109,13 +120,17 @@ namespace Primafit_ERP.Components.Models
     // =================================────────────────================
     public class GoodsReceipt
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
         public Guid CompanyId { get; set; }
 
-        [Required]
-        public Guid PurchaseOrderId { get; set; }
+        // Kept nullable for legacy receipts. New receipts can draw lines from
+        // multiple POs; their line-level PurchaseOrderLineId is authoritative.
+        public Guid? PurchaseOrderId { get; set; }
+        public Guid? WarehouseId { get; set; }
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
         public Project? Project { get; set; }
@@ -132,11 +147,20 @@ namespace Primafit_ERP.Components.Models
         public List<GoodsReceiptLine> Lines { get; set; } = new();
     }
 
-    public class GoodsReceiptLine
+    public class GoodsReceiptLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid GoodsReceiptId { get; set; }
-        public Guid PurchaseOrderLineId { get; set; }
+        public Guid? PurchaseOrderLineId { get; set; }
+        [ForeignKey(nameof(PurchaseOrderLineId))]
+        public PurchaseOrderLine? PurchaseOrderLine { get; set; }
+        public Guid? PurchaseInvoiceLineId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceLineId))]
+        public PurchaseInvoiceLine? PurchaseInvoiceLine { get; set; }
+        // Original identifier retained when a legacy receipt's source line is missing.
+        public Guid? LegacyPurchaseOrderLineId { get; set; }
         public Guid? UomId { get; set; }
         public string UomName { get; set; } = string.Empty;
         [Column(TypeName = "decimal(18,4)")]
@@ -148,8 +172,10 @@ namespace Primafit_ERP.Components.Models
     // =================================────────────────================
     // 3. THE FINANCIAL LEDGER LIABILITIES (Unchanged for Backwards Compatibility)
     // =================================================================
-    public class VendorBill
+    public class PurchaseInvoice
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -171,8 +197,14 @@ namespace Primafit_ERP.Components.Models
 
         public Guid AccountsPayableGlId { get; set; }
         public bool IsDirectBill { get; set; } = false;
+        public string PurchaseInvoiceNumber { get; set; } = string.Empty;
+        public string? SupplierInvoiceNumber { get; set; }
         public string ExternalInvoiceNumber { get; set; } = string.Empty;
         public DateTime BillDate { get; set; } = DateTime.Now;
+        public DateTime InvoiceDate { get; set; } = DateTime.Now;
+        public Guid? WarehouseId { get; set; }
+        [ForeignKey(nameof(WarehouseId))]
+        public Warehouse? Warehouse { get; set; }
         public Guid CurrencyId { get; set; }
         [ForeignKey(nameof(CurrencyId))]
         public virtual Currency? Currency { get; set; }
@@ -191,6 +223,12 @@ namespace Primafit_ERP.Components.Models
         public string? Description { get; set; }
         public Guid? TaxId { get; set; }
         public Guid? TaxGLAccountId { get; set; }
+        public Guid? GoodsReceiptClearingGlAccountId { get; set; }
+        public Guid? DiscountGlAccountId { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DiscountPercentage { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DiscountAmount { get; set; }
 
         // Invoice-level withholding snapshot. The payment engine uses this
         // snapshot so historical bills remain stable if setup is later changed.
@@ -211,7 +249,7 @@ namespace Primafit_ERP.Components.Models
         public Guid? OverrideExpenseGlAccountId { get; set; }
         public Guid? OverrideAccountsPayableGlAccountId { get; set; }
 
-        public List<VendorBillLine> Lines { get; set; } = new();
+        public List<PurchaseInvoiceLine> Lines { get; set; } = new();
         public bool IsPosted { get; set; } = false;
         public DateTime? PostedDate { get; set; }
         public Guid? GLBatchId { get; set; }
@@ -233,15 +271,17 @@ namespace Primafit_ERP.Components.Models
         }
     }
 
-    public class VendorBillLine
+    public class PurchaseInvoiceLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public Guid VendorBillId { get; set; }
-        [ForeignKey(nameof(VendorBillId))]
-        public virtual VendorBill? VendorBill { get; set; }
+        public Guid PurchaseInvoiceId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceId))]
+        public virtual PurchaseInvoice? PurchaseInvoice { get; set; }
 
         public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
@@ -260,6 +300,12 @@ namespace Primafit_ERP.Components.Models
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal UnitCostBilled { get; set; }
+        public Guid? GoodsReceiptLineId { get; set; }
+        [ForeignKey(nameof(GoodsReceiptLineId))]
+        public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+        public Guid? PurchaseOrderLineId { get; set; }
+        [ForeignKey(nameof(PurchaseOrderLineId))]
+        public PurchaseOrderLine? PurchaseOrderLine { get; set; }
 
         [NotMapped]
         public decimal LineTotal => Math.Round(QuantityBilled * UnitCostBilled, 2, MidpointRounding.AwayFromZero);
@@ -270,13 +316,15 @@ namespace Primafit_ERP.Components.Models
     // =================================================================
     public class VendorPayment
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
         [Required]
-        public Guid VendorBillId { get; set; }
-        [ForeignKey(nameof(VendorBillId))]
-        public virtual VendorBill? VendorBill { get; set; }
+        public Guid PurchaseInvoiceId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceId))]
+        public virtual PurchaseInvoice? PurchaseInvoice { get; set; }
 
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
@@ -349,7 +397,8 @@ namespace Primafit_ERP.Components.Models
         DraftInvoice = 3,       
         Invoiced = 4,           
         Closed = 5,             
-        Cancelled = 6          
+        Cancelled = 6,
+        Received = 7
     }
 
     public enum BillMatchStatus

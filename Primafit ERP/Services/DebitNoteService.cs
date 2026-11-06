@@ -50,8 +50,6 @@ namespace Primafit_ERP.Services
                          && (o.IsInvoicePosted || validStatuses.Contains(o.Status)))
                 .ToListAsync();
 
-            if (!invoices.Any()) return new List<PurchaseOrder>();
-
             var invoiceIds = invoices.Select(o => o.Id).ToList();
 
             // Sum only POSTED debit notes for the invoice
@@ -59,7 +57,7 @@ namespace Primafit_ERP.Services
                 .Include(dnl => dnl.Header)
                 .Where(dnl => invoiceIds.Contains(dnl.Header!.PurchaseOrderId ?? Guid.Empty)
                            && dnl.Header.Status == DebitNoteStatus.Posted)
-                .GroupBy(dnl => dnl.PurchaseOrderLineId)
+                .Where(dnl => dnl.PurchaseOrderLineId.HasValue).GroupBy(dnl => dnl.PurchaseOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var eligible = new List<PurchaseOrder>();
@@ -78,7 +76,19 @@ namespace Primafit_ERP.Services
                 if (hasAdjustable) eligible.Add(inv);
             }
 
+            var documents = await ctx.PurchaseInvoices.AsNoTracking().Include(x => x.Lines)
+                .Where(x => x.CompanyId == companyId && x.VendorId == vendorId && x.IsPosted && x.GLBatchId.HasValue
+                    && ctx.GLBatches.Any(b => b.Id == x.GLBatchId.Value && b.CompanyId == companyId && b.Status == BatchStatus.Posted)).ToListAsync();
+            foreach (var doc in documents)
+                if (await HasAdjustablePurchaseLineAsync(ctx, doc)) eligible.Add(new PurchaseOrder { Id = doc.Id, CompanyId = doc.CompanyId, VendorId = doc.VendorId,
+                    OrderNumber = doc.PurchaseInvoiceNumber, OrderDate = doc.InvoiceDate, CurrencyId = doc.CurrencyId, ExchangeRate = doc.ExchangeRate });
             return eligible.OrderByDescending(o => o.OrderDate).ToList();
+        }
+
+        private static async Task<bool> HasAdjustablePurchaseLineAsync(AppDbContext db, PurchaseInvoice invoice)
+        {
+            foreach (var line in invoice.Lines) { var balance = await InvoiceCorrectionBalances.PurchaseAsync(db, line); if (balance.Invoiced > balance.PriorCorrected) return true; }
+            return false;
         }
 
         // =========================================================================
@@ -88,6 +98,7 @@ namespace Primafit_ERP.Services
         public async Task<DebitNote> CreateStockAdjustmentDraftAsync(Guid invoiceOrderId, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.PurchaseInvoices.AnyAsync(x => x.Id == invoiceOrderId)) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).CreateDebitAsync(invoiceOrderId, userId);
             var inv = await ctx.PurchaseOrders
                 .Include(s => s.Lines)
                 .Include(s => s.Currency)
@@ -99,7 +110,7 @@ namespace Primafit_ERP.Services
             var previousDebits = await ctx.DebitNoteLines
                 .Include(dnl => dnl.Header)
                 .Where(dnl => dnl.Header!.PurchaseOrderId == invoiceOrderId && dnl.Header.Status == DebitNoteStatus.Posted)
-                .GroupBy(dnl => dnl.PurchaseOrderLineId)
+                .Where(dnl => dnl.PurchaseOrderLineId.HasValue).GroupBy(dnl => dnl.PurchaseOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var dn = new DebitNote
@@ -128,7 +139,7 @@ namespace Primafit_ERP.Services
                 if (maxAdjustable > 0.001m)
                 {
                     dn.Lines.Add(new DebitNoteLine
-                    {
+                    { DimensionSetId = line.DimensionSetId,
                         Id = Guid.NewGuid(),
                         HeaderId = dn.Id,
                         PurchaseOrderLineId = line.Id,
@@ -158,10 +169,12 @@ namespace Primafit_ERP.Services
                 .Include(d => d.Lines).ThenInclude(l => l.Item)
                 .Include(d => d.Vendor)
                 .Include(d => d.PurchaseOrder).ThenInclude(o => o.Lines)
+                .Include(d => d.PurchaseInvoice).Include(d => d.Lines).ThenInclude(l => l.PurchaseInvoiceLine)
                 .Include(d => d.Currency)
                 .Include(d => d.CustomTransactionType)
                 .FirstOrDefaultAsync(d => d.Id == id && d.CompanyId == companyId);
 
+            if (dn?.PurchaseInvoiceId != null) await NewInvoiceCorrectionService.EnrichDebitAsync(ctx, dn);
             if (dn != null && dn.PurchaseOrder != null)
             {
                 var historicalDebitsMap = await ctx.DebitNoteLines
@@ -169,16 +182,20 @@ namespace Primafit_ERP.Services
                     .Where(dnl => dnl.Header!.PurchaseOrderId == dn.PurchaseOrderId
                                && dnl.Header.Id != dn.Id
                                && dnl.Header.Status == DebitNoteStatus.Posted)
-                    .GroupBy(dnl => dnl.PurchaseOrderLineId)
+                    .Where(dnl => dnl.PurchaseOrderLineId.HasValue).GroupBy(dnl => dnl.PurchaseOrderLineId!.Value)
                     .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
+                var gross = dn.PurchaseOrder.Lines.Sum(x => x.QuantityOrdered * x.UnitCost);
+                var discountRate = dn.PurchaseOrder.DiscountPercentage > 0 ? dn.PurchaseOrder.DiscountPercentage / 100m : (gross > 0 ? Math.Min(dn.PurchaseOrder.DiscountAmount, gross) / gross : 0);
+                var taxRate = dn.PurchaseOrder.TaxId.HasValue ? await ctx.Taxes.Where(x => x.Id == dn.PurchaseOrder.TaxId && x.CompanyId == dn.CompanyId).Select(x => (decimal?)x.Per).FirstOrDefaultAsync() ?? 0 : 0;
                 foreach (var line in dn.Lines)
                 {
+                    line.ReversalDiscountRate = discountRate; line.ReversalTaxRate = (1 - discountRate) * taxRate / 100m;
                     var match = dn.PurchaseOrder.Lines.FirstOrDefault(pol => pol.Id == line.PurchaseOrderLineId);
                     if (match != null)
                     {
                         line.OriginalPurchasedQty = match.QuantityOrdered;
-                        decimal prevDebited = historicalDebitsMap.TryGetValue(line.PurchaseOrderLineId, out var q) ? q : 0;
+                        decimal prevDebited = historicalDebitsMap.TryGetValue(line.PurchaseOrderLineId.GetValueOrDefault(), out var q) ? q : 0;
                         line.MaxReturnableQty = Math.Max(0, match.QuantityOrdered - prevDebited);
                     }
                 }
@@ -193,11 +210,14 @@ namespace Primafit_ERP.Services
 
         public async Task<string> PostStockDebitNoteAsync(Guid dnId, Guid userId)
         {
+            await using (var probe = await _dbFactory.CreateDbContextAsync())
+                if (await probe.DebitNotes.AnyAsync(x => x.Id == dnId && x.PurchaseInvoiceId.HasValue)) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).PostDebitAsync(dnId, userId);
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var tx = await ctx.Database.BeginTransactionAsync();
             try
             {
                 var dn = await ctx.DebitNotes
+                    .FromSqlInterpolated($"SELECT * FROM [DebitNotes] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {dnId}")
                     .Include(d => d.Lines).ThenInclude(l => l.Item)
                     .Include(d => d.Vendor)
                     .Include(d => d.PurchaseOrder).ThenInclude(po => po.Lines)
@@ -210,11 +230,37 @@ namespace Primafit_ERP.Services
                         ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == dn.GlBatchId.Value && b.CompanyId == dn.CompanyId)
                         : null;
                     if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch?.Status == BatchStatus.Ready) return "Document is already awaiting General Ledger review.";
                     if (existingBatch == null) return "Document is already locked and has no review batch.";
                 }
                 if (dn.PurchaseOrder == null) return "Parent purchase invoice reference missing.";
 
                 var inv = dn.PurchaseOrder;
+                if (inv.CompanyId != dn.CompanyId || inv.VendorId != dn.VendorId || inv.CurrencyId != dn.CurrencyId)
+                    return "The debit note supplier, currency and company must match its source.";
+                await ctx.PurchaseOrders.FromSqlInterpolated($"SELECT * FROM [PurchaseOrders] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {inv.Id}").Select(x => x.Id).ToListAsync();
+                var selected = dn.Lines.Where(x => x.Quantity > 0).ToList();
+                if (dn.Lines.Any(x => x.Quantity < 0) || selected.Count == 0 || selected.Where(x => x.PurchaseOrderLineId.HasValue).GroupBy(x => x.PurchaseOrderLineId!.Value).Any(x => x.Count() > 1))
+                    return "Select distinct source lines with positive correction quantities.";
+                var prior = await ctx.DebitNoteLines.Where(x => x.HeaderId != dn.Id && x.Header!.PurchaseOrderId == inv.Id && x.Header.Status != DebitNoteStatus.Void)
+                    .Where(x => x.PurchaseOrderLineId.HasValue).GroupBy(x => x.PurchaseOrderLineId!.Value).Select(x => new { Id = x.Key, Qty = x.Sum(y => y.Quantity) }).ToDictionaryAsync(x => x.Id, x => x.Qty);
+                var sourceIds = selected.Where(x => x.PurchaseOrderLineId.HasValue).Select(x => x.PurchaseOrderLineId!.Value).ToList();
+                await ctx.PurchaseOrderLines.FromSqlRaw("SELECT * FROM [PurchaseOrderLines] WITH (UPDLOCK, HOLDLOCK)")
+                    .Where(x => sourceIds.Contains(x.Id)).Select(x => x.Id).ToListAsync();
+                var received = await ctx.GoodsReceiptLines.Where(x => x.PurchaseOrderLineId.HasValue && sourceIds.Contains(x.PurchaseOrderLineId.Value))
+                    .GroupBy(x => x.PurchaseOrderLineId!.Value).Select(x => new { Id = x.Key, Qty = x.Sum(y => y.QuantityReceived) }).ToDictionaryAsync(x => x.Id, x => x.Qty);
+                var reserved = await ctx.GoodsReceiptDraftLines.Where(x => x.PurchaseOrderLineId.HasValue && sourceIds.Contains(x.PurchaseOrderLineId.Value))
+                    .GroupBy(x => x.PurchaseOrderLineId!.Value).Select(x => new { Id = x.Key, Qty = x.Sum(y => y.QuantityReceived) }).ToDictionaryAsync(x => x.Id, x => x.Qty);
+                foreach (var line in selected)
+                {
+                    var source = inv.Lines.FirstOrDefault(x => x.Id == line.PurchaseOrderLineId);
+                    if (source == null || source.ItemId != line.ItemId || source.UnitCost != line.UnitCost)
+                        return "Each debit line must match its source item and unit cost.";
+                    if (line.Quantity + prior.GetValueOrDefault(line.PurchaseOrderLineId.GetValueOrDefault()) > source.QuantityOrdered)
+                        return $"The correction for {line.Item?.Name ?? "this item"} exceeds its remaining invoice quantity.";
+                    if (reserved.GetValueOrDefault(source.Id) > Math.Max(0m, source.QuantityOrdered - received.GetValueOrDefault(source.Id) - prior.GetValueOrDefault(source.Id) - line.Quantity))
+                        return $"The correction for {line.Item?.Name ?? "this item"} conflicts with quantities reserved by receipt drafts.";
+                }
 
                 TransactionGlMapping? customMapping = null;
                 if (dn.CustomTransactionTypeId.HasValue)
@@ -300,7 +346,7 @@ namespace Primafit_ERP.Services
 
                     // Credit: Clearing/Expense/Inventory
                     glLines.Add(new GLJournalLine
-                    {
+                    { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,
                         SegCoaId = targetReversalAccount,
                         Debit = 0,
                         Credit = lineGrossBase,
@@ -322,7 +368,7 @@ namespace Primafit_ERP.Services
                     if (lineDiscountBase > 0)
                     {
                         glLines.Add(new GLJournalLine
-                        {
+                        { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,
                             SegCoaId = discountAccount,
                             Debit = lineDiscountBase,
                             Credit = 0,
@@ -342,7 +388,7 @@ namespace Primafit_ERP.Services
                         lineTaxBase = Math.Round(lineNetBase * (taxPer / 100), 2);
 
                         glLines.Add(new GLJournalLine
-                        {
+                        { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,
                             SegCoaId = taxGlAccountId,
                             Debit = 0,
                             Credit = lineTaxBase,
@@ -424,11 +470,32 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(d => d.Id == note.Id);
 
             if (existing == null) return "Debit note tracking record not found.";
+            if (existing.PurchaseInvoiceId.HasValue) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).SaveDebitAsync(note);
             var existingBatch = existing.GlBatchId.HasValue
                 ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
                 : null;
             if (existing.Status == DebitNoteStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
                 return "Cannot edit locked records.";
+            if (existingBatch?.Status == BatchStatus.Ready) return "Cannot edit a debit note while it is awaiting General Ledger review.";
+
+            if (existing.Status == DebitNoteStatus.Void) return "A void note cannot be edited.";
+            if (existing.PurchaseOrder == null) return "The source invoice is unavailable.";
+            if (note.Lines.Count != existing.Lines.Count || note.Lines.Select(x => x.Id).Distinct().Count() != note.Lines.Count)
+                return "Invoice items cannot be added or removed from this note.";
+            var prior = await ctx.DebitNoteLines.Where(x => x.HeaderId != existing.Id && x.Header!.PurchaseOrderId == existing.PurchaseOrderId && x.Header.Status != DebitNoteStatus.Void)
+                .Where(x => x.PurchaseOrderLineId.HasValue).GroupBy(x => x.PurchaseOrderLineId!.Value)
+                .ToDictionaryAsync(x => x.Key, x => x.Sum(y => y.Quantity));
+            foreach (var input in note.Lines)
+            {
+                var saved = existing.Lines.SingleOrDefault(x => x.Id == input.Id);
+                if (saved == null) return "The invoice items have changed. Reload this note.";
+                var source = existing.PurchaseOrder.Lines.SingleOrDefault(x => x.Id == saved!.PurchaseOrderLineId);
+                if (saved == null || source == null || input.PurchaseOrderLineId != saved.PurchaseOrderLineId || input.ItemId != source.ItemId
+                    || input.UnitCost != source.UnitCost || input.UomId != source.UomId || input.UomConversionFactor != source.UomConversionFactor)
+                    return "Only the reversal quantity can be changed. Invoice items, prices and units stay fixed.";
+                if (input.Quantity < 0 || input.Quantity > Math.Max(0, source.QuantityOrdered - prior.GetValueOrDefault(source.Id)))
+                    return "The reversal quantity exceeds the available invoice quantity.";
+            }
 
             existing.Date = note.Date;
             existing.TransactionDateTime = note.TransactionDateTime;
@@ -437,7 +504,6 @@ namespace Primafit_ERP.Services
             existing.OverrideAccountsPayableGlAccountId = note.OverrideAccountsPayableGlAccountId;
             existing.OverrideGrIrClearingGlAccountId = note.OverrideGrIrClearingGlAccountId;
 
-            ctx.DebitNoteLines.RemoveRange(existing.Lines);
 
             decimal totalNetDebitForeign = 0;
             decimal originalSubTotalForeign = existing.PurchaseOrder?.Lines.Sum(l => l.LineTotal) ?? 0;
@@ -451,20 +517,7 @@ namespace Primafit_ERP.Services
 
             foreach (var line in note.Lines)
             {
-                ctx.DebitNoteLines.Add(new DebitNoteLine
-                {
-                    Id = Guid.NewGuid(),
-                    HeaderId = existing.Id,
-                    ItemId = line.ItemId,
-                    UomId = line.UomId,
-                    UomName = line.UomName,
-                    UomConversionFactor = line.UomConversionFactor,
-                    PurchaseOrderLineId = line.PurchaseOrderLineId,
-                    Quantity = line.Quantity,
-                    UnitCost = line.UnitCost,
-                    OriginalPurchasedQty = line.OriginalPurchasedQty,
-                    MaxReturnableQty = line.MaxReturnableQty
-                });
+                existing.Lines.Single(x => x.Id == line.Id).Quantity = line.Quantity;
 
                 decimal lineGross = line.Quantity * line.UnitCost;
                 decimal lineDisc = 0;

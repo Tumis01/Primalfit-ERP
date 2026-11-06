@@ -9,7 +9,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject AuthenticationStateProvider AuthStateProvider
 
-<div class="space-y-6">
+<div class="report-viewer space-y-6" aria-busy="@IsLoading">
     <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">@Title</h1>
@@ -19,21 +19,21 @@
         <div class="flex flex-wrap items-center gap-3">
             @if (ShowDateRange)
             {
-                <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1">
-                    <input type="date" @bind="StartDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
+                <div class="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1">
+                    <input type="date" @bind="StartDate" disabled="@IsLoading" aria-label="From date" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
                     <span class="text-slate-400 text-xs">to</span>
-                    <input type="date" @bind="EndDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
+                    <input type="date" @bind="EndDate" disabled="@IsLoading" aria-label="To date" class="bg-transparent text-sm font-medium text-slate-700 outline-none px-2" />
                 </div>
             }
             else if (ShowAsOfDate)
             {
                 <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1 px-3">
                     <span class="text-slate-400 text-xs font-bold uppercase">As Of:</span>
-                    <input type="date" @bind="EndDate" class="bg-transparent text-sm font-medium text-slate-700 outline-none" />
+                    <input type="date" @bind="EndDate" disabled="@IsLoading" aria-label="As of date" class="bg-transparent text-sm font-medium text-slate-700 outline-none" />
                 </div>
             }
 
-            <button @onclick="RunReportAsync" disabled="@IsLoading" class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
+            <button @onclick="RunReportAsync" disabled="@(IsLoading || CompanyId == Guid.Empty)" class="px-5 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg shadow hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2">
                 @if (IsLoading)
                 {
                     <svg class="h-4 w-4 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -51,11 +51,18 @@
         </div>
     </div>
 
+    @if (FilterContent != null)
+    {
+        <fieldset disabled="@IsLoading" class="min-w-0 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">@FilterContent</fieldset>
+    }
+    @if (!string.IsNullOrWhiteSpace(reportError)) { <p role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">@reportError</p> }
+    @if (IsLoading) { <p role="status" class="p-6 text-center text-sm text-slate-500">Preparing report…</p> }
+    else if (ReportData == null && ShowInitialState && reportError.Length == 0) { <p role="status" class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">Choose your filters and run the report to view posted activity.</p> }
     @if (ReportData != null)
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
             
-            <div class="bg-slate-50/50 border-b border-slate-100 p-4 flex justify-between items-center">
+            <div class="bg-slate-50/50 border-b border-slate-100 p-4 flex flex-wrap gap-4 justify-between items-center">
                 <div class="flex items-center gap-3 text-xs font-bold text-slate-500 uppercase tracking-wider">
                     <span>Data Preview</span>
                     @if (!string.IsNullOrWhiteSpace(ReportData.Currency))
@@ -64,6 +71,7 @@
                     }
                 </div>
                 <div class="flex gap-2">
+                    @if (ShowCsvExport) { <button @onclick="DownloadCsv" disabled="@IsLoading" class="rounded border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-600">Export CSV</button> }
                     <button @onclick="() => Download(true)" disabled="@isDownloadingPdf" class="flex items-center gap-2 px-4 py-1.5 bg-white border border-slate-200 text-rose-600 text-xs font-bold rounded hover:bg-rose-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
                         @if (isDownloadingPdf)
                         {
@@ -90,30 +98,36 @@
                 </div>
             </div>
 
-            <div class="overflow-x-auto">
+            <div class="border-b border-slate-100 px-6 py-4"><h2 class="text-lg font-bold text-slate-900">@ReportData.CompanyName · @ReportData.ReportName</h2><p class="mt-1 text-xs text-slate-500 whitespace-pre-wrap">@ReportData.ReportingPeriod</p></div>
+            <div class="report-table-scroll" role="region" aria-label="Report results" tabindex="0">
                 <table class="w-full text-left text-sm whitespace-nowrap">
                     <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-600 border-b border-slate-200">
                         <tr>
                             @foreach (var header in ReportData.Headers)
                             {
-                                <th class="px-6 py-4">@header</th>
+                                <th scope="col" class="px-6 py-4 @(IsNumericHeader(header) ? "text-right" : "")">@header</th>
                             }
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        @foreach (var row in ReportData.Rows)
+                        @foreach (var row in VisibleRows)
                         {
                             bool isSummary = row.Any(c => c != null && (c.Contains("TOTAL") || c.Contains("SUMMARY") || c.Contains("PROFIT")));
                             <tr class="hover:bg-slate-50 transition-colors @(isSummary ? "bg-slate-50/80 font-bold text-slate-900" : "text-slate-600")">
-                                @foreach (var cell in row)
+                                @for (var cellIndex = 0; cellIndex < row.Count; cellIndex++)
                                 {
-                                    <td class="px-6 py-3">@cell</td>
+                                    <td class="px-6 py-3 @(cellIndex < ReportData.Headers.Count && IsNumericHeader(ReportData.Headers[cellIndex]) ? "text-right font-mono tabular-nums" : "")">@row[cellIndex]</td>
                                 }
                             </tr>
                         }
+                        @if (ReportData.Rows.Count == 0) { <tr><td colspan="@ReportData.Headers.Count" class="px-6 py-12 text-center text-slate-500">No posted activity matches these filters.</td></tr> }
                     </tbody>
                 </table>
             </div>
+            @if (Paginate && ReportData.Rows.Count > 0)
+            {
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-4 text-xs text-slate-500"><span>@ReportData.Rows.Count rows · Page @(page) of @PageCount</span><nav aria-label="Report pagination" class="flex gap-2"><button type="button" @onclick="() => page--" disabled="@(page <= 1)" class="rounded-lg border px-3 py-2 disabled:opacity-40">Previous page</button><button type="button" @onclick="() => page++" disabled="@(page >= PageCount)" class="rounded-lg border px-3 py-2 disabled:opacity-40">Next page</button></nav></div>
+            }
         </div>
     }
 </div>
@@ -124,14 +138,26 @@
     [Parameter] public bool ShowDateRange { get; set; } = false;
     [Parameter] public bool ShowAsOfDate { get; set; } = false;
     [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public RenderFragment? FilterContent { get; set; }
+    [Parameter] public bool ShowCsvExport { get; set; }
+    [Parameter] public bool ShowInitialState { get; set; }
+    [Parameter] public bool Paginate { get; set; }
     
     [Parameter] public Func<DateOnly, DateOnly, Task<StandardReportData>> FetchData { get; set; }
 
-    public DateOnly StartDate { get; set; } = new DateOnly(DateTime.Today.Year, 1, 1);
-    public DateOnly EndDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly startDate = new(DateTime.Today.Year, 1, 1), endDate = DateOnly.FromDateTime(DateTime.Today);
+    public DateOnly StartDate { get => startDate; set { if (startDate != value) { startDate = value; Invalidate(); } } }
+    public DateOnly EndDate { get => endDate; set { if (endDate != value) { endDate = value; Invalidate(); } } }
     
     private StandardReportData? ReportData;
     private bool IsLoading = false;
+    private string reportError = "";
+    private int page = 1;
+    private const int PageSize = 50;
+    private int PageCount => Math.Max(1, ((ReportData?.Rows.Count ?? 0) + PageSize - 1) / PageSize);
+    private IEnumerable<List<string>> VisibleRows => ReportData == null ? Enumerable.Empty<List<string>>() : Paginate ? ReportData.Rows.Skip((page - 1) * PageSize).Take(PageSize) : ReportData.Rows;
+    public void Invalidate() { ReportData = null; reportError = ""; page = 1; }
+    private static bool IsNumericHeader(string header) => new[] { "Amount", "Balance", "Debit", "Credit", "Total", "Quantity", "Price", "Cost" }.Any(word => header.Contains(word, StringComparison.OrdinalIgnoreCase));
 
     // Loading flags for downloads
     private bool isDownloadingPdf = false;
@@ -139,31 +165,35 @@
 
     private async Task RunReportAsync()
     {
-        if (FetchData == null) return;
+        if (FetchData == null || IsLoading || CompanyId == Guid.Empty) return;
+        Invalidate();
+        if (ShowDateRange && StartDate > EndDate) { reportError = "The start date must be on or before the end date."; return; }
         IsLoading = true;
         try
         {
-            ReportData = await FetchData(StartDate, EndDate);
+            var result = await FetchData(StartDate, EndDate);
 
-            if (ReportData != null)
+            if (result != null)
             {
                 var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-                ReportData.GeneratedBy = authState.User.Identity?.Name ?? "System Administrator";
-                ReportData.DateGenerated = DateTime.Now;
+                result.GeneratedBy = authState.User.Identity?.Name ?? "System Administrator";
+                result.DateGenerated = DateTime.Now;
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 var company = await ctx.CompanyDetails.FirstOrDefaultAsync(c => c.CompanyDetailsId == CompanyId);
 
                 if (company != null)
                 {
-                    ReportData.CompanyName = company.CompanyName;
-                    ReportData.Currency = company.BaseCurrency?.Trim() ?? string.Empty;
+                    result.CompanyName = company.CompanyName;
+                    result.Currency = company.BaseCurrency?.Trim() ?? string.Empty;
                 }
             }
+            ReportData = result;
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+            ReportData = null;
+            reportError = ex is ArgumentException ? ex.Message : "The report could not be loaded. Please try again.";
         }
         finally
         {
@@ -171,9 +201,27 @@
         }
     }
 
+    private async Task DownloadCsv()
+    {
+        if (ReportData == null || IsLoading) return;
+        static string Cell(string text) {
+            if (text.Length > 0 && "=+-@\t\r\n".Contains(text[0])) text = "'" + text;
+            return "\"" + text.Replace("\"", "\"\"") + "\"";
+        }
+        var csv = new System.Text.StringBuilder();
+        csv.AppendLine(string.Join(",", ReportData.Headers.Select(Cell)));
+        foreach (var row in ReportData.Rows) csv.AppendLine(string.Join(",", row.Select((cell, index) =>
+            index < ReportData.Headers.Count && IsNumericHeader(ReportData.Headers[index]) && decimal.TryParse(cell, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var number)
+                ? number.ToString(System.Globalization.CultureInfo.InvariantCulture) : Cell(cell))));
+        await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(csv.ToString())).ToArray());
+        using var reference = new DotNetStreamReference(stream);
+        await JS.InvokeVoidAsync("downloadFileFromStream", $"{ReportData.ReportName.Replace(" ", "_")}.csv", reference);
+    }
+
     private async Task Download(bool isPdf)
     {
-        if (ReportData == null) return;
+        var snapshot = ReportData;
+        if (snapshot == null || IsLoading) return;
         
         // Prevent clicking while another download is happening
         if (isDownloadingPdf || isDownloadingExcel) return;
@@ -186,11 +234,11 @@
             // Give Blazor a fraction of a second to render the UI spinner before locking the thread
             await Task.Delay(50);
 
-            byte[] fileBytes = isPdf ? Exporter.GeneratePdf(ReportData) : Exporter.GenerateExcel(ReportData);
+            byte[] fileBytes = isPdf ? Exporter.GeneratePdf(snapshot) : Exporter.GenerateExcel(snapshot);
             string extension = isPdf ? ".pdf" : ".xlsx";
             string mimeType = isPdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
             
-            string safeName = ReportData.ReportName.Replace(" ", "_").Replace("/", "-");
+            string safeName = snapshot.ReportName.Replace(" ", "_").Replace("/", "-");
             string fileName = $"{safeName}_{DateTime.Now:yyyyMMdd}{extension}";
 
             var base64 = Convert.ToBase64String(fileBytes);

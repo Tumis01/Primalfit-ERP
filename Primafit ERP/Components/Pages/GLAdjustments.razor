@@ -118,7 +118,7 @@
         </div>
 
         <div class="md:col-span-3">
-            <ProjectSelect @bind-Value="selectedProjectId" Projects="@projects" />
+            <DimensionSelect CompanyId="@companyId" @bind-Value="selectedDimensionSetId" />
         </div>
     </div>
 
@@ -126,7 +126,7 @@
     {
         <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible animate-in slide-in-from-bottom-4 p-6 space-y-6 relative z-10" style="isolation: isolate;">
 
-            
+
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
 
@@ -233,7 +233,7 @@
     private List<SegChartOfAccount> coaList = new();
     private List<TransactionGlMapping> mappingsList = new();
     private List<Project> projects = new();
-    private Guid? selectedProjectId;
+    private Guid? selectedDimensionSetId;
 
     private TransactionGlMapping? selectedMapping;
     private Guid inputDebitGlId = Guid.Empty;
@@ -273,7 +273,7 @@
         inputCreditGlId = Guid.Empty;
         adjustmentValue = 0;
         narrationString = string.Empty;
-        selectedProjectId = null;
+        selectedDimensionSetId = null;
         templateSearchQuery = string.Empty;
         isDropdownOpen = false;
     }
@@ -323,8 +323,8 @@
         {
             var lines = new List<GLJournalLine>
             {
-                new() { SegCoaId = finalDebitId, Debit = adjustmentValue, Credit = 0, ProjectId = selectedProjectId, Reference = narrationString },
-                new() { SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, ProjectId = selectedProjectId, Reference = narrationString }
+                new() { SegCoaId = finalDebitId, Debit = adjustmentValue, Credit = 0, DimensionSetId = selectedDimensionSetId, Reference = narrationString },
+                new() { SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, DimensionSetId = selectedDimensionSetId, Reference = narrationString }
             };
 
             SequenceTargetType? numberingTarget = selectedMapping!.TransactionType switch

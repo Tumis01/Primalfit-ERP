@@ -1,0 +1,9 @@
+<label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+    Currency
+    <input type="text" value="@Code" readonly aria-readonly="true" aria-label="Document currency" placeholder="@Placeholder"
+           class="mt-1 w-full rounded-xl border border-slate-200 bg-slate-100 p-2.5 text-sm font-bold text-slate-700 outline-none" />
+</label>
+@code {
+    [Parameter] public string? Code { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Select a customer or supplier";
+}

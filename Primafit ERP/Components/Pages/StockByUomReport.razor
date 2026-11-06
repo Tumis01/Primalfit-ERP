@@ -211,7 +211,7 @@
             .Select(x => new WarehouseOption(x.Id, x.Name))
             .ToListAsync();
 
-        var items = await ctx.Items
+        var items = await ctx.Items.Include(x => x.UomConversions)
             .AsNoTracking()
             .Include(x => x.PrimaryUom)
             .Where(x => x.CompanyId == companyId && !x.IsService)
@@ -220,17 +220,6 @@
             .AsNoTracking()
             .Where(x => x.CompanyId == companyId)
             .ToDictionaryAsync(x => x.Id, x => x.Name);
-        var primaryUomIds = items.Values
-            .Select(item => item.UomId ?? uoms.FirstOrDefault(x =>
-                string.Equals(x.Value, item.UoM, StringComparison.OrdinalIgnoreCase)).Key)
-            .Where(id => id != Guid.Empty)
-            .Distinct()
-            .ToList();
-        var conversionRules = await ctx.UomConversionRules
-            .AsNoTracking()
-            .Where(x => x.CompanyId == companyId && x.IsActive && primaryUomIds.Contains(x.FromUomId))
-            .OrderBy(x => x.ToUomId)
-            .ToListAsync();
         var warehouseMap = warehouses.ToDictionary(x => x.Id, x => x.Name);
 
         var stockQuery = ctx.StockLedgers
@@ -257,7 +246,7 @@
         {
             if (!items.TryGetValue(position.ItemId, out var item)) continue;
 
-            var options = GetUomOptions(item, conversionRules, uoms).ToList();
+            var options = GetUomOptions(item, uoms).ToList();
             if (!options.Any())
                 options.Add(new UomOption(Guid.Empty, string.IsNullOrWhiteSpace(item.UoM) ? "Primary" : item.UoM, 1m, true));
 
@@ -295,7 +284,6 @@
 
     private static IEnumerable<UomOption> GetUomOptions(
         Item item,
-        IEnumerable<UomConversionRule> conversionRules,
         IReadOnlyDictionary<Guid, string> uoms)
     {
         var options = new List<UomOption>();
@@ -329,23 +317,21 @@
                 true));
         }
 
-        // Equivalent UOM rows are inherited directly from the selected primary UOM.
-        var configuredLines = conversionRules
+        var configuredLines = item.UomConversions
             .Where(x => x.IsActive &&
                         primaryUomId.HasValue &&
-                        x.FromUomId == primaryUomId.Value &&
-                        x.ToUomId != primaryUomId.Value &&
-                        x.ConversionFactor > 0)
-            .OrderBy(x => uoms.GetValueOrDefault(x.ToUomId, "UOM"))
+                        x.UomId != primaryUomId.Value &&
+                        x.ConversionFactorToBase > 0)
+            .OrderBy(x => uoms.GetValueOrDefault(x.UomId, "UOM"))
             .ToList();
 
         foreach (var line in configuredLines)
         {
-            if (!seen.Add(line.ToUomId)) continue;
+            if (!seen.Add(line.UomId)) continue;
             options.Add(new UomOption(
-                line.ToUomId,
-                uoms.GetValueOrDefault(line.ToUomId, "UOM"),
-                1m / UomConversion.NormalizeFactor(line.ConversionFactor),
+                line.UomId,
+                uoms.GetValueOrDefault(line.UomId, "UOM"),
+                UomConversion.FactorFor(item, line.UomId),
                 false));
         }
 

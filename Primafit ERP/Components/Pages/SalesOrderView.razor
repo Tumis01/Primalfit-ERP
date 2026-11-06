@@ -1,6 +1,7 @@
 @page "/sc/sales-orders"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Identity
@@ -74,12 +75,12 @@
 
             <div class="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto shrink-0">
                 <button type="button" @onclick="() => activeTab = 0" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 0 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                    All Records
+                    All Orders
                 </button>
                 <PermissionGate Key="SALES_ORDER_CREATE">
                     <Authorized>
                         <button type="button" @onclick="CreateNew" class="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all text-center @(activeTab == 1 ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">
-                            New Record
+                            New Sales Order
                         </button>
                     </Authorized>
                 </PermissionGate>
@@ -97,12 +98,6 @@
         @if (activeTab == 0)
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <div class="flex gap-6 px-6 pt-4 border-b border-slate-100 bg-slate-50/50 overflow-x-auto whitespace-nowrap scrollbar-hide">
-                    <button type="button" class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Quotes" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Quotes"'>Quotes</button>
-                    <button type="button" class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Orders" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Orders"'>Orders</button>
-                    <button type="button" class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "Invoices" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "Invoices"'>Invoices</button>
-                    <button type="button" class="pb-3 text-sm font-bold border-b-2 transition-colors @(recordFilter == "All" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")" @onclick='() => recordFilter = "All"'>All Records</button>
-                </div>
 
                 <div class="overflow-x-auto w-full">
                     <table class="w-full text-left text-sm text-slate-900 min-w-[1000px]">
@@ -130,7 +125,7 @@
                                 <tr class="hover:bg-slate-50 transition-colors align-middle">
                                     <td class="p-4 font-mono text-slate-600 text-xs">@o.TransactionDateTime.ToString("dd MMM, yyyy HH:mm")</td>
                                     <td class="p-4 font-mono font-bold @(o.IsInvoiceDocument ? "text-emerald-700" : (o.Status != OrderStatus.Quote ? "text-blue-700" : "text-indigo-700"))">@o.OrderNumber</td>
-                                    <td class="p-4 font-mono text-xs text-slate-400">@(o.ConvertedFromQuoteNumber ?? "-")</td>
+                                    <td class="p-4 font-mono text-xs text-slate-400">@{ var quoteRefs = o.Lines.Select(l => l.SalesQuoteLine?.SalesQuote?.QuoteNumber).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList(); } @(quoteRefs.Any() ? string.Join(", ", quoteRefs) : o.ConvertedFromQuoteNumber ?? "-")</td>
                                     <td class="p-4 font-medium">@o.Customer?.Name</td>
                                     <td class="p-4 text-sm">
                                         @if (o.Lines != null && o.Lines.Any())
@@ -164,9 +159,13 @@
                                             {
                                                 <span class="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Quote</span>
                                             }
-                                            else if (o.Status == OrderStatus.Order || (o.Status == OrderStatus.Invoiced && !o.IsInvoiceDocument))
+                                            else if (!o.IsInvoiceDocument)
                                             {
-                                                <span class="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700 uppercase tracking-wider">Order</span>
+                                                var hasShipped = o.Lines.Any(l => l.QtyShipped > 0);
+                                                var hasOpenLines = o.Lines.Any(l => l.ItemId.HasValue && items.Any(i => i.Id == l.ItemId && !i.IsService) && l.Quantity > l.QtyShipped + fulfillmentCredits.GetValueOrDefault(l.Id));
+                                                <button type="button" @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">@(hasShipped ? "View" : "Edit")</button>
+                                                @if (hasOpenLines) { <PermissionGate Key="SHIPMENT_CREATE"><Authorized><a href="@($"/wh/shipments/new?order={o.Id}")" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100">Process Shipment</a></Authorized></PermissionGate> }
+                                                else { <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Processed</span> }
                                             }
                                             else if (o.IsInvoiceDocument)
                                             {
@@ -394,15 +393,10 @@
                         @if (!IsLocked)
                         {
                             <div class="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                                <button type="button" @onclick="() => SetStatusType(OrderStatus.Quote)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Quote ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-slate-50")">
-                                    Quote
-                                </button>
                                 <button type="button" @onclick="() => SetStatusType(OrderStatus.Order)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Order ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-slate-50")">
                                     Sales Order
                                 </button>
-                                <button type="button" @onclick="() => SetStatusType(OrderStatus.Draft)" class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors @(currentOrder.Status == OrderStatus.Draft ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "text-slate-500 hover:bg-slate-50")">
-                                    Direct Invoice
-                                </button>
+
                             </div>
                         }
                         else
@@ -433,30 +427,7 @@
                     <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 mb-6 shadow-sm">
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
 
-                            <div>
-                                <label class="label">Customer</label>
-                                <select value="@currentOrder.CustomerId" @onchange="OnCustomerChanged" class="input-class font-bold text-slate-800 border-indigo-200 bg-white" disabled="@IsLocked">
-                                    <option value="@Guid.Empty">-- Select Customer --</option>
-                                    @foreach (var c in customers)
-                                    {
-                                        <option value="@c.Id">@c.Name</option>
-                                    }
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="label flex justify-between">
-                                    Warehouse
-                                    <span class="text-[9px] text-slate-400 font-normal normal-case">Opt. for Quotes</span>
-                                </label>
-                                <select @bind="currentOrder.WarehouseId" class="input-class bg-white" disabled="@IsLocked">
-                                    <option value="@Guid.Empty">-- Select Warehouse --</option>
-                                    @foreach (var w in warehouses)
-                                    {
-                                        <option value="@w.Id">@w.Name</option>
-                                    }
-                                </select>
-                            </div>
+                            <SearchableGuidSelect Label="Customer" Required="true" Options="@OrderCustomerOptions" Value="@(currentOrder.CustomerId == Guid.Empty ? null : currentOrder.CustomerId)" ValueChanged="SelectOrderCustomer" Disabled="@(IsLocked || currentOrder.Lines.Any(x => x.SalesQuoteLineId.HasValue))" Placeholder="Search customer" />
 
                             <div>
                                 <label class="label">Transaction Date</label>
@@ -472,37 +443,22 @@
                                                  CompanyBaseCurrency="@companyBaseCurrency"
                                                  CurrentRate="@currentOrder.ExchangeRate"
                                                  CurrentRateChanged="OnExchangeRateChanged"
-                                                 Disabled="@IsLocked" />
+                                                 Disabled="@IsLocked" Searchable="true" />
 
-                            <ProjectSelect @bind-Value="currentOrder.ProjectId" Projects="@projects" Disabled="@IsLocked" />
 
-                            <div>
-                                <label class="label">Tax / VAT</label>
-                                <select value="@currentOrder.TaxId" @onchange="OnTaxChanged" class="input-class bg-white" disabled="@IsLocked">
-                                    <option value="">No Tax</option>
-                                    @foreach (var t in taxes)
-                                    {
-                                        <option value="@t.Id">@t.TaxName (@t.Per%)</option>
-                                    }
-                                </select>
-                            </div>
-                            <div>
-                                <label class="label text-amber-700">Withholding Tax</label>
-                                <select value="@(currentOrder.WithholdingTaxId?.ToString() ?? string.Empty)" @onchange="OnWithholdingChanged" class="input-class bg-amber-50 border-amber-200" disabled="@IsLocked">
-                                    <option value="">No Withholding Tax</option>
-                                    @foreach (var wht in salesWithholdingTaxes)
-                                    {
-                                        <option value="@wht.Id">@wht.Name (@wht.PercentageValue.ToString("0.####")%)</option>
-                                    }
-                                </select>
-                                <p class="mt-1 text-[10px] font-medium text-amber-700">Carries from Quote or Sales Order to Invoice. Withheld when customer payment is posted.</p>
-                            </div>
+
+                            <SearchableGuidSelect Label="Tax / VAT" Options="@OrderTaxOptions" Value="@currentOrder.TaxId" ValueChanged="SelectOrderTax" Disabled="@IsLocked" Placeholder="Search tax" ClearLabel="No tax" />
+                            <div><SearchableGuidSelect Label="Withholding Tax" Options="@OrderWithholdingOptions" Value="@currentOrder.WithholdingTaxId" ValueChanged="SelectOrderWithholding" Disabled="@IsLocked" Placeholder="Search withholding" ClearLabel="No withholding" /><p class="mt-1 text-[10px] font-medium text-amber-700">Carries from Quote or Sales Order to Invoice. Withheld when customer payment is posted.</p></div>
                         </div>
                     </div>
 
+                    @if (!IsLocked && currentOrder.CustomerId != Guid.Empty && currentOrder.CurrencyId != Guid.Empty)
+                    {
+                        <button type="button" @onclick="() => { initialSourceId = null; showSourceModal = true; }" class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100">Create order from sales quote</button>
+                    }
                     <div class="border border-slate-200 rounded-xl overflow-visible mb-6 shadow-sm">
-                        <div class="relative overflow-visible">
-                            <table class="w-full text-sm text-left">
+                        <div class="relative overflow-x-auto">
+                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
                                     <tr>
                                         <th class="p-3 pl-4 w-[34%]">Item</th>
@@ -511,7 +467,7 @@
                                         <th class="p-3 w-[18%] text-right">Unit Price (@currencySymbol)</th>
                                         <th class="p-3 w-[17%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
-                                    </tr>
+                                    <th class="p-3">Dimensions</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100 min-h-[150px]">
                                     @foreach (var line in currentOrder.Lines)
@@ -528,12 +484,7 @@
                                                 }
                                                 else
                                                 {
-                                                    <SearchableItem Label=""
-                                                                    Items="@items"
-                                                                    Value="@(line.ItemId ?? Guid.Empty)"
-                                                                    ValueChanged="@(EventCallback.Factory.Create<Guid>(this, val => line.ItemId = val == Guid.Empty ? null : val))"
-                                                                    OnSelectionChanged="@(() => UpdateLineItem(line))"
-                                                                    IsInvalid="@(line.ItemId == null || line.ItemId == Guid.Empty)" />
+                                                    <SearchableGuidSelect Options="@OrderItemOptions" Value="@line.ItemId" ValueChanged="@(id => SelectOrderItem(line, id))" Placeholder="Search item or code" Required="true" InlineMenu="true" />
                                                     @if (isService)
                                                     {
                                                         <div class="mt-1 text-[10px] text-indigo-600 font-bold uppercase tracking-wider flex items-center gap-1">
@@ -542,16 +493,12 @@
                                                         </div>
                                                     }
                                                 }
+                                                @if (line.SalesQuoteLineId.HasValue) { <a href="@($"/sc/sales-quotes?view={SourceDocumentId(line.SalesQuoteLineId.Value)}")" class="mt-1 block text-xs font-bold text-indigo-700">From @SourceLabel(line.SalesQuoteLineId.Value)</a> }
                                             </td>
                                             <td class="p-2 align-top pt-3">
                                                 @if (!isService)
                                                 {
-                                                    <select value="@line.UomId" @onchange="@(e => OnLineUomChanged(line, e))" class="input-class py-2 text-xs font-semibold" disabled="@(IsLocked || !line.ItemId.HasValue || line.ItemId == Guid.Empty)">
-                                                        @foreach (var uom in GetItemUoms(line.ItemId))
-                                                        {
-                                                            <option value="@uom.Id">@GetUomOptionLabel(line.ItemId, uom)</option>
-                                                        }
-                                                    </select>
+                                                    <SearchableGuidSelect Options="@OrderUomOptions(line)" Value="@line.UomId" ValueChanged="@(id => SelectOrderUom(line, id))" Placeholder="Select UOM" Disabled="@(IsLocked || !line.ItemId.HasValue || line.ItemId == Guid.Empty)" AllowClear="false" InlineMenu="true" />
                                                     @if (line.ItemId.HasValue && line.ItemId != Guid.Empty)
                                                     {
                                                         <div class="mt-1 text-[10px] text-slate-400">@GetUomConversionText(line)</div>
@@ -586,10 +533,10 @@
                                                     </button>
                                                 }
                                             </td>
-                                        </tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td></tr>
                                     }
                                 </tbody>
-                            </table>
+                            </table></div>
                         </div>
 
                         @if (!IsLocked)
@@ -806,20 +753,13 @@
                         @if (currentOrder.CustomTransactionTypeId.HasValue)
                         {
                             <button type="button"
-                                    @onclick="() => currentOrder.CustomTransactionTypeId = null"
+                                    @onclick="() => SelectOrderTemplate(null)"
                                     class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
                                     title="Reset to Standard System Route">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         }
-                        <select value="@(currentOrder.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
-                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsLocked">
-                            <option value="">-- Standard System Sales Route (Default) --</option>
-                            @foreach (var custom in customTemplates)
-                            {
-                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
-                            }
-                        </select>
+                        <div class="flex-1 min-w-0"><SearchableGuidSelect Options="@OrderTemplateOptions" Value="@currentOrder.CustomTransactionTypeId" ValueChanged="SelectOrderTemplate" Disabled="@IsLocked" Placeholder="Standard sales route" ClearLabel="Standard sales route" /></div>
                     </div>
                 </div>
 
@@ -978,7 +918,44 @@
         }
 </style>
 
+@if (showSourceModal)
+{
+    <OrderSourceModal CompanyId="@selectedCompanyId" PartnerId="@currentOrder.CustomerId" CurrencyId="@currentOrder.CurrencyId" InitialDocumentId="@initialSourceId" ExistingIds="@currentOrder.Lines.Where(x => x.SalesQuoteLineId.HasValue).Select(x => x.SalesQuoteLineId!.Value).ToList()" OnAdd="AddQuoteLines" OnClose="CloseSourceModal" />
+}
 @code {
+    [SupplyParameterFromQuery(Name = "quote")] public Guid? SourceQuoteId { get; set; }
+    private bool showSourceModal;
+    private Guid? initialSourceId;
+    private Dictionary<Guid, (Guid DocumentId, string Label)> sourceLabels = new();
+    private Guid SourceDocumentId(Guid id) => sourceLabels.TryGetValue(id, out var source) ? source.DocumentId : Guid.Empty;
+    private string SourceLabel(Guid id) => sourceLabels.TryGetValue(id, out var source) ? source.Label : $"quote line {id}";
+    private void CloseSourceModal() { showSourceModal = false; initialSourceId = null; }
+    private void AddQuoteLines(List<OrderSourceLine> selected)
+    {
+        if (selected.Count == 0) return;
+        var isEmpty = currentOrder.Lines.All(x => !x.ItemId.HasValue && string.IsNullOrWhiteSpace(x.Description));
+        if (isEmpty)
+        {
+            currentOrder.Lines.Clear(); var first = selected[0]; currentOrder.ExchangeRate = first.ExchangeRate;
+            currentOrder.TaxId = first.TaxId; currentOrder.TaxGLAccountId = taxes.FirstOrDefault(x => x.Id == first.TaxId)?.GLAccountId;
+            currentOrder.DiscountPercentage = first.DiscountPercentage; currentOrder.DiscountAmount = first.DiscountAmount;
+            SelectOrderWithholding(first.WithholdingTaxId);
+        }
+        foreach (var source in selected)
+        {
+            sourceLabels[source.Id] = (source.DocumentId, $"{source.DocumentNumber} / line {source.Id.ToString()[..8]}");
+            currentOrder.Lines.Add(new SalesOrderLine { DimensionSetId = source.DimensionSetId,  HeaderId = currentOrder.Id, SalesQuoteLineId = source.Id, ItemId = source.ItemId, Description = source.Description, Quantity = source.Quantity, UnitPrice = source.UnitPrice, UomId = source.UomId, UomName = source.UomName, UomConversionFactor = source.UomConversionFactor });
+        }
+    }
+    private async Task OpenQuoteSource(Guid id)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var source = await db.SalesQuotes.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.CompanyId == selectedCompanyId);
+        if (source == null || source.Status is not (SalesQuoteStatus.Open or SalesQuoteStatus.PartiallyConverted)) return;
+        await CreateNew(); currentOrder.CustomerId = source.CustomerId; currentOrder.CurrencyId = source.CurrencyId; currentOrder.ExchangeRate = source.ExchangeRate;
+        currencySymbol = GetCurrencyCode(source.CurrencyId); initialSourceId = id; showSourceModal = true;
+    }
+
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
     private string companyBaseCurrency = "BASE";
@@ -1006,17 +983,18 @@
 
     // Strict lock check factoring in batch ID and posted status
     private bool IsLocked =>
-        IsCurrentOrderPosted ||
+        IsCurrentOrderPosted || currentOrder.Lines.Any(l => l.QtyShipped > 0) ||
         ((currentOrder.Status == OrderStatus.Quote || currentOrder.Status == OrderStatus.Order) &&
          orders.Any(inv => inv.ConvertedFromQuoteNumber == currentOrder.OrderNumber));
 
     private string currencySymbol = "";
+    private Dictionary<Guid, decimal> fulfillmentCredits = new();
 
     // Filters & Pagination
     private int pageSize = 15;
     private int currentPage = 1;
 
-    private string _recordFilter = "Quotes";
+    private string _recordFilter = "Orders";
     private string recordFilter
     {
         get => _recordFilter;
@@ -1088,8 +1066,7 @@
     private decimal GrandTotalBase => currentOrder.ExchangeRate == 0 ? 0 : GrandTotalForeign * currentOrder.ExchangeRate;
 
     private IEnumerable<SalesOrder> FilteredOrders => orders
-        .Where(o => recordFilter == "All"
-                 || (recordFilter == "Quotes" && o.Status == OrderStatus.Quote)
+        .Where(o => (recordFilter == "All" && o.Status != OrderStatus.Quote)
                  || (recordFilter == "Orders" && !o.IsInvoiceDocument && o.Status != OrderStatus.Quote)
                  || (recordFilter == "Invoices" && o.IsInvoiceDocument))
         .Where(o => string.IsNullOrWhiteSpace(searchTerm)
@@ -1128,6 +1105,7 @@
                 companyBaseCurrency = company.BaseCurrency ?? "BASE";
             }
             await LoadData();
+            if (SourceQuoteId.HasValue && PermissionCache.Has("SALES_ORDER_CREATE")) await OpenQuoteSource(SourceQuoteId.Value);
         }
 
         isLoading = false;
@@ -1139,7 +1117,7 @@
 
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == selectedCompanyId)
+            .Where(t => t.CompanyId == selectedCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AR))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -1209,6 +1187,7 @@
 
         var allOrders = await SalesService.GetOrdersAsync(selectedCompanyId);
         orders = allOrders.Where(o => !o.IsDirectInvoice).ToList();
+        fulfillmentCredits = await InvoiceCorrectionBalances.SalesOrderAdjustmentsAsync(ctx, orders.SelectMany(x => x.Lines).Select(x => x.Id));
 
         currencies = await CurrService.GetCurrenciesAsync(selectedCompanyId);
             items = await MasterService.GetItemsAsync(selectedCompanyId);
@@ -1239,8 +1218,9 @@
     private async Task CreateNew()
     {
         _isNewOrderForm = true;
-        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Quote };
-        currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.AR_Quote, DateTime.Today);
+        sourceLabels.Clear();
+        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Order };
+        currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.AR_Order, DateTime.Today);
         currencySymbol = "";
         currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
         activeTab = 1;
@@ -1268,15 +1248,14 @@
         {
             _isNewOrderForm = false;
             currentOrder = o;
+            sourceLabels = orders.SelectMany(x => x.Lines).Where(x => x.SalesQuoteLineId.HasValue && x.SalesQuoteLine?.SalesQuote != null).GroupBy(x => x.SalesQuoteLineId!.Value).ToDictionary(x => x.Key, x => (x.First().SalesQuoteLine!.SalesQuoteId, $"{x.First().SalesQuoteLine!.SalesQuote!.QuoteNumber} / line {x.Key.ToString()[..8]}"));
             foreach (var line in currentOrder.Lines)
             {
                 var item = items.FirstOrDefault(x => x.Id == line.ItemId);
                 if (item == null) continue;
                 line.UomId ??= item.UomId;
-                var itemUoms = GetItemUoms(item.Id);
-                if (!itemUoms.Any(x => x.Id == line.UomId)) line.UomId = item.UomId;
-                line.UomName = itemUoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.PrimaryUom?.Name ?? item.UoM;
-                line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId, ConversionMap);
+                if (string.IsNullOrWhiteSpace(line.UomName)) line.UomName = uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? item.UoM;
+                if (line.UomConversionFactor <= 0) line.UomConversionFactor = UomConversion.FactorFor(item, line.UomId);
             }
             activeTab = 1;
             var c = currencies.FirstOrDefault(x => x.Id == o.CurrencyId);
@@ -1330,6 +1309,21 @@
         if (newInvoice != null) await EditOrder(newInvoice.Id);
     }
 
+    private IReadOnlyCollection<DropdownOption> OrderCustomerOptions => customers.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderWarehouseOptions => warehouses.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderProjectOptions => projects.Where(x => x.IsActive || x.Id == currentOrder.ProjectId).Select(x => new DropdownOption(x.Id, x.Name, x.ProjectCode)).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderTaxOptions => taxes.Select(x => new DropdownOption(x.Id, x.TaxName, $"{x.Per:0.####}%")).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderWithholdingOptions => salesWithholdingTaxes.Select(x => new DropdownOption(x.Id, x.Name, $"{x.PercentageValue:0.####}%")).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderItemOptions => items.Select(x => new DropdownOption(x.Id, x.Name, x.Code)).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderTemplateOptions => customTemplates.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> OrderUomOptions(SalesOrderLine line) => GetItemUoms(line.ItemId).Select(x => new DropdownOption(x.Id, GetUomOptionLabel(line.ItemId, x))).ToList();
+    private Task SelectOrderCustomer(Guid? id) => OnCustomerChanged(new ChangeEventArgs { Value = id?.ToString() });
+    private void SelectOrderTax(Guid? id) => OnTaxChanged(new ChangeEventArgs { Value = id?.ToString() });
+    private void SelectOrderWithholding(Guid? id) => OnWithholdingChanged(new ChangeEventArgs { Value = id?.ToString() });
+    private Task SelectOrderTemplate(Guid? id) => OnCustomTemplateSelected(new ChangeEventArgs { Value = id?.ToString() });
+    private void SelectOrderItem(SalesOrderLine line, Guid? id) { line.ItemId = id; UpdateLineItem(line); }
+    private void SelectOrderUom(SalesOrderLine line, Guid? id) { if (id.HasValue) OnLineUomChanged(line, new ChangeEventArgs { Value = id.Value.ToString() }); }
+
     private async Task OnCustomerChanged(ChangeEventArgs e)
     {
         if (Guid.TryParse(e.Value?.ToString(), out var custId))
@@ -1363,7 +1357,7 @@
     private void OnExchangeRateChanged(decimal rate)
     {
         currentOrder.ExchangeRate = Math.Round(rate, 4);
-        RecalculatePrices();
+        StateHasChanged();
     }
 
     private string GetCurrencyCode(Guid currencyId) => currencies.FirstOrDefault(c => c.Id == currencyId)?.CurrencyCode ?? "";
@@ -1435,10 +1429,10 @@
             result.Add(new UnitOfMeasure { Id = Guid.Empty, Name = item.UoM });
         if (item.UomId.HasValue)
         {
-            foreach (var rule in conversionRules.Where(x => x.FromUomId == item.UomId.Value)
-                .OrderBy(x => x.ToUom?.Name ?? uoms.FirstOrDefault(u => u.Id == x.ToUomId)?.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var rule in item.UomConversions.Where(x => x.IsActive)
+                .OrderBy(x => x.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == x.UomId)?.Name, StringComparer.OrdinalIgnoreCase))
             {
-                var equivalent = rule.ToUom ?? uoms.FirstOrDefault(x => x.Id == rule.ToUomId);
+                var equivalent = rule.Uom ?? uoms.FirstOrDefault(x => x.Id == rule.UomId);
                 if (equivalent != null && result.All(x => x.Id != equivalent.Id)) result.Add(equivalent);
             }
         }
@@ -1458,9 +1452,7 @@
     {
         var item = items.FirstOrDefault(x => x.Id == itemId);
         if (item == null || item.UomId == uom.Id) return $"{uom.Name} (Primary)";
-        var factor = item.UomId.HasValue
-            ? conversionRules.FirstOrDefault(x => x.FromUomId == item.UomId.Value && x.ToUomId == uom.Id)?.ConversionFactor
-            : null;
+        var factor = item.UomConversions.FirstOrDefault(x => x.IsActive && x.UomId == uom.Id)?.ConversionFactorToBase;
         return factor.HasValue
             ? $"{uom.Name} (1 {GetPrimaryUomName(itemId)} = {factor.Value:N4} {uom.Name})"
             : uom.Name;

@@ -328,7 +328,7 @@
             .ToListAsync();
 
         arMappings = allMappings
-            .Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment
+            .Where(m => (m.TransactionType == SystemTransactionType.CustomGlAdjustment && m.CustomTransactionType?.Module == TransactionTemplateModule.AR)
                      || ArTransactionScope.Contains(m.TransactionType))
             .OrderBy(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment ? 1 : 0)
             .ThenBy(m => m.TransactionType)
@@ -397,6 +397,7 @@
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = currentCompanyId,
+                    Module = TransactionTemplateModule.AR,
                     Name = newCustomName.Trim(),
                     Description = newCustomDesc.Trim(),
                     CreatedByUserId = currentUserId,

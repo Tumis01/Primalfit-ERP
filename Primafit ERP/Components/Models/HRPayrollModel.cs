@@ -97,8 +97,9 @@ namespace Primafit_ERP.Components.Models
         public List<PayrollItem> PayrollItems { get; set; } = new();
     }
 
-    public class PayrollItem
+    public class PayrollItem : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
         [Key] public Guid Id { get; set; }
         [Required] public Guid PayrollRunId { get; set; }
         [Required] public Guid EmployeeId { get; set; }

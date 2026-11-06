@@ -1,0 +1,150 @@
+@page "/sc/sales-quotes"
+@using System.Globalization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
+@using PrimafitERP.Data
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject DocumentWorkflowService Workflow
+@inject CurrencyService CurrencyService
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Sales Quotes</PageTitle>
+<div class="mx-auto max-w-[1400px] space-y-6 px-4 py-8 sm:px-6 lg:px-8 font-sans text-slate-800">
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div><h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales &amp; Invoicing</h1>@if (!string.IsNullOrWhiteSpace(companyName)) { <span class="inline-flex rounded-md bg-slate-100 px-3 py-1 text-xs font-bold text-slate-900 border border-slate-200 mt-2">@companyName</span> }</div>
+        <div class="flex flex-col lg:flex-row flex-wrap gap-4 items-stretch lg:items-center w-full xl:w-auto xl:justify-end">
+            @if (!showCreate) { <div class="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 h-[42px]"><input type="date" @bind="fromDate" aria-label="Quotes from date" class="px-2 py-1.5 text-xs font-bold bg-transparent outline-none" /><span class="text-slate-400">–</span><input type="date" @bind="toDate" aria-label="Quotes to date" class="px-2 py-1.5 text-xs font-bold bg-transparent outline-none" /></div><input type="search" value="@search" @oninput="OnSearch" placeholder="Search quote, customer, item..." aria-label="Search sales quotes" class="h-[42px] w-full md:w-64 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100" /> }
+            <div class="flex bg-slate-100 p-1 rounded-xl overflow-x-auto whitespace-nowrap"><button type="button" @onclick="ShowRegister" class="px-4 py-2 rounded-lg text-sm font-bold @(showCreate ? "text-slate-500" : "bg-white text-slate-900 shadow-sm")">All Quotes</button><PermissionGate Key="SALES_ORDER_CREATE"><Authorized><button type="button" @onclick="NewQuote" class="px-4 py-2 rounded-lg text-sm font-bold @(showCreate ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")">New Quote</button></Authorized></PermissionGate></div>
+        </div>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(message)) { <div role="status" class="rounded-xl border @(isError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700") px-4 py-3 text-sm">@message</div> }
+    @if (isLoading) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">Loading sales quotes...</div> }
+    else if (companyId == Guid.Empty) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">Company context is unavailable.</div> }
+    else if (showCreate)
+    {
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-visible">
+            <div class="p-6 border-b border-slate-100 bg-slate-50/50 flex flex-wrap justify-between gap-4 rounded-t-2xl"><div><h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Record Details</h2><p class="mt-1 text-xs text-slate-500">A quote number is assigned when you save.</p></div><span class="text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-1.5">@(viewOnly ? "View Sales Quote" : editingId.HasValue ? "Edit Sales Quote" : "New Sales Quote")</span></div>
+            <fieldset disabled="@viewOnly" class="p-6 sm:p-8 space-y-6 min-w-0">
+                <DocumentNumberPreview CompanyId="@companyId" Target="SequenceTargetType.AR_Quote" Date="@quoteDate.ToDateTime(TimeOnly.MinValue)" Number="@(editingId.HasValue ? editingNumber : null)" />
+                <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm"><div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+                    <SearchableGuidSelect Label="Customer" Required="true" Options="@CustomerOptions" Value="@customerId" ValueChanged="OnCustomerChanged" Placeholder="Search customer" />
+                    <div><label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">Quote Date <span class="text-rose-600">*</span></label><input type="date" @bind="quoteDate" class="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm" /></div>
+                    <DocumentCurrency Code="@(currencies.FirstOrDefault(x => x.Id == currencyId)?.CurrencyCode)" />
+
+                    <div><label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">Valid Until</label><input type="date" @bind="validUntil" class="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm" /></div>
+                </div></div>
+                <section aria-label="Document header terms" class="rounded-xl border border-slate-200 p-5"><PurchaseDocumentTerms CompanyId="@companyId" Terms="@documentTerms" /></section>
+                <div class="border border-slate-200 rounded-xl shadow-sm overflow-visible"><div class="overflow-x-auto overflow-y-visible"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-sm text-left"><thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase"><tr><th class="p-3 pl-4 w-[32%]">Item</th><th class="p-3 w-[14%]">UOM</th><th class="p-3 w-[14%] text-center">Qty</th><th class="p-3 w-[18%] text-right">Unit Price</th><th class="p-3 w-[17%] text-right">Total</th><th class="p-3 w-[5%]"></th><th class="p-3">Dimensions</th></tr></thead><tbody class="divide-y divide-slate-100">
+                    @foreach (var line in draftLines) { <tr @key="line.Id" class="hover:bg-slate-50 align-top"><td class="p-2 pl-4"><SearchableGuidSelect Options="@ItemOptions" Value="@line.ItemId" ValueChanged="@(id => OnItemChanged(line, id))" Placeholder="Search item or code" Required="true" InlineMenu="true" /></td><td class="p-2"><SearchableGuidSelect Options="@UomOptions(line)" Value="@line.UomId" ValueChanged="@(id => OnUomChanged(line, id))" Placeholder="Select UOM" Disabled="@(!line.ItemId.HasValue || UomOptions(line).Count == 0)" AllowClear="false" InlineMenu="true" /></td><td class="p-2"><input type="number" min="0" step="0.0001" value="@Number(UomConversion.FromBase(line.Quantity, line.UomConversionFactor))" @onchange="e => SetQuantity(line, e)" aria-label="Quantity" disabled="@(!line.ItemId.HasValue)" class="w-full rounded-xl border border-slate-200 p-2.5 text-center font-bold disabled:bg-slate-100" /></td><td class="p-2"><input type="number" min="0" step="0.0001" value="@Number(UomConversion.PriceFromBase(line.UnitPrice, line.UomConversionFactor))" @onchange="e => SetPrice(line, e)" aria-label="Unit price" disabled="@(!line.ItemId.HasValue)" class="w-full rounded-xl border border-slate-200 p-2.5 text-right font-mono disabled:bg-slate-100" /></td><td class="p-3 text-right font-mono font-bold">@LineTotal(line).ToString("N4")</td><td class="p-3 text-right"><button type="button" @onclick="() => RemoveLine(line)" aria-label="Remove line" class="text-slate-400 hover:text-rose-600">✕</button></td><td class="p-3 align-top"><DimensionSelect CompanyId="@companyId" @bind-Value="line.DimensionSetId" Disabled="@viewOnly" /></td></tr> }
+                </tbody></table></div></div><div class="p-3 bg-slate-50 border-t border-slate-200 rounded-b-xl"><button type="button" @onclick="AddLine" class="text-xs font-bold text-indigo-600 hover:text-indigo-900 uppercase tracking-wide">+ Add Line Item</button></div></div>
+
+                <div class="flex justify-end"><div class="space-y-2 text-sm text-slate-600 w-full md:w-80 bg-slate-50 p-5 rounded-xl border border-slate-200 shadow-sm"><div class="flex justify-between"><span>Subtotal</span><span class="font-mono font-bold">@Subtotal.ToString("N4")</span></div><div class="flex justify-between"><span>Discount</span><span class="font-mono">− @Discount.ToString("N4")</span></div><div class="flex justify-between"><span>Net subtotal</span><span class="font-mono font-bold">@((Subtotal - Discount).ToString("N4"))</span></div><div class="flex justify-between"><span>Tax</span><span class="font-mono">+ @TaxAmount.ToString("N4")</span></div><div class="flex justify-between border-t border-slate-200 pt-3 font-bold text-slate-900"><span>Total (Foreign)</span><span class="font-mono">@Total.ToString("N4")</span></div><div class="flex justify-between text-emerald-700"><span>Total (@baseCurrency)</span><span class="font-mono font-bold">@((Total * documentTerms.ExchangeRate).ToString("N4"))</span></div>@if (documentTerms.WithholdingTaxId.HasValue) { <div class="flex justify-between border-t border-slate-200 pt-2 text-amber-700"><span>Estimated withholding</span><span class="font-mono">@Withholding.ToString("N4")</span></div><p class="text-[10px] text-slate-400">Withholding may be applied when the customer receipt is posted.</p> }</div></div>
+            </fieldset><div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50/50 p-5 rounded-b-2xl"><button type="button" @onclick="ShowRegister" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm">Cancel</button>@if (!viewOnly) { <PermissionGate Key="SALES_ORDER_CREATE"><Authorized><button type="button" @onclick="() => SaveQuote(false)" disabled="@saving" class="rounded-xl border px-5 py-2 text-sm font-bold">Save Draft</button><button type="button" @onclick="() => SaveQuote(true)" disabled="@saving" class="px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 disabled:opacity-50">@(saving ? "Saving..." : "Save Sales Quote")</button></Authorized></PermissionGate> }</div>
+        </div>
+    }
+
+    else
+    {
+        <section class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+
+            <div class="overflow-x-auto"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm whitespace-nowrap min-w-[1000px]"><thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200"><tr><th class="p-4">Date</th><th class="p-4">Reference #</th><th class="p-4">Customer</th><th class="p-4">Warehouse</th><th class="p-4">Items (Qty)</th><th class="p-4">Status</th><th class="p-4 text-right">Total (Foreign)</th><th class="p-4 text-right">Total (Base)</th><th class="p-4">Actions</th></tr></thead><tbody class="divide-y divide-slate-100">
+                @foreach (var quote in PagedQuotes)
+                {
+                    var subtotal = quote.Lines.Sum(LineTotal);
+                    var discount = quote.DiscountPercentage > 0 ? subtotal * quote.DiscountPercentage / 100m : Math.Min(quote.DiscountAmount, subtotal);
+                    var taxable = subtotal - discount;
+                    var total = Math.Round(taxable * (1m + taxRates.GetValueOrDefault(quote.TaxId ?? Guid.Empty) / 100m), 2, MidpointRounding.AwayFromZero);
+                    <tr class="hover:bg-slate-50 transition-colors align-top"><td class="p-4">@quote.Date.ToString("dd MMM, yyyy")</td><td class="p-4 font-mono font-bold text-indigo-700">@quote.QuoteNumber</td><td class="p-4 font-medium">@quote.Customer?.Name</td><td class="p-4">@quote.Warehouse?.Name</td><td class="p-4">@foreach (var line in quote.Lines.Take(2)) { <div>@(line.Item?.Name ?? line.Description ?? "Unknown") (x@(UomConversion.FromBase(line.Quantity, line.UomConversionFactor).ToString("G29")))</div> } @if (quote.Lines.Count > 2) { <span class="text-xs text-indigo-500">+ @(quote.Lines.Count - 2) more</span> }</td><td class="p-4">@quote.Status</td><td class="p-4 text-right font-mono">@total.ToString("N2") @quote.Currency?.CurrencyCode</td><td class="p-4 text-right font-mono text-emerald-700">@((total * (quote.ExchangeRate > 0 ? quote.ExchangeRate : 1)).ToString("N2"))</td><td class="p-4"><button type="button" class="px-3 py-1.5 rounded-lg border text-indigo-700 font-bold" @onclick="() => OpenQuote(quote)">@(quote.Status is SalesQuoteStatus.Open or SalesQuoteStatus.Draft ? "Edit" : "View")</button> @if ((quote.Status is SalesQuoteStatus.Open or SalesQuoteStatus.PartiallyConverted) && (!quote.ValidUntil.HasValue || quote.ValidUntil >= DateOnly.FromDateTime(DateTime.Today))) { <PermissionGate Key="SALES_ORDER_CREATE"><Authorized><a href="@($"/sc/sales-orders?quote={quote.Id}")" class="ml-1 inline-block px-3 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold">Make Order</a></Authorized></PermissionGate> }</td></tr>
+                    @if (viewedId == quote.Id)
+                    {
+                        <tr><td colspan="9" class="p-5 bg-slate-50"><div class="grid gap-3 md:grid-cols-4 mb-4 text-xs text-slate-600"><div>Exchange rate: @quote.ExchangeRate.ToString("N4")</div><div>Tax: @(taxNames.GetValueOrDefault(quote.TaxId ?? Guid.Empty, "None"))</div><div>Discount: @quote.DiscountPercentage.ToString("N2")% / @quote.DiscountAmount.ToString("N2")</div><div>Withholding: @(quote.WithholdingTaxName ?? "None")</div><div>Project: @(projects.FirstOrDefault(x => x.Id == quote.ProjectId)?.Name ?? "None")</div></div><div class="font-bold mb-3">Quote lines</div><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm"><thead><tr class="text-left text-slate-500"><th>Item</th><th>Quantity</th><th>UOM</th><th>Unit price</th><th>Amount</th></tr></thead><tbody>@foreach (var line in quote.Lines) { <tr class="border-t"><td class="py-2">@(line.Item?.Name ?? line.Description ?? "Unknown")</td><td>@UomConversion.FromBase(line.Quantity, line.UomConversionFactor).ToString("N4")</td><td>@line.UomName</td><td>@UomConversion.PriceFromBase(line.UnitPrice, line.UomConversionFactor).ToString("N4")</td><td>@((line.Quantity * line.UnitPrice).ToString("N2"))</td></tr> }</tbody></table></div><a href="/sc/sales-orders" class="inline-block mt-4 text-xs font-bold text-indigo-700">Create a sales order from quote lines →</a></td></tr>
+                    }
+                }
+                @if (!FilteredQuotes.Any()) { <tr><td colspan="9" class="p-16 text-center text-slate-400">No sales quotes match your filters.</td></tr> }
+            </tbody></table></div></div>
+            @if (FilteredQuotes.Any()) { <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50"><div class="text-xs font-bold text-slate-500 uppercase">Showing @((CurrentPage - 1) * PageSize + 1) to @Math.Min(CurrentPage * PageSize, FilteredQuotes.Count()) of @FilteredQuotes.Count() records</div><div class="flex gap-2"><button @onclick="() => page--" disabled="@(CurrentPage <= 1)" class="px-3 py-1.5 rounded-lg border bg-white text-xs font-bold disabled:opacity-50">Previous</button><span class="px-3 py-1.5 text-xs font-bold">Page @CurrentPage of @PageCount</span><button @onclick="() => page++" disabled="@(CurrentPage >= PageCount)" class="px-3 py-1.5 rounded-lg border bg-white text-xs font-bold disabled:opacity-50">Next</button></div></div> }
+        </section>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "view")] public Guid? ViewQuoteId { get; set; }
+
+    private Guid companyId;
+    private Guid? customerId, warehouseId, currencyId, projectId, viewedId, editingId;
+    private DateOnly quoteDate = DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly? validUntil;
+    private DateTime? fromDate, toDate;
+    private bool showCreate, saving, isLoading = true, isError, viewOnly;
+    private string companyName = "", baseCurrency = "BASE", message = "", search = "", editingNumber = "";
+    private int page = 1; private const int PageSize = 10;
+    private DestinationDocumentTerms documentTerms = new();
+    private List<Customer> customers = new(); private List<Warehouse> warehouses = new(); private List<Currency> currencies = new(); private List<Project> projects = new(); private List<Item> items = new(); private List<UnitOfMeasure> uoms = new(); private List<UomConversionRule> conversionRules = new(); private List<SalesQuote> quotes = new(); private List<SalesQuoteLine> draftLines = new();
+    private Dictionary<Guid, string> taxNames = new(); private Dictionary<Guid, decimal> taxRates = new(), withholdingRates = new();
+    private IReadOnlyCollection<DropdownOption> CustomerOptions => customers.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> WarehouseOptions => warehouses.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> CurrencyOptions => currencies.Select(x => new DropdownOption(x.Id, x.CurrencyCode)).ToList();
+    private IReadOnlyCollection<DropdownOption> ProjectOptions => projects.Where(x => x.IsActive).Select(x => new DropdownOption(x.Id, x.Name, x.ProjectCode)).ToList();
+    private IReadOnlyCollection<DropdownOption> ItemOptions => items.Select(x => new DropdownOption(x.Id, x.Name, x.Code)).ToList();
+    private IReadOnlyDictionary<(Guid, Guid), decimal> ConversionMap => conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+    private IReadOnlyCollection<DropdownOption> UomOptions(SalesQuoteLine line) { var item = items.FirstOrDefault(x => x.Id == line.ItemId); if (item?.UomId == null) return Array.Empty<DropdownOption>(); var ids = UomConversion.ConfiguredUoms(item); return uoms.Where(x => ids.Contains(x.Id)).Select(x => new DropdownOption(x.Id, x.Name, x.Id == item.UomId ? "Primary unit" : null)).ToList(); }
+    private IEnumerable<SalesQuote> FilteredQuotes => quotes.Where(x => (!fromDate.HasValue || x.Date >= DateOnly.FromDateTime(fromDate.Value)) && (!toDate.HasValue || x.Date <= DateOnly.FromDateTime(toDate.Value)) && (string.IsNullOrWhiteSpace(search) || x.QuoteNumber.Contains(search, StringComparison.OrdinalIgnoreCase) || (x.Customer?.Name ?? "").Contains(search, StringComparison.OrdinalIgnoreCase) || x.Lines.Any(l => (l.Item?.Name ?? l.Description ?? "").Contains(search, StringComparison.OrdinalIgnoreCase))));
+    private int PageCount => Math.Max(1, (int)Math.Ceiling(FilteredQuotes.Count() / (double)PageSize)); private int CurrentPage => Math.Min(Math.Max(1, page), PageCount); private IEnumerable<SalesQuote> PagedQuotes => FilteredQuotes.Skip((CurrentPage - 1) * PageSize).Take(PageSize);
+    private decimal Subtotal => draftLines.Sum(LineTotal); private decimal Discount => documentTerms.DiscountPercentage > 0 ? Subtotal * documentTerms.DiscountPercentage / 100m : Math.Min(documentTerms.DiscountAmount, Subtotal); private decimal TaxAmount => (Subtotal - Discount) * taxRates.GetValueOrDefault(documentTerms.TaxId ?? Guid.Empty) / 100m; private decimal Total => Subtotal - Discount + TaxAmount; private decimal Withholding => (Subtotal - Discount) * withholdingRates.GetValueOrDefault(documentTerms.WithholdingTaxId ?? Guid.Empty) / 100m;
+    private static decimal LineTotal(SalesQuoteLine line) => Math.Round(line.Quantity * line.UnitPrice, 2, MidpointRounding.AwayFromZero);
+    protected override async Task OnInitializedAsync() { if (!PermissionCache.Has("SALES_ORDER_PAGE")) { Navigation.NavigateTo("/access-denied"); return; } var user = await UserManager.GetUserAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User); companyId = user?.CompanyDetailsId ?? Guid.Empty; if (companyId != Guid.Empty) { await LoadAsync(); if (ViewQuoteId.HasValue && quotes.FirstOrDefault(x => x.Id == ViewQuoteId) is { } source) { OpenQuote(source); viewOnly = true; } } isLoading = false; }
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var company = await db.CompanyDetails.AsNoTracking().FirstOrDefaultAsync(x => x.CompanyDetailsId == companyId); companyName = company?.CompanyName ?? ""; baseCurrency = company?.BaseCurrency ?? "BASE";
+        customers = await db.Customers.AsNoTracking().Where(x => x.CompanyId == companyId).OrderBy(x => x.Name).ToListAsync();
+        warehouses = await db.Warehouses.AsNoTracking().Where(x => x.CompanyId == companyId && (x.Type == WarehouseType.Sales || x.Type == WarehouseType.Both)).OrderBy(x => x.Name).ToListAsync();
+        currencies = await db.Currencies.AsNoTracking().Where(x => x.CompanyId == companyId).OrderBy(x => x.CurrencyCode).ToListAsync();
+        var taxes = await db.Taxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); taxNames = taxes.ToDictionary(x => x.Id, x => x.TaxName); taxRates = taxes.ToDictionary(x => x.Id, x => x.Per);
+        withholdingRates = await db.WithholdingTaxes.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.PercentageValue);
+        uoms = await db.UnitOfMeasures.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync(); conversionRules = await db.UomConversionRules.AsNoTracking().Where(x => x.CompanyId == companyId && x.IsActive).ToListAsync();
+        projects = await db.Projects.AsNoTracking().Where(x => x.CompanyId == companyId).OrderBy(x => x.Name).ToListAsync(); items = await db.Items.Include(x => x.UomConversions).AsNoTracking().Include(x => x.PrimaryUom).Where(x => x.CompanyId == companyId).OrderBy(x => x.Name).ToListAsync(); quotes = await Workflow.GetSalesQuotesAsync(companyId);
+    }
+    private void OnSearch(ChangeEventArgs e) { search = e.Value?.ToString() ?? ""; page = 1; }
+    private void ShowRegister() { showCreate = false; message = ""; }
+    private void NewQuote() { editingId = null; viewOnly = false; customerId = warehouseId = currencyId = projectId = null; quoteDate = DateOnly.FromDateTime(DateTime.Today); validUntil = null; documentTerms = new(); draftLines = new(); AddLine(); message = ""; showCreate = true; }
+    private void OpenQuote(SalesQuote quote)
+    {
+        editingId = quote.Id; editingNumber = quote.QuoteNumber; viewOnly = quote.Status is not (SalesQuoteStatus.Draft or SalesQuoteStatus.Open); customerId = quote.CustomerId; warehouseId = quote.WarehouseId; currencyId = quote.CurrencyId; projectId = quote.ProjectId; quoteDate = quote.Date; validUntil = quote.ValidUntil;
+        documentTerms = new DestinationDocumentTerms { CurrencyId = quote.CurrencyId, ExchangeRate = quote.ExchangeRate, TaxId = quote.TaxId, DiscountPercentage = quote.DiscountPercentage, DiscountAmount = quote.DiscountAmount, WithholdingTaxId = quote.WithholdingTaxId, Confirmed = true };
+        draftLines = quote.Lines.Select(x => new SalesQuoteLine { DimensionSetId = x.DimensionSetId,  Id = x.Id, ItemId = x.ItemId, Description = x.Description, Quantity = x.Quantity, UnitPrice = x.UnitPrice, UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList(); message = ""; showCreate = true;
+    }
+    private void AddLine() { draftLines.Add(new SalesQuoteLine { Quantity = 1, UomConversionFactor = 1 }); documentTerms.Confirmed = false; }
+    private void RemoveLine(SalesQuoteLine line) { draftLines.Remove(line); documentTerms.Confirmed = false; if (draftLines.Count == 0) AddLine(); }
+    private async Task OnCustomerChanged(Guid? id) { customerId = id; documentTerms.Confirmed = false; var customer = customers.FirstOrDefault(x => x.Id == id); await OnCurrencyChanged(customer != null && currencies.Any(x => x.Id == customer.CurrencyId) ? customer.CurrencyId : null); }
+    private async Task OnCurrencyChanged(Guid? id) { currencyId = id; documentTerms.CurrencyId = id ?? Guid.Empty; documentTerms.Confirmed = false; documentTerms.ExchangeRate = id.HasValue ? await CurrencyService.GetLatestExchangeRateAsync(companyId, id.Value) : 1m; }
+    private void OnItemChanged(SalesQuoteLine line, Guid? id) { var item = items.FirstOrDefault(x => x.Id == id); line.ItemId = item?.Id; line.Description = item?.Name; line.UomId = item?.UomId; line.UomName = item?.PrimaryUom?.Name ?? item?.UoM ?? ""; line.UomConversionFactor = 1; line.Quantity = 1; line.UnitPrice = item == null ? 0 : item.SellingPrice / (documentTerms.ExchangeRate > 0 ? documentTerms.ExchangeRate : 1); documentTerms.Confirmed = false; }
+    private void OnUomChanged(SalesQuoteLine line, Guid? id) { var item = items.FirstOrDefault(x => x.Id == line.ItemId); if (item == null || !id.HasValue || !UomOptions(line).Any(x => x.Id == id)) return; line.UomId = id; line.UomName = uoms.FirstOrDefault(x => x.Id == id)?.Name ?? ""; line.UomConversionFactor = UomConversion.FactorFor(item, id, ConversionMap); documentTerms.Confirmed = false; }
+    private static string Number(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+    private static bool Parse(ChangeEventArgs e, out decimal value) => decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+    private void SetQuantity(SalesQuoteLine line, ChangeEventArgs e) { if (Parse(e, out var q)) { line.Quantity = UomConversion.ToBase(q, line.UomConversionFactor); documentTerms.Confirmed = false; } }
+    private void SetPrice(SalesQuoteLine line, ChangeEventArgs e) { if (Parse(e, out var p)) { line.UnitPrice = UomConversion.PriceToBase(p, line.UomConversionFactor); documentTerms.Confirmed = false; } }
+    private async Task SaveQuote(bool submit = true)
+    {
+        if (saving) return;
+        if (!customerId.HasValue || !currencyId.HasValue || quoteDate == default) { message = "Select a customer and currency, and enter a quote date."; isError = true; return; }
+        if (validUntil.HasValue && validUntil < quoteDate) { message = "The quote expiry date cannot precede its date."; isError = true; return; }
+        if (draftLines.Count == 0 || draftLines.Any(x => !x.ItemId.HasValue || x.ItemId == Guid.Empty || x.Quantity <= 0 || x.UnitPrice < 0)) { message = "Each line needs an item, a quantity greater than zero and a non-negative unit price."; isError = true; return; }
+        if (!documentTerms.Confirmed || documentTerms.ExchangeRate <= 0 || documentTerms.DiscountPercentage < 0 || documentTerms.DiscountPercentage > 100 || documentTerms.DiscountAmount < 0 || (documentTerms.DiscountPercentage > 0 && documentTerms.DiscountAmount > 0)) { message = "Review the document terms and enter a valid exchange rate and discount."; isError = true; return; }
+        saving = true;
+        try
+        {
+            var quote = new SalesQuote { Status = submit ? SalesQuoteStatus.Open : SalesQuoteStatus.Draft, Id = editingId ?? Guid.NewGuid(), QuoteNumber = editingId.HasValue ? editingNumber : "", CompanyId = companyId, CustomerId = customerId.Value, WarehouseId = warehouseId, CurrencyId = currencyId.Value, Date = quoteDate, ValidUntil = validUntil, ProjectId = projectId, ExchangeRate = documentTerms.ExchangeRate, TaxId = documentTerms.TaxId, DiscountPercentage = documentTerms.DiscountPercentage, DiscountAmount = documentTerms.DiscountAmount, WithholdingTaxId = documentTerms.WithholdingTaxId, Lines = draftLines.Select(x => new SalesQuoteLine { DimensionSetId = x.DimensionSetId,  ItemId = x.ItemId, Quantity = x.Quantity, UnitPrice = x.UnitPrice, UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor, Description = x.Description }).ToList() };
+            message = await Workflow.SaveSalesQuoteAsync(quote); isError = !string.IsNullOrEmpty(message); if (!isError) { showCreate = false; await LoadAsync(); message = $"Sales quote {quote.QuoteNumber} was saved."; }
+        }
+        finally { saving = false; }
+    }
+}

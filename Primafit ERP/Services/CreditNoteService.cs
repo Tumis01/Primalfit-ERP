@@ -44,15 +44,13 @@ namespace Primafit_ERP.Services
                          && o.Lines.Any(l => l.Item != null && !l.Item.IsService))
                 .ToListAsync();
 
-            if (!invoices.Any()) return new List<SalesOrder>();
-
             var invoiceIds = invoices.Select(o => o.Id).ToList();
 
             var historicalCreditsMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
-                .Where(cnl => invoiceIds.Contains(cnl.Header!.SalesOrderId)
+                .Where(cnl => (cnl.Header!.SalesOrderId.HasValue && invoiceIds.Contains(cnl.Header.SalesOrderId.Value))
                            && cnl.Header.Status != CreditNoteStatus.Void)
-                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .Where(cnl => cnl.SalesOrderLineId.HasValue).GroupBy(cnl => cnl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var eligibleInvoices = new List<SalesOrder>();
@@ -79,62 +77,27 @@ namespace Primafit_ERP.Services
                 }
             }
 
-            return eligibleInvoices;
+            var documents = await ctx.SalesInvoices.AsNoTracking().Include(x => x.Lines)
+                .Where(x => x.CompanyId == companyId && x.CustomerId == customerId && !x.InvoiceNumber.StartsWith("AR-LEGACY-") && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
+                    && x.GLBatchId.HasValue && ctx.GLBatches.Any(b => b.Id == x.GLBatchId.Value && b.CompanyId == companyId && b.Status == BatchStatus.Posted)).ToListAsync();
+            foreach (var doc in documents)
+                if (await HasAdjustableSalesLineAsync(ctx, doc)) eligibleInvoices.Add(new SalesOrder { Id = doc.Id, CompanyId = doc.CompanyId, CustomerId = doc.CustomerId,
+                    OrderNumber = doc.InvoiceNumber, Date = doc.Date, CurrencyId = doc.CurrencyId, ExchangeRate = doc.ExchangeRate });
+            return eligibleInvoices.OrderByDescending(x => x.Date).ToList();
         }
 
-        public async Task<List<SalesOrder>> GetPaidInvoicesByCustomerAsync(Guid companyId, Guid customerId)
+        private static async Task<bool> HasAdjustableSalesLineAsync(AppDbContext db, SalesInvoice invoice)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            var validStatuses = new[] { OrderStatus.Invoiced, OrderStatus.PartiallyInvoiced, OrderStatus.Shipped, OrderStatus.PartiallyShipped };
-
-            var invoices = await ctx.SalesOrders
-                .Include(o => o.Currency)
-                .Include(o => o.Lines)
-                .Where(o => o.CompanyId == companyId
-                         && o.CustomerId == customerId
-                         && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
-                         && validStatuses.Contains(o.Status))
-                .ToListAsync();
-
-            var invoiceIds = invoices.Select(o => o.Id).ToList();
-
-            var paymentsMap = await ctx.PaymentApplications
-                .Where(pa => invoiceIds.Contains(pa.InvoiceId))
-                .GroupBy(pa => pa.InvoiceId)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign));
-
-            var historicalRefundsMap = await ctx.CreditNotes
-                .Where(cn => invoiceIds.Contains(cn.SalesOrderId)
-                          && cn.Status == CreditNoteStatus.Posted
-                          && cn.ReturnToStock == false)
-                .GroupBy(cn => cn.SalesOrderId)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
-
-            var eligibleList = new List<SalesOrder>();
-            foreach (var inv in invoices)
-            {
-                decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                decimal discount = inv.DiscountPercentage > 0 ? subTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
-                inv.GrandTotalForeign = subTotal - discount;
-
-                decimal totalPaid = paymentsMap.GetValueOrDefault(inv.Id, 0);
-                decimal totalRefunded = historicalRefundsMap.GetValueOrDefault(inv.Id, 0);
-
-                decimal remainingRefundableBalance = totalPaid - totalRefunded;
-
-                if (remainingRefundableBalance > 0.01m)
-                {
-                    inv.AmountPaid = remainingRefundableBalance;
-                    eligibleList.Add(inv);
-                }
-            }
-
-            return eligibleList;
+            foreach (var line in invoice.Lines) { var balance = await InvoiceCorrectionBalances.SalesAsync(db, line); if (balance.Invoiced > balance.PriorCorrected) return true; }
+            return false;
         }
+
+        public Task<List<SalesOrder>> GetPaidInvoicesByCustomerAsync(Guid companyId, Guid customerId) => Task.FromResult(new List<SalesOrder>());
 
         public async Task<CreditNote> CreateStockReturnDraftAsync(Guid orderId, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.SalesInvoices.AnyAsync(x => x.Id == orderId && !x.InvoiceNumber.StartsWith("AR-LEGACY-"))) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).CreateCreditAsync(orderId, userId);
             var so = await ctx.SalesOrders
                 .Include(s => s.Lines).ThenInclude(l => l.Item)
                 .Include(s => s.Currency)
@@ -145,7 +108,7 @@ namespace Primafit_ERP.Services
             var previousReturns = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
                 .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status != CreditNoteStatus.Void)
-                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .Where(cnl => cnl.SalesOrderLineId.HasValue).GroupBy(cnl => cnl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var creditNote = new CreditNote
@@ -177,7 +140,7 @@ namespace Primafit_ERP.Services
                 if (maxAdjustable > 0)
                 {
                     creditNote.Lines.Add(new CreditNoteLine
-                    {
+                    { DimensionSetId = soLine.DimensionSetId,
                         Id = Guid.NewGuid(),
                         HeaderId = creditNote.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
@@ -208,11 +171,13 @@ namespace Primafit_ERP.Services
                 .Include(c => c.Lines).ThenInclude(l => l.Item)
                 .Include(c => c.Customer)
                 .Include(c => c.SalesOrder).ThenInclude(o => o.Lines)
+                .Include(c => c.SalesInvoice).Include(c => c.Lines).ThenInclude(l => l.SalesInvoiceLine)
                 .Include(c => c.Currency)
                 .Include(c => c.Warehouse)
                 .Include(c => c.CustomTransactionType)
                 .FirstOrDefaultAsync(c => c.Id == id && c.CompanyId == companyId);
 
+            if (cn?.SalesInvoiceId != null) await NewInvoiceCorrectionService.EnrichCreditAsync(ctx, cn);
             if (cn != null && cn.SalesOrder != null)
             {
                 var historicalReturnsMap = await ctx.CreditNoteLines
@@ -220,16 +185,20 @@ namespace Primafit_ERP.Services
                     .Where(cnl => cnl.Header!.SalesOrderId == cn.SalesOrderId
                                && cnl.Header.Id != cn.Id
                                && cnl.Header.Status != CreditNoteStatus.Void)
-                    .GroupBy(cnl => cnl.SalesOrderLineId)
+                    .Where(cnl => cnl.SalesOrderLineId.HasValue).GroupBy(cnl => cnl.SalesOrderLineId!.Value)
                     .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
+                var gross = cn.SalesOrder.Lines.Sum(x => x.Quantity * x.UnitPrice);
+                var discountRate = cn.SalesOrder.DiscountPercentage > 0 ? cn.SalesOrder.DiscountPercentage / 100m : (gross > 0 ? Math.Min(cn.SalesOrder.DiscountAmount, gross) / gross : 0);
+                var taxRate = cn.SalesOrder.TaxId.HasValue ? await ctx.Taxes.Where(x => x.Id == cn.SalesOrder.TaxId && x.CompanyId == cn.CompanyId).Select(x => (decimal?)x.Per).FirstOrDefaultAsync() ?? 0 : 0;
                 foreach (var line in cn.Lines)
                 {
+                    line.ReversalDiscountRate = discountRate; line.ReversalTaxRate = (1 - discountRate) * taxRate / 100m;
                     var matchingInvoiceLine = cn.SalesOrder.Lines.FirstOrDefault(sol => sol.Id == line.SalesOrderLineId);
                     if (matchingInvoiceLine != null)
                     {
                         line.OriginalSoldQty = matchingInvoiceLine.Quantity;
-                        decimal previouslyCredited = historicalReturnsMap.TryGetValue(line.SalesOrderLineId, out var creditedQty) ? creditedQty : 0;
+                        decimal previouslyCredited = historicalReturnsMap.TryGetValue(line.SalesOrderLineId.GetValueOrDefault(), out var creditedQty) ? creditedQty : 0;
                         line.MaxReturnableQty = matchingInvoiceLine.Quantity - previouslyCredited;
                     }
                 }
@@ -240,28 +209,60 @@ namespace Primafit_ERP.Services
 
         public async Task<string> PostStockCreditNoteAsync(Guid cnId, Guid userId)
         {
+            await using (var probe = await _dbFactory.CreateDbContextAsync())
+                if (await probe.CreditNotes.AnyAsync(x => x.Id == cnId && x.SalesInvoiceId.HasValue)) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).PostCreditAsync(cnId, userId);
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
             try
             {
                 var cn = await ctx.CreditNotes
+                    .FromSqlInterpolated($"SELECT * FROM [CreditNotes] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {cnId}")
                     .Include(c => c.Lines).ThenInclude(l => l.Item)
                     .Include(c => c.Customer)
                     .Include(c => c.SalesOrder).ThenInclude(so => so.Lines)
                     .FirstOrDefaultAsync(c => c.Id == cnId);
 
                 if (cn == null) return "Credit note execution layout parameters not found.";
+                if (!cn.ReturnToStock) return "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.";
                 if (cn.Status == CreditNoteStatus.Posted)
                 {
                     var existingBatch = cn.GlBatchId.HasValue
                         ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == cn.GlBatchId.Value && b.CompanyId == cn.CompanyId)
                         : null;
                     if (existingBatch?.Status == BatchStatus.Posted) return "Document already committed to the General Ledger.";
+                    if (existingBatch?.Status == BatchStatus.Ready) return "Document is already awaiting General Ledger review.";
                     if (existingBatch == null) return "Document is already locked and has no review batch.";
                 }
                 if (cn.SalesOrder == null) return "Parent invoice reference missing from transaction context.";
 
                 var so = cn.SalesOrder;
+                if (so.CompanyId != cn.CompanyId || so.CustomerId != cn.CustomerId || so.CurrencyId != cn.CurrencyId)
+                    return "The credit note customer, currency and company must match its source.";
+                await ctx.SalesOrders.FromSqlInterpolated($"SELECT * FROM [SalesOrders] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {cn.SalesOrderId}").Select(x => x.Id).ToListAsync();
+                var selected = cn.Lines.Where(x => x.Quantity > 0).ToList();
+                if (cn.Lines.Any(x => x.Quantity < 0) || selected.Count == 0 || selected.Any(x => !x.SalesOrderLineId.HasValue) || selected.Where(x => x.SalesOrderLineId.HasValue).GroupBy(x => x.SalesOrderLineId!.Value).Any(x => x.Count() > 1))
+                    return "Select distinct source lines with positive correction quantities.";
+                var prior = await ctx.CreditNoteLines.Where(x => x.HeaderId != cn.Id && x.Header!.SalesOrderId == so.Id
+                        && x.Header.ReturnToStock && x.Header.Status != CreditNoteStatus.Void)
+                    .Where(x => x.SalesOrderLineId.HasValue).GroupBy(x => x.SalesOrderLineId!.Value).Select(x => new { Id = x.Key, Qty = x.Sum(y => y.Quantity) }).ToDictionaryAsync(x => x.Id, x => x.Qty);
+                var sourceIds = selected.Select(x => x.SalesOrderLineId!.Value).ToList();
+                await ctx.SalesOrderLines.FromSqlRaw("SELECT * FROM [SalesOrderLines] WITH (UPDLOCK, HOLDLOCK)")
+                    .Where(x => sourceIds.Contains(x.Id)).Select(x => x.Id).ToListAsync();
+                var dispatches = await ctx.SalesShipmentLines.Where(x => x.SalesOrderLineId.HasValue && sourceIds.Contains(x.SalesOrderLineId.Value) && x.Shipment!.CompanyId == cn.CompanyId
+                        && (x.Shipment.Status == ShipmentStatus.Pending || x.Shipment.Status == ShipmentStatus.Shipped))
+                    .Select(x => new { x.SalesOrderLineId, x.QtyShipped, x.Shipment!.Status }).ToListAsync();
+                foreach (var line in selected)
+                {
+                    var source = so.Lines.FirstOrDefault(x => x.Id == line.SalesOrderLineId);
+                    if (source == null || source.ItemId != line.ItemId || source.UnitPrice != line.UnitPrice)
+                        return "Each credit line must match its source item and unit price.";
+                    if (line.Quantity + prior.GetValueOrDefault(line.SalesOrderLineId!.Value) > source.Quantity)
+                        return $"The correction for {line.Item?.Name ?? "this item"} exceeds its remaining invoice quantity.";
+                    var shipped = Math.Max(source.QtyShipped, dispatches.Where(x => x.SalesOrderLineId == source.Id && x.Status == ShipmentStatus.Shipped).Sum(x => x.QtyShipped));
+                    var reserved = dispatches.Where(x => x.SalesOrderLineId == source.Id && x.Status == ShipmentStatus.Pending).Sum(x => x.QtyShipped);
+                    if (reserved > Math.Max(0m, source.Quantity - shipped - prior.GetValueOrDefault(source.Id) - line.Quantity))
+                        return $"The correction for {line.Item?.Name ?? "this item"} conflicts with quantities reserved by shipment drafts.";
+                }
 
                 // 1. Resolve custom mapping if assigned
                 TransactionGlMapping? customMapping = null;
@@ -351,7 +352,7 @@ namespace Primafit_ERP.Services
                     decimal lineGrossTotalBase = Math.Round(lineGrossTotalForeign * rate, 2);
 
                     // A. Debit Revenue Reversal Account
-                    glLines.Add(new GLJournalLine { SegCoaId = revenueAccount, Debit = lineGrossTotalBase, Credit = 0, Reference = $"Credit Note : {line.Item.Name}" });
+                    glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = revenueAccount, Debit = lineGrossTotalBase, Credit = 0, Reference = $"Credit Note : {line.Item.Name}" });
 
                     // B. Credit Discount Reversal Account
                     decimal lineDiscountForeign = 0;
@@ -368,7 +369,7 @@ namespace Primafit_ERP.Services
                     decimal lineDiscountBase = Math.Round(lineDiscountForeign * rate, 2);
                     if (lineDiscountBase > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = discountAccount, Debit = 0, Credit = lineDiscountBase, Reference = $"Discount Rollback: {line.Item.Code}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = discountAccount, Debit = 0, Credit = lineDiscountBase, Reference = $"Discount Rollback: {line.Item.Code}" });
                     }
 
                     // C. Debit Tax Reversal Account
@@ -381,7 +382,7 @@ namespace Primafit_ERP.Services
                     {
                         lineTaxForeign = lineNetRevenueForeign * (taxPer / 100);
                         lineTaxBase = Math.Round(lineNetRevenueBase * (taxPer / 100), 2);
-                        glLines.Add(new GLJournalLine { SegCoaId = taxGlAccountId, Debit = lineTaxBase, Credit = 0, Reference = $"Tax Rollback: {line.Item.Code}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = taxGlAccountId, Debit = lineTaxBase, Credit = 0, Reference = $"Tax Rollback: {line.Item.Code}" });
                     }
 
                     totalArReductionBase += (lineNetRevenueBase + lineTaxBase);
@@ -434,62 +435,7 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string> PostFinancialRefundDraftAsync(Guid cnId, Guid targetBankGlId, Guid userId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var transaction = await ctx.Database.BeginTransactionAsync();
-            try
-            {
-                var cn = await ctx.CreditNotes
-                    .Include(c => c.Customer)
-                    .Include(c => c.SalesOrder)
-                    .FirstOrDefaultAsync(c => c.Id == cnId);
-
-                if (cn == null) return "Refund tracking record not found.";
-                if (cn.Status == CreditNoteStatus.Posted) return "Document is already posted.";
-                if (cn.TotalAmount <= 0) return "Refund value must be greater than zero.";
-
-                decimal currentRate = cn.ExchangeRate > 0 ? cn.ExchangeRate : 1;
-                decimal refundAmountBase = Math.Round(cn.TotalAmount * currentRate, 2);
-
-                var glLines = new List<GLJournalLine>();
-
-                // Debit AR (Re-opens invoice allocation room)
-                Guid arAccount = cn.OverrideReceivablesGlAccountId ?? Guid.Empty;
-                if (arAccount == Guid.Empty)
-                {
-                    Guid defaultAr = cn.Customer?.ReceivablesAccountId ?? Guid.Empty;
-                    arAccount = await _mappingService.GetMappedAccountAsync(
-                        cn.CompanyId,
-                        SystemTransactionType.CreditNote,
-                        isDebit: true,
-                        defaultAccountId: defaultAr);
-                }
-
-                glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = refundAmountBase, Credit = 0, Reference = $"Refund Claim: {cn.SalesOrder?.OrderNumber}" });
-
-                // Credit Bank Account
-                glLines.Add(new GLJournalLine { SegCoaId = targetBankGlId, Debit = 0, Credit = refundAmountBase, Reference = $"Cash Refund Out: {cn.Customer?.Name}" });
-
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString(), existingBatchId: cn.GlBatchId, inheritedProjectId: cn.ProjectId ?? cn.SalesOrder?.ProjectId);
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value, userId.ToString());
-
-                cn.Status = CreditNoteStatus.Posted;
-                cn.PostedAt = DateTime.UtcNow;
-                cn.PostedByUserId = userId;
-                cn.GlBatchId = batchId;
-
-                await ctx.SaveChangesAsync();
-                await transaction.CommitAsync();
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return ex.Message;
-            }
-        }
+        public Task<string> PostFinancialRefundDraftAsync(Guid cnId, Guid targetBankGlId, Guid userId) => Task.FromResult("Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.");
 
         public async Task<string> SaveDraftAsync(CreditNote note)
         {
@@ -500,11 +446,33 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(c => c.Id == note.Id);
 
             if (existing == null) return "Credit Note tracking entity not found.";
+            if (!existing.ReturnToStock) return "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.";
+            if (existing.SalesInvoiceId.HasValue) return await new NewInvoiceCorrectionService(_dbFactory, _glOps, _numberingService).SaveCreditAsync(note);
             var existingBatch = existing.GlBatchId.HasValue
                 ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == existing.GlBatchId.Value && b.CompanyId == existing.CompanyId)
                 : null;
             if (existing.Status == CreditNoteStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
                 return "Cannot edit locked records.";
+            if (existingBatch?.Status == BatchStatus.Ready) return "Cannot edit a credit note while it is awaiting General Ledger review.";
+
+            if (existing.Status == CreditNoteStatus.Void) return "A void note cannot be edited.";
+            if (existing.SalesOrder == null) return "The source invoice is unavailable.";
+            if (note.Lines.Count != existing.Lines.Count || note.Lines.Select(x => x.Id).Distinct().Count() != note.Lines.Count)
+                return "Invoice items cannot be added or removed from this note.";
+            var prior = await ctx.CreditNoteLines.Where(x => x.HeaderId != existing.Id && x.Header!.SalesOrderId == existing.SalesOrderId && x.Header.ReturnToStock && x.Header.Status != CreditNoteStatus.Void)
+                .Where(x => x.SalesOrderLineId.HasValue).GroupBy(x => x.SalesOrderLineId!.Value)
+                .ToDictionaryAsync(x => x.Key, x => x.Sum(y => y.Quantity));
+            foreach (var input in note.Lines)
+            {
+                var saved = existing.Lines.SingleOrDefault(x => x.Id == input.Id);
+                if (saved == null) return "The invoice items have changed. Reload this note.";
+                var source = existing.SalesOrder.Lines.SingleOrDefault(x => x.Id == saved!.SalesOrderLineId);
+                if (saved == null || source == null || input.SalesOrderLineId != saved.SalesOrderLineId || input.ItemId != source.ItemId
+                    || input.UnitPrice != source.UnitPrice || input.UomId != source.UomId || input.UomConversionFactor != source.UomConversionFactor)
+                    return "Only the reversal quantity can be changed. Invoice items, prices and units stay fixed.";
+                if (input.Quantity < 0 || input.Quantity > Math.Max(0, source.Quantity - prior.GetValueOrDefault(source.Id)))
+                    return "The reversal quantity exceeds the available invoice quantity.";
+            }
 
             existing.Date = note.Date;
             existing.TransactionDateTime = note.TransactionDateTime;
@@ -513,7 +481,6 @@ namespace Primafit_ERP.Services
             existing.OverrideRevenueGlAccountId = note.OverrideRevenueGlAccountId;
             existing.OverrideReceivablesGlAccountId = note.OverrideReceivablesGlAccountId;
 
-            ctx.CreditNoteLines.RemoveRange(existing.Lines);
 
             decimal totalNetCreditForeign = 0;
             decimal originalSubTotalForeign = existing.SalesOrder?.Lines.Sum(l => l.Quantity * l.UnitPrice) ?? 0;
@@ -527,20 +494,7 @@ namespace Primafit_ERP.Services
 
             foreach (var line in note.Lines)
             {
-                ctx.CreditNoteLines.Add(new CreditNoteLine
-                {
-                    Id = Guid.NewGuid(),
-                    HeaderId = existing.Id,
-                    ItemId = line.ItemId,
-                    UomId = line.UomId,
-                    UomName = line.UomName,
-                    UomConversionFactor = line.UomConversionFactor,
-                    SalesOrderLineId = line.SalesOrderLineId,
-                    Quantity = line.Quantity,
-                    UnitPrice = line.UnitPrice,
-                    OriginalSoldQty = line.OriginalSoldQty,
-                    MaxReturnableQty = line.MaxReturnableQty
-                });
+                existing.Lines.Single(x => x.Id == line.Id).Quantity = line.Quantity;
 
                 decimal lineGrossForeign = line.Quantity * line.UnitPrice;
                 decimal lineDiscountForeign = 0;
@@ -577,47 +531,6 @@ namespace Primafit_ERP.Services
             return string.Empty;
         }
 
-        public async Task<CreditNote> CreateFinancialRefundDraftAsync(Guid orderId, Guid userId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            var so = await ctx.SalesOrders
-                .Include(s => s.Currency)
-                .FirstOrDefaultAsync(s => s.Id == orderId);
-
-            if (so == null) throw new Exception("Target sales invoice reference missing.");
-
-            decimal totalPaid = await ctx.PaymentApplications
-                .Where(pa => pa.InvoiceId == orderId)
-                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign);
-
-            decimal totalRefunded = await ctx.CreditNotes
-                .Where(cn => cn.SalesOrderId == orderId && cn.Status != CreditNoteStatus.Void && cn.ReturnToStock == false)
-                .SumAsync(cn => cn.TotalAmount);
-
-            decimal maxRefundable = totalPaid - totalRefunded;
-            if (maxRefundable <= 0.01m) throw new Exception("This invoice has already been fully refunded.");
-
-            var creditNote = new CreditNote
-            {
-                Id = Guid.NewGuid(),
-                CompanyId = so.CompanyId,
-                SalesOrderId = so.Id,
-                CustomerId = so.CustomerId,
-                CurrencyId = so.CurrencyId,
-                ExchangeRate = so.ExchangeRate,
-                Date = DateOnly.FromDateTime(DateTime.Today),
-                Status = CreditNoteStatus.Draft,
-                Reason = "Customer Payment Reversal Refund",
-                ReturnToStock = false,
-                TotalAmount = 0,
-                CreatedByUserId = userId,
-                CreatedAt = DateTime.UtcNow,
-                CreditNoteNumber = await _numberingService.GenerateAndReserveNextNumberAsync(so.CompanyId, SequenceTargetType.AR_CreditNote)
-            };
-
-            ctx.CreditNotes.Add(creditNote);
-            await ctx.SaveChangesAsync();
-            return creditNote;
-        }
+        public Task<CreditNote> CreateFinancialRefundDraftAsync(Guid orderId, Guid userId) => throw new InvalidOperationException("Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.");
     }
 }

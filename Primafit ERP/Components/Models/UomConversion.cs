@@ -2,13 +2,14 @@ namespace Primafit_ERP.Components.Models;
 
 public static class UomConversion
 {
+    public const decimal QuantityTolerance = 0.0000000001m;
     public static decimal NormalizeFactor(decimal factor) => factor > 0 ? factor : 1m;
 
     public static decimal ToBase(decimal selectedQuantity, decimal selectedToBaseFactor) =>
-        selectedQuantity * NormalizeFactor(selectedToBaseFactor);
+        Math.Round(selectedQuantity * NormalizeFactor(selectedToBaseFactor), 12, MidpointRounding.AwayFromZero);
 
     public static decimal FromBase(decimal baseQuantity, decimal selectedToBaseFactor) =>
-        baseQuantity / NormalizeFactor(selectedToBaseFactor);
+        Math.Round(baseQuantity / NormalizeFactor(selectedToBaseFactor), 4, MidpointRounding.AwayFromZero);
 
     public static decimal PriceFromBase(decimal baseUnitPrice, decimal selectedToBaseFactor) =>
         baseUnitPrice * NormalizeFactor(selectedToBaseFactor);
@@ -17,48 +18,37 @@ public static class UomConversion
         selectedUnitPrice / NormalizeFactor(selectedToBaseFactor);
 
     public static decimal FactorFor(Item item, Guid? selectedUomId)
-        => FactorFor(item, selectedUomId, null);
+        => FactorFor(item, selectedUomId, item.UomConversions.Where(x => x.IsActive)
+            .ToDictionary(x => x.UomId, x => x.ConversionFactorToBase), null);
 
     public static decimal FactorFor(Item item, Guid? selectedUomId,
         IReadOnlyDictionary<(Guid From, Guid To), decimal>? rules)
-    {
-        if (!selectedUomId.HasValue || selectedUomId == item.UomId)
-            return 1m;
-
-        if (item.UomId.HasValue && rules != null)
-        {
-            // Transaction factors are selected-UOM -> primary-UOM. Global
-            // rules are stored in the opposite, human-readable direction.
-            if (rules.TryGetValue((item.UomId.Value, selectedUomId.Value), out var directFactor))
-                return 1m / NormalizeFactor(directFactor);
-
-            var primaryToSelected = FactorBetween(item.UomId.Value, selectedUomId.Value, rules);
-            if (primaryToSelected.HasValue) return 1m / NormalizeFactor(primaryToSelected.Value);
-        }
-
-        return 1m;
-    }
+        => FactorFor(item, selectedUomId);
 
     public static decimal FactorFor(Item item, Guid? selectedUomId,
         IReadOnlyDictionary<Guid, decimal>? itemUomFactors,
         IReadOnlyDictionary<(Guid From, Guid To), decimal>? rules = null)
     {
-        // The primary UOM's master conversion rules are the live source of
-        // truth. Retain item-specific rows only as a fallback for legacy units
-        // that have no corresponding master conversion path.
-        if (selectedUomId.HasValue && item.UomId.HasValue && rules != null)
-        {
-            if (rules.TryGetValue((item.UomId.Value, selectedUomId.Value), out var directFactor))
-                return 1m / NormalizeFactor(directFactor);
-
-            var primaryToSelected = FactorBetween(item.UomId.Value, selectedUomId.Value, rules);
-            if (primaryToSelected.HasValue) return 1m / NormalizeFactor(primaryToSelected.Value);
-        }
-
-        if (selectedUomId.HasValue && itemUomFactors != null && itemUomFactors.TryGetValue(selectedUomId.Value, out var itemFactor))
-            return 1m / NormalizeFactor(itemFactor);
-        return FactorFor(item, selectedUomId, rules);
+        if (!selectedUomId.HasValue || selectedUomId == item.UomId) return 1m;
+        decimal? itemFactor = itemUomFactors != null && itemUomFactors.TryGetValue(selectedUomId.Value, out var configured)
+            ? configured : item.UomConversions.FirstOrDefault(x => x.IsActive && x.UomId == selectedUomId)?.ConversionFactorToBase;
+        if (!itemFactor.HasValue || itemFactor <= 0)
+            throw new InvalidOperationException($"The selected UOM is not configured for {item.Name}. Review this item's equivalent UOMs.");
+        // Item setup stores: 1 primary UOM = N equivalent UOMs.
+        // Transaction snapshots store the inverse: selected UOM -> primary UOM.
+        return Math.Round(1m / itemFactor.Value, 16, MidpointRounding.AwayFromZero);
     }
+
+    public static bool IsConfigured(Item item, Guid? uomId, IReadOnlyDictionary<Guid, decimal>? itemFactors = null) =>
+        !uomId.HasValue || uomId == item.UomId || (itemFactors?.GetValueOrDefault(uomId.Value) > 0)
+        || item.UomConversions.Any(x => x.IsActive && x.UomId == uomId && x.ConversionFactorToBase > 0);
+
+    public static IReadOnlyCollection<Guid> ConfiguredUoms(Item item) => item.UomConversions.Where(x => x.IsActive)
+        .Select(x => x.UomId).Concat(item.UomId.HasValue ? new[] { item.UomId.Value } : Array.Empty<Guid>()).Distinct().ToList();
+
+    public static bool Exceeds(decimal quantity, decimal available) => quantity - available > QuantityTolerance;
+    public static decimal WithinRemaining(decimal quantity, decimal remaining) => !Exceeds(quantity, remaining) && quantity > remaining ? remaining : quantity;
+    public static bool SameFactor(decimal expected, decimal actual) => Math.Abs(expected - actual) <= 0.000000000000001m;
 
     public static decimal? FactorBetween(Guid from, Guid to,
         IReadOnlyDictionary<(Guid From, Guid To), decimal> rules)

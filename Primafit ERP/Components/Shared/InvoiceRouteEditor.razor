@@ -1,0 +1,67 @@
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@inject IDbContextFactory<AppDbContext> DbFactory
+@if (open)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Configure invoice route">
+        <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div class="flex items-center justify-between border-b p-5"><h3 class="font-bold text-slate-900">Configure Route</h3><button type="button" @onclick="Cancel" aria-label="Close route">✕</button></div>
+            <div class="max-h-[70vh] space-y-5 overflow-y-auto p-5">
+                <SearchableGuidSelect Label="Transaction template" Options="@TemplateOptions" Value="@working.TemplateId" ValueChanged="SelectTemplate" Placeholder="Standard invoice route" ClearLabel="Standard invoice route" />
+                <p class="text-xs text-slate-500">Choose a @(Module == TransactionTemplateModule.AR ? "sales" : "purchase") template or a general GL template. Blank accounts use the standard route.</p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <SearchableGuidSelect Label="@DebitLabel" Options="@AccountOptions" Value="@working.DebitAccountId" ValueChanged="@(id => working.DebitAccountId = id)" Placeholder="Standard debit account" />
+                    <SearchableGuidSelect Label="@CreditLabel" Options="@AccountOptions" Value="@working.CreditAccountId" ValueChanged="@(id => working.CreditAccountId = id)" Disabled="@CreditLocked" Placeholder="Standard credit account" />
+                    @if (ShowTaxAndDiscount) {
+                    <SearchableGuidSelect Label="Tax account" Options="@AccountOptions" Value="@working.TaxAccountId" ValueChanged="@(id => working.TaxAccountId = id)" Placeholder="Tax setup account" />
+                    <SearchableGuidSelect Label="Discount account" Options="@AccountOptions" Value="@working.DiscountAccountId" ValueChanged="@(id => working.DiscountAccountId = id)" Placeholder="Standard discount account" />
+                    }
+                </div>
+                @if (CreditLocked) { <p class="text-xs text-slate-500">The clearing account is inherited from the source document.</p> }
+            </div>
+            <div class="flex justify-end gap-3 border-t bg-slate-50 p-5"><button type="button" @onclick="Cancel" class="rounded-xl border px-5 py-2 text-sm font-bold">Cancel</button><button type="button" @onclick="Apply" class="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-bold text-white">Apply Route</button></div>
+        </div>
+    </div>
+}
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public TransactionTemplateModule Module { get; set; }
+    [Parameter] public InvoiceRoute Value { get; set; } = new();
+    [Parameter] public EventCallback<InvoiceRoute> ValueChanged { get; set; }
+    [Parameter] public bool ShowTaxAndDiscount { get; set; } = true;
+    [Parameter] public bool CreditLocked { get; set; }
+    [Parameter] public string DebitLabel { get; set; } = "Debit account";
+    [Parameter] public string CreditLabel { get; set; } = "Credit account";
+    private bool open;
+    private InvoiceRoute working = new();
+    private List<CustomTransactionType> templates = new();
+    private List<SegChartOfAccount> accounts = new();
+    private IReadOnlyCollection<DropdownOption> TemplateOptions => templates.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> AccountOptions => accounts.Select(x => new DropdownOption(x.Id, x.AccountCode + " - " + x.Description)).ToList();
+    public async Task Open()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        templates = await db.CustomTransactionTypes.AsNoTracking().Where(x => x.CompanyId == CompanyId && (x.Module == TransactionTemplateModule.General || x.Module == Module) && db.TransactionGlMappings.Any(m => m.CompanyId == CompanyId && m.CustomTransactionTypeId == x.Id && m.IsActive)).OrderBy(x => x.Name).ToListAsync();
+        accounts = await db.SegChartOfAccounts.AsNoTracking().Where(x => x.CompanyId == CompanyId && x.IsActive).OrderBy(x => x.AccountCode).ToListAsync();
+        working = Value.Copy(); open = true; StateHasChanged();
+    }
+    private async Task SelectTemplate(Guid? id)
+    {
+        if (id.HasValue && !templates.Any(x => x.Id == id)) return;
+        var draft = working;
+        working.TemplateId = id;
+        working.DebitAccountId = null;
+        working.CreditAccountId = CreditLocked ? Value.CreditAccountId : null;
+        if (id.HasValue && templates.Any(x => x.Id == id))
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var map = await db.TransactionGlMappings.AsNoTracking().FirstOrDefaultAsync(x => x.CompanyId == CompanyId && x.CustomTransactionTypeId == id && x.IsActive);
+            if (!open || !ReferenceEquals(draft, working) || working.TemplateId != id) return;
+            working.DebitAccountId = map?.OverrideDebitGlAccountId;
+            if (!CreditLocked) working.CreditAccountId = map?.OverrideCreditGlAccountId;
+        }
+    }
+    private void Cancel() { open = false; working = new(); }
+    private async Task Apply() { await ValueChanged.InvokeAsync(working.Copy()); open = false; }
+}

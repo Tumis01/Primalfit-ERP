@@ -82,8 +82,11 @@ namespace Primafit_ERP.Components.Models
         public virtual List<GLJournalLine> Lines { get; set; } = new();
     }
 
-    public class GLJournalLine
+    public class GLJournalLine : IDimensionedLine
     {
+        [NotMapped] public bool IsDimensionDetail { get; set; }
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -114,8 +117,10 @@ namespace Primafit_ERP.Components.Models
         public Project? Project { get; set; }
 
     }
-    public class GLTransaction
+    public class GLTransaction : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 

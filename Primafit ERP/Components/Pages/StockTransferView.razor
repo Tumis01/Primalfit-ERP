@@ -1,6 +1,7 @@
 @page "/sc/transfers"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
 @using PrimafitERP.Data
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
@@ -118,19 +119,15 @@
 
                                 <div class="mt-2 flex items-center gap-2 text-xs font-medium text-slate-500">
                                     <span>Available at Source:</span>
-                                    <span class="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">@currentStockLevel.ToString("N4")</span>
+                                    <span class="bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">@currentStockLevel.ToString("N4") @items.FirstOrDefault(x => x.Id == selectedItemId)?.UoM</span>
                                 </div>
                             </div>
 
                             <div>
-                                <label class="label">Transaction UOM</label>
-                                <select class="input-class font-bold" value="@selectedUomId" @onchange="OnUomChanged" disabled="@(selectedItemId == Guid.Empty)">
-                                    <option value="@Guid.Empty">-- Select UOM --</option>
-                                    @foreach (var option in GetUomOptions())
-                                    {
-                                        <option value="@option.Id">@option.Name</option>
-                                    }
-                                </select>
+                                <SearchableGuidSelect Label="Transaction UOM" Required="true" Options="@TransferUomOptions"
+                                    Value="@(selectedUomId == Guid.Empty ? null : selectedUomId)" ValueChanged="OnUomChanged"
+                                    Placeholder="Search item UOM" AllowClear="false" InlineMenu="true" Disabled="@(!GetUomOptions().Any())" />
+                                @if (selectedItemId != Guid.Empty && !GetUomOptions().Any()) { <p role="alert" class="mt-1 text-xs text-amber-700">Configure this item's primary UOM before transferring stock.</p> }
                             </div>
 
                             <div>
@@ -139,9 +136,9 @@
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                            <ProjectSelect @bind-Value="selectedProjectId" Projects="@projects" />
-                            <div class="md:col-span-2 flex justify-end gap-2">
+                        <div class="md:col-span-2 min-w-0 space-y-4">
+                            <div class="dimension-entry-scroll"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="selectedDimensionSetId" /></div>
+                            <div class="flex justify-end gap-2">
                                 @if (editingTransferLine is not null)
                                 {
                                     <button type="button" @onclick="CancelTransferLineEdit" class="px-4 py-2.5 bg-white border border-slate-300 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50">Cancel</button>
@@ -152,16 +149,16 @@
 
                         <div class="md:col-span-2 border border-slate-200 rounded-xl overflow-hidden">
                             <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex justify-between"><span class="text-xs font-black uppercase text-slate-600">Transfer Lines</span><span class="text-xs font-bold text-slate-500">@transferLines.Count item(s)</span></div>
-                            <table class="w-full text-sm text-left">
-                                <thead class="text-[10px] uppercase text-slate-500 border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3">Project</th><th class="p-3"></th></tr></thead>
+                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left">
+                                <thead class="text-[10px] uppercase text-slate-500 border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3">Dimensions</th><th class="p-3"></th></tr></thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in transferLines)
                                     {
-                                        <tr class="@(ReferenceEquals(editingTransferLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3">@GetProjectName(line.ProjectId)</td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditTransferLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveTransferLine(line)" class="text-rose-600 font-bold">Remove</button></td></tr>
+                                        <tr class="@(ReferenceEquals(editingTransferLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3"><DimensionDisplay CompanyId="@selectedCompanyId" Value="@line.DimensionSetId" /></td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditTransferLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveTransferLine(line)" class="text-rose-600 font-bold">Remove</button></td></tr>
                                     }
                                     @if (transferLines.Count == 0) { <tr><td colspan="4" class="p-6 text-center text-slate-400">Add one or more item lines.</td></tr> }
                                 </tbody>
-                            </table>
+                            </table></div>
                         </div>
 
                         <div class="relative z-20">
@@ -182,7 +179,7 @@
                     </div>
 
                     <div class="flex justify-end pt-4 border-t border-slate-100">
-                        
+
                         <PermissionGate Key="INVENTORY_OPERATIONS_MANAGE">
                             <Authorized>
                                 <button type="submit" disabled="@(isBusy || transferLines.Count == 0 || editingTransferLine is not null)" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-50">
@@ -212,7 +209,7 @@
         else if (activeTab == 2)
         {
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-                <table class="w-full text-left text-sm">
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm">
                     <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                         <tr>
                             <th class="p-4">Date Shipped</th>
@@ -228,60 +225,26 @@
                         {
                             @foreach (var t in pendingTransfers)
                             {
-                                <tr class="hover:bg-slate-50 transition-colors">
-                                    <td class="p-4 font-mono text-slate-600">@t.DateShipped.ToString("yyyy-MM-dd")</td>
-                                    <td class="p-4">
-                                        <div class="flex items-center gap-2 font-medium">
-                                            <span class="text-rose-600">@t.FromWarehouse?.Name</span>
-                                            <svg class="h-3 w-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                                            </svg>
-                                            <span class="text-emerald-600">@t.ToWarehouse?.Name</span>
-                                        </div>
-                                    </td>
-                                    <td class="p-4 font-bold text-slate-900">
-                                        @if (t.HasLineDetails)
+                                var receiptLines = IncomingLines(t).ToList();
+                                @for (var index = 0; index < receiptLines.Count; index++)
+                                {
+                                    var line = receiptLines[index];
+                                    var shippedQty = line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity;
+                                    <tr class="hover:bg-slate-50 transition-colors">
+                                        @if (index == 0)
                                         {
-                                            @foreach (var line in t.Lines) { <div>@line.Item?.Name <span class="text-xs font-normal text-slate-400">(@GetProjectName(line.ProjectId))</span></div> }
+                                            <td rowspan="@receiptLines.Count" class="p-4 font-mono text-slate-600">@t.DateShipped.ToString("yyyy-MM-dd")</td>
+                                            <td rowspan="@receiptLines.Count" class="p-4"><span class="text-rose-600">@t.FromWarehouse?.Name</span><span class="mx-2 text-slate-400">→</span><span class="text-emerald-600">@t.ToWarehouse?.Name</span></td>
                                         }
-                                        else { @t.Item?.Name }
-                                    </td>
-                                    <td class="p-4 text-right font-mono text-slate-500">
-                                        @if (t.HasLineDetails)
+                                        <td class="p-4 font-bold text-slate-900">@line.Item?.Name <div><DimensionDisplay CompanyId="@selectedCompanyId" Value="@line.DimensionSetId" /></div></td>
+                                        <td class="p-4 text-right font-mono text-slate-500">@shippedQty.ToString("N4") @line.UomName</td>
+                                        <td class="p-4 text-right"><input type="number" min="0" max="@shippedQty" value="@GetReceiveQty(line.Id, shippedQty)" @onchange="(e => UpdateReceiveQty(line.Id, e))" aria-label="@($"Receive {line.Item?.Name} in {line.UomName}")" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 text-sm" /></td>
+                                        @if (index == 0)
                                         {
-                                            @foreach (var line in t.Lines) { <div>@((line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity).ToString("N4")) @line.UomName</div> }
+                                            <td rowspan="@receiptLines.Count" class="p-4 text-right"><PermissionGate Key="INVENTORY_OPERATIONS_MANAGE"><Authorized><button type="button" @onclick="() => ReceiveTransfer(t)" class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100">Submit Receipt for GL Review</button></Authorized></PermissionGate></td>
                                         }
-                                        else { @GetTransferQuantityInUom(t).ToString("N4") @t.UomName }
-                                    </td>
-
-                                    <td class="p-4 text-right">
-                                        @if (t.HasLineDetails)
-                                        {
-                                            @foreach (var line in t.Lines)
-                                            {
-                                                var shippedQty = line.QuantityInUom > 0 ? line.QuantityInUom : line.Quantity;
-                                                <div class="mb-1"><input type="number" value="@GetReceiveQty(line.Id, shippedQty)" @onchange="(e => UpdateReceiveQty(line.Id, e))" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 text-sm" /></div>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <input type="number" value="@GetReceiveQty(t.Id, GetTransferQuantityInUom(t))" @onchange="(e => UpdateReceiveQty(t.Id, e))" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-right font-bold text-slate-900 text-sm" />
-                                        }
-                                    </td>
-
-                                    <td class="p-4 text-right">
-                                        <PermissionGate Key="INVENTORY_OPERATIONS_MANAGE">
-                                            <Authorized>
-                                                <button @onclick="() => ReceiveTransfer(t)" class="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition-colors">
-                                                    <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                                                    </svg>
-                                                    Submit Receipt for GL Review
-                                                </button>
-                                            </Authorized>
-                                        </PermissionGate>
-                                    </td>
-                                </tr>
+                                    </tr>
+                                }
                             }
                         }
                         else
@@ -289,7 +252,7 @@
                             <tr><td colspan="6" class="p-12 text-center text-slate-400">No transfers currently in transit.</td></tr>
                         }
                     </tbody>
-                </table>
+                </table></div>
             </div>
         }
         else
@@ -303,7 +266,7 @@
                     <span class="text-xs font-bold text-slate-500">@transferHistory.Count record(s)</span>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm min-w-[1100px]">
+                    <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm min-w-[1100px]">
                         <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 border-b border-slate-200">
                             <tr>
                                 <th class="p-4">Date Shipped</th>
@@ -349,7 +312,7 @@
                                 <tr><td colspan="8" class="p-12 text-center text-slate-400">No stock transfer history found.</td></tr>
                             }
                         </tbody>
-                    </table>
+                    </table></div>
                 </div>
             </div>
         }
@@ -415,7 +378,7 @@
     private Guid selectedUomId;
     private Guid lastUomItemId;
     private Guid transitSegCoaId;
-    private Guid? selectedProjectId;
+    private Guid? selectedDimensionSetId;
     private decimal qty;
     private string reference = "";
     private decimal currentStockLevel = 0;
@@ -600,9 +563,9 @@
 
     private async Task CheckStock()
     {
-        if (selectedItemId != lastUomItemId)
+        if (selectedItemId != lastUomItemId || !GetUomOptions().Any(x => x.Id == selectedUomId))
         {
-            selectedUomId = items.FirstOrDefault(x => x.Id == selectedItemId)?.UomId ?? Guid.Empty;
+            selectedUomId = GetUomOptions().FirstOrDefault()?.Id ?? Guid.Empty;
             lastUomItemId = selectedItemId;
         }
 
@@ -615,37 +578,35 @@
     private IEnumerable<UomOption> GetUomOptions()
     {
         var item = items.FirstOrDefault(x => x.Id == selectedItemId);
-        if (item == null) yield break;
+        if (item == null || !item.UomId.HasValue) yield break;
 
         if (item.UomId.HasValue)
             yield return new UomOption(item.UomId.Value,
                 uoms.FirstOrDefault(x => x.Id == item.UomId.Value)?.Name ?? item.UoM, 1m);
 
-        foreach (var line in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
+        foreach (var line in itemUomLines.Where(x => x.ItemId == item.Id && x.IsActive && x.ConversionFactorToBase > 0 && x.UomId != item.UomId))
         {
             yield return new UomOption(line.UomId,
                 line.Uom?.Name ?? uoms.FirstOrDefault(x => x.Id == line.UomId)?.Name ?? "UOM",
-                1m / UomConversion.NormalizeFactor(line.ConversionFactorToBase));
+                1m / line.ConversionFactorToBase);
         }
 
         if (item.UomId.HasValue)
         {
-            var map = conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
-            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
-                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            foreach (var uomId in UomConversion.ConfiguredUoms(item))
             {
                 if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
-                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, map);
-                if (factor.HasValue)
-                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+                yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", UomConversion.FactorFor(item, uomId));
             }
         }
     }
 
-    private void OnUomChanged(ChangeEventArgs e)
+    private IReadOnlyCollection<DropdownOption> TransferUomOptions => GetUomOptions()
+        .Select(x => new DropdownOption(x.Id, x.Name, x.Factor == 1m ? "Primary unit" : $"1 {x.Name} = {x.Factor:0.########} primary units")).ToList();
+
+    private void OnUomChanged(Guid? id)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var id) && GetUomOptions().Any(x => x.Id == id))
-            selectedUomId = id;
+        selectedUomId = id.HasValue && GetUomOptions().Any(x => x.Id == id) ? id.Value : Guid.Empty;
     }
 
     private string GetSelectedUomName()
@@ -653,6 +614,10 @@
 
     private decimal GetSelectedUomFactor()
         => GetUomOptions().FirstOrDefault(x => x.Id == selectedUomId)?.Factor ?? 1m;
+
+    private static IEnumerable<StockTransferLine> IncomingLines(StockTransfer transfer) => transfer.HasLineDetails
+        ? transfer.Lines
+        : new[] { new StockTransferLine { Id = transfer.Id, Item = transfer.Item, ItemId = transfer.ItemId, Quantity = transfer.Quantity, QuantityInUom = transfer.QuantityInUom, UomName = transfer.UomName } };
 
     private decimal GetTransferQuantityInUom(StockTransfer transfer)
         => transfer.QuantityInUom > 0 ? transfer.QuantityInUom : transfer.Quantity;
@@ -671,6 +636,11 @@
             _ = JS.InvokeVoidAsync("alert", "Select an item and enter a quantity greater than zero.");
             return;
         }
+        if (!GetUomOptions().Any(x => x.Id == selectedUomId))
+        {
+            _ = JS.InvokeVoidAsync("alert", "Select a UOM configured for this item.");
+            return;
+        }
         var updatedLine = new StockTransferBatchLineDto
         {
             ItemId = selectedItemId,
@@ -678,7 +648,7 @@
             UomId = selectedUomId == Guid.Empty ? null : selectedUomId,
             UomName = GetSelectedUomName(),
             UomConversionFactor = GetSelectedUomFactor(),
-            ProjectId = selectedProjectId
+            DimensionSetId = selectedDimensionSetId
         };
 
         if (editingTransferLine is null)
@@ -696,7 +666,7 @@
         selectedItemId = Guid.Empty;
         selectedUomId = Guid.Empty;
         lastUomItemId = Guid.Empty;
-        selectedProjectId = null;
+        selectedDimensionSetId = null;
         qty = 0;
         currentStockLevel = 0;
     }
@@ -707,7 +677,7 @@
         selectedItemId = line.ItemId;
         selectedUomId = line.UomId ?? Guid.Empty;
         lastUomItemId = line.ItemId;
-        selectedProjectId = line.ProjectId;
+        selectedDimensionSetId = line.DimensionSetId;
         qty = line.QuantityInUom;
         await CheckStock();
     }
@@ -718,7 +688,7 @@
         selectedItemId = Guid.Empty;
         selectedUomId = Guid.Empty;
         lastUomItemId = Guid.Empty;
-        selectedProjectId = null;
+        selectedDimensionSetId = null;
         qty = 0;
         currentStockLevel = 0;
     }
@@ -789,7 +759,7 @@
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Transfer submitted for GL review. Stock is now 'In Transit'.");
-                qty = 0; reference = ""; transferLines.Clear(); selectedProjectId = null; editingTransferLine = null;
+                qty = 0; reference = ""; transferLines.Clear(); selectedDimensionSetId = null; editingTransferLine = null;
                 await LoadData();
                 activeTab = 2;
             }
@@ -834,7 +804,7 @@
         if (actualQty > t.Quantity) { await JS.InvokeVoidAsync("alert", "Cannot receive more than shipped!"); return; }
         err = await InvService.ReceiveTransferAsync(t.Id, actualQty, currentUserId);
     }
-    
+
     if (string.IsNullOrEmpty(err))
     {
         await JS.InvokeVoidAsync("alert", "Stock Received Successfully.");

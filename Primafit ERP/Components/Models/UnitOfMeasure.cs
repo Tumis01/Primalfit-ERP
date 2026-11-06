@@ -13,6 +13,11 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public string Name { get; set; } = string.Empty;
 
+        // Null preserves existing records until a user assigns their code.
+        [Required(ErrorMessage = "UOM code is required.")]
+        [StringLength(32)]
+        public string? Code { get; set; }
+
         public string ConversionFactor { get; set; } = string.Empty;
 
         public Guid? ConversionUomId { get; set; }

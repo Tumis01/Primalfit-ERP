@@ -68,6 +68,7 @@ namespace Primafit_ERP.Components.Models
     // =========================================================
     public class CustomTransactionType
     {
+        public TransactionTemplateModule Module { get; set; } = TransactionTemplateModule.General;
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -88,16 +89,20 @@ namespace Primafit_ERP.Components.Models
     // =========================================================
     // 4. MIGRATION / ADJUSTMENT LINES DTO
     // =========================================================
-    public class OpeningBalanceLineDto
+    public class OpeningBalanceLineDto : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid EntityId { get; set; } // CustomerId or VendorId
         public string EntityName { get; set; } = string.Empty;
         public decimal BalanceAmount { get; set; }
         public Guid? ProjectId { get; set; }
     }
-    public class InventoryAdjustmentLineDto
+    public class InventoryAdjustmentLineDto : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid ItemId { get; set; }
         public string ItemName { get; set; } = string.Empty;
@@ -108,8 +113,10 @@ namespace Primafit_ERP.Components.Models
         public Guid? ProjectId { get; set; }
     }
 
-    public class StockEntryBatchLineDto
+    public class StockEntryBatchLineDto : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid ItemId { get; set; }
         public Guid WarehouseId { get; set; }
         public decimal Quantity { get; set; }
@@ -121,8 +128,10 @@ namespace Primafit_ERP.Components.Models
         public Guid? ProjectId { get; set; }
     }
 
-    public class StockTransferBatchLineDto
+    public class StockTransferBatchLineDto : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid ItemId { get; set; }
         public decimal QuantityInUom { get; set; }
         public Guid? UomId { get; set; }

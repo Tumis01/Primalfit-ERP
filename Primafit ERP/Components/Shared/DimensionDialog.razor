@@ -1,0 +1,46 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@if (Open) {
+    <div class="ds-dialog-backdrop">
+        <section @ref="element" class="ds-dialog" role="dialog" aria-modal="true" aria-labelledby="@titleId" aria-busy="@(Busy ? "true" : "false")" tabindex="-1" data-busy="@(Busy ? "true" : "false")">
+            <header class="ds-dialog-header"><div><p class="ds-eyebrow">@Eyebrow</p><h2 id="@titleId">@Title</h2></div><button type="button" class="ds-icon-button" aria-label="Close dialog" disabled="@Busy" @onclick="Close"><DimensionIcon Name="close" /></button></header>
+            <div class="ds-dialog-body">@ChildContent</div>
+            <footer class="ds-dialog-footer">@Footer</footer>
+        </section>
+    </div>
+}
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Eyebrow { get; set; } = "Dimension setup";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    private readonly string titleId = "dimension-dialog-" + Guid.NewGuid().ToString("N");
+    private ElementReference element;
+    private bool opened, validationFocus;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<DimensionDialog>? reference;
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (Open && !opened) {
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./dimension-setup.js?v=20261104-1");
+            if (!Open) return;
+            reference ??= DotNetObjectReference.Create(this);
+            opened = true;
+            await module.InvokeVoidAsync("openDialog", titleId, element, reference);
+        } else if (!Open && opened && module != null) { opened = false; await module.InvokeVoidAsync("closeDialog", titleId); }
+        if (Open && validationFocus && module != null) { validationFocus = false; await module.InvokeVoidAsync("focusInvalid", titleId); }
+    }
+    public void FocusInvalid() { validationFocus = true; StateHasChanged(); }
+    [JSInvokable] public Task CloseFromKeyboard() => Close();
+    private Task Close() => Busy ? Task.CompletedTask : OnClose.InvokeAsync();
+    public async ValueTask DisposeAsync() {
+        if (module != null) {
+            try { if (opened) await module.InvokeVoidAsync("closeDialog", titleId); await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+        }
+        reference?.Dispose();
+    }
+}

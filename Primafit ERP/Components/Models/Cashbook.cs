@@ -48,8 +48,10 @@ namespace Primafit_ERP.Components.Models
         public virtual List<CashbookEntry> Entries { get; set; } = new();
     }
 
-    public class CashbookEntry
+    public class CashbookEntry : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CashbookBatchId { get; set; }

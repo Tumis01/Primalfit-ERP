@@ -133,7 +133,7 @@
                             <label class="label text-indigo-900">From Currency <span class="text-rose-500">*</span></label>
                             <InputSelect @bind-Value="currentRate.CurrencyId" class="input-class border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200 font-bold">
                                 <option value="@Guid.Empty">-- Select Currency --</option>
-                                @foreach (var c in currencyList)
+                                @foreach (var c in currencyList.Where(c => !c.IsBaseCurrency))
                                 {
                                     <option value="@c.Id">@c.CurrencyName (@c.CurrencyCode)</option>
                                 }
@@ -142,13 +142,7 @@
                         </div>
                         <div>
                             <label class="label text-indigo-900">To Currency <span class="text-rose-500">*</span></label>
-                            <InputSelect TValue="Guid?" @bind-Value="currentRate.ExchangeCurrencyId" class="input-class border-indigo-200 focus:border-indigo-500 focus:ring-indigo-200 font-bold">
-                                <option value="">-- Select Currency --</option>
-                                @foreach (var c in currencyList)
-                                {
-                                    <option value="@c.Id">@c.CurrencyName (@c.CurrencyCode)</option>
-                                }
-                            </InputSelect>
+                            <input type="text" readonly aria-label="To Currency" value="@(currencyList.FirstOrDefault(c => c.IsBaseCurrency)?.CurrencyCode ?? companyBaseCurrency)" class="input-class bg-slate-100 font-bold text-slate-600" /><p class="mt-1 text-xs text-slate-500">Company base currency</p>
                         </div>
                         <div>
                             <label class="label text-indigo-900">Rate (target units per 1 source unit) <span class="text-rose-500">*</span></label>
@@ -355,8 +349,7 @@
 
     private Guid? selectedFilterCurrencyId = null;
 
-    // A direct rate needs two distinct currencies; reverse rates remain explicit entries.
-    private bool CanAddRate => HasCompany && currencyList.Count >= 2;
+    private bool CanAddRate => HasCompany && currencyList.Any(x => x.IsBaseCurrency) && currencyList.Any(x => !x.IsBaseCurrency);
 
     private IEnumerable<CurrencyManagement> FilteredRatesList =>
         ratesList
@@ -469,14 +462,10 @@
     // --- Rate Actions ---
     private void OpenRateForm()
     {
-        var sourceCurrencyId = selectedFilterCurrencyId
+        var sourceCurrencyId = currencyList.FirstOrDefault(c => c.Id == selectedFilterCurrencyId && !c.IsBaseCurrency)?.Id
             ?? currencyList.FirstOrDefault(c => !c.IsBaseCurrency)?.Id
             ?? currencyList.FirstOrDefault()?.Id
             ?? Guid.Empty;
-        Guid? targetCurrencyId = currencyList.FirstOrDefault(c => c.IsBaseCurrency)?.Id
-            ?? currencyList.FirstOrDefault(c => c.Id != sourceCurrencyId)?.Id;
-        if (targetCurrencyId == sourceCurrencyId)
-            targetCurrencyId = currencyList.FirstOrDefault(c => c.Id != sourceCurrencyId)?.Id;
 
         currentRate = new CurrencyManagement
         {
@@ -484,7 +473,7 @@
             ExchangeCurrency = "",
             Date = DateTime.Today,
             CurrencyId = sourceCurrencyId,
-            ExchangeCurrencyId = targetCurrencyId,
+            ExchangeCurrencyId = currencyList.FirstOrDefault(c => c.IsBaseCurrency)?.Id,
             Rate = 1.0m
         };
         isEditingRate = false;
@@ -492,8 +481,14 @@
         showCurrencyForm = false;
     }
 
-    private void EditRate(CurrencyManagement item)
+    private async Task EditRate(CurrencyManagement item)
     {
+        var targetId = item.ExchangeCurrencyId ?? currencyList.FirstOrDefault(c => c.CurrencyCode.Equals(item.ExchangeCurrency, StringComparison.OrdinalIgnoreCase))?.Id;
+        if (targetId != currencyList.FirstOrDefault(c => c.IsBaseCurrency)?.Id || currencyList.Any(c => c.Id == item.CurrencyId && c.IsBaseCurrency))
+        {
+            await JS.InvokeVoidAsync("alert", "This historical rate uses a different currency pair. Create a new rate into the company base currency.");
+            return;
+        }
         currentRate = new CurrencyManagement
         {
             Id = item.Id,
@@ -519,6 +514,7 @@
     private async Task HandleSaveRate()
     {
         currentRate.CompanyId = selectedCompanyId;
+        currentRate.ExchangeCurrencyId = currencyList.FirstOrDefault(c => c.IsBaseCurrency)?.Id;
 
         var result = await Service.SaveRateAsync(selectedCompanyId, currentRate);
         if (!string.IsNullOrEmpty(result))

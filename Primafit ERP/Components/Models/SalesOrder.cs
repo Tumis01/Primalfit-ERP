@@ -7,6 +7,8 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesOrder
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -93,8 +95,10 @@ namespace Primafit_ERP.Components.Models
         [NotMapped] public bool IsFullyPaid => BalanceDueForeign <= 0.01m && Status == OrderStatus.Invoiced;
     }
 
-    public class SalesOrderLine
+    public class SalesOrderLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -102,6 +106,10 @@ namespace Primafit_ERP.Components.Models
         public Guid HeaderId { get; set; }
         [ForeignKey(nameof(HeaderId))]
         public virtual SalesOrder? Header { get; set; }
+
+        public Guid? SalesQuoteLineId { get; set; }
+        [ForeignKey(nameof(SalesQuoteLineId))]
+        public SalesQuoteLine? SalesQuoteLine { get; set; }
 
         public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
@@ -131,26 +139,108 @@ namespace Primafit_ERP.Components.Models
         public decimal QtyReturned { get; set; }
         [NotMapped] public decimal LineTotal => Quantity * UnitPrice;
     }
+    public enum SalesInvoiceStatus { Draft, InReview, Posted, Cancelled }
+
     public class SalesInvoice
     {
-        public Guid Id { get; set; }
-        public Guid SalesOrderId { get; set; }
+        public Guid? DimensionSetId { get; set; }
+
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
         [Required]
         public Guid CompanyId { get; set; }
-        public Guid CustomerId { get; set; }
-        public Guid ReceivablesGlAccountId { get; set; }
 
-        public List<SalesInvoiceLine> Lines { get; set; }
+        [Required]
+        public Guid CustomerId { get; set; }
+        [ForeignKey(nameof(CustomerId))]
+        public Customer? Customer { get; set; }
+
+        // Legacy single-order header link. New source links are line-level.
+        public Guid? SalesOrderId { get; set; }
+        public Guid? WarehouseId { get; set; }
+        [ForeignKey(nameof(WarehouseId))]
+        public Warehouse? Warehouse { get; set; }
+        public Guid? ProjectId { get; set; }
+        public string InvoiceNumber { get; set; } = string.Empty;
+        public DateOnly Date { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateTime TransactionDateTime { get; set; } = DateTime.Now;
+        public SalesInvoiceStatus Status { get; set; } = SalesInvoiceStatus.Draft;
+        public bool IsDirectInvoice { get; set; }
+
+        [Required]
+        public Guid CurrencyId { get; set; }
+        [ForeignKey(nameof(CurrencyId))]
+        public Currency? Currency { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal ExchangeRate { get; set; } = 1m;
+
+        public Guid? TaxId { get; set; }
+        public Guid? TaxGLAccountId { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DiscountPercentage { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DiscountAmount { get; set; }
+        public Guid? DiscountGlAccountId { get; set; }
+        public Guid? WithholdingTaxId { get; set; }
+        public string? WithholdingTaxName { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal WithholdingPercentage { get; set; }
+        public Guid? WithholdingSalesGlAccountId { get; set; }
+
+        public Guid? ReceivablesGlAccountId { get; set; }
+        public Guid? DirectIncomeGlAccountId { get; set; }
+        public Guid? CustomTransactionTypeId { get; set; }
+        public Guid? InvoiceBatchId { get; set; }
+        public bool IsPaid { get; set; }
+        public decimal TotalAmountForeign { get; set; }
+        public decimal TotalAmount { get; set; }
+        public DateTime? PostedDate { get; set; }
+        public Guid? GLBatchId { get; set; }
+        public List<SalesInvoiceLine> Lines { get; set; } = new();
+
+        [NotMapped] public decimal AmountPaid { get; set; }
+        [NotMapped] public decimal CreditNoteTotal { get; set; }
+        [NotMapped] public decimal GrandTotalForeign { get; set; }
+        [NotMapped] public decimal BalanceDueForeign => Math.Max(0, GrandTotalForeign - CreditNoteTotal - AmountPaid);
     }
 
-    public class SalesInvoiceLine
+    public class SalesInvoiceLine : IDimensionedLine
     {
-        public Guid Id { get; set; }
-        public Guid ItemId { get; set; }
-        public Guid RevenueGlAccountId { get; set; }
+        public Guid? DimensionSetId { get; set; }
 
-        public decimal Amount { get; set; }
-
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid? SalesInvoiceId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceId))]
+        public SalesInvoice? SalesInvoice { get; set; }
+        public Guid? ShipmentLineId { get; set; }
+        [ForeignKey(nameof(ShipmentLineId))]
+        public SalesShipmentLine? ShipmentLine { get; set; }
+        public Guid? SalesOrderLineId { get; set; }
+        [ForeignKey(nameof(SalesOrderLineId))]
+        public SalesOrderLine? SalesOrderLine { get; set; }
+        public Guid? ItemId { get; set; }
+        [ForeignKey(nameof(ItemId))]
+        public Item? Item { get; set; }
+        [Column("Amount", TypeName = "decimal(18,4)")]
+        public decimal? LegacyAmount { get; set; }
+        public Guid? RevenueGlAccountId { get; set; }
+        public Guid? TaxId { get; set; }
+        public Guid? TaxGLAccountId { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal DiscountAmount { get; set; }
+        public string? Description { get; set; }
+        public Guid? UomId { get; set; }
+        public string UomName { get; set; } = string.Empty;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UomConversionFactor { get; set; } = 1m;
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal QuantityInvoiced { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UnitPrice { get; set; }
+        [NotMapped]
+        public decimal Amount => Math.Round(QuantityInvoiced * UnitPrice, 2, MidpointRounding.AwayFromZero);
     }
     public enum ShipmentStatus { Pending, PartiallyShipped, Shipped, Cancelled }
 
@@ -160,8 +250,8 @@ namespace Primafit_ERP.Components.Models
         public Guid Id { get; set; } = Guid.NewGuid();
         [Required]
         public Guid CompanyId { get; set; }
-        [Required]
-        public Guid SalesOrderId { get; set; }
+        // Legacy single-order link; line source links support multi-order shipments.
+        public Guid? SalesOrderId { get; set; }
         [ForeignKey(nameof(SalesOrderId))]
         public SalesOrder? SalesOrder { get; set; }
 
@@ -184,8 +274,10 @@ namespace Primafit_ERP.Components.Models
         public List<SalesShipmentLine> Lines { get; set; } = new();
     }
 
-    public class SalesShipmentLine
+    public class SalesShipmentLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         [Required]
@@ -193,7 +285,12 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(ShipmentId))]
         public SalesShipment? Shipment { get; set; }
 
-        public Guid SalesOrderLineId { get; set; }
+        public Guid? SalesOrderLineId { get; set; }
+        [ForeignKey(nameof(SalesOrderLineId))]
+        public SalesOrderLine? SalesOrderLine { get; set; }
+        public Guid? SalesInvoiceLineId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceLineId))]
+        public SalesInvoiceLine? SalesInvoiceLine { get; set; }
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }

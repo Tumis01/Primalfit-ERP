@@ -327,7 +327,7 @@
             .ToListAsync();
 
         apMappings = allMappings
-            .Where(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment 
+            .Where(m => (m.TransactionType == SystemTransactionType.CustomGlAdjustment && m.CustomTransactionType?.Module == TransactionTemplateModule.AP)
                      || ApTransactionScope.Contains(m.TransactionType))
             .OrderBy(m => m.TransactionType == SystemTransactionType.CustomGlAdjustment ? 1 : 0)
             .ThenBy(m => m.TransactionType)
@@ -396,6 +396,7 @@
                 {
                     Id = Guid.NewGuid(),
                     CompanyId = currentCompanyId,
+                    Module = TransactionTemplateModule.AP,
                     Name = newCustomName.Trim(),
                     Description = newCustomDesc.Trim(),
                     CreatedByUserId = currentUserId,
@@ -486,7 +487,7 @@
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "Unknown Account";
     }
 
-    
+
 
     private (string Label, string Href) GetApNavLink(SystemTransactionType type)
     {

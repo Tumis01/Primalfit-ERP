@@ -1,0 +1,62 @@
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
+@inject DimensionService Dimensions
+
+<div class="dimension-fields" aria-busy="@busy">
+    @foreach (var type in types.Where(t => t.IsActive || selected.ContainsKey(t.Id)))
+    {
+        var typeId = type.Id;
+        <div class="dimension-field" @key="typeId">
+            <SearchableGuidSelect Label="@type.Name" Required="@(type.IsActive && type.IsRequired)"
+                Options="@Options(typeId)" Value="@(selected.TryGetValue(typeId, out var id) ? id : (Guid?)null)"
+                ValueChanged="@(id => Change(typeId, id))" Disabled="@(Disabled || busy || !type.IsActive)"
+                Placeholder="@($"Search {type.Name}")" InlineMenu="true" />
+            @if (type.IsActive && type.IsRequired && !selected.ContainsKey(typeId) && !Disabled) { <span class="mt-1 block text-[11px] font-normal text-amber-700">Required before submission</span> }
+        </div>
+    }
+    @if (message.Length > 0) { <span role="alert" class="block text-xs text-rose-700">@message</span> }
+</div>
+
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public Guid? Value { get; set; }
+    [Parameter] public EventCallback<Guid?> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private Guid loadedCompany;
+    private Guid? loadedSet;
+    private List<DimensionType> types = new();
+    private List<DimensionValue> values = new();
+    private Dictionary<Guid, Guid> selected = new();
+    private bool busy;
+    private string message = "";
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CompanyId == Guid.Empty) { loadedCompany = Guid.Empty; loadedSet = null; types.Clear(); values.Clear(); selected.Clear(); message = ""; return; }
+        if (loadedCompany != CompanyId)
+        {
+            loadedCompany = CompanyId;
+            types = await Dimensions.GetTypesAsync(CompanyId);
+            values = await Dimensions.GetValuesAsync(CompanyId);
+            selected = await Dimensions.GetSelectionsAsync(CompanyId, Value); loadedSet = Value;
+        }
+        else if (loadedSet != Value) { selected = await Dimensions.GetSelectionsAsync(CompanyId, Value); loadedSet = Value; }
+    }
+    private IReadOnlyCollection<DropdownOption> Options(Guid typeId) => values
+        .Where(v => v.DimensionTypeId == typeId && (v.IsActive || selected.GetValueOrDefault(typeId) == v.Id))
+        .Select(v => new DropdownOption(v.Id, $"{v.Code} — {v.Name}{(!v.IsActive ? " (inactive)" : "")}", v.Description, !v.IsActive)).ToList();
+    private async Task Change(Guid typeId, Guid? id)
+    {
+        if (Disabled || busy) return;
+        busy = true; message = "";
+        try {
+            var next = new Dictionary<Guid, Guid>(selected);
+            if (id.HasValue && id != Guid.Empty) next[typeId] = id.Value; else next.Remove(typeId);
+            var result = await Dimensions.SaveSelectionsAsync(CompanyId, next, Value);
+            message = result.Error;
+            if (message.Length == 0) { selected = next; loadedSet = result.SetId; await ValueChanged.InvokeAsync(result.SetId); }
+        }
+        catch (Exception) { message = "Dimensions could not be saved. Try selecting again."; }
+        finally { busy = false; }
+    }
+}

@@ -116,7 +116,7 @@
                         <th class="p-4 w-[45%] pl-6">Vendor Profile Reference Identity</th>
                         <th class="p-4 text-right w-[22%]">Debit Amount (Dr - Decrease/Prepay)</th>
                         <th class="p-4 text-right w-[22%]">Credit Amount (Cr - Increase Balance)</th>
-                        <th class="p-4">Project</th>
+                        <th class="p-4">Dimensions</th>
                         <th class="p-4 text-center w-[11%] pr-6">Action</th>
                     </tr>
                 </thead>
@@ -156,7 +156,7 @@
                                 </div>
                             </td>
 
-                            <td class="p-3"><ProjectSelect @bind-Value="line.ProjectId" Projects="@projects" Label="" /></td>
+                            <td class="p-3"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td>
                             <td class="p-3 text-center pr-6">
                                 <button type="button" @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
                                     <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -375,7 +375,7 @@
         public string EntityName { get; set; } = string.Empty;
         public decimal DebitAmount { get; set; }
         public decimal CreditAmount { get; set; }
-        public Guid? ProjectId { get; set; }
+        public Guid? ProjectId { get; set; } public Guid? DimensionSetId { get; set; }
 
         public bool IsDebitReadOnly => CreditAmount > 0;
         public bool IsCreditReadOnly => DebitAmount > 0;
@@ -435,7 +435,7 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
+            .Where(t => t.CompanyId == currentCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AP))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -552,7 +552,7 @@
                 EntityId = uiLine.EntityId,
                 EntityName = vendors.FirstOrDefault(v => v.Id == uiLine.EntityId)?.Name ?? "Unknown Vendor",
                 BalanceAmount = evaluatedAmount,
-                ProjectId = uiLine.ProjectId
+                DimensionSetId = uiLine.DimensionSetId, ProjectId = uiLine.ProjectId
             });
         }
 

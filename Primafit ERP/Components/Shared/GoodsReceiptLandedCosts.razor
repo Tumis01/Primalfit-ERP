@@ -1,0 +1,77 @@
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject InventoryValuationService Valuation
+<div class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Receipt landed costs">
+    <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div class="border-b border-slate-100 bg-slate-50 p-6"><h3 class="text-lg font-bold text-slate-900">Landed Cost Allocation</h3><p class="mt-1 text-xs text-slate-500">Add freight, duty, or insurance costs for @number.</p></div>
+        <div class="max-h-[65vh] space-y-4 overflow-y-auto p-6">
+            <PageNotice Message="@message" IsError="true" />
+            @if (loading) { <p class="text-sm text-slate-500">Loading landed costs...</p> }
+            else {
+                <fieldset disabled="@readOnly" class="space-y-4 min-w-0">
+                <div class="grid items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+                    <label class="text-xs font-bold text-slate-600">Cost type<select @bind="costType" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm"><option value="">Select cost type</option>@foreach (var type in Enum.GetValues<LandedCostType>()) { <option value="@type">@Format(type)</option> }</select></label>
+                    <label class="text-xs font-bold text-slate-600">Amount<input type="number" min="0" step="0.0001" @bind="amount" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-right text-sm" /></label>
+                    <label class="text-xs font-bold text-slate-600">Allocation<select @bind="method" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm"><option value="@AllocationMethod.ByValue">By value</option><option value="@AllocationMethod.ByQuantity">By quantity</option></select></label>
+                    <button type="button" @onclick="Add" disabled="@(busy || !costType.HasValue || amount <= 0)" class="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">Add Cost</button>
+                </div>
+                <div class="overflow-x-auto"><table class="w-full min-w-[400px] text-left text-sm"><thead class="border-b text-xs font-bold uppercase text-slate-500"><tr><th class="py-2">Type</th><th>Method</th><th class="text-right">Amount</th><th></th></tr></thead><tbody>@foreach (var cost in costs) { <tr class="border-b border-slate-100"><td class="py-3">@Format(cost.CostType)</td><td class="text-xs text-slate-500">@(cost.AllocationMethod == AllocationMethod.ByValue ? "By value" : "By quantity")</td><td class="text-right font-mono">@cost.Amount.ToString("N4")</td><td class="text-right"><button type="button" @onclick="() => costs.Remove(cost)" class="text-xs font-bold text-rose-700">Remove</button></td></tr> }</tbody></table></div>
+                <div class="space-y-2 rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm"><div class="flex justify-between"><span>Goods value (base)</span><span class="font-mono">@goodsValue.ToString("N4")</span></div><div class="flex justify-between"><span>Extra costs</span><span class="font-mono">@costs.Sum(x => x.Amount).ToString("N4")</span></div><div class="flex justify-between border-t border-indigo-100 pt-2 font-bold"><span>Total landed value</span><span class="font-mono">@((goodsValue + costs.Sum(x => x.Amount)).ToString("N4"))</span></div></div>
+                </fieldset>
+            }
+        </div>
+        <div class="flex flex-wrap justify-end gap-3 border-t border-slate-200 bg-slate-50 p-5"><button type="button" @onclick="() => OnClosed.InvokeAsync()" disabled="@busy" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600">Cancel</button>@if (!readOnly) { <button type="button" @onclick="Save" disabled="@(busy || loading)" class="rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">@(busy ? "Calculating WACC..." : "Finalize Valuation & Close")</button> }</div>
+    </div>
+</div>
+@code {
+    [Parameter] public Guid ReceiptId { get; set; }
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+    private Guid loaded; private bool loading = true, busy, readOnly; private string number = "", message = "";
+    private decimal goodsValue, amount; private LandedCostType? costType; private AllocationMethod method;
+    private List<GrnLandedCost> costs = new();
+    private static string Format(LandedCostType type) => System.Text.RegularExpressions.Regex.Replace(type.ToString(), "([a-z])([A-Z])", "$1 $2");
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!InventoryValuationService.LandedCostsEnabled) { readOnly = true; loading = false; message = "Landed costs are currently disabled."; return; }
+        if (loaded == ReceiptId) return;
+        loaded = ReceiptId; loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var receipt = await db.GoodsReceipts.AsNoTracking().Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == ReceiptId && x.CompanyId == CompanyId);
+        if (receipt == null) { message = "Receipt not found."; return; }
+        readOnly = receipt.GLBatchId.HasValue && await db.GLBatches.AnyAsync(x => x.Id == receipt.GLBatchId && x.CompanyId == CompanyId && x.Status == BatchStatus.Posted);
+        number = receipt.GrnNumber;
+        var rootIds = receipt.Lines.Where(x => x.PurchaseOrderLineId.HasValue).Select(x => x.PurchaseOrderLineId!.Value).ToList();
+        var roots = await db.PurchaseOrderLines.AsNoTracking().Where(x => rootIds.Contains(x.Id) && db.PurchaseOrders.Any(p => p.Id == x.PurchaseOrderId && p.CompanyId == CompanyId)).ToDictionaryAsync(x => x.Id);
+        var orderIds = roots.Values.Select(x => x.PurchaseOrderId).Distinct().ToList();
+        var orders = await db.PurchaseOrders.AsNoTracking().Where(x => orderIds.Contains(x.Id) && x.CompanyId == CompanyId).ToDictionaryAsync(x => x.Id);
+        var invoiceIds = receipt.Lines.Where(x => x.PurchaseInvoiceLineId.HasValue).Select(x => x.PurchaseInvoiceLineId!.Value).ToList();
+        var invoices = await db.PurchaseInvoiceLines.AsNoTracking().Include(x => x.PurchaseInvoice).Where(x => invoiceIds.Contains(x.Id) && x.PurchaseInvoice!.CompanyId == CompanyId).ToDictionaryAsync(x => x.Id);
+        goodsValue = receipt.Lines.Sum(x => { var invoice = invoices.GetValueOrDefault(x.PurchaseInvoiceLineId ?? Guid.Empty); var order = roots.GetValueOrDefault(x.PurchaseOrderLineId ?? Guid.Empty); return Math.Round(x.QuantityReceived * (invoice?.UnitCostBilled ?? order?.UnitCost ?? 0) * (invoice?.PurchaseInvoice?.ExchangeRate ?? orders.GetValueOrDefault(order?.PurchaseOrderId ?? Guid.Empty)?.ExchangeRate ?? 1), 2, MidpointRounding.AwayFromZero); });
+        costs = await db.GrnLandedCosts.AsNoTracking().Where(x => x.GoodsReceiptId == ReceiptId).ToListAsync();
+        loading = false;
+    }
+    private void Add() { if (costType.HasValue && amount > 0) { costs.Add(new GrnLandedCost { GoodsReceiptId = ReceiptId, CostType = costType.Value, Amount = amount, AllocationMethod = method }); costType = null; amount = 0; } }
+    private async Task Save()
+    {
+        if (!InventoryValuationService.LandedCostsEnabled || busy || loading || readOnly) return;
+        busy = true;
+        try {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            await using var tx = await db.Database.BeginTransactionAsync();
+            if (!await db.GoodsReceipts.AnyAsync(x => x.Id == ReceiptId && x.CompanyId == CompanyId)) { message = "Receipt not found."; return; }
+            var batchId = await db.GoodsReceipts.Where(x => x.Id == ReceiptId && x.CompanyId == CompanyId).Select(x => x.GLBatchId).SingleAsync();
+            if (batchId.HasValue && await db.GLBatches.AnyAsync(x => x.Id == batchId && x.Status == BatchStatus.Posted)) { message = "The receipt is posted. Its landed costs are read-only."; return; }
+            var existing = await db.GrnLandedCosts.Where(x => x.GoodsReceiptId == ReceiptId).ToListAsync();
+            db.GrnLandedCosts.RemoveRange(existing);
+            db.GrnLandedCosts.AddRange(costs.Select(x => new GrnLandedCost { Id = Guid.NewGuid(), GoodsReceiptId = ReceiptId, CostType = x.CostType, Amount = x.Amount, AllocationMethod = x.AllocationMethod }));
+            await db.SaveChangesAsync(); await tx.CommitAsync();
+            message = await Valuation.RecalculateWACC(ReceiptId);
+            if (string.IsNullOrEmpty(message)) await OnClosed.InvokeAsync();
+        } catch (DbUpdateException) { message = "The landed costs could not be saved. Refresh the receipt and try again."; }
+        finally { busy = false; }
+    }
+}

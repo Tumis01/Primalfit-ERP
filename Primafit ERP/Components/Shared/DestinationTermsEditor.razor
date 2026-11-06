@@ -1,0 +1,10 @@
+@using Primafit_ERP.Services
+<div class="space-y-3">
+    <h3 class="text-sm font-bold text-slate-800">Terms for @Label</h3>
+    <PurchaseDocumentTerms CompanyId="@CompanyId" Terms="@Terms" />
+</div>
+@code {
+    [Parameter, EditorRequired] public DestinationDocumentTerms Terms { get; set; } = new();
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+}

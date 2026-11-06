@@ -6,6 +6,7 @@ namespace Primafit_ERP.Services
 {
     public class InventoryValuationService
     {
+        public static bool LandedCostsEnabled => false;
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
         public InventoryValuationService(IDbContextFactory<AppDbContext> dbFactory)
@@ -15,6 +16,7 @@ namespace Primafit_ERP.Services
 
         public async Task<string> RecalculateWACC(Guid goodsReceiptId)
         {
+            if (!LandedCostsEnabled) return "Landed costs are currently disabled.";
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
             var grn = await ctx.GoodsReceipts
@@ -22,10 +24,18 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(g => g.Id == goodsReceiptId);
             if (grn == null) return "Goods Receipt not found.";
 
-            var po = await ctx.PurchaseOrders
-                .Include(p => p.Lines)
-                .FirstOrDefaultAsync(p => p.Id == grn.PurchaseOrderId);
-            if (po == null) return "Linked Purchase Order not found.";
+            if (grn.Lines.Any(line => !line.PurchaseOrderLineId.HasValue && !line.PurchaseInvoiceLineId.HasValue))
+                return "This legacy goods receipt has an unresolved purchase order link. Restore its source before recalculating valuation.";
+            var poLineIds = grn.Lines.Where(line => line.PurchaseOrderLineId.HasValue).Select(line => line.PurchaseOrderLineId!.Value).Distinct().ToList();
+            var poLines = await ctx.PurchaseOrderLines.Where(line => poLineIds.Contains(line.Id)).ToDictionaryAsync(line => line.Id);
+            if (poLines.Count != poLineIds.Count) return "One or more linked purchase order lines were not found.";
+            var poIds = poLines.Values.Select(line => line.PurchaseOrderId).Distinct().ToList();
+            var purchaseOrders = await ctx.PurchaseOrders.Where(order => poIds.Contains(order.Id) && order.CompanyId == grn.CompanyId)
+                .ToDictionaryAsync(order => order.Id);
+            if (purchaseOrders.Count != poIds.Count) return "One or more linked purchase orders were not found.";
+            var invoiceLineIds = grn.Lines.Where(x => x.PurchaseInvoiceLineId.HasValue).Select(x => x.PurchaseInvoiceLineId!.Value).Distinct().ToList();
+            var invoiceLines = await ctx.PurchaseInvoiceLines.Include(x => x.PurchaseInvoice).Where(x => invoiceLineIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+            if (invoiceLines.Count != invoiceLineIds.Count || invoiceLines.Values.Any(x => x.PurchaseInvoice == null || x.PurchaseInvoice.CompanyId != grn.CompanyId || !x.ItemId.HasValue)) return "One or more linked invoice lines were not found.";
 
             var landedCosts = await ctx.GrnLandedCosts
                 .Where(lc => lc.GoodsReceiptId == goodsReceiptId)
@@ -43,27 +53,30 @@ namespace Primafit_ERP.Services
                 .Select(line => new
                 {
                     Line = line,
-                    PoLine = po.Lines.FirstOrDefault(poLine => poLine.Id == line.PurchaseOrderLineId)
+                    PoLine = line.PurchaseOrderLineId.HasValue ? poLines.GetValueOrDefault(line.PurchaseOrderLineId.Value) : null,
+                    InvoiceLine = line.PurchaseInvoiceLineId.HasValue ? invoiceLines.GetValueOrDefault(line.PurchaseInvoiceLineId.Value) : null,
+                    Order = line.PurchaseOrderLineId.HasValue ? purchaseOrders.GetValueOrDefault(poLines.GetValueOrDefault(line.PurchaseOrderLineId.Value)?.PurchaseOrderId ?? Guid.Empty) : null
                 })
-                .Where(x => x.PoLine != null)
+                .Where(x => x.InvoiceLine != null || (x.PoLine != null && x.Order != null))
                 .ToList();
 
             decimal totalGrnPurchaseValueBase = receiptLines.Sum(x =>
-                x.PoLine!.UnitCost * x.Line.QuantityReceived * po.ExchangeRate);
+                (x.InvoiceLine?.UnitCostBilled ?? x.PoLine!.UnitCost) * x.Line.QuantityReceived * (x.InvoiceLine?.PurchaseInvoice?.ExchangeRate ?? x.Order!.ExchangeRate));
             decimal totalGrnQuantity = receiptLines.Sum(x => x.Line.QuantityReceived);
 
             // The GRN posting already writes quantity, WACC, and one audit record.
             // Finalising landed cost must amend that receipt, never post it again.
             var affectedItemIds = new HashSet<Guid>();
             var usedHistoryIds = new HashSet<Guid>();
+            var usedLedgerIds = new HashSet<Guid>();
 
             foreach (var receiptLine in receiptLines)
             {
-                var poLine = receiptLine.PoLine!;
-                var item = await ctx.Items.FirstOrDefaultAsync(i => i.Id == poLine.ItemId);
+                var itemId = receiptLine.InvoiceLine?.ItemId ?? receiptLine.PoLine!.ItemId;
+                var item = await ctx.Items.FirstOrDefaultAsync(i => i.Id == itemId);
                 if (item == null || item.IsService) continue;
 
-                decimal purchaseValueBase = poLine.UnitCost * receiptLine.Line.QuantityReceived * po.ExchangeRate;
+                decimal purchaseValueBase = (receiptLine.InvoiceLine?.UnitCostBilled ?? receiptLine.PoLine!.UnitCost) * receiptLine.Line.QuantityReceived * (receiptLine.InvoiceLine?.PurchaseInvoice?.ExchangeRate ?? receiptLine.Order!.ExchangeRate);
                 decimal allocatedByValue = totalGrnPurchaseValueBase > 0
                     ? totalCostByValue * purchaseValueBase / totalGrnPurchaseValueBase
                     : 0m;
@@ -93,9 +106,10 @@ namespace Primafit_ERP.Services
                         && s.ItemId == item.Id
                         && s.QuantityChanged == receiptLine.Line.QuantityReceived)
                     .OrderBy(s => s.Date)
-                    .FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync(s => !usedLedgerIds.Contains(s.Id));
                 if (ledgerEntry != null)
                 {
+                    usedLedgerIds.Add(ledgerEntry.Id);
                     ledgerEntry.CostAtTime = incomingUnitCost;
                 }
 

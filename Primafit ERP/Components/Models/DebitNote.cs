@@ -14,6 +14,8 @@ namespace Primafit_ERP.Components.Models
 
     public class DebitNote
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -28,6 +30,9 @@ namespace Primafit_ERP.Components.Models
         public Guid? PurchaseOrderId { get; set; }
         [ForeignKey(nameof(PurchaseOrderId))]
         public PurchaseOrder? PurchaseOrder { get; set; }
+        public Guid? PurchaseInvoiceId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceId))]
+        public PurchaseInvoice? PurchaseInvoice { get; set; }
 
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
@@ -72,8 +77,10 @@ namespace Primafit_ERP.Components.Models
         public List<DebitNoteLine> Lines { get; set; } = new();
     }
 
-    public class DebitNoteLine
+    public class DebitNoteLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -81,9 +88,14 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(HeaderId))]
         public DebitNote? Header { get; set; }
 
-        public Guid PurchaseOrderLineId { get; set; }
+        public Guid? PurchaseOrderLineId { get; set; }
+        public Guid? PurchaseInvoiceLineId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceLineId))]
+        public PurchaseInvoiceLine? PurchaseInvoiceLine { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UnfulfilledQuantity { get; set; }
 
-        public Guid ItemId { get; set; }
+        public Guid? ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]
         public Item? Item { get; set; }
 
@@ -103,6 +115,15 @@ namespace Primafit_ERP.Components.Models
 
         [NotMapped]
         public decimal MaxReturnableQty { get; set; }
+
+        [NotMapped] public decimal ReversalDiscountRate { get; set; }
+        [NotMapped] public decimal ReversalTaxRate { get; set; }
+        [NotMapped] public decimal ReversalDiscountValue { get; set; }
+        [NotMapped] public decimal ReversalTaxValue { get; set; }
+        [NotMapped] public decimal PreviouslyReversedQty { get; set; }
+        [NotMapped] public decimal GrossReversal => InvoiceReversalMath.Portion(Math.Round(OriginalPurchasedQty * UnitCost, 2, MidpointRounding.AwayFromZero), PreviouslyReversedQty, Quantity, OriginalPurchasedQty);
+        [NotMapped] public decimal DiscountReversal => InvoiceReversalMath.Portion(ReversalDiscountValue, PreviouslyReversedQty, Quantity, OriginalPurchasedQty);
+        [NotMapped] public decimal TaxReversal => InvoiceReversalMath.Portion(ReversalTaxValue, PreviouslyReversedQty, Quantity, OriginalPurchasedQty);
 
         [NotMapped]
         public decimal LineTotal => Quantity * UnitCost;

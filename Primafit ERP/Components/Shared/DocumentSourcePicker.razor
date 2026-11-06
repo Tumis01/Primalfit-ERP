@@ -1,0 +1,80 @@
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject DocumentWorkflowService Workflow
+
+<div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+    <div class="p-4 flex flex-wrap justify-between items-center gap-3 border-b border-slate-100 bg-slate-50/50">
+        <div><h2 class="font-bold text-slate-900">Create from @(Purchase ? "purchase requests" : "sales quotes")</h2><p class="text-xs text-slate-500">Select a document header or individual available lines.</p></div>
+        <button type="button" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold disabled:opacity-50" disabled="@(saving || selected.Count == 0)" @onclick="Convert">Create @(Purchase ? "purchase orders" : "sales orders") (@selected.Count lines)</button>
+    </div>
+    @if (!string.IsNullOrEmpty(message)) { <p class="p-4 text-sm text-indigo-700">@message</p> }
+    <div class="overflow-x-auto"><table class="w-full min-w-[850px] text-left text-sm"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Select</th><th>Source document</th><th>@(Purchase ? "Supplier" : "Customer")</th><th>Warehouse</th><th>Currency</th><th>Item</th><th>Quantity</th><th>Price</th></tr></thead><tbody class="divide-y divide-slate-100">
+        @foreach (var group in lines.GroupBy(x => x.DocumentId))
+        {
+            var first = group.First();
+            <tr class="bg-slate-50/70 font-bold"><td class="p-4"><input type="checkbox" checked="@group.All(x => selected.Contains(x.Id))" @onchange="e => ToggleGroup(group.Select(x => x.Id), e)" aria-label="Select all available lines in document" /></td><td>@first.Number</td><td>@first.Partner</td><td>@first.Site</td><td>@first.Currency</td><td colspan="3">@group.Count() available line(s)</td></tr>
+            @foreach (var line in group) { <tr><td class="p-4"><input type="checkbox" checked="@selected.Contains(line.Id)" @onchange="e => ToggleLine(line.Id, e)" aria-label="Select source line" /></td><td></td><td></td><td></td><td></td><td>@line.Item</td><td>@line.Quantity.ToString("N4") @line.Uom</td><td>@line.Price.ToString("N4")</td></tr> }
+        }
+        @if (lines.Count == 0) { <tr><td colspan="8" class="p-8 text-center text-slate-400">No source lines are available.</td></tr> }
+    </tbody></table></div>
+    @foreach (var group in lines.Where(x => selected.Contains(x.Id)).GroupBy(x => (x.PartnerId, x.SiteId, x.CurrencyId)))
+    {
+        var first = group.First();
+        <div class="p-4 space-y-3">
+            <p class="text-xs text-slate-600">Terms start from a selected source document. Review them for the selected lines.</p>
+            @if (group.Select(x => (x.ExchangeRate, x.TaxId, x.DiscountPercentage, x.DiscountAmount, x.WithholdingTaxId)).Distinct().Skip(1).Any()) { <div role="alert" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">The selected source documents have different terms. Choose and confirm the terms for this order.</div> }
+            @if (GetTerms(first).DiscountAmount > 0) { <p class="text-xs text-amber-700">Review the flat discount when converting part of a document or combining documents.</p> }
+            <DestinationTermsEditor CompanyId="@CompanyId" Terms="@GetTerms(first)" Label="@($"{first.Partner} / {first.Site} / {first.Currency}")" />
+        </div>
+    }
+</div>
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public bool Purchase { get; set; }
+    [Parameter] public EventCallback OnCreated { get; set; }
+    private record SourceLine(Guid Id, Guid DocumentId, Guid PartnerId, Guid SiteId, Guid CurrencyId, decimal ExchangeRate, string Number, string Partner, string Site, string Currency, string Item, decimal Quantity, string Uom, decimal Price, Guid? TaxId, decimal DiscountPercentage, decimal DiscountAmount, Guid? WithholdingTaxId);
+    private List<SourceLine> lines = new();
+    private HashSet<Guid> selected = new();
+    private Dictionary<(Guid, Guid, Guid), DestinationDocumentTerms> terms = new();
+    private DestinationDocumentTerms GetTerms(SourceLine l) { var key = (l.PartnerId, l.SiteId, l.CurrencyId); if (!terms.TryGetValue(key, out var value)) terms[key] = value = new DestinationDocumentTerms { PartnerId = l.PartnerId, SiteId = l.SiteId, CurrencyId = l.CurrencyId, ExchangeRate = l.ExchangeRate, TaxId = l.TaxId, DiscountPercentage = l.DiscountPercentage, DiscountAmount = l.DiscountAmount, WithholdingTaxId = l.WithholdingTaxId }; return value; }
+    private bool saving;
+    private string message = "";
+    protected override async Task OnInitializedAsync() => await Load();
+    private async Task Load()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (Purchase)
+        {
+            var used = await db.PurchaseOrderLines.Where(x => x.PurchaseRequestLineId.HasValue).Select(x => x.PurchaseRequestLineId!.Value).ToListAsync();
+            var requests = await Workflow.GetPurchaseRequestsAsync(CompanyId);
+            lines = requests.Where(x => x.Status is PurchaseRequestStatus.Open or PurchaseRequestStatus.PartiallyConverted).SelectMany(r => r.Lines.Where(l => !used.Contains(l.Id)).Select(l => new SourceLine(l.Id, r.Id, r.VendorId, r.WarehouseId ?? Guid.Empty, r.CurrencyId, r.ExchangeRate, r.RequestNumber, r.Vendor?.Name ?? "Unknown", r.Warehouse?.Name ?? "Unknown", r.Currency?.CurrencyCode ?? "Unknown", l.Item?.Name ?? l.Description ?? "Unknown", UomConversion.FromBase(l.QuantityRequested, l.UomConversionFactor), l.UomName, UomConversion.PriceFromBase(l.UnitCost, l.UomConversionFactor), r.TaxId, r.DiscountPercentage, r.DiscountAmount, r.WithholdingTaxId))).ToList();
+        }
+        else
+        {
+            var used = await db.SalesOrderLines.Where(x => x.SalesQuoteLineId.HasValue).Select(x => x.SalesQuoteLineId!.Value).ToListAsync();
+            var quotes = await Workflow.GetSalesQuotesAsync(CompanyId);
+            lines = quotes.Where(x => (x.Status is SalesQuoteStatus.Open or SalesQuoteStatus.PartiallyConverted) && (!x.ValidUntil.HasValue || x.ValidUntil >= DateOnly.FromDateTime(DateTime.Today))).SelectMany(q => q.Lines.Where(l => !used.Contains(l.Id)).Select(l => new SourceLine(l.Id, q.Id, q.CustomerId, q.WarehouseId ?? Guid.Empty, q.CurrencyId, q.ExchangeRate, q.QuoteNumber, q.Customer?.Name ?? "Unknown", q.Warehouse?.Name ?? "Unknown", q.Currency?.CurrencyCode ?? "Unknown", l.Item?.Name ?? l.Description ?? "Unknown", UomConversion.FromBase(l.Quantity, l.UomConversionFactor), l.UomName, UomConversion.PriceFromBase(l.UnitPrice, l.UomConversionFactor), q.TaxId, q.DiscountPercentage, q.DiscountAmount, q.WithholdingTaxId))).ToList();
+        }
+    }
+    private void ToggleLine(Guid id, ChangeEventArgs e)
+    {
+        var line = lines.FirstOrDefault(x => x.Id == id);
+        if (line == null || !(e.Value is bool b && b ? selected.Add(id) : selected.Remove(id))) return;
+        var key = (line.PartnerId, line.SiteId, line.CurrencyId);
+        if (!lines.Any(x => selected.Contains(x.Id) && (x.PartnerId, x.SiteId, x.CurrencyId) == key)) terms.Remove(key);
+        else if (terms.TryGetValue(key, out var current)) current.Confirmed = false;
+    }
+    private void ToggleGroup(IEnumerable<Guid> ids, ChangeEventArgs e) { foreach (var id in ids) ToggleLine(id, e); }
+    private async Task Convert()
+    {
+        saving = true;
+        try {
+            var selectedTerms = lines.Where(x => selected.Contains(x.Id)).GroupBy(x => (x.PartnerId, x.SiteId, x.CurrencyId)).Select(x => GetTerms(x.First())).ToList();
+            message = Purchase ? await Workflow.ConvertPurchaseRequestLinesAsync(CompanyId, selected.ToList(), selectedTerms) : await Workflow.ConvertSalesQuoteLinesAsync(CompanyId, selected.ToList(), selectedTerms);
+            if (string.IsNullOrEmpty(message)) { selected.Clear(); terms.Clear(); await Load(); await OnCreated.InvokeAsync(); message = "The selected lines were converted successfully."; }
+        } finally { saving = false; }
+    }
+}

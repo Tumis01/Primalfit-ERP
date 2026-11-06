@@ -1,0 +1,67 @@
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Services
+@using Primafit_ERP.Components.Models
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Select source documents">
+    <div class="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white shadow-xl">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 p-6"><div><h2 class="font-bold text-slate-900">Select @(Purchase ? "purchase requests" : "sales quotes")</h2><p class="mt-1 text-xs text-slate-500">Choose document headers or individual lines. The selected lines will be copied into this order.</p></div><button type="button" @onclick="Close" aria-label="Close" class="text-slate-500 hover:text-slate-900">✕</button></div>
+        <div class="p-4"><input type="search" @bind="search" @bind:event="oninput" placeholder="Search document number or item" aria-label="Search source documents" class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100" /><p class="mt-2 text-xs text-slate-600">Header checkboxes select displayed lines. Your selection remains when the search changes.</p></div>
+        <div class="min-h-0 overflow-auto"><table class="w-full min-w-[650px] text-left text-sm"><thead class="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr><th class="p-3">Select</th><th class="p-3">Document</th><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3 text-right">Unit price</th></tr></thead><tbody class="divide-y divide-slate-100">
+            @foreach (var group in Filtered.GroupBy(x => x.DocumentId))
+            {
+                var first = group.First();
+                <tr class="bg-slate-50 font-bold"><td class="p-3"><input type="checkbox" checked="@group.All(x => selected.Contains(x.Id))" @onchange="e => ToggleGroup(group.Select(x => x.Id), e)" aria-label="Select displayed lines from @first.DocumentNumber" /></td><td class="p-3 font-mono">@first.DocumentNumber</td><td colspan="3" class="p-3 text-xs font-normal text-slate-500">@group.Count() available line(s)</td></tr>
+                @foreach (var line in group) { <tr @key="line.Id"><td class="p-3"><input type="checkbox" checked="@selected.Contains(line.Id)" @onchange="e => Toggle(line.Id, e)" aria-label="Select @line.ItemName from @line.DocumentNumber" /></td><td></td><td class="p-3">@line.ItemName</td><td class="p-3 text-right font-mono">@UomConversion.FromBase(line.Quantity, line.UomConversionFactor).ToString("N4") @line.UomName</td><td class="p-3 text-right font-mono">@UomConversion.PriceFromBase(line.UnitPrice, line.UomConversionFactor).ToString("N4")</td></tr> }
+            }
+            @if (loading) { <tr><td colspan="5" class="p-10 text-center text-slate-500">Loading available lines...</td></tr> }
+            else if (!Filtered.Any()) { <tr><td colspan="5" class="p-10 text-center text-slate-500">No available lines match this customer or supplier, currency and search.</td></tr> }
+        </tbody></table></div>
+        @if (selected.Count > 0)
+        {
+            <details class="mx-4 my-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 text-sm"><summary class="cursor-pointer font-bold text-indigo-800">Review @selected.Count selected line(s)</summary><ul class="mt-2 divide-y divide-indigo-100">@foreach (var line in lines.Where(x => selected.Contains(x.Id))) { <li @key="line.Id" class="flex flex-wrap items-center justify-between gap-2 py-2"><span><span class="font-mono text-xs">@line.DocumentNumber</span> · @line.ItemName</span><button type="button" @onclick="() => selected.Remove(line.Id)" aria-label="Remove @line.ItemName from @line.DocumentNumber" class="text-xs font-bold text-rose-700">Remove</button></li> }</ul></details>
+        }
+        @if (lines.Where(x => selected.Contains(x.Id)).Select(x => (x.ExchangeRate, x.TaxId, x.DiscountPercentage, x.DiscountAmount, x.WithholdingTaxId)).Distinct().Skip(1).Any())
+        { <div role="alert" class="mx-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">Selected documents have different terms. Review and choose the terms on the order after adding the lines.</div> }
+        <div class="flex items-center justify-between gap-3 border-t border-slate-200 p-4"><span class="text-xs text-slate-500">@selected.Count line(s) selected</span><div class="flex gap-2"><button type="button" @onclick="Close" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancel</button><button type="button" @onclick="Add" disabled="@(selected.Count == 0)" class="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50">Add selected lines</button></div></div>
+    </div>
+</div>
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public Guid PartnerId { get; set; }
+    [Parameter] public Guid CurrencyId { get; set; }
+    [Parameter] public bool Purchase { get; set; }
+    [Parameter] public Guid? InitialDocumentId { get; set; }
+    [Parameter] public IReadOnlyCollection<Guid> ExistingIds { get; set; } = Array.Empty<Guid>();
+    [Parameter] public EventCallback<List<OrderSourceLine>> OnAdd { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    private List<OrderSourceLine> lines = new();
+    private HashSet<Guid> selected = new();
+    private string search = "";
+    private bool loading = true;
+    private IEnumerable<OrderSourceLine> Filtered => lines.Where(x => string.IsNullOrWhiteSpace(search) || x.DocumentNumber.Contains(search, StringComparison.OrdinalIgnoreCase) || x.ItemName.Contains(search, StringComparison.OrdinalIgnoreCase));
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (Purchase)
+        {
+            var used = await db.PurchaseOrderLines.AsNoTracking().Where(x => x.PurchaseRequestLineId.HasValue).Select(x => x.PurchaseRequestLineId!.Value).ToListAsync();
+            var docs = await db.PurchaseRequests.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.Item).Where(x => x.CompanyId == CompanyId && x.VendorId == PartnerId && x.CurrencyId == CurrencyId && (x.Status == PurchaseRequestStatus.Open || x.Status == PurchaseRequestStatus.PartiallyConverted)).ToListAsync();
+            lines = docs.SelectMany(d => d.Lines.Where(x => !used.Contains(x.Id) && !ExistingIds.Contains(x.Id)).Select(x => new OrderSourceLine(x.Id, d.Id, d.RequestNumber, x.Item?.Name ?? x.Description ?? "Unknown", x.ItemId, x.Description, x.UomId, x.UomName, x.UomConversionFactor, x.QuantityRequested, x.UnitCost, d.ExchangeRate, d.TaxId, d.DiscountPercentage, d.DiscountAmount, d.WithholdingTaxId, x.DimensionSetId))).ToList();
+        }
+        else
+        {
+            var used = await db.SalesOrderLines.AsNoTracking().Where(x => x.SalesQuoteLineId.HasValue).Select(x => x.SalesQuoteLineId!.Value).ToListAsync();
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var docs = await db.SalesQuotes.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.Item).Where(x => x.CompanyId == CompanyId && x.CustomerId == PartnerId && x.CurrencyId == CurrencyId && (x.Status == SalesQuoteStatus.Open || x.Status == SalesQuoteStatus.PartiallyConverted) && (!x.ValidUntil.HasValue || x.ValidUntil >= today)).ToListAsync();
+            lines = docs.SelectMany(d => d.Lines.Where(x => !used.Contains(x.Id) && !ExistingIds.Contains(x.Id)).Select(x => new OrderSourceLine(x.Id, d.Id, d.QuoteNumber, x.Item?.Name ?? x.Description ?? "Unknown", x.ItemId, x.Description, x.UomId, x.UomName, x.UomConversionFactor, x.Quantity, x.UnitPrice, d.ExchangeRate, d.TaxId, d.DiscountPercentage, d.DiscountAmount, d.WithholdingTaxId, x.DimensionSetId))).ToList();
+        }
+        if (InitialDocumentId.HasValue) foreach (var line in lines.Where(x => x.DocumentId == InitialDocumentId)) selected.Add(line.Id);
+        loading = false;
+    }
+    private void Toggle(Guid id, ChangeEventArgs e) { if (e.Value is bool b && b) selected.Add(id); else selected.Remove(id); }
+    private void ToggleGroup(IEnumerable<Guid> ids, ChangeEventArgs e) { foreach (var id in ids) Toggle(id, e); }
+    private Task Close() => OnClose.InvokeAsync();
+    private async Task Add() { await OnAdd.InvokeAsync(lines.Where(x => selected.Contains(x.Id)).ToList()); await OnClose.InvokeAsync(); }
+}

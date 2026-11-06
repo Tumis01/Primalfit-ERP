@@ -42,8 +42,6 @@ namespace Primafit_ERP.Services
                          && validStatuses.Contains(o.Status))
                 .ToListAsync();
 
-            if (!invoices.Any()) return new List<SalesOrder>();
-
             var invoiceIds = invoices.Select(o => o.Id).ToList();
 
             var paymentsMap = await (from pa in ctx.PaymentApplications
@@ -51,22 +49,25 @@ namespace Primafit_ERP.Services
                                      where invoiceIds.Contains(pa.InvoiceId) && p.Status == PaymentStatus.Posted
                                         && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId.Value && b.Status == BatchStatus.Posted))
                                      group pa by pa.InvoiceId into g
-                                     select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
+                                     select new { InvoiceId = g.Key, Paid = g.Sum(x => x.AppliedAmount) })
                                     .ToDictionaryAsync(x => x.InvoiceId, x => x.Paid);
 
             var historicalCashRefundsMap = await ctx.ReceiptRefunds
-                .Where(r => invoiceIds.Contains(r.SalesOrderId)
+                .Where(r => (r.SalesOrderId.HasValue && invoiceIds.Contains(r.SalesOrderId.Value))
                          && r.Status == ReceiptRefundStatus.Posted
-                         && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId.Value && b.Status == BatchStatus.Posted))
+                         && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId.Value && (b.Status == BatchStatus.Posted || b.Status == BatchStatus.Ready)))
                          && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both))
-                .GroupBy(r => r.SalesOrderId)
+                .Where(r => r.SalesOrderId.HasValue).GroupBy(r => r.SalesOrderId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
+            var cashCreditClaims = await ctx.CreditNotes.Where(c => (c.SalesOrderId.HasValue && invoiceIds.Contains(c.SalesOrderId.Value)) && !c.ReturnToStock && c.Status == CreditNoteStatus.Posted
+                    && (!c.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == c.GlBatchId.Value && (b.Status == BatchStatus.Ready || b.Status == BatchStatus.Posted))))
+                .Where(c => c.SalesOrderId.HasValue).GroupBy(c => c.SalesOrderId!.Value).ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
 
             var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                 .Include(l => l.Header)
-                .Where(l => invoiceIds.Contains(l.Header!.SalesOrderId) && l.Header.Status == ReceiptRefundStatus.Posted
-                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-                .GroupBy(l => l.SalesOrderLineId)
+                .Where(l => (l.Header!.SalesOrderId.HasValue && invoiceIds.Contains(l.Header.SalesOrderId.Value)) && l.Header.Status == ReceiptRefundStatus.Posted
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && (b.Status == BatchStatus.Posted || b.Status == BatchStatus.Ready))))
+                .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var eligibleList = new List<SalesOrder>();
@@ -75,7 +76,7 @@ namespace Primafit_ERP.Services
             {
                 decimal totalPaid = paymentsMap.TryGetValue(inv.Id, out var paidAmt) ? paidAmt : 0;
                 decimal totalCashRefunded = historicalCashRefundsMap.TryGetValue(inv.Id, out var refAmt) ? refAmt : 0;
-                decimal remainingCashLimit = totalPaid - totalCashRefunded;
+                decimal remainingCashLimit = totalPaid - totalCashRefunded - cashCreditClaims.GetValueOrDefault(inv.Id);
 
                 bool hasReturnableStock = inv.Lines.Any(l =>
                 {
@@ -90,12 +91,24 @@ namespace Primafit_ERP.Services
                 }
             }
 
+            var documents = await ctx.SalesInvoices.AsNoTracking().Include(x => x.Lines).Include(x => x.Currency)
+                .Where(x => x.CompanyId == companyId && x.CustomerId == customerId && !x.InvoiceNumber.StartsWith("AR-LEGACY-") && x.GLBatchId.HasValue
+                    && ctx.GLBatches.Any(b => b.Id == x.GLBatchId.Value && b.CompanyId == companyId && b.Status == BatchStatus.Posted)).ToListAsync();
+            foreach (var doc in documents)
+            {
+                var cash = await NewInvoiceReturnService.SalesCashAsync(ctx, doc);
+                bool available = cash.Paid > cash.Claimed;
+                foreach (var line in doc.Lines.Where(x => x.ItemId.HasValue))
+                { var balance = await InvoiceCorrectionBalances.SalesAsync(ctx, line); if (balance.Fulfilled > balance.PriorReturned + balance.OtherRootReturned) { available = true; break; } }
+                if (available) eligibleList.Add(new SalesOrder { Id = doc.Id, CompanyId = doc.CompanyId, CustomerId = doc.CustomerId, OrderNumber = doc.InvoiceNumber, Date = doc.Date, CurrencyId = doc.CurrencyId, Currency = doc.Currency, ExchangeRate = doc.ExchangeRate });
+            }
             return eligibleList.OrderByDescending(o => o.Date).ToList();
         }
 
         public async Task<ReceiptRefund> CreateReceiptRefundDraftAsync(Guid orderId, ReceiptRefundType type, Guid userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.SalesInvoices.AnyAsync(x => x.Id == orderId && !x.InvoiceNumber.StartsWith("AR-LEGACY-"))) return await new NewInvoiceReturnService(_dbFactory, _glOps, _numberingService).CreateSalesAsync(orderId, type, userId);
             var so = await ctx.SalesOrders
                 .Include(s => s.Lines).ThenInclude(l => l.Item)
                 .Include(s => s.Currency)
@@ -106,8 +119,8 @@ namespace Primafit_ERP.Services
             var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                 .Include(l => l.Header)
                 .Where(l => l.Header!.SalesOrderId == orderId && l.Header.Status == ReceiptRefundStatus.Posted
-                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-                .GroupBy(l => l.SalesOrderLineId)
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && (b.Status == BatchStatus.Posted || b.Status == BatchStatus.Ready))))
+                .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var refund = new ReceiptRefund
@@ -139,7 +152,7 @@ namespace Primafit_ERP.Services
                 if (type == ReceiptRefundType.PaymentOnly || maxReturnableQty > 0)
                 {
                     refund.Lines.Add(new ReceiptRefundLine
-                    {
+                    { DimensionSetId = soLine.DimensionSetId,
                         Id = Guid.NewGuid(),
                         HeaderId = refund.Id,
                         ItemId = soLine.ItemId ?? Guid.Empty,
@@ -170,9 +183,11 @@ namespace Primafit_ERP.Services
                 .Include(r => r.Customer)
                 .Include(r => r.Currency)
                 .Include(r => r.SalesOrder).ThenInclude(so => so.Lines)
+                .Include(r => r.SalesInvoice)
                 .Include(r => r.CustomTransactionType)
                 .FirstOrDefaultAsync(r => r.Id == id && r.CompanyId == companyId);
 
+            if (refund?.SalesInvoiceId != null) await NewInvoiceReturnService.EnrichSalesAsync(ctx, refund);
             if (refund != null && refund.SalesOrder != null)
             {
                 var so = refund.SalesOrder;
@@ -182,8 +197,8 @@ namespace Primafit_ERP.Services
                     .Where(l => l.Header!.SalesOrderId == refund.SalesOrderId
                              && l.Header.Id != refund.Id
                          && l.Header.Status == ReceiptRefundStatus.Posted
-                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-                    .GroupBy(l => l.SalesOrderLineId)
+                         && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && (b.Status == BatchStatus.Posted || b.Status == BatchStatus.Ready))))
+                    .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value)
                     .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
                 foreach (var line in refund.Lines)
@@ -191,7 +206,7 @@ namespace Primafit_ERP.Services
                     var matchingInvoiceLine = so.Lines.FirstOrDefault(sol => sol.Id == line.SalesOrderLineId);
                     if (matchingInvoiceLine != null)
                     {
-                        decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId, out var q) ? q : 0;
+                        decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId.GetValueOrDefault(), out var q) ? q : 0;
                         line.MaxAdjustableQty = Math.Max(0, matchingInvoiceLine.QtyShipped - alreadyReturnedQty);
                         line.OriginalShippedQty = matchingInvoiceLine.QtyShipped;
                         line.PreviouslyReturnedQty = alreadyReturnedQty;
@@ -206,6 +221,7 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var existing = await ctx.ReceiptRefunds.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == refund.Id);
+            if (existing?.SalesInvoiceId != null) return await new NewInvoiceReturnService(_dbFactory, _glOps, _numberingService).SaveSalesAsync(refund);
 
             if (existing == null) return "Receipt return document path missing.";
             var existingBatch = existing.GlBatchId.HasValue
@@ -213,6 +229,7 @@ namespace Primafit_ERP.Services
                 : null;
             if (existing.Status == ReceiptRefundStatus.Posted && (existingBatch == null || existingBatch.Status == BatchStatus.Posted))
                 return "Cannot modify posted accounting entries.";
+            if (existingBatch?.Status == BatchStatus.Ready) return "Cannot edit a return while it is awaiting General Ledger review.";
 
             existing.Date = refund.Date;
             existing.ProjectId = await ctx.SalesOrders.AsNoTracking()
@@ -233,7 +250,7 @@ namespace Primafit_ERP.Services
             foreach (var line in refund.Lines)
             {
                 ctx.ReceiptRefundLines.Add(new ReceiptRefundLine
-                {
+                { DimensionSetId = line.DimensionSetId,
                     Id = Guid.NewGuid(),
                     HeaderId = existing.Id,
                     ItemId = line.ItemId,
@@ -265,11 +282,14 @@ namespace Primafit_ERP.Services
 
         public async Task<string> PostReceiptRefundAsync(Guid refundId, Guid userId)
         {
+            using (var lookup = await _dbFactory.CreateDbContextAsync())
+                if (await lookup.ReceiptRefunds.AnyAsync(x => x.Id == refundId && x.SalesInvoiceId != null)) return await new NewInvoiceReturnService(_dbFactory, _glOps, _numberingService).PostSalesAsync(refundId, userId);
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync();
             try
             {
                 var refund = await ctx.ReceiptRefunds
+                    .FromSqlInterpolated($"SELECT * FROM [ReceiptRefunds] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {refundId}")
                     .Include(r => r.Lines).ThenInclude(l => l.Item)
                     .Include(r => r.Customer)
                     .Include(r => r.SalesOrder).ThenInclude(so => so.Lines)
@@ -282,11 +302,19 @@ namespace Primafit_ERP.Services
                         ? await ctx.GLBatches.AsNoTracking().FirstOrDefaultAsync(b => b.Id == refund.GlBatchId.Value && b.CompanyId == refund.CompanyId)
                         : null;
                     if (existingBatch?.Status == BatchStatus.Posted) return "Document is already committed to the General Ledger.";
+                    if (existingBatch?.Status == BatchStatus.Ready) return "Document is already awaiting General Ledger review.";
                     if (existingBatch == null) return "Document is already locked and has no review batch.";
                 }
                 if (refund.SalesOrder == null) return "Parent sales order reference mapping is missing.";
 
+                // Serialize return claims against the same invoice/order while
+                // preserving the independent GL review transaction.
+                await ctx.SalesOrders.FromSqlInterpolated($"SELECT * FROM [SalesOrders] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {refund.SalesOrderId}").Select(x => x.Id).ToListAsync();
                 var so = refund.SalesOrder;
+                if (so.CompanyId != refund.CompanyId || so.CustomerId != refund.CustomerId || so.CurrencyId != refund.CurrencyId)
+                    return "The return customer, currency and company must match its source document.";
+                if (refund.Lines.Any(x => x.Quantity < 0) || refund.Lines.Where(x => x.Quantity > 0).Where(x => x.SalesOrderLineId.HasValue).GroupBy(x => x.SalesOrderLineId!.Value).Any(x => x.Count() > 1))
+                    return "Return lines must have non-negative quantities and each source line can be selected once.";
                 var glLines = new List<GLJournalLine>();
                 decimal rate = refund.ExchangeRate > 0 ? refund.ExchangeRate : 1;
                 var conversionMap = await ctx.UomConversionRules.AsNoTracking()
@@ -312,14 +340,17 @@ namespace Primafit_ERP.Services
                 {
                     if (refund.DestinationWarehouseId == null || refund.DestinationWarehouseId == Guid.Empty)
                         return "Posting Aborted: A destination warehouse location is required to log product inventory returns.";
+                    if (!await ctx.Warehouses.AnyAsync(w => w.Id == refund.DestinationWarehouseId && w.CompanyId == refund.CompanyId && (w.Type == WarehouseType.Sales || w.Type == WarehouseType.Both)))
+                        return "Posting Aborted: The destination warehouse is unavailable for this company and sales module.";
 
                     var historicalQtyReturnsMap = await ctx.ReceiptRefundLines
                         .Include(l => l.Header)
                         .Where(l => l.Header!.SalesOrderId == so.Id
                                  && l.Header.Id != refund.Id
                                  && l.Header.Status == ReceiptRefundStatus.Posted
-                                 && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-                        .GroupBy(l => l.SalesOrderLineId)
+                                 && (l.Header.RefundType == ReceiptRefundType.QuantityOnly || l.Header.RefundType == ReceiptRefundType.Both)
+                                 && (!l.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.GlBatchId.Value && (b.Status == BatchStatus.Posted || b.Status == BatchStatus.Ready))))
+                        .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value)
                         .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
                     foreach (var line in refund.Lines)
@@ -328,23 +359,23 @@ namespace Primafit_ERP.Services
                         if (line.Item == null) continue;
 
                         var soLine = so.Lines.FirstOrDefault(sl => sl.Id == line.SalesOrderLineId);
-                        if (soLine == null) return $"Line mapping error for product reference {line.Item.Name}.";
+                        if (soLine == null || soLine.ItemId != line.ItemId) return $"Line mapping error for product reference {line.Item.Name}.";
 
                         var factorsForItem = itemFactors.Where(x => x.Key.ItemId == line.ItemId)
                             .ToDictionary(x => x.Key.UomId, x => x.Value);
                         if (line.UomId.HasValue && line.UomId != line.Item.UomId
                             && !factorsForItem.ContainsKey(line.UomId.Value)
-                            && (!line.Item.UomId.HasValue || !UomConversion.FactorBetween(line.Item.UomId.Value, line.UomId.Value, conversionMap).HasValue))
+                            && !UomConversion.IsConfigured(line.Item, line.UomId))
                             return $"Posting Aborted: The selected UOM for '{line.Item.Name}' is not configured.";
                         var expectedFactor = UomConversion.FactorFor(line.Item, line.UomId, factorsForItem, conversionMap);
-                        if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.0001m)
+                        if (line.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(line.UomConversionFactor) - expectedFactor) > 0.000000000000001m)
                             return $"Posting Aborted: Invalid UOM conversion selected for '{line.Item.Name}'. Reload the refund and try again.";
                         line.UomConversionFactor = expectedFactor;
                         line.UomName = string.IsNullOrWhiteSpace(line.UomName)
                             ? UomConversion.NameFor(line.Item, line.UomId)
                             : line.UomName.Trim();
 
-                        decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId, out var q) ? q : 0;
+                        decimal alreadyReturnedQty = historicalQtyReturnsMap.TryGetValue(line.SalesOrderLineId.GetValueOrDefault(), out var q) ? q : 0;
                         decimal maxAllowedReturnQty = soLine.QtyShipped - alreadyReturnedQty;
 
                         if (line.Quantity > maxAllowedReturnQty + 0.001m)
@@ -361,7 +392,7 @@ namespace Primafit_ERP.Services
 
                         // 1. Log inventory intake in StockLedger
                         var stockMovement = new StockLedger
-                        {
+                        { DimensionSetId = line.DimensionSetId,
                             Id = Guid.NewGuid(),
                             CompanyId = refund.CompanyId,
                             ItemId = line.ItemId,
@@ -405,8 +436,8 @@ namespace Primafit_ERP.Services
                             if (cogsAccount == Guid.Empty)
                                 return $"Posting Aborted: Item '{line.Item.Name}' is missing a Cost of Goods Sold (COGS) GL Account mapping.";
 
-                            glLines.Add(new GLJournalLine { SegCoaId = inventoryAssetAccount, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.Code}" });
-                            glLines.Add(new GLJournalLine { SegCoaId = cogsAccount, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.Code}" });
+                            glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = inventoryAssetAccount, Debit = lineCogsValueBase, Credit = 0, Reference = $"Return Stock: {line.Item.Code}" });
+                            glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = cogsAccount, Debit = 0, Credit = lineCogsValueBase, Reference = $"Return COGS: {line.Item.Code}" });
                         }
                     }
                 }
@@ -417,6 +448,10 @@ namespace Primafit_ERP.Services
                 // -----------------------------------------------------------------
                 if (refund.RefundType == ReceiptRefundType.PaymentOnly || refund.RefundType == ReceiptRefundType.Both)
                 {
+                    var (cashPaid, claimed) = await CustomerCashRefundBalance.GetAsync(ctx, refund.CompanyId, refund.CustomerId, so.Id, exceptRefundId: refund.Id);
+                    var availableCash = Math.Max(0m, cashPaid - claimed);
+                    if (refund.TotalAmount <= 0 || refund.TotalAmount > availableCash)
+                        return $"Posting Aborted: Cash refund must be positive and cannot exceed the remaining paid cash ({availableCash:N4}).";
                     if (!refund.BankAccountId.HasValue || refund.BankAccountId.Value == Guid.Empty)
                         return "Posting Aborted: Bank account is required for cash refund disbursement.";
 
@@ -508,17 +543,12 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            decimal totalPaid = await ctx.PaymentApplications
-                .Where(pa => pa.InvoiceId == orderId)
-                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken + pa.WithholdingAmountForeign);
+            var invoice = await ctx.SalesInvoices.AsNoTracking().FirstOrDefaultAsync(x => x.Id == orderId && !x.InvoiceNumber.StartsWith("AR-LEGACY-"));
+            if (invoice != null) { var cash = await NewInvoiceReturnService.SalesCashAsync(ctx, invoice, currentRefundId); return new CashRefundSummaryDto { TotalPaid = cash.Paid, PriorCashRefunded = cash.Claimed, MaxRefundable = Math.Max(0, cash.Paid - cash.Claimed) }; }
 
-            decimal priorRefunded = await ctx.ReceiptRefunds
-                .Where(r => r.SalesOrderId == orderId
-                         && r.Id != currentRefundId
-                         && r.Status == ReceiptRefundStatus.Posted
-                         && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId.Value && b.Status == BatchStatus.Posted))
-                         && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both))
-                .SumAsync(r => r.TotalAmount);
+            var order = await ctx.SalesOrders.AsNoTracking().FirstOrDefaultAsync(x => x.Id == orderId);
+            if (order == null) return new CashRefundSummaryDto();
+            var (totalPaid, priorRefunded) = await CustomerCashRefundBalance.GetAsync(ctx, order.CompanyId, order.CustomerId, orderId, exceptRefundId: currentRefundId);
 
             return new CashRefundSummaryDto
             {

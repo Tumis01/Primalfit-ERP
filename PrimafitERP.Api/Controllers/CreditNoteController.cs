@@ -38,8 +38,7 @@ public class CreditNoteController : ControllerBase
         if (!Guid.TryParse(companyClaim, out Guid companyId))
             return Unauthorized("User session company context is missing or invalid.");
 
-        var invoices = await _creditNoteService.GetPaidInvoicesByCustomerAsync(companyId, customerId);
-        return Ok(invoices);
+        return StatusCode(StatusCodes.Status410Gone, new { message = "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds." });
     }
 
     [HttpGet("{id:guid}")]
@@ -97,15 +96,7 @@ public class CreditNoteController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid userId))
             return Unauthorized("User session identifier context is invalid or expired.");
 
-        try
-        {
-            var cn = await _creditNoteService.CreateFinancialRefundDraftAsync(orderId, userId);
-            return Ok(new { message = "Draft Financial Refund Credit Note generated.", creditNoteId = cn.Id });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
+        return StatusCode(StatusCodes.Status410Gone, new { message = "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds." });
     }
 
     [HttpPost("post-financial/{creditNoteId:guid}")]
@@ -115,13 +106,7 @@ public class CreditNoteController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid userId))
             return Unauthorized("User session identifier context is invalid or expired.");
 
-        if (targetBankGlId == Guid.Empty)
-            return BadRequest(new { message = "You must provide a valid Target Bank GL Account ID to distribute the outflow refund." });
-
-        var error = await _creditNoteService.PostFinancialRefundDraftAsync(creditNoteId, targetBankGlId, userId);
-        if (!string.IsNullOrEmpty(error)) return BadRequest(new { message = error });
-
-        return Ok(new { message = "Financial Refund posted, bank assets reduced, and AR claims adjusted successfully." });
+        return StatusCode(StatusCodes.Status410Gone, new { message = "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds." });
     }
 
     // --- SHARED MANAGEMENT UTILITIES ---

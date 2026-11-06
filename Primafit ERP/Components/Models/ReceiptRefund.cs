@@ -19,9 +19,13 @@ namespace Primafit_ERP.Components.Models
     }
     public class ReceiptRefund
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
-        public Guid SalesOrderId { get; set; }
+        public Guid? SalesOrderId { get; set; }
+        public Guid? SalesInvoiceId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceId))] public SalesInvoice? SalesInvoice { get; set; }
         public Guid CustomerId { get; set; }
         public Guid CurrencyId { get; set; }
         public Guid? ProjectId { get; set; }
@@ -61,11 +65,15 @@ namespace Primafit_ERP.Components.Models
         public virtual Warehouse? DestinationWarehouse { get; set; }
         public virtual ICollection<ReceiptRefundLine> Lines { get; set; } = new List<ReceiptRefundLine>();
     }
-    public class ReceiptRefundLine
+    public class ReceiptRefundLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid HeaderId { get; set; }
-        public Guid SalesOrderLineId { get; set; }
+        public Guid? SalesOrderLineId { get; set; }
+        public Guid? SalesInvoiceLineId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceLineId))] public SalesInvoiceLine? SalesInvoiceLine { get; set; }
         public Guid ItemId { get; set; }
 
         public Guid? UomId { get; set; }

@@ -171,7 +171,7 @@ namespace Primafit_ERP.Services
 
                 foreach (var line in validLines)
                 {
-                    var item = await ctx.Items.FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
+                    var item = await ctx.Items.Include(x => x.UomConversions).FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
                     if (item == null) return $"Item {line.ItemId} was not found in this company.";
                     if (line.ProjectId.HasValue && !await ctx.Projects.AnyAsync(p => p.Id == line.ProjectId && p.CompanyId == companyId && p.IsAccountingProject))
                         return $"Selected project for '{item.Name}' is unavailable.";
@@ -185,7 +185,7 @@ namespace Primafit_ERP.Services
                         if (item.IsService)
                         {
                             if (item.CostOfGoodsSoldAccountId == Guid.Empty) return $"Service '{item.Name}' has no expense GL account.";
-                            glLines.Add(new GLJournalLine { SegCoaId = item.CostOfGoodsSoldAccountId, Debit = line.TotalValueChange, ProjectId = line.ProjectId, Reference = $"Service Exp: {item.Name}" });
+                            glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.CostOfGoodsSoldAccountId, Debit = line.TotalValueChange,  ProjectId = line.ProjectId, Reference = $"Service Exp: {item.Name}" });
                         }
                         else
                         {
@@ -210,20 +210,20 @@ namespace Primafit_ERP.Services
                                 ResultingWacc = item.WeightedAverageCost, Reference = receiptRef, DateChanged = now
                             });
                             var movement = new StockLedger
-                            {
+                            { DimensionSetId = line.DimensionSetId,
                                 CompanyId = companyId, ItemId = item.Id, WarehouseId = line.WarehouseId,
                                 QuantityChanged = line.Quantity, UomId = line.UomId,
                                 UomName = line.UomName, UomConversionFactor = UomConversion.NormalizeFactor(line.UomConversionFactor),
                                 QuantityInUom = line.QuantityInUom > 0 ? line.QuantityInUom : UomConversion.FromBase(line.Quantity, line.UomConversionFactor),
                                 Type = StockMovementType.Purchase, CostAtTime = item.WeightedAverageCost,
-                                Reference = receiptRef, Date = now, ProjectId = line.ProjectId
+                                Reference = receiptRef, Date = now,  ProjectId = line.ProjectId
                             };
                             ctx.StockLedgers.Add(movement);
                             stagedMovements.Add(movement);
                             if (item.InventoryAssetAccountId == Guid.Empty) return $"Item '{item.Name}' has no Inventory Asset account.";
-                            glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = line.TotalValueChange, ProjectId = line.ProjectId, Reference = $"Stock In: {item.Name}" });
+                            glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Debit = line.TotalValueChange,  ProjectId = line.ProjectId, Reference = $"Stock In: {item.Name}" });
                         }
-                        glLines.Add(new GLJournalLine { SegCoaId = vendor!.PayablesAccountId!.Value, Credit = line.TotalValueChange, ProjectId = line.ProjectId, Reference = $"Bill: {vendor.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = vendor!.PayablesAccountId!.Value, Credit = line.TotalValueChange,  ProjectId = line.ProjectId, Reference = $"Bill: {vendor.Name}" });
                         continue;
                     }
 
@@ -285,27 +285,27 @@ namespace Primafit_ERP.Services
                         var signedUomQty = entryType == StockEntryType.QuantityDecrease || entryType == StockEntryType.BothDecrease
                             ? -Math.Abs(line.QuantityInUom) : Math.Abs(line.QuantityInUom);
                         var movement = new StockLedger
-                        {
+                        { DimensionSetId = line.DimensionSetId,
                             CompanyId = companyId, ItemId = item.Id, WarehouseId = line.WarehouseId,
                             QuantityChanged = qtyChange, UomId = line.UomId, UomName = line.UomName,
                             UomConversionFactor = UomConversion.NormalizeFactor(line.UomConversionFactor),
                             QuantityInUom = line.QuantityInUom == 0 ? UomConversion.FromBase(qtyChange, line.UomConversionFactor) : signedUomQty,
                             Type = StockMovementType.Adjustment, CostAtTime = item.WeightedAverageCost,
-                            Reference = receiptRef, Date = now, ProjectId = line.ProjectId
+                            Reference = receiptRef, Date = now,  ProjectId = line.ProjectId
                         };
                         ctx.StockLedgers.Add(movement);
                         stagedMovements.Add(movement);
                     }
                     if (valueChange > 0)
                     {
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = valueChange, ProjectId = line.ProjectId, Reference = $"Adj In: {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = item.AdjustmentExpenseAccountId, Credit = valueChange, ProjectId = line.ProjectId, Reference = $"Adj Gain: {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Debit = valueChange,  ProjectId = line.ProjectId, Reference = $"Adj In: {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.AdjustmentExpenseAccountId, Credit = valueChange,  ProjectId = line.ProjectId, Reference = $"Adj Gain: {item.Name}" });
                     }
                     else if (valueChange < 0)
                     {
                         var loss = Math.Abs(valueChange);
-                        glLines.Add(new GLJournalLine { SegCoaId = item.AdjustmentExpenseAccountId, Debit = loss, ProjectId = line.ProjectId, Reference = $"Adj Loss: {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Credit = loss, ProjectId = line.ProjectId, Reference = $"Adj Out: {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.AdjustmentExpenseAccountId, Debit = loss,  ProjectId = line.ProjectId, Reference = $"Adj Loss: {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Credit = loss,  ProjectId = line.ProjectId, Reference = $"Adj Out: {item.Name}" });
                     }
                 }
 
@@ -353,11 +353,11 @@ namespace Primafit_ERP.Services
 
                 if (uomId.HasValue && uomId != item.UomId
                     && !itemUomFactors.ContainsKey(uomId.Value)
-                    && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, uomId.Value, conversionMap).HasValue))
+                    && !UomConversion.IsConfigured(item, uomId))
                     return "The selected UOM is not configured for this item.";
 
                 decimal expectedFactor = UomConversion.FactorFor(item, uomId, itemUomFactors, conversionMap);
-                if (uomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(uomConversionFactor) - expectedFactor) > 0.0001m)
+                if (uomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(uomConversionFactor) - expectedFactor) > 0.000000000000001m)
                     return "The selected UOM conversion is invalid or outdated. Reload the item and try again.";
 
                 decimal qty = UomConversion.ToBase(qtyInUom, expectedFactor);
@@ -466,21 +466,25 @@ namespace Primafit_ERP.Services
                 var availableByItem = new Dictionary<Guid, decimal>();
                 foreach (var input in lines)
                 {
-                    var item = await ctx.Items.FirstOrDefaultAsync(x => x.Id == input.ItemId && x.CompanyId == companyId);
+                    var item = await ctx.Items.Include(x => x.UomConversions).FirstOrDefaultAsync(x => x.Id == input.ItemId && x.CompanyId == companyId);
                     if (item == null) return $"Item {input.ItemId} was not found in this company.";
                     if (item.IsService) return $"Service item '{item.Name}' cannot be transferred.";
+                    if (!item.UomId.HasValue) return $"Configure the primary UOM for '{item.Name}' before transferring stock.";
+                    if (!input.UomId.HasValue || input.UomId == Guid.Empty) return $"Select a UOM configured for '{item.Name}'.";
                     if (input.ProjectId.HasValue && !await ctx.Projects.AnyAsync(p => p.Id == input.ProjectId && p.CompanyId == companyId && p.IsAccountingProject))
                         return $"Selected project for '{item.Name}' is unavailable.";
 
                     var factors = itemFactors.Where(x => x.Key.ItemId == item.Id).ToDictionary(x => x.Key.UomId, x => x.Value);
                     if (input.UomId.HasValue && input.UomId != item.UomId
                         && !factors.ContainsKey(input.UomId.Value)
-                        && (!item.UomId.HasValue || !UomConversion.FactorBetween(item.UomId.Value, input.UomId.Value, conversionMap).HasValue))
+                        && !UomConversion.IsConfigured(item, input.UomId))
                         return $"The selected UOM is not configured for '{item.Name}'.";
                     var expectedFactor = UomConversion.FactorFor(item, input.UomId, factors, conversionMap);
-                    if (input.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(input.UomConversionFactor) - expectedFactor) > 0.0001m)
+                    if (input.UomConversionFactor <= 0 || Math.Abs(input.UomConversionFactor - expectedFactor) > 0.000000000000001m)
                         return $"The selected UOM conversion for '{item.Name}' is invalid or outdated.";
                     if (input.QuantityInUom <= 0) return $"Transfer quantity for '{item.Name}' must be greater than zero.";
+                    var selectedUom = await ctx.UnitOfMeasures.AsNoTracking().FirstOrDefaultAsync(x => x.Id == input.UomId && x.CompanyId == companyId);
+                    if (selectedUom == null) return $"The selected UOM for '{item.Name}' is unavailable in this company.";
                     var baseQty = UomConversion.ToBase(input.QuantityInUom, expectedFactor);
                     if (!availableByItem.TryGetValue(item.Id, out var available))
                     {
@@ -494,25 +498,25 @@ namespace Primafit_ERP.Services
                     {
                         ItemId = item.Id, Item = item, Quantity = baseQty,
                         UomId = input.UomId ?? item.UomId,
-                        UomName = string.IsNullOrWhiteSpace(input.UomName) ? item.UoM : input.UomName.Trim(),
+                        UomName = selectedUom.Name,
                         UomConversionFactor = expectedFactor,
                         QuantityInUom = input.QuantityInUom,
                         ValueAtShipment = baseQty * item.WeightedAverageCost,
-                        ProjectId = input.ProjectId
+                        DimensionSetId = input.DimensionSetId, ProjectId = input.ProjectId
                     };
                     transferLines.Add(transferLine);
                     var movement = new StockLedger
-                    {
+                    { DimensionSetId = input.DimensionSetId,
                         CompanyId = companyId, ItemId = item.Id, WarehouseId = fromWarehouseId,
                         QuantityChanged = -baseQty, UomId = transferLine.UomId, UomName = transferLine.UomName,
                         UomConversionFactor = expectedFactor, QuantityInUom = -input.QuantityInUom,
                         Type = StockMovementType.TransferOut, CostAtTime = item.WeightedAverageCost,
-                        Reference = $"SHIP: {reference}", Date = DateTime.UtcNow, ProjectId = input.ProjectId
+                        Reference = $"SHIP: {reference}", Date = DateTime.UtcNow,  ProjectId = input.ProjectId
                     };
                     outboundMovements.Add(movement);
                     if (item.InventoryAssetAccountId == Guid.Empty) return $"Item '{item.Name}' has no Inventory Asset account.";
-                    glLines.Add(new GLJournalLine { SegCoaId = transitAccountId, Debit = transferLine.ValueAtShipment, ProjectId = input.ProjectId, Reference = $"Transit: {item.Name}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Credit = transferLine.ValueAtShipment, ProjectId = input.ProjectId, Reference = $"Shipment: {item.Name}" });
+                    glLines.Add(new GLJournalLine { DimensionSetId = input.DimensionSetId, IsDimensionDetail = true,  SegCoaId = transitAccountId, Debit = transferLine.ValueAtShipment,  ProjectId = input.ProjectId, Reference = $"Transit: {item.Name}" });
+                    glLines.Add(new GLJournalLine { DimensionSetId = input.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Credit = transferLine.ValueAtShipment,  ProjectId = input.ProjectId, Reference = $"Shipment: {item.Name}" });
                 }
 
                 if (string.IsNullOrWhiteSpace(reference)) reference = $"TRF-{DateTime.UtcNow:yyyyMMddHHmmss}";
@@ -588,20 +592,20 @@ namespace Primafit_ERP.Services
                     var lostValue = detail.ValueAtShipment - receivedValue;
                     var reference = $"{prefix}{detail.Id:N}|{transfer.Reference}";
                     inboundMovements.Add(new StockLedger
-                    {
+                    { DimensionSetId = detail.DimensionSetId,
                         CompanyId = transfer.CompanyId, ItemId = detail.ItemId, WarehouseId = transfer.ToWarehouseId,
                         QuantityChanged = actualBaseQty, UomId = detail.UomId, UomName = detail.UomName,
                         UomConversionFactor = factor, QuantityInUom = received, Type = StockMovementType.TransferIn,
-                        CostAtTime = unitCost, Reference = reference, Date = DateTime.UtcNow, ProjectId = detail.ProjectId
+                        CostAtTime = unitCost, Reference = reference, Date = DateTime.UtcNow,  ProjectId = detail.ProjectId
                     });
                     if (detail.Item == null || detail.Item.InventoryAssetAccountId == Guid.Empty)
                         return $"Item '{detail.Item?.Name ?? detail.ItemId.ToString()}' has no Inventory Asset account.";
-                    glLines.Add(new GLJournalLine { SegCoaId = transfer.TransitGLAccountId, Credit = detail.ValueAtShipment, ProjectId = detail.ProjectId, Reference = $"Clear Transit: {detail.Item.Name}" });
-                    glLines.Add(new GLJournalLine { SegCoaId = detail.Item.InventoryAssetAccountId, Debit = receivedValue, ProjectId = detail.ProjectId, Reference = $"Receipt: {detail.Item.Name}" });
+                    glLines.Add(new GLJournalLine { DimensionSetId = detail.DimensionSetId, IsDimensionDetail = true,  SegCoaId = transfer.TransitGLAccountId, Credit = detail.ValueAtShipment,  ProjectId = detail.ProjectId, Reference = $"Clear Transit: {detail.Item.Name}" });
+                    glLines.Add(new GLJournalLine { DimensionSetId = detail.DimensionSetId, IsDimensionDetail = true,  SegCoaId = detail.Item.InventoryAssetAccountId, Debit = receivedValue,  ProjectId = detail.ProjectId, Reference = $"Receipt: {detail.Item.Name}" });
                     if (lostValue > 0)
                     {
                         if (detail.Item.AdjustmentExpenseAccountId == Guid.Empty) return $"Item '{detail.Item.Name}' needs an Adjustment Expense account for transit loss.";
-                        glLines.Add(new GLJournalLine { SegCoaId = detail.Item.AdjustmentExpenseAccountId, Debit = lostValue, ProjectId = detail.ProjectId, Reference = $"Transit Loss: {detail.Item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = detail.DimensionSetId, IsDimensionDetail = true,  SegCoaId = detail.Item.AdjustmentExpenseAccountId, Debit = lostValue,  ProjectId = detail.ProjectId, Reference = $"Transit Loss: {detail.Item.Name}" });
                     }
                     detail.QuantityReceived = actualBaseQty;
                     totalReceivedBase += actualBaseQty;
@@ -953,7 +957,7 @@ namespace Primafit_ERP.Services
 
                 foreach (var line in validLines)
                 {
-                    var item = await ctx.Items.FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
+                    var item = await ctx.Items.Include(x => x.UomConversions).FirstOrDefaultAsync(x => x.Id == line.ItemId && x.CompanyId == companyId);
                     if (item == null) return $"Item with ID '{line.ItemId}' could not be resolved.";
                     if (item.IsService) return $"STOP: '{item.Name}' is a service item. Physical inventory parameters cannot be adjusted.";
                     if (item.InventoryAssetAccountId == Guid.Empty) return $"CONFIGURATION ERROR: '{item.Name}' is missing an Inventory Asset GL Account mapping.";
@@ -981,14 +985,14 @@ namespace Primafit_ERP.Services
                     if (line.IsDebitInventory)
                     {
                         // Debit Inventory Asset (Asset Up), Credit Balancing Account
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = finalLineCostChange, Credit = 0, ProjectId = line.ProjectId, Reference = $"Inv Adj Dr - {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = 0, Credit = finalLineCostChange, ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Cr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Debit = finalLineCostChange, Credit = 0,  ProjectId = line.ProjectId, Reference = $"Inv Adj Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = balancingGlAccountId, Debit = 0, Credit = finalLineCostChange,  ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Cr - {item.Name}" });
                     }
                     else
                     {
                         // Credit Inventory Asset (Asset Down), Debit Balancing Account
-                        glLines.Add(new GLJournalLine { SegCoaId = balancingGlAccountId, Debit = finalLineCostChange, Credit = 0, ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Dr - {item.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = finalLineCostChange, ProjectId = line.ProjectId, Reference = $"Inv Adj Cr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = balancingGlAccountId, Debit = finalLineCostChange, Credit = 0,  ProjectId = line.ProjectId, Reference = $"Inv Adj Bal Dr - {item.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = item.InventoryAssetAccountId, Debit = 0, Credit = finalLineCostChange,  ProjectId = line.ProjectId, Reference = $"Inv Adj Cr - {item.Name}" });
                     }
 
                     // 3. Compute Stock Valuation Shifts
@@ -1037,7 +1041,7 @@ namespace Primafit_ERP.Services
                     if (line.QuantityChange != 0)
                     {
                         var movement = new StockLedger
-                        {
+                        { DimensionSetId = line.DimensionSetId,
                             Id = Guid.NewGuid(),
                             CompanyId = companyId,
                             ItemId = item.Id,
@@ -1047,7 +1051,7 @@ namespace Primafit_ERP.Services
                             CostAtTime = item.WeightedAverageCost,
                             Reference = $"ADJ-{postingDate:yyMMdd}",
                             Date = DateTime.UtcNow,
-                            ProjectId = line.ProjectId
+                             ProjectId = line.ProjectId
                         };
                         ctx.StockLedgers.Add(movement);
                         stagedMovements.Add(movement);

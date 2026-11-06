@@ -46,6 +46,8 @@ namespace Primafit_ERP.Components.Models
 
     public class PaymentApplication
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CustomerPaymentId { get; set; }

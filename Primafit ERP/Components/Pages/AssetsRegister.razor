@@ -165,6 +165,7 @@
                 </div>
 
                 <EditForm Model="draft" OnValidSubmit="SaveAsset">
+                    <div class="mb-5 rounded-xl border p-4"><h3 class="mb-2 text-sm font-bold">Asset dimensions</h3><p class="mb-3 text-xs text-slate-500">Used on each depreciation transaction line.</p><DimensionSelect CompanyId="@draft.CompanyId" @bind-Value="draft.DimensionSetId" /></div>
                     <DataAnnotationsValidator />
 
                     <h4 class="text-sm font-bold text-indigo-600 uppercase tracking-wider mb-3">1. General Details</h4>
@@ -212,7 +213,7 @@
                             <InputDate @bind-Value="draft.DepreciationStartDate" class="@InputClass" />
                         </div>
                     </div>
-                    
+
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
                         <h4 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">3. Depreciation Strategy</h4>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -225,7 +226,7 @@
                                     }
                                 </InputSelect>
                             </div>
-                            
+
                             @if (draft.DepreciationMethod == DepreciationMethod.StraightLine || draft.DepreciationMethod == DepreciationMethod.SumOfYearsDigits || draft.DepreciationMethod == DepreciationMethod.DecliningBalance)
                             {
                                 <div class="space-y-1">
@@ -368,7 +369,7 @@
                         </tbody>
                     </table>
                 </div>
-                
+
                 <div class="flex justify-end mt-4">
                     <button type="button" @onclick="() => showHistoryModal = false" class="px-5 py-2.5 bg-slate-100 text-slate-700 text-sm font-bold rounded-xl hover:bg-slate-200 transition-colors">
                         Close
@@ -467,7 +468,7 @@
     {
         draft = new FixedAsset
         {
-            Id = asset.Id,
+            DimensionSetId = asset.DimensionSetId, Id = asset.Id,
             CompanyId = asset.CompanyId,
             AssetCategoryId = asset.AssetCategoryId,
             AssetName = asset.AssetName,

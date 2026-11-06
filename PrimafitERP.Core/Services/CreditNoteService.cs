@@ -54,58 +54,7 @@ namespace Primafit_ERP.Services
         /// Loads only posted invoices for a specific customer where cash payments have been received.
         /// Used strictly by the Payment Reversal Bank Refund view.
         /// </summary>
-        public async Task<List<SalesOrder>> GetPaidInvoicesByCustomerAsync(Guid companyId, Guid customerId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            var validStatuses = new[] { OrderStatus.Invoiced, OrderStatus.PartiallyInvoiced, OrderStatus.Shipped, OrderStatus.PartiallyShipped };
-
-            var invoices = await ctx.SalesOrders
-                .Include(o => o.Currency)
-                .Include(o => o.Lines)
-                .Where(o => o.CompanyId == companyId
-                         && o.CustomerId == customerId
-                         && o.OrderNumber.StartsWith("INV")
-                         && validStatuses.Contains(o.Status))
-                .ToListAsync();
-
-            var invoiceIds = invoices.Select(o => o.Id).ToList();
-
-            // Aggregate total payments historically applied against these invoices
-            var paymentsMap = await ctx.PaymentApplications
-                .Where(pa => invoiceIds.Contains(pa.InvoiceId))
-                .GroupBy(pa => pa.InvoiceId)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.AppliedAmount + x.CashDiscountTaken));
-
-            var historicalRefundsMap = await ctx.CreditNotes
-                .Where(cn => invoiceIds.Contains(cn.SalesOrderId)
-                          && cn.Status == CreditNoteStatus.Posted
-                          && cn.ReturnToStock == false)
-                .GroupBy(cn => cn.SalesOrderId)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.TotalAmount));
-
-            var eligibleList = new List<SalesOrder>();
-            foreach (var inv in invoices)
-            {
-                // Dynamic line calculations
-                decimal subTotal = inv.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                decimal discount = inv.DiscountPercentage > 0 ? subTotal * (inv.DiscountPercentage / 100) : inv.DiscountAmount;
-                inv.GrandTotalForeign = subTotal - discount; // Simple baseline fallback; adds tax locally if needed
-
-                decimal totalPaid = paymentsMap.ContainsKey(inv.Id) ? paymentsMap[inv.Id] : 0;
-                decimal totalRefunded = historicalRefundsMap.ContainsKey(inv.Id) ? historicalRefundsMap[inv.Id] : 0;
-
-                decimal remainingRefundableBalance = totalPaid - totalRefunded;
-
-                // Only make the invoice selectable if there is actually cash left to reverse
-                if (remainingRefundableBalance > 0.01m)
-                {
-                    inv.AmountPaid = remainingRefundableBalance; // Stored temporarily for display on the front-end card
-                    eligibleList.Add(inv);
-                }
-            }
-
-            return eligibleList;
-        }
+        public Task<List<SalesOrder>> GetPaidInvoicesByCustomerAsync(Guid companyId, Guid customerId) => Task.FromResult(new List<SalesOrder>());
 
         // =========================================================================
         // 2. FLOW A: PHYSICAL STOCK RETURNS ENGINE (Fulfillment Bound)
@@ -234,6 +183,7 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(c => c.Id == cnId);
 
                 if (cn == null) return "Credit note execution layout parameters not found.";
+                if (!cn.ReturnToStock) return "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.";
                 if (cn.Status == CreditNoteStatus.Posted) return "Document already locked.";
                 if (cn.WarehouseId == null || cn.WarehouseId == Guid.Empty) return "Warehouse allocation target is required.";
 
@@ -321,50 +271,7 @@ namespace Primafit_ERP.Services
         /// <summary>
         /// Executes a direct cash payment refund reversal loop, deducting money from bank assets and balancing client claims.
         /// </summary>
-        public async Task<string> PostFinancialRefundDraftAsync(Guid cnId, Guid targetBankGlId, Guid userId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var transaction = await ctx.Database.BeginTransactionAsync();
-            try
-            {
-                var cn = await ctx.CreditNotes
-                    .Include(c => c.Customer)
-                    .Include(c => c.SalesOrder)
-                    .FirstOrDefaultAsync(c => c.Id == cnId);
-
-                if (cn == null) return "Refund tracking record not found.";
-                if (cn.Status == CreditNoteStatus.Posted) return "Document is already posted.";
-                if (cn.TotalAmount <= 0) return "Refund value must be greater than zero.";
-
-                decimal currentRate = cn.ExchangeRate > 0 ? cn.ExchangeRate : 1;
-                decimal refundAmountBase = Math.Round(cn.TotalAmount * currentRate, 2);
-
-                var glLines = new List<GLJournalLine>();
-
-                // 1. Debit Accounts Receivable (Re-opens invoice allocation room)
-                Guid arAccount = await _mappingService.GetMappedAccountAsync(cn.CompanyId, SystemTransactionType.CreditNote, true, cn.Customer.ReceivablesAccountId.Value);
-                glLines.Add(new GLJournalLine { SegCoaId = arAccount, Debit = refundAmountBase, Credit = 0, Reference = $"Refund Claim: {cn.SalesOrder?.OrderNumber}" });
-
-                // 2. Credit Bank Account (Deducts money directly from banking assets)
-                glLines.Add(new GLJournalLine { SegCoaId = targetBankGlId, Debit = 0, Credit = refundAmountBase, Reference = $"Cash Refund Out: {cn.Customer.Name}" });
-
-                // Post to General Ledger Operations Service
-                var (err, batchId) = await _glOps.CreateJournalEntryAsync(cn.CompanyId, cn.Date, "Cash Refund Reversal", cn.CreditNoteNumber, glLines, userId.ToString());
-                if (!string.IsNullOrEmpty(err)) throw new Exception(err);
-                if (batchId.HasValue) await _glOps.PostBatchAsync(cn.CompanyId, batchId.Value, userId.ToString());
-
-                // Update Draft Status to Posted
-                cn.Status = CreditNoteStatus.Posted;
-                cn.PostedAt = DateTime.UtcNow;
-                cn.PostedByUserId = userId;
-                cn.GlBatchId = batchId;
-
-                await ctx.SaveChangesAsync();
-                await transaction.CommitAsync();
-                return string.Empty;
-            }
-            catch (Exception ex) { await transaction.RollbackAsync(); return ex.Message; }
-        }
+        public Task<string> PostFinancialRefundDraftAsync(Guid cnId, Guid targetBankGlId, Guid userId) => Task.FromResult("Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.");
 
         // =========================================================================
         // 4. SHARED MANAGEMENT WORKFLOWS
@@ -374,6 +281,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var existing = await ctx.CreditNotes.Include(c => c.Lines).FirstOrDefaultAsync(c => c.Id == note.Id);
             if (existing == null) return "Credit Note tracking entity not found.";
+            if (!existing.ReturnToStock) return "Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.";
             if (existing.Status == CreditNoteStatus.Posted) return "Cannot edit locked records.";
 
             existing.Date = note.Date;
@@ -420,48 +328,6 @@ namespace Primafit_ERP.Services
             await ctx.SaveChangesAsync();
             return string.Empty;
         }
-        public async Task<CreditNote> CreateFinancialRefundDraftAsync(Guid orderId, Guid userId)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-            var so = await ctx.SalesOrders
-                .Include(s => s.Currency)
-                .FirstOrDefaultAsync(s => s.Id == orderId);
-
-            if (so == null) throw new Exception("Target sales invoice reference missing.");
-
-            // Calculate previously posted and pending draft refunds to ensure accurate safety thresholds
-            decimal totalPaid = await ctx.PaymentApplications
-                .Where(pa => pa.InvoiceId == orderId)
-                .SumAsync(pa => pa.AppliedAmount + pa.CashDiscountTaken);
-
-            decimal totalRefunded = await ctx.CreditNotes
-                .Where(cn => cn.SalesOrderId == orderId && cn.Status != CreditNoteStatus.Void && cn.ReturnToStock == false)
-                .SumAsync(cn => cn.TotalAmount);
-
-            decimal maxRefundable = totalPaid - totalRefunded;
-            if (maxRefundable <= 0.01m) throw new Exception("This invoice has already been fully refunded.");
-
-            var creditNote = new CreditNote
-            {
-                Id = Guid.NewGuid(),
-                CompanyId = so.CompanyId,
-                SalesOrderId = so.Id,
-                CustomerId = so.CustomerId,
-                CurrencyId = so.CurrencyId,
-                ExchangeRate = so.ExchangeRate,
-                Date = DateOnly.FromDateTime(DateTime.Today),
-                Status = CreditNoteStatus.Draft,
-                Reason = "Customer Payment Reversal Refund",
-                ReturnToStock = false, // Purely financial cash reversal flag
-                TotalAmount = 0,       // Configured dynamically on the workspace input field
-                CreatedByUserId = userId,
-                CreatedAt = DateTime.UtcNow,
-                CreditNoteNumber = $"CNF-{DateTime.UtcNow:yyMM}-{Random.Shared.Next(1000, 9999)}"
-            };
-
-            ctx.CreditNotes.Add(creditNote);
-            await ctx.SaveChangesAsync();
-            return creditNote;
-        }
+        public Task<CreditNote> CreateFinancialRefundDraftAsync(Guid orderId, Guid userId) => throw new InvalidOperationException("Credit notes reverse invoice quantities. Use Receipt Refund for customer cash refunds.");
     }
 }

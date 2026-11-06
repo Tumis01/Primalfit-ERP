@@ -5,8 +5,10 @@ namespace Primafit_ERP.Components.Models
 {
     public enum StockMovementType { Purchase, Sale, TransferIn, TransferOut, Adjustment, PurchaseReturn, SalesReturn }
 
-    public class StockLedger
+    public class StockLedger : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
         public DateTime Date { get; set; } = DateTime.UtcNow;

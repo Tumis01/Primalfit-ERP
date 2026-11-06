@@ -1,5 +1,6 @@
 @page "/wh/shipments"
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
@@ -23,61 +24,11 @@
 <div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16 font-sans text-slate-800">
     <div class="flex flex-col xl:flex-row xl:items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Warehouse Dispatch</h1>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Sales Shipments</h1>
             <p class="text-sm text-slate-500 mt-1">Process physical shipments, configure inventory GL routes, and view dispatch history.</p>
         </div>
 
-        <div class="flex flex-col sm:flex-row items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-200">
-            <div class="relative w-full sm:w-80 shrink-0">
-                <input type="text"
-                       @bind="orderSearchTerm"
-                       @bind:event="oninput"
-                       @onfocus="() => showOrderDropdown = true"
-                       @onkeyup="HandleInput"
-                       placeholder="Select or search invoice to dispatch..."
-                       class="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-3 py-2 text-sm font-bold text-slate-700 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
-
-                @if (showOrderDropdown)
-                {
-                    <div class="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto left-0">
-                        @if (FilteredUnshippedOrders.Any())
-                        {
-                            <ul class="py-1 text-sm text-slate-700">
-                                @foreach (var o in FilteredUnshippedOrders)
-                                {
-                                    bool isPartial = o.Lines.Any(l => l.QtyShipped > 0);
-                                    <li @onclick="() => SelectOrder(o)" class="px-4 py-2.5 hover:bg-indigo-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors">
-                                        <div class="truncate pr-4">
-                                            <span class="font-black text-slate-900">@o.OrderNumber</span>
-                                            <span class="text-slate-500 ml-1">- @o.Customer?.Name</span>
-                                        </div>
-                                        @if (isPartial)
-                                        {
-                                            <span class="shrink-0 text-[9px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded border border-amber-200 tracking-wider">PARTIAL</span>
-                                        }
-                                    </li>
-                                }
-                            </ul>
-                        }
-                        else
-                        {
-                            <div class="px-4 py-4 text-sm text-slate-400 italic text-center">No unshipped matching invoices found.</div>
-                        }
-                    </div>
-                }
-            </div>
-            <PermissionGate Key="SHIPMENT_CREATE">
-                <Authorized>
-                    <button @onclick="PullOrderToQueue" disabled="@isBusy" class="w-full sm:w-auto px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-700 transition-colors shrink-0 whitespace-nowrap flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50">
-                        @if (isBusy)
-                        {
-                            <span class="animate-spin">↻</span>
-                        }
-                        <span>Load Shipment</span>
-                    </button>
-                </Authorized>
-            </PermissionGate>
-        </div>
+        <PermissionGate Key="SHIPMENT_CREATE"><Authorized><a href="/wh/shipments/new" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">New Shipment</a></Authorized></PermissionGate>
     </div>
 
     <div class="flex gap-4 border-b border-slate-200">
@@ -89,6 +40,11 @@
         </button>
     </div>
 
+    @if (ViewSourceId.HasValue && activeTab == 1)
+    {
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900"><span>Showing the linked shipment.</span><a href="/wh/shipments" class="font-bold text-indigo-700 underline">View all shipments</a></div>
+    }
+
     @if (isLoading)
     {
         <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading dispatch data...</div>
@@ -99,7 +55,7 @@
         {
             <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">
                 <svg class="mx-auto h-12 w-12 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                No pending shipments in the queue. Search and select an invoice above to begin.
+                No pending shipments. Create a shipment to begin.
             </div>
         }
         else
@@ -108,29 +64,33 @@
                 @foreach (var shp in shipments)
                 {
                     <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition-all hover:shadow-md">
-                        <div class="flex justify-between items-center bg-slate-50 p-4 border-b border-slate-200 cursor-pointer" @onclick="() => ToggleExpand(shp.Id)">
-                            <div class="flex items-center gap-4 flex-wrap">
+                        <button type="button" class="flex w-full justify-between items-center gap-3 bg-slate-50 p-4 border-b border-slate-200 text-left hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500" @onclick="() => ToggleExpand(shp.Id)" aria-expanded="@(expandedShipmentId == shp.Id ? "true" : "false")" aria-label="@(expandedShipmentId == shp.Id ? $"Close {shp.ShipmentNumber}" : $"View {shp.ShipmentNumber}")">
+                            <span class="flex items-center gap-4 flex-wrap">
                                 <span class="font-mono font-bold text-indigo-700">@shp.ShipmentNumber</span>
-                                <span class="text-sm font-bold text-slate-700">Ref: @shp.SalesOrder?.OrderNumber</span>
-                                <span class="text-sm text-slate-500 hidden sm:inline">| Customer: @shp.SalesOrder?.Customer?.Name</span>
+                                <span class="text-sm font-bold text-slate-700">Sources: @GetShipmentOrderRefs(shp)</span>
+                                <span class="text-sm text-slate-500 hidden sm:inline">| Customer: @GetShipmentCustomer(shp)</span>
                                 @if (shp.CustomTransactionTypeId.HasValue)
                                 {
                                     <span class="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full">
                                         Custom Route Active
                                     </span>
                                 }
-                            </div>
-                            <div class="flex items-center gap-3">
+                            </span>
+                            <span class="flex items-center gap-3">
                                 <span class="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider @ReviewPillClass(GetReviewStatus(shp))">
                                     @ReviewLabel(GetReviewStatus(shp))
                                 </span>
                                 <svg class="w-5 h-5 text-slate-400 transform transition-transform @(expandedShipmentId == shp.Id ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-                            </div>
-                        </div>
+                            </span>
+                        </button>
 
                         @if (expandedShipmentId == shp.Id)
                         {
                             <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto space-y-6">
+                                @if (GetReviewStatus(shp) == BatchStatus.Posted)
+                                {
+                                    <div role="alert" class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">The GL batch is posted, but physical dispatch is still pending. Check warehouse stock and refresh to retry finalization.</div>
+                                }
                                 <div class="flex justify-between items-center pb-2 border-b border-slate-100">
                                     <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Dispatch Parameters</span>
                                     @if (canConfigureRoute)
@@ -142,16 +102,16 @@
                                     }
                                 </div>
 
-                                <table class="w-full text-sm text-left min-w-[500px]">
+                                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left min-w-[500px]">
                                     <thead class="text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
                                         <tr>
                                             <th class="pb-3 min-w-[220px]">Item Name</th>
-                                            <th class="pb-3 text-right">Invoice Qty<br /><span class="text-[9px] font-semibold normal-case">Required</span></th>
+                                            <th class="pb-3 text-right">Source Qty<br /><span class="text-[9px] font-semibold normal-case">Required</span></th>
                                             <th class="pb-3 text-right">Previously Shipped</th>
                                             <th class="pb-3 text-right">Max Left to Ship</th>
                                             <th class="pb-3 text-center w-36">Ship UOM</th>
                                             <th class="pb-3 text-center w-40">Qty Shipped<br /><span class="text-[9px] font-semibold normal-case">This Dispatch</span></th>
-                                        </tr>
+                                        <th class="p-3">Dimensions</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in shp.Lines)
@@ -163,20 +123,14 @@
                                             var uomOptions = GetUomOptions(line).ToList();
                                             bool isOver = line.QtyShipped > maxLeftToShip;
                                             <tr class="@(isOver ? "bg-rose-50/40" : "")">
-                                                <td class="py-4 font-bold text-slate-800">@line.Item?.Name</td>
-                                                <td class="py-4 text-right text-slate-600 font-mono">@UomConversion.FromBase(invoiceQty, displayFactor).ToString("N2") @GetLineUomName(line)</td>
-                                                <td class="py-4 text-right text-slate-500 font-mono">@UomConversion.FromBase(previouslyShipped, displayFactor).ToString("N2") @GetLineUomName(line)</td>
-                                                <td class="py-4 text-right font-mono font-bold text-indigo-700">@UomConversion.FromBase(maxLeftToShip, displayFactor).ToString("N2") @GetLineUomName(line)</td>
+                                                <td class="py-4 font-bold text-slate-800">@line.Item?.Name @if (line.SalesInvoiceLine?.SalesInvoice is { } invoice) { <a class="block text-xs font-normal text-indigo-700 underline" href="@($"/ar/sales-invoices?view={invoice.Id}")">Invoice @invoice.InvoiceNumber</a> }</td>
+                                                <td class="py-4 text-right text-slate-600 font-mono">@UomConversion.FromBase(invoiceQty, displayFactor).ToString("N4") @GetLineUomName(line)</td>
+                                                <td class="py-4 text-right text-slate-500 font-mono">@if (line.SalesInvoiceLineId.HasValue) { <span>—</span> } else { @UomConversion.FromBase(previouslyShipped, displayFactor).ToString("N4") <span>@GetLineUomName(line)</span> }</td>
+                                                <td class="py-4 text-right font-mono font-bold text-indigo-700">@UomConversion.FromBase(maxLeftToShip, displayFactor).ToString("N4") @GetLineUomName(line)</td>
                                                 <td class="py-4">
                                                     @if (uomOptions.Count > 0)
                                                     {
-                                                        <select value="@(line.UomId?.ToString() ?? "")" @onchange="e => OnUomChanged(line, e)" disabled="@(!IsShipmentEditable(shp))"
-                                                                class="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold text-slate-700 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none disabled:bg-slate-50">
-                                                            @foreach (var option in uomOptions)
-                                                            {
-                                                                <option value="@option.Id">@option.Name (@option.Factor.ToString("N4"))</option>
-                                                            }
-                                                        </select>
+                                                        <SearchableGuidSelect Options="@(uomOptions.Select(x => new DropdownOption(x.Id, x.Name, $"Factor {x.Factor:N4}")).ToList())" Value="@line.UomId" ValueChanged="@(id => OnUomChanged(line, id))" Disabled="@(!IsShipmentEditable(shp))" AllowClear="false" InlineMenu="true" Placeholder="Search shipment unit" />
                                                     }
                                                     else
                                                     {
@@ -195,10 +149,10 @@
                                                          <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Exceeds maximum left to ship</div>
                                                     }
                                                 </td>
-                                            </tr>
+                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@shp.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(!IsShipmentEditable(shp))" /></td></tr>
                                         }
                                     </tbody>
-                                </table>
+                                </table></div>
 
                                 <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
                                     @if (IsDraftShipment(shp))
@@ -237,13 +191,20 @@
     }
     else if (activeTab == 1)
     {
+        <section aria-label="Shipment history filters" class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2 xl:grid-cols-4">
+            <label class="text-xs font-bold text-slate-600 sm:col-span-2">Search history<input type="search" @bind="historySearch" @bind:event="oninput" @bind:after="ResetHistoryPage" placeholder="Document number, item or customer" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <label class="text-xs font-bold text-slate-600">From date<input type="date" @bind="historyFrom" @bind:after="ResetHistoryPage" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <label class="text-xs font-bold text-slate-600">To date<input type="date" @bind="historyTo" @bind:after="ResetHistoryPage" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <div class="flex flex-wrap items-center justify-between gap-3 sm:col-span-2 xl:col-span-4"><label class="flex items-center gap-2 text-xs font-bold text-slate-600">Rows per page<select @bind="historyPageSize" @bind:after="ResetHistoryPage" class="rounded-lg border border-slate-200 p-2"><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label><button type="button" @onclick="ClearHistoryFilters" class="text-xs font-bold text-indigo-700">Clear filters</button></div>
+            @if (historyFrom.HasValue && historyTo.HasValue && historyFrom > historyTo) { <p role="alert" class="text-sm text-rose-700 sm:col-span-2 xl:col-span-4">From date must be on or before To date.</p> }
+        </section>
         <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
-            <table class="w-full text-left text-sm text-slate-900 min-w-[800px]">
+            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm text-slate-900 min-w-[800px]">
                 <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200">
                     <tr>
                         <th class="p-4 w-32">Date Shipped</th>
                         <th class="p-4">Shipment #</th>
-                        <th class="p-4">Ref Invoice</th>
+                        <th class="p-4">Source document(s)</th>
                         <th class="p-4">Customer</th>
                         <th class="p-4">Warehouse</th>
                         <th class="p-4">Items Processed</th>
@@ -251,13 +212,13 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    @foreach (var h in history)
+                    @foreach (var h in PagedHistory)
                     {
                         <tr class="hover:bg-slate-50 transition-colors">
                             <td class="p-4 font-mono text-slate-600 text-xs">@(h.ShippedDate?.ToString("dd MMM, yyyy HH:mm") ?? "-")</td>
                             <td class="p-4 font-mono font-bold text-indigo-700">@h.ShipmentNumber</td>
-                            <td class="p-4 font-mono text-xs font-bold text-slate-600">@h.SalesOrder?.OrderNumber</td>
-                            <td class="p-4 font-medium">@h.SalesOrder?.Customer?.Name</td>
+                            <td class="p-4 font-mono text-xs font-bold text-slate-600">@GetShipmentOrderRefs(h)</td>
+                            <td class="p-4 font-medium">@GetShipmentCustomer(h)</td>
                             <td class="p-4 text-xs font-bold text-slate-600">@(warehouses.FirstOrDefault(w => w.Id == h.WarehouseId)?.Name ?? "Unknown")</td>
                             <td class="p-4 text-sm">
                                 @if (h.Lines != null)
@@ -266,7 +227,7 @@
                                     {
                                         <div class="text-xs mt-0.5">
                                             <span class="text-slate-700 font-medium">@l.Item?.Name</span>
-                                             <span class="text-emerald-600 font-bold ml-1">(Qty: @UomConversion.FromBase(l.QtyShipped, UomConversion.NormalizeFactor(l.UomConversionFactor)).ToString("N2") @(string.IsNullOrWhiteSpace(l.UomName) ? "base" : l.UomName))</span>
+                                             <span class="text-emerald-600 font-bold ml-1">(Qty: @UomConversion.FromBase(l.QtyShipped, UomConversion.NormalizeFactor(l.UomConversionFactor)).ToString("N4") @(string.IsNullOrWhiteSpace(l.UomName) ? "base" : l.UomName))</span>
                                         </div>
                                     }
                                 }
@@ -274,13 +235,17 @@
                             <td class="p-4 text-xs text-slate-500 font-bold">@(h.ConfirmedBy ?? "Unknown")</td>
                         </tr>
                     }
-                    @if (!history.Any())
+                    @if (!FilteredHistory.Any())
                     {
-                        <tr><td colspan="7" class="p-12 text-center text-slate-400">No shipment history found.</td></tr>
+                        <tr><td colspan="7" class="p-12 text-center text-slate-400">No shipment history matches these filters.</td></tr>
                     }
                 </tbody>
-            </table>
+            </table></div>
         </div>
+        <nav aria-label="Shipment history pagination" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+            <span aria-live="polite">@(HistoryCount == 0 ? 0 : (CurrentHistoryPage - 1) * historyPageSize + 1)–@Math.Min(CurrentHistoryPage * historyPageSize, HistoryCount) of @HistoryCount shipments</span>
+            <div class="flex items-center gap-3"><button type="button" @onclick="() => historyPage = CurrentHistoryPage - 1" disabled="@(CurrentHistoryPage == 1)" class="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Previous</button><span>Page @CurrentHistoryPage of @HistoryPages</span><button type="button" @onclick="() => historyPage = CurrentHistoryPage + 1" disabled="@(CurrentHistoryPage == HistoryPages)" class="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Next</button></div>
+        </nav>
     }
 </div>
 
@@ -400,7 +365,7 @@
 }
 
 @code {
-    private int activeTab = 0;
+    private int activeTab = 1;
     private bool isLoading = true;
     private bool isBusy = false;
     private Guid companyId;
@@ -408,7 +373,8 @@
 
     private string orderSearchTerm = "";
     private bool showOrderDropdown = false;
-    private Guid selectedUnshippedOrderId = Guid.Empty;
+    private HashSet<Guid> selectedUnshippedOrderIds = new();
+    private HashSet<Guid> selectedOrderLineIds = new();
 
     private List<SalesOrder> unshippedOrders = new();
     private List<Warehouse> warehouses = new();
@@ -416,7 +382,25 @@
 
     private List<SalesShipment> shipments = new();
     private List<SalesShipment> history = new();
+    private string historySearch = "";
+    private DateTime? historyFrom, historyTo;
+    private int historyPage = 1, historyPageSize = 20;
+    private IEnumerable<SalesShipment> FilteredHistory => history.Where(x => (!ViewSourceId.HasValue || x.Id == ViewSourceId.Value)
+        && (!historyFrom.HasValue || (x.ShippedDate ?? x.CreatedDate).Date >= historyFrom.Value.Date)
+        && (!historyTo.HasValue || (x.ShippedDate ?? x.CreatedDate).Date <= historyTo.Value.Date)
+        && (string.IsNullOrWhiteSpace(historySearch) || x.ShipmentNumber.Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || GetShipmentOrderRefs(x).Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || GetShipmentCustomer(x).Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase)
+            || x.Lines.Any(l => (l.Item?.Name ?? "").Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase) || (l.Item?.Code ?? "").Contains(historySearch.Trim(), StringComparison.OrdinalIgnoreCase))))
+        .OrderByDescending(x => x.ShippedDate ?? x.CreatedDate).ThenBy(x => x.Id);
+    private int HistoryCount => FilteredHistory.Count();
+    private int HistoryPages => Math.Max(1, (int)Math.Ceiling(HistoryCount / (double)historyPageSize));
+    private int CurrentHistoryPage => Math.Clamp(historyPage, 1, HistoryPages);
+    private IEnumerable<SalesShipment> PagedHistory => FilteredHistory.Skip((CurrentHistoryPage - 1) * historyPageSize).Take(historyPageSize);
+    private void ResetHistoryPage() => historyPage = 1;
+    private void ClearHistoryFilters() { historySearch = ""; historyFrom = historyTo = null; ResetHistoryPage(); }
     private Dictionary<Guid, decimal> postedShippedByOrderLine = new();
+    private Dictionary<Guid, decimal> reservedDraftQuantities = new();
     private List<UnitOfMeasure> uoms = new();
     private List<ItemUomConversionLine> itemUomLines = new();
     private List<UomConversionRule> conversionRules = new();
@@ -428,13 +412,14 @@
     private bool canConfigureRoute = false;
     // Route Configuration Modal State
     private bool showRouteModal = false;
+    [SupplyParameterFromQuery(Name = "view")] public Guid? ViewSourceId { get; set; }
     private SalesShipment? selectedShipmentForConfig;
     private List<CustomTransactionType> customTemplates = new();
     private Guid defaultCogsAccountId = Guid.Empty;
     private Guid defaultInventoryAssetAccountId = Guid.Empty;
 
     private IEnumerable<SalesOrder> FilteredUnshippedOrders =>
-        unshippedOrders.Where(o => o.IsInvoiceDocument && o.Status != OrderStatus.Draft &&
+        unshippedOrders.Where(o => o.Status != OrderStatus.Draft &&
                                 (string.IsNullOrWhiteSpace(orderSearchTerm)
                                 || o.OrderNumber.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase)
                                 || (o.Customer != null && o.Customer.Name.Contains(orderSearchTerm, StringComparison.OrdinalIgnoreCase))));
@@ -462,6 +447,7 @@
                     companyId, SystemTransactionType.ShipmentDispatch, isDebit: false, defaultAccountId: Guid.Empty);
 
                 await LoadData();
+                if (ViewSourceId.HasValue && history.Any(x => x.Id == ViewSourceId.Value)) activeTab = 1;
             }
         }
     }
@@ -501,9 +487,11 @@
                 .ToDictionaryAsync(b => b.Id, b => b.Status);
         }
         history = await ShipmentService.GetShipmentHistoryAsync(companyId);
+        reservedDraftQuantities = shipments.SelectMany(s => s.Lines).ToDictionary(l => l.Id, l => l.QtyShipped);
         postedShippedByOrderLine = history
             .SelectMany(s => s.Lines)
-            .GroupBy(line => line.SalesOrderLineId)
+            .Where(line => line.SalesOrderLineId.HasValue)
+            .GroupBy(line => line.SalesOrderLineId!.Value)
             .ToDictionary(group => group.Key, group => group.Sum(line => line.QtyShipped));
         unshippedOrders = await ShipmentService.GetUnshippedOrdersAsync(companyId);
         isLoading = false;
@@ -522,25 +510,26 @@
         && (GetReviewStatus(shipment) is null or BatchStatus.Draft);
 
     private SalesOrderLine? GetInvoiceLine(SalesShipment shipment, SalesShipmentLine line) =>
-        shipment.SalesOrder?.Lines?.FirstOrDefault(orderLine => orderLine.Id == line.SalesOrderLineId);
+        line.SalesOrderLine ?? shipment.SalesOrder?.Lines?.FirstOrDefault(orderLine => orderLine.Id == line.SalesOrderLineId);
 
     private decimal GetInvoiceQuantity(SalesShipment shipment, SalesShipmentLine line) =>
-        GetInvoiceLine(shipment, line)?.Quantity ?? line.QtyOrdered;
+        line.SalesInvoiceLine?.QuantityInvoiced ?? GetInvoiceLine(shipment, line)?.Quantity ?? line.QtyOrdered;
 
     private decimal GetPreviouslyShipped(SalesShipment shipment, SalesShipmentLine line) =>
         Math.Max(0,
-            postedShippedByOrderLine.TryGetValue(line.SalesOrderLineId, out var postedQty)
+            line.SalesOrderLineId.HasValue && postedShippedByOrderLine.TryGetValue(line.SalesOrderLineId.Value, out var postedQty)
                 ? postedQty
                 : GetInvoiceLine(shipment, line)?.QtyShipped ?? 0);
 
     private decimal GetMaxLeftToShip(SalesShipment shipment, SalesShipmentLine line) =>
-        Math.Max(0, line.QtyOrdered - GetPreviouslyShipped(shipment, line));
+        line.SalesInvoiceLineId.HasValue ? reservedDraftQuantities.GetValueOrDefault(line.Id)
+        : Math.Max(0, line.QtyOrdered - GetPreviouslyShipped(shipment, line));
 
     private string ReviewLabel(BatchStatus? status) => status switch
     {
         BatchStatus.Ready => "In Review",
         BatchStatus.Rejected => "Rejected - Edit Required",
-        BatchStatus.Posted => "Posted",
+        BatchStatus.Posted => "Posted - Dispatch Pending",
         _ => "Draft - Not Submitted"
     };
 
@@ -554,21 +543,25 @@
 
     private void HandleInput()
     {
-        selectedUnshippedOrderId = Guid.Empty;
         showOrderDropdown = true;
     }
 
     private void SelectOrder(SalesOrder o)
     {
-        selectedUnshippedOrderId = o.Id;
-        orderSearchTerm = $"{o.OrderNumber} - {o.Customer?.Name}";
-        showOrderDropdown = false;
+        var ids = o.Lines.Where(l => l.Item != null && !l.Item.IsService).Select(l => l.Id).ToList();
+        if (ids.All(id => selectedOrderLineIds.Contains(id))) { foreach (var id in ids) selectedOrderLineIds.Remove(id); selectedUnshippedOrderIds.Remove(o.Id); }
+        else { foreach (var id in ids) selectedOrderLineIds.Add(id); selectedUnshippedOrderIds.Add(o.Id); }
+    }
+    private void ToggleOrderLine(SalesOrder order, Guid id, ChangeEventArgs e)
+    {
+        if (e.Value is bool b && b) selectedOrderLineIds.Add(id); else selectedOrderLineIds.Remove(id);
+        if (order.Lines.Any(l => selectedOrderLineIds.Contains(l.Id))) selectedUnshippedOrderIds.Add(order.Id); else selectedUnshippedOrderIds.Remove(order.Id);
     }
 
     private async Task PullOrderToQueue()
     {
-        // Strict Match Fallback: If user typed an exact order number without clicking the dropdown item
-        if (selectedUnshippedOrderId == Guid.Empty && !string.IsNullOrWhiteSpace(orderSearchTerm))
+        // Allow an exact order search to be loaded without clicking its checkbox.
+        if (selectedUnshippedOrderIds.Count == 0 && !string.IsNullOrWhiteSpace(orderSearchTerm))
         {
             var match = unshippedOrders.FirstOrDefault(o =>
                 o.OrderNumber.Equals(orderSearchTerm.Trim(), StringComparison.OrdinalIgnoreCase) ||
@@ -576,27 +569,29 @@
 
             if (match != null)
             {
-                selectedUnshippedOrderId = match.Id;
+                SelectOrder(match);
             }
         }
 
-        if (selectedUnshippedOrderId == Guid.Empty)
+        if (selectedUnshippedOrderIds.Count == 0)
         {
-            await JS.InvokeVoidAsync("alert", "Please search and select an eligible invoice from the dropdown list first.");
+            await JS.InvokeVoidAsync("alert", "Please select at least one eligible sales order.");
             return;
         }
 
         isBusy = true;
         StateHasChanged();
 
-        var err = await ShipmentService.CreateShipmentFromOrderAsync(selectedUnshippedOrderId);
+        var selectedLineIds = selectedOrderLineIds.ToList();
+        var err = await ShipmentService.CreateShipmentFromOrderLinesAsync(selectedLineIds);
         if (!string.IsNullOrEmpty(err))
         {
             await JS.InvokeVoidAsync("alert", err);
         }
         else
         {
-            selectedUnshippedOrderId = Guid.Empty;
+            selectedUnshippedOrderIds.Clear();
+            selectedOrderLineIds.Clear();
             orderSearchTerm = "";
             showOrderDropdown = false;
             await LoadData();
@@ -605,6 +600,20 @@
         isBusy = false;
         StateHasChanged();
     }
+
+    private string GetWarehouseName(Guid warehouseId) => warehouses.FirstOrDefault(w => w.Id == warehouseId)?.Name ?? "No warehouse";
+
+    private static string GetShipmentOrderRefs(SalesShipment shipment)
+    {
+        var refs = shipment.Lines.Select(l => l.SalesInvoiceLine?.SalesInvoice?.InvoiceNumber ?? l.SalesOrderLine?.Header?.OrderNumber)
+            .Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+        if (refs.Count == 0 && shipment.SalesOrder != null) refs.Add(shipment.SalesOrder.OrderNumber);
+        return refs.Count > 0 ? string.Join(", ", refs) : "—";
+    }
+
+    private static string GetShipmentCustomer(SalesShipment shipment) =>
+        shipment.Lines.Select(l => l.SalesInvoiceLine?.SalesInvoice?.Customer?.Name ?? l.SalesOrderLine?.Header?.Customer?.Name).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+        ?? shipment.SalesOrder?.Customer?.Name ?? "—";
 
     private void ToggleExpand(Guid id)
     {
@@ -660,29 +669,25 @@
         foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
         {
             var name = conversion.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == conversion.UomId)?.Name ?? "UOM";
-            yield return new UomOption(conversion.UomId, name, 1m / UomConversion.NormalizeFactor(conversion.ConversionFactorToBase));
+            var factors = itemUomLines.Where(x => x.ItemId == item.Id).GroupBy(x => x.UomId).ToDictionary(x => x.Key, x => x.First().ConversionFactorToBase);
+            yield return new UomOption(conversion.UomId, name, UomConversion.FactorFor(item, conversion.UomId, factors, ConversionMap));
         }
 
         if (item.UomId.HasValue)
         {
-            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
-                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
+            foreach (var uomId in UomConversion.ConfiguredUoms(item))
             {
                 if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
-                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap);
-                if (factor.HasValue)
-                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
+                yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", UomConversion.FactorFor(item, uomId));
             }
         }
 
-        if (line.UomId.HasValue && line.UomId != item.UomId && !itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == line.UomId))
-            yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
     }
 
-    private void OnUomChanged(SalesShipmentLine line, ChangeEventArgs e)
+    private void OnUomChanged(SalesShipmentLine line, Guid? selectedId)
     {
-        if (!Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
-        var option = GetUomOptions(line).FirstOrDefault(x => x.Id == selectedId);
+        if (!selectedId.HasValue) return;
+        var option = GetUomOptions(line).FirstOrDefault(x => x.Id == selectedId.Value);
         if (option == null) return;
 
         line.UomId = option.Id;
@@ -714,7 +719,7 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == companyId)
+            .Where(t => t.CompanyId == companyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AR))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -801,7 +806,7 @@
 
         bool isPartial = shp.Lines.Any(l => l.QtyShipped < GetMaxLeftToShip(shp, l));
         string msg = isPartial
-            ? "You are doing a partial shipment. After approval, load the invoice again to create the next shipment for the remaining quantity. Submit this dispatch for GL review?"
+            ? "You are doing a partial shipment. After approval, create another shipment for the remaining quantity. Submit this dispatch for GL review?"
             : "Submit this physical dispatch for GL review?";
 
         bool confirm = await JS.InvokeAsync<bool>("confirm", msg);

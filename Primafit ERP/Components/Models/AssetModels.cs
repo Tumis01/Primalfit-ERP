@@ -45,8 +45,9 @@ namespace Primafit_ERP.Components.Models
         public string UnitOfMeasure { get; set; } = string.Empty; // e.g., "km", "hours"
     }
 
-    public class FixedAsset
+    public class FixedAsset : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         [Required]

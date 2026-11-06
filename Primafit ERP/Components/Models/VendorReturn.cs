@@ -21,6 +21,8 @@ namespace Primafit_ERP.Components.Models
 
     public class VendorReturn
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -35,6 +37,9 @@ namespace Primafit_ERP.Components.Models
         public Guid? PurchaseOrderId { get; set; }
         [ForeignKey(nameof(PurchaseOrderId))]
         public virtual PurchaseOrder? PurchaseOrder { get; set; }
+        public Guid? PurchaseInvoiceId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceId))]
+        public PurchaseInvoice? PurchaseInvoice { get; set; }
 
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
@@ -91,8 +96,10 @@ namespace Primafit_ERP.Components.Models
         public List<VendorReturnLine> Lines { get; set; } = new();
     }
 
-    public class VendorReturnLine
+    public class VendorReturnLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -100,7 +107,10 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(HeaderId))]
         public virtual VendorReturn? Header { get; set; }
 
-        public Guid PurchaseOrderLineId { get; set; }
+        public Guid? PurchaseOrderLineId { get; set; }
+        public Guid? PurchaseInvoiceLineId { get; set; }
+        [ForeignKey(nameof(PurchaseInvoiceLineId))]
+        public PurchaseInvoiceLine? PurchaseInvoiceLine { get; set; }
 
         public Guid ItemId { get; set; }
         [ForeignKey(nameof(ItemId))]

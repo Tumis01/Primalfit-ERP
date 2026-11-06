@@ -292,6 +292,7 @@
                         <div>
                             <label class="label">Reference (Cheque / Transfer #)</label>
                             <input type="text" @bind="payment.Reference" class="input-class" placeholder="e.g. TRF-90210" />
+                            <p class="mt-3 text-xs text-slate-500">Payment dimensions inherit the invoice lines when left blank.</p><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="payment.DimensionSetId" />
                         </div>
 
                         @if (IsLocalVendor)
@@ -412,7 +413,7 @@
                         <div class="overflow-x-auto flex-1 p-6">
                             @if (SelectedBill != null)
                             {
-                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
                                             <th class="px-4 py-3 w-[38%]">Item / Service</th>
@@ -485,7 +486,7 @@
                                             <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-emerald-700">@currencySymbol@SelectedBill.BankBalanceDueForeign.ToString("N4")</td>
                                         </tr>
                                     </tfoot>
-                                </table>
+                                </table></div>
                             }
                             else
                             {
@@ -790,7 +791,7 @@
         public decimal ExchangeRate { get; set; }
         public Guid CurrencyId { get; set; }
         public Guid AccountsPayableGlId { get; set; }
-        public List<VendorBillLine> Lines { get; set; } = new();
+        public List<PurchaseInvoiceLine> Lines { get; set; } = new();
         public decimal DiscountAmountForeign { get; set; }
         public decimal SubTotalForeign { get; set; }
         public decimal TaxAmountForeign { get; set; }
@@ -873,7 +874,7 @@
             if (actualTargetId.HasValue && actualTargetId.Value != Guid.Empty)
             {
                 activeTab = 1;
-                var targetBill = await ctx.VendorBills.FindAsync(actualTargetId.Value);
+                var targetBill = await ctx.PurchaseInvoices.FindAsync(actualTargetId.Value);
                 if (targetBill != null)
                 {
                     await OnVendorChanged(new ChangeEventArgs { Value = targetBill.VendorId.ToString() });
@@ -883,7 +884,7 @@
             else if (poId.HasValue && poId.Value != Guid.Empty)
             {
                 activeTab = 1;
-                var targetBill = await ctx.VendorBills.FirstOrDefaultAsync(b => b.PurchaseOrderId == poId.Value);
+                var targetBill = await ctx.PurchaseInvoices.FirstOrDefaultAsync(b => b.PurchaseOrderId == poId.Value);
                 if (targetBill != null)
                 {
                     await OnVendorChanged(new ChangeEventArgs { Value = targetBill.VendorId.ToString() });
@@ -902,21 +903,18 @@
             .Select(b => b.Id)
             .ToListAsync();
 
-        var bills = await ctx.VendorBills
+        var bills = await ctx.PurchaseInvoices
             .Include(b => b.Payments)
             .Where(b => b.CompanyId == currentCompanyId && b.IsPosted)
             .OrderByDescending(b => b.BillDate)
             .ToListAsync();
 
-        var debitNotesByInvoiceBase = await GetPostedDebitNotesByInvoiceAsync(
-            ctx,
-            bills.Where(b => b.PurchaseOrderId.HasValue).Select(b => b.PurchaseOrderId!.Value));
 
         var pendingPayments = await ctx.Set<VendorPayment>().AsNoTracking()
-            .Where(p => p.VendorBill != null && p.VendorBill.CompanyId == currentCompanyId && p.GLBatchId.HasValue)
+            .Where(p => p.PurchaseInvoice != null && p.PurchaseInvoice.CompanyId == currentCompanyId && p.GLBatchId.HasValue)
             .Join(ctx.GLBatches.AsNoTracking().Where(g => g.CompanyId == currentCompanyId && (g.Status == BatchStatus.Ready || g.Status == BatchStatus.Rejected)),
                 p => p.GLBatchId!.Value, g => g.Id, (p, g) => new { p, g })
-            .GroupBy(x => x.p.VendorBillId)
+            .GroupBy(x => x.p.PurchaseInvoiceId)
             .ToDictionaryAsync(g => g.Key, g => g.OrderByDescending(x => x.p.Date).First());
 
         billStatuses.Clear();
@@ -931,10 +929,8 @@
             decimal withholdingPaidBase = b.Payments?.Where(p => p.Amount > 0
                 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.WithholdingAmount) ?? 0;
             grossPaidBase += withholdingPaidBase;
-            decimal debitNoteBase = b.PurchaseOrderId.HasValue
-                && debitNotesByInvoiceBase.TryGetValue(b.PurchaseOrderId.Value, out var postedDebitNotes)
-                ? postedDebitNotes
-                : 0;
+            decimal debitNoteBase = await InvoiceFinancialBalances.PurchaseDebitBaseAsync(ctx, b, includeReserved: true);
+            grossPaidBase = Math.Max(0, grossPaidBase - Math.Round((await InvoiceFinancialBalances.PurchaseCashRefundedAsync(ctx, b.Id)) * rate, 2));
 
             decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
             decimal balanceBase = Math.Max(0, netBillTotalBase - grossPaidBase);
@@ -1025,8 +1021,8 @@
         await using var ctx = await DbFactory.CreateDbContextAsync();
         var loadedPayment = await ctx.Set<VendorPayment>()
             .AsNoTracking()
-            .Include(p => p.VendorBill)
-            .FirstOrDefaultAsync(p => p.Id == paymentId && p.VendorBill != null && p.VendorBill.CompanyId == currentCompanyId);
+            .Include(p => p.PurchaseInvoice)
+            .FirstOrDefaultAsync(p => p.Id == paymentId && p.PurchaseInvoice != null && p.PurchaseInvoice.CompanyId == currentCompanyId);
 
         if (loadedPayment == null) return;
 
@@ -1042,15 +1038,15 @@
         payment = loadedPayment;
         currentPaymentBatchStatus = batch?.Status;
         currentPaymentRejectionReason = batch?.RejectionReason;
-        selectedVendorId = loadedPayment.VendorBill!.VendorId;
-        selectedBillId = loadedPayment.VendorBillId;
-        selectedApAccountId = loadedPayment.OverrideDebitApGlAccountId ?? loadedPayment.VendorBill.AccountsPayableGlId;
-        defaultApAccountId = loadedPayment.VendorBill.AccountsPayableGlId;
-        await LoadVendorBills(selectedVendorId);
+        selectedVendorId = loadedPayment.PurchaseInvoice!.VendorId;
+        selectedBillId = loadedPayment.PurchaseInvoiceId;
+        selectedApAccountId = loadedPayment.OverrideDebitApGlAccountId ?? loadedPayment.PurchaseInvoice.AccountsPayableGlId;
+        defaultApAccountId = loadedPayment.PurchaseInvoice.AccountsPayableGlId;
+        await LoadPurchaseInvoices(selectedVendorId);
         var selected = SelectedBill;
         var rate = selected?.ExchangeRate > 0 ? selected.ExchangeRate : 1m;
             amountPaidForeign = Math.Round(loadedPayment.Amount / rate, 4);
-        selectedCurrencyId = loadedPayment.VendorBill.CurrencyId;
+        selectedCurrencyId = loadedPayment.PurchaseInvoice.CurrencyId;
         currencySymbol = currencies.FirstOrDefault(c => c.Id == selectedCurrencyId)?.CurrencyCode ?? "";
         activeTab = 1;
         await JS.InvokeVoidAsync("window.scrollTo", new { top = 0, behavior = "smooth" });
@@ -1072,7 +1068,7 @@
             isDebit: true,
             defaultAccountId: defaultApAccountId);
 
-        await LoadVendorBills(targetVendor.Id);
+        await LoadPurchaseInvoices(targetVendor.Id);
 
         selectedBillId = statusRow.BillId;
 
@@ -1108,7 +1104,7 @@
                 isDebit: true,
                 defaultAccountId: defaultApAccountId);
 
-            await LoadVendorBills(venId);
+            await LoadPurchaseInvoices(venId);
             selectedBillId = Guid.Empty;
             amountPaidForeign = 0;
             payment.Amount = 0;
@@ -1124,7 +1120,7 @@
         }
     }
 
-    private async Task LoadVendorBills(Guid vendorId)
+    private async Task LoadPurchaseInvoices(Guid vendorId)
     {
         using var ctx = await DbFactory.CreateDbContextAsync();
 
@@ -1133,7 +1129,7 @@
             .Select(b => b.Id)
             .ToListAsync();
 
-        var bills = await ctx.VendorBills
+        var bills = await ctx.PurchaseInvoices
             .Include(b => b.Lines)
             .Include(b => b.Payments)
             .Where(b => b.CompanyId == currentCompanyId && b.VendorId == vendorId && b.IsPosted)
@@ -1144,9 +1140,6 @@
             .Where(p => poIds.Contains(p.Id))
             .ToDictionaryAsync(p => p.Id);
 
-        var debitNotesByInvoiceBase = await GetPostedDebitNotesByInvoiceAsync(
-            ctx,
-            bills.Where(b => b.PurchaseOrderId.HasValue).Select(b => b.PurchaseOrderId!.Value));
 
         openBills.Clear();
 
@@ -1159,10 +1152,8 @@
             decimal withholdingPaidBase = b.Payments?.Where(p => p.Amount > 0
                 && (!p.GLBatchId.HasValue || postedBatchIds.Contains(p.GLBatchId.Value))).Sum(p => p.WithholdingAmount) ?? 0;
             grossPaidBase += withholdingPaidBase;
-            decimal debitNoteBase = b.PurchaseOrderId.HasValue
-                && debitNotesByInvoiceBase.TryGetValue(b.PurchaseOrderId.Value, out var postedDebitNotes)
-                ? postedDebitNotes
-                : 0;
+            decimal debitNoteBase = await InvoiceFinancialBalances.PurchaseDebitBaseAsync(ctx, b, includeReserved: true);
+            grossPaidBase = Math.Max(0, grossPaidBase - Math.Round((await InvoiceFinancialBalances.PurchaseCashRefundedAsync(ctx, b.Id)) * rate, 2));
 
             decimal netBillTotalBase = Math.Max(0, b.TotalAmount - debitNoteBase);
             decimal balBase = Math.Max(0, netBillTotalBase - grossPaidBase);
@@ -1281,7 +1272,7 @@
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
+            .Where(t => t.CompanyId == currentCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AP))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -1333,7 +1324,7 @@
         var company = await CompanyService.GetCompanyByIdAsync(currentCompanyId);
         using var ctx = await DbFactory.CreateDbContextAsync();
 
-        var b = await ctx.VendorBills.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == targetBillId);
+        var b = await ctx.PurchaseInvoices.Include(b => b.Payments).FirstOrDefaultAsync(b => b.Id == targetBillId);
         if (b == null || company == null) return (null, "", "", "");
 
         var vendor = vendors.FirstOrDefault(v => v.Id == b.VendorId);
@@ -1497,7 +1488,7 @@
         {
             decimal rate = SelectedBill.ExchangeRate > 0 ? SelectedBill.ExchangeRate : 1.0m;
 
-            payment.VendorBillId = selectedBillId;
+            payment.PurchaseInvoiceId = selectedBillId;
             payment.Amount = Math.Round(amountPaidForeign * rate, 4);
             payment.OverrideDebitApGlAccountId = selectedApAccountId;
             payment.OverrideCreditBankGlAccountId = payment.BankGlAccountId;
@@ -1513,7 +1504,7 @@
                 decimal remBal = Math.Max(0, SelectedBill.BankBalanceDueForeign - amountPaidForeign);
                 string cur = currencySymbol;
 
-                await LoadVendorBills(selectedVendorId);
+                await LoadPurchaseInvoices(selectedVendorId);
                 await LoadBillStatuses();
                 await CreateNewAsync();
 

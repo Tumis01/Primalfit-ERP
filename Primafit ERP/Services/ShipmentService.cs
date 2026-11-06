@@ -34,53 +34,6 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // Older versions automatically created the next partial-shipment draft
-            // immediately after approval. Remove those legacy orphan drafts so an
-            // invoice is not presented as loaded until the user explicitly loads it.
-            var pendingDrafts = await ctx.SalesShipments
-                .Where(s => s.CompanyId == companyId
-                    && s.Status == ShipmentStatus.Pending
-                    && !s.ShipmentBatchId.HasValue)
-                .ToListAsync();
-
-            if (pendingDrafts.Count > 0)
-            {
-                var postedShipments = await ctx.SalesShipments
-                    .Where(s => s.CompanyId == companyId
-                        && s.Status == ShipmentStatus.Shipped
-                        && s.ShippedDate.HasValue)
-                    .Select(s => new { s.SalesOrderId, ShippedDate = s.ShippedDate!.Value })
-                    .ToListAsync();
-
-                var legacyAutoDrafts = pendingDrafts
-                    .Where(d => postedShipments.Any(p => p.SalesOrderId == d.SalesOrderId
-                        // The old automatic draft was created immediately after
-                        // finalization; user-loaded drafts are not treated as stale.
-                        && d.CreatedDate >= p.ShippedDate
-                        && d.CreatedDate <= p.ShippedDate.AddMinutes(1)))
-                    .ToList();
-
-                if (legacyAutoDrafts.Count > 0)
-                {
-                    ctx.SalesShipments.RemoveRange(legacyAutoDrafts);
-                    foreach (var draft in legacyAutoDrafts)
-                    {
-                        ctx.AuditLogs.Add(new AuditLog
-                        {
-                            CompanyId = companyId,
-                            UserId = "system",
-                            Action = "LegacyAutoShipmentDraftRemoved",
-                            EntityType = nameof(SalesShipment),
-                            EntityId = draft.Id,
-                            Details = $"Removed legacy automatically-created shipment draft '{draft.ShipmentNumber}'. The invoice must be loaded manually for another dispatch.",
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
-
-                    await ctx.SaveChangesAsync();
-                }
-            }
-
             // Reconcile any approved dispatches before loading the work queue. This
             // prevents a posted shipment from remaining visible as an open draft if
             // approval and the source-page refresh happened in different requests.
@@ -98,11 +51,13 @@ namespace Primafit_ERP.Services
             return await ctx.SalesShipments
                 .Include(s => s.SalesOrder).ThenInclude(o => o.Customer)
                 .Include(s => s.Lines).ThenInclude(l => l.Item)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l!.SalesInvoice).ThenInclude(i => i!.Customer)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesOrderLine).ThenInclude(l => l!.Header).ThenInclude(o => o!.Customer)
                 .Include(s => s.CustomTransactionType)
-                .Where(s => s.CompanyId == companyId && s.Status == ShipmentStatus.Pending
-                    && (!s.ShipmentBatchId.HasValue
-                        || !ctx.GLBatches.Any(b => b.Id == s.ShipmentBatchId.Value
-                            && b.CompanyId == companyId && b.Status == BatchStatus.Posted)))
+                // A posted batch can still be pending if physical finalization failed
+                // (for example, stock was consumed during approval). Keep it visible
+                // so it can be investigated and retried instead of hiding it.
+                .Where(s => s.CompanyId == companyId && s.Status == ShipmentStatus.Pending)
                 .OrderBy(s => s.CreatedDate)
                 .ToListAsync();
         }
@@ -114,6 +69,8 @@ namespace Primafit_ERP.Services
                 .AsNoTracking()
                 .Include(s => s.SalesOrder).ThenInclude(o => o.Customer)
                 .Include(s => s.Lines).ThenInclude(l => l.Item)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l!.SalesInvoice).ThenInclude(i => i!.Customer)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesOrderLine).ThenInclude(l => l!.Header).ThenInclude(o => o!.Customer)
                 .Where(s => s.CompanyId == companyId && s.Status == ShipmentStatus.Shipped)
                 .OrderByDescending(s => s.ShippedDate)
                 .ToListAsync();
@@ -134,14 +91,14 @@ namespace Primafit_ERP.Services
 
             var creditedQuantitiesMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
-                .Where(cnl => orderIds.Contains(cnl.Header!.SalesOrderId) && cnl.Header.Status == CreditNoteStatus.Posted)
-                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .Where(cnl => (cnl.Header!.SalesOrderId.HasValue && orderIds.Contains(cnl.Header.SalesOrderId.Value)) && cnl.Header.Status == CreditNoteStatus.Posted)
+                .Where(cnl => cnl.SalesOrderLineId.HasValue).GroupBy(cnl => cnl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var refundedQuantitiesMap = await ctx.ReceiptRefundLines
                 .Include(rrl => rrl.Header)
-                .Where(rrl => orderIds.Contains(rrl.Header!.SalesOrderId) && rrl.Header.Status == ReceiptRefundStatus.Posted)
-                .GroupBy(rrl => rrl.SalesOrderLineId)
+                .Where(rrl => (rrl.Header!.SalesOrderId.HasValue && orderIds.Contains(rrl.Header.SalesOrderId.Value)) && rrl.Header.Status == ReceiptRefundStatus.Posted)
+                .Where(rrl => rrl.SalesOrderLineId.HasValue).GroupBy(rrl => rrl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var postedShipmentQuantitiesMap = await GetPostedShipmentQuantitiesAsync(ctx, orderIds);
@@ -167,25 +124,25 @@ namespace Primafit_ERP.Services
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            // A previous approval may have completed without the shipment page
-            // refreshing. Reconcile that posted dispatch before calculating the
-            // next remainder draft so it cannot block or duplicate the queue.
-            var postedPendingShipmentIds = await ctx.SalesShipments
-                .Where(s => s.SalesOrderId == orderId && s.Status == ShipmentStatus.Pending
-                    && s.ShipmentBatchId.HasValue
-                    && ctx.GLBatches.Any(b => b.Id == s.ShipmentBatchId.Value
-                        && b.Status == BatchStatus.Posted))
-                .Select(s => s.Id)
-                .ToListAsync();
-
-            foreach (var shipmentId in postedPendingShipmentIds)
-                await FinalizeApprovedShipmentAsync(shipmentId, "system");
-
             var order = await ctx.SalesOrders
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Validation Error: Order reference not found.";
+            // A previous approval may have completed without the shipment page
+            // refreshing. Grouped shipment documents have a null header order,
+            // so find them by their source lines as well as the legacy header link.
+            var orderLineIds = order.Lines.Select(x => x.Id).ToList();
+            var postedPendingShipmentIds = await ctx.SalesShipments
+                .Where(s => s.CompanyId == order.CompanyId && s.Status == ShipmentStatus.Pending
+                    && (s.SalesOrderId == orderId || s.Lines.Any(l => l.SalesOrderLineId.HasValue && orderLineIds.Contains(l.SalesOrderLineId.Value)))
+                    && s.ShipmentBatchId.HasValue
+                    && ctx.GLBatches.Any(b => b.Id == s.ShipmentBatchId.Value
+                        && b.CompanyId == order.CompanyId && b.Status == BatchStatus.Posted))
+                .Select(s => s.Id)
+                .ToListAsync();
+            foreach (var shipmentId in postedPendingShipmentIds)
+                await FinalizeApprovedShipmentAsync(shipmentId, "system");
             if (order.WarehouseId == Guid.Empty) return $"Validation Error: Invoice '{order.OrderNumber}' does not have a fulfillment warehouse assigned.";
             if (!await ctx.Warehouses.AnyAsync(w => w.Id == order.WarehouseId && w.CompanyId == order.CompanyId &&
                 (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
@@ -194,18 +151,20 @@ namespace Primafit_ERP.Services
             var creditedQuantitiesMap = await ctx.CreditNoteLines
                 .Include(cnl => cnl.Header)
                 .Where(cnl => cnl.Header!.SalesOrderId == orderId && cnl.Header.Status == CreditNoteStatus.Posted)
-                .GroupBy(cnl => cnl.SalesOrderLineId)
+                .Where(cnl => cnl.SalesOrderLineId.HasValue).GroupBy(cnl => cnl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var refundedQuantitiesMap = await ctx.ReceiptRefundLines
                 .Include(rrl => rrl.Header)
                 .Where(rrl => rrl.Header!.SalesOrderId == orderId && rrl.Header.Status == ReceiptRefundStatus.Posted)
-                .GroupBy(rrl => rrl.SalesOrderLineId)
+                .Where(rrl => rrl.SalesOrderLineId.HasValue).GroupBy(rrl => rrl.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
 
             var postedShipmentQuantitiesMap = await GetPostedShipmentQuantitiesAsync(ctx, new[] { orderId });
 
-            bool hasPending = await ctx.SalesShipments.AnyAsync(s => s.SalesOrderId == orderId && s.Status == ShipmentStatus.Pending);
+            bool hasPending = await ctx.SalesShipments.AnyAsync(s => s.CompanyId == order.CompanyId
+                && s.Status == ShipmentStatus.Pending
+                && (s.SalesOrderId == orderId || s.Lines.Any(l => l.SalesOrderLineId.HasValue && orderLineIds.Contains(l.SalesOrderLineId.Value))));
             if (hasPending) return $"Queue Alert: A pending dispatch document already exists in the queue for {order.OrderNumber}.";
 
             var shipmentLines = new List<SalesShipmentLine>();
@@ -226,7 +185,7 @@ namespace Primafit_ERP.Services
                 if (remainingToShip > 0.001m)
                 {
                     shipmentLines.Add(new SalesShipmentLine
-                    {
+                    { DimensionSetId = line.DimensionSetId,
                         Id = Guid.NewGuid(),
                         SalesOrderLineId = line.Id,
                         ItemId = line.ItemId ?? Guid.Empty,
@@ -260,6 +219,88 @@ namespace Primafit_ERP.Services
 
             ctx.SalesShipments.Add(shipment);
             await ctx.SaveChangesAsync();
+            return string.Empty;
+        }
+
+        public async Task<string> CreateShipmentFromOrderLinesAsync(IEnumerable<Guid> orderLineIds)
+        {
+            using var ctx = await _dbFactory.CreateDbContextAsync();
+            var selectedIds = orderLineIds.Where(id => id != Guid.Empty).Distinct().ToList();
+            if (selectedIds.Count == 0) return "Select at least one sales order line.";
+
+            var lines = await ctx.SalesOrderLines
+                .Include(l => l.Item)
+                .Include(l => l.Header).ThenInclude(h => h!.Customer)
+                .Where(l => selectedIds.Contains(l.Id))
+                .ToListAsync();
+            if (lines.Count != selectedIds.Count) return "One or more selected sales order lines no longer exist.";
+            if (lines.Any(l => l.Header == null || l.Header.CompanyId != lines[0].Header!.CompanyId))
+                return "A shipment can only include sales orders from the same company.";
+
+            await using var transaction = await ctx.Database.BeginTransactionAsync();
+            var selectedGroups = lines.GroupBy(l => (l.Header!.CustomerId, l.Header.WarehouseId, l.Header.CurrencyId)).ToList();
+            foreach (var selectedGroup in selectedGroups)
+            {
+            var groupLines = selectedGroup.ToList();
+            var orders = groupLines.Select(l => l.Header!).DistinctBy(o => o.Id).ToList();
+            if (orders[0].WarehouseId == Guid.Empty)
+                return "A shipment needs a fulfillment site/warehouse.";
+            if (!await ctx.Warehouses.AnyAsync(w => w.Id == orders[0].WarehouseId && w.CompanyId == orders[0].CompanyId
+                && (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
+                return "The fulfillment warehouse is not available to the sales module.";
+            if (orders.Any(o => o.Status is OrderStatus.Draft or OrderStatus.Quote or OrderStatus.Cancelled))
+                return "Only approved sales orders can be shipped.";
+            if (groupLines.Any(l => l.Item == null || l.Item.IsService))
+                return "Service lines do not require a warehouse shipment.";
+
+            var selectedLineIdSet = groupLines.Select(l => l.Id).ToList();
+            if (await ctx.SalesShipments.AnyAsync(s => s.CompanyId == orders[0].CompanyId
+                && s.Status == ShipmentStatus.Pending
+                && s.Lines.Any(l => l.SalesOrderLineId.HasValue && selectedLineIdSet.Contains(l.SalesOrderLineId.Value))))
+                return "At least one selected sales order line is already in a pending shipment.";
+
+            var orderIds = orders.Select(o => o.Id).ToList();
+            var posted = await GetPostedShipmentQuantitiesAsync(ctx, orderIds);
+            var credited = await ctx.CreditNoteLines.Include(l => l.Header)
+                .Where(l => (l.Header!.SalesOrderId.HasValue && orderIds.Contains(l.Header.SalesOrderId.Value)) && l.Header.Status == CreditNoteStatus.Posted
+                    && (l.SalesOrderLineId.HasValue && selectedLineIdSet.Contains(l.SalesOrderLineId.Value)))
+                .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value).ToDictionaryAsync(g => g.Key, g => g.Sum(l => l.Quantity));
+            var refunded = await ctx.ReceiptRefundLines.Include(l => l.Header)
+                .Where(l => (l.Header!.SalesOrderId.HasValue && orderIds.Contains(l.Header.SalesOrderId.Value)) && l.Header.Status == ReceiptRefundStatus.Posted
+                    && (l.SalesOrderLineId.HasValue && selectedLineIdSet.Contains(l.SalesOrderLineId.Value)))
+                .Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value).ToDictionaryAsync(g => g.Key, g => g.Sum(l => l.Quantity));
+
+            var shipmentLines = new List<SalesShipmentLine>();
+            foreach (var line in groupLines)
+            {
+                var alreadyCredited = credited.GetValueOrDefault(line.Id);
+                var alreadyRefunded = refunded.GetValueOrDefault(line.Id);
+                var shipped = posted.GetValueOrDefault(line.Id, line.QtyShipped);
+                var remaining = Math.Max(0, line.Quantity - alreadyCredited - alreadyRefunded - Math.Max(0, shipped - alreadyRefunded));
+                if (remaining <= 0.001m) continue;
+                shipmentLines.Add(new SalesShipmentLine
+                { DimensionSetId = line.DimensionSetId,
+                    Id = Guid.NewGuid(), SalesOrderLineId = line.Id, ItemId = line.ItemId ?? Guid.Empty,
+                    UomId = line.Item?.UomId, UomName = line.Item?.PrimaryUom?.Name ?? line.Item?.UoM ?? "primary",
+                    UomConversionFactor = 1m, QtyOrdered = Math.Max(0, line.Quantity - alreadyCredited - alreadyRefunded),
+                    QtyShipped = remaining
+                });
+            }
+            if (shipmentLines.Count == 0) return "The selected sales order lines have no remaining quantity to ship.";
+
+            var shipment = new SalesShipment
+            {
+                Id = Guid.NewGuid(), CompanyId = orders[0].CompanyId,
+                SalesOrderId = orders.Count == 1 ? orders[0].Id : null,
+                WarehouseId = orders[0].WarehouseId, CustomTransactionTypeId = orders.Select(o => o.CustomTransactionTypeId).Distinct().Count() == 1
+                    ? orders[0].CustomTransactionTypeId : null,
+                CreatedDate = DateTime.UtcNow, Status = ShipmentStatus.Pending,
+                ShipmentNumber = await GenerateShipmentNumberAsync(ctx, orders[0].CompanyId), Lines = shipmentLines
+            };
+            ctx.SalesShipments.Add(shipment);
+            await ctx.SaveChangesAsync();
+            }
+            await transaction.CommitAsync();
             return string.Empty;
         }
 
@@ -336,13 +377,18 @@ namespace Primafit_ERP.Services
         public async Task<string> PostShipmentAsync(Guid shipmentId, List<SalesShipmentLine> actualShippedLines, string confirmedBy, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            using var transaction = await ctx.Database.BeginTransactionAsync();
+            using var transaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
             try
             {
+                // Serialize submission and draft deletion for this shipment. The GL
+                // batch and shipment reference are saved in the same transaction.
+                await ctx.SalesShipments.FromSqlRaw("SELECT * FROM [SalesShipments] WITH (UPDLOCK, HOLDLOCK)")
+                    .Where(s => s.Id == shipmentId).Select(s => s.Id).ToListAsync();
                 var shipment = await ctx.SalesShipments
-                    .Include(s => s.SalesOrder).ThenInclude(o => o.Lines)
                     .Include(s => s.Lines).ThenInclude(l => l.Item)
+                    .Include(s => s.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l!.SalesInvoice)
+                    .Include(s => s.Lines).ThenInclude(l => l.SalesOrderLine).ThenInclude(l => l!.Header)
                     .FirstOrDefaultAsync(s => s.Id == shipmentId);
 
                 if (shipment == null) return "Shipment document not found.";
@@ -366,6 +412,13 @@ namespace Primafit_ERP.Services
                     return "Validation Error: Shipped quantities cannot be negative.";
                 if (actualShippedLines.GroupBy(l => l.Id).Any(g => g.Count() > 1))
                     return "Validation Error: A shipment line cannot be submitted more than once.";
+                if (shipment.Lines.Where(l => l.SalesOrderLineId.HasValue).Where(l => l.SalesOrderLineId.HasValue).GroupBy(l => l.SalesOrderLineId!.Value).Any(g => g.Count() > 1))
+                    return "Validation Error: A sales order line cannot appear more than once on the same shipment.";
+                var invoiceSource = shipment.Lines.Any(l => l.SalesInvoiceLineId.HasValue);
+                if (invoiceSource ? shipment.Lines.Any(l => !l.SalesInvoiceLineId.HasValue || l.SalesInvoiceLine?.SalesInvoice == null)
+                    : shipment.Lines.Any(l => l.SalesOrderLine == null))
+                    return "Validation Error: Choose one valid source type for every shipment line.";
+                if (invoiceSource && shipment.Lines.GroupBy(l => l.SalesInvoiceLineId).Any(g => g.Count() > 1)) return "An invoice line cannot appear twice on a shipment.";
                 if (actualShippedLines.Any(l => shipment.Lines.All(dbLine => dbLine.Id != l.Id)))
                     return "Validation Error: One or more submitted lines do not belong to this shipment.";
                 if (actualShippedLines.Any(l => shipment.Lines.First(dbLine => dbLine.Id == l.Id).ItemId != l.ItemId))
@@ -375,7 +428,27 @@ namespace Primafit_ERP.Services
                 if (!validLinesToShip.Any())
                     return "Validation Error: At least one line item must have a dispatched quantity greater than 0.";
 
-                var postedShipmentQuantitiesMap = await GetPostedShipmentQuantitiesAsync(ctx, new[] { shipment.SalesOrderId });
+                var sourceOrders = shipment.Lines.Where(l => l.SalesOrderLine?.Header != null)
+                    .Select(l => l.SalesOrderLine!.Header!).DistinctBy(o => o.Id).ToList();
+                if (!invoiceSource && sourceOrders.Count == 0) return "Validation Error: Shipment lines must link to sales orders.";
+                if (sourceOrders.Any(o => o.CompanyId != shipment.CompanyId || o.CustomerId != sourceOrders[0].CustomerId))
+                    return "Validation Error: Shipment source orders must share the same customer and company.";
+                var invoiceHeaders = shipment.Lines.Where(l => l.SalesInvoiceLine?.SalesInvoice != null).Select(l => l.SalesInvoiceLine!.SalesInvoice!).ToList();
+                if (invoiceSource && (invoiceHeaders.Any(i => i.CompanyId != shipment.CompanyId || i.CustomerId != invoiceHeaders[0].CustomerId)
+                    || shipment.Lines.Any(l => l.SalesInvoiceLine!.ItemId != l.ItemId || l.SalesInvoiceLine.SalesOrderLineId != l.SalesOrderLineId)))
+                    return "Validation Error: Shipment invoice lines must share the same customer and match their source items.";
+                var sourceOrderIds = sourceOrders.Select(o => o.Id).ToList();
+                var orderLineById = shipment.Lines.Where(l => l.SalesOrderLine != null)
+                    .ToDictionary(l => l.SalesOrderLineId!.Value, l => l.SalesOrderLine!);
+                var postedShipmentQuantitiesMap = await GetPostedShipmentQuantitiesAsync(ctx, sourceOrderIds);
+                var sourceLineIds = shipment.Lines.Where(x => x.SalesOrderLineId.HasValue).Select(x => x.SalesOrderLineId!.Value).ToList();
+                var otherReservations = await ctx.SalesShipmentLines.AsNoTracking()
+                    .Where(x => x.SalesOrderLineId.HasValue && sourceLineIds.Contains(x.SalesOrderLineId.Value) && x.ShipmentId != shipment.Id && x.Shipment!.Status == ShipmentStatus.Pending && x.Shipment.CompanyId == shipment.CompanyId)
+                    .GroupBy(x => x.SalesOrderLineId!.Value).Select(x => new { Id = x.Key, Quantity = x.Sum(y => y.QtyShipped) }).ToDictionaryAsync(x => x.Id, x => x.Quantity);
+                var unfulfilledCredits = await InvoiceCorrectionBalances.SalesOrderAdjustmentsAsync(ctx, sourceLineIds);
+                var invoiceCandidates = invoiceSource
+                    ? (await ShipmentDraftService.GetInvoiceCandidatesAsync(ctx, shipment.CompanyId, invoiceHeaders[0].CustomerId, shipment.Id)).ToDictionary(x => x.LineId)
+                    : new Dictionary<Guid, ShipmentOrderCandidate>();
 
                 var conversionMap = await ctx.UomConversionRules.AsNoTracking()
                     .Where(x => x.CompanyId == shipment.CompanyId && x.IsActive)
@@ -401,7 +474,7 @@ namespace Primafit_ERP.Services
                     if (item == null) return $"Product master ID reference broken for item ID {itemGroup.Key}.";
                     var requestedQuantity = itemGroup.Sum(l => l.QtyShipped);
                     var availableStock = await _invService.GetStockLevel(itemGroup.Key, shipment.WarehouseId);
-                    if (availableStock < requestedQuantity)
+                    if (UomConversion.Exceeds(requestedQuantity, availableStock))
                         return $"Fulfillment Refused: Insufficient stock for '{item.Name}'. Warehouse currently has {availableStock:N2}, requested dispatch is {requestedQuantity:N2}.";
                 }
 
@@ -409,15 +482,21 @@ namespace Primafit_ERP.Services
                 {
                     var dbLine = shipment.Lines.FirstOrDefault(l => l.Id == inputLine.Id);
                     if (dbLine == null || inputLine.QtyShipped <= 0) continue;
+                    if (UomConversion.Exceeds(inputLine.QtyShipped, dbLine.QtyShipped))
+                        return $"The shipment quantity for {dbLine.Item?.Name} exceeds its reserved draft quantity. Create another shipment for the additional quantity.";
 
-                    var orderLine = shipment.SalesOrder?.Lines.FirstOrDefault(l => l.Id == dbLine.SalesOrderLineId);
+                    var orderLine = dbLine.SalesOrderLineId.HasValue ? orderLineById.GetValueOrDefault(dbLine.SalesOrderLineId.Value) : null;
                     var previouslyShipped = Math.Max(0, orderLine?.QtyShipped ?? 0);
-                    var postedPreviouslyShipped = postedShipmentQuantitiesMap.TryGetValue(dbLine.SalesOrderLineId, out var postedQty)
+                    var postedPreviouslyShipped = dbLine.SalesOrderLineId.HasValue && postedShipmentQuantitiesMap.TryGetValue(dbLine.SalesOrderLineId.Value, out var postedQty)
                         ? postedQty
                         : previouslyShipped;
-                    var maxLeftToShip = Math.Max(0, dbLine.QtyOrdered - postedPreviouslyShipped);
-                    if (inputLine.QtyShipped > maxLeftToShip)
+                    var root = dbLine.SalesOrderLineId.GetValueOrDefault();
+                    var maxLeftToShip = invoiceSource
+                        ? invoiceCandidates.GetValueOrDefault(dbLine.SalesInvoiceLineId!.Value)?.Remaining ?? 0
+                        : Math.Max(0, (orderLine?.Quantity ?? dbLine.QtyOrdered) - Math.Max(previouslyShipped, postedPreviouslyShipped) - unfulfilledCredits.GetValueOrDefault(root) - otherReservations.GetValueOrDefault(root));
+                    if (UomConversion.Exceeds(inputLine.QtyShipped, maxLeftToShip))
                         return $"Validation Error: Cannot ship {inputLine.QtyShipped:N2} of {dbLine.Item?.Name}. Previously shipped: {postedPreviouslyShipped:N2}; maximum left to ship: {maxLeftToShip:N2}.";
+                    inputLine.QtyShipped = UomConversion.WithinRemaining(inputLine.QtyShipped, Math.Min(maxLeftToShip, dbLine.QtyShipped));
 
                     var freshItem = await ctx.Items.FindAsync(dbLine.ItemId);
                     if (freshItem == null) return $"Product master ID reference broken for item ID {dbLine.ItemId}.";
@@ -429,12 +508,13 @@ namespace Primafit_ERP.Services
                         .ToDictionary(x => x.Key.UomId, x => x.Value);
                     if (inputLine.UomId.HasValue && inputLine.UomId != freshItem.UomId
                         && !factorsForItem.ContainsKey(inputLine.UomId.Value)
-                        && (!freshItem.UomId.HasValue || !UomConversion.FactorBetween(freshItem.UomId.Value, inputLine.UomId.Value, conversionMap).HasValue))
+                        && !UomConversion.IsConfigured(freshItem, inputLine.UomId))
                         return $"Validation Error: The selected UOM for '{freshItem.Name}' is not configured.";
                     decimal expectedFactor = UomConversion.FactorFor(freshItem, inputLine.UomId, factorsForItem, conversionMap);
-                    if (inputLine.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(inputLine.UomConversionFactor) - expectedFactor) > 0.0001m)
+                    if (inputLine.UomId.HasValue && Math.Abs(UomConversion.NormalizeFactor(inputLine.UomConversionFactor) - expectedFactor) > 0.000000000000001m)
                         return $"Validation Error: The selected UOM conversion for '{freshItem.Name}' is invalid or outdated. Reload the shipment and try again.";
 
+                    dbLine.DimensionSetId = inputLine.DimensionSetId;
                     dbLine.UomId = inputLine.UomId;
                     dbLine.UomName = string.IsNullOrWhiteSpace(inputLine.UomName)
                         ? UomConversion.NameFor(freshItem, inputLine.UomId)
@@ -451,8 +531,9 @@ namespace Primafit_ERP.Services
                     };
 
                     decimal currentStock = await _invService.GetStockLevel(dbLine.ItemId, shipment.WarehouseId);
-                    if (currentStock < inputLine.QtyShipped)
+                    if (UomConversion.Exceeds(inputLine.QtyShipped, currentStock))
                         return $"Fulfillment Refused: Insufficient stock for '{freshItem.Name}'. Warehouse currently has {currentStock:N2}, requested dispatch is {inputLine.QtyShipped:N2}.";
+                    inputLine.QtyShipped = UomConversion.WithinRemaining(inputLine.QtyShipped, currentStock);
 
                     // Stage the financial routing only. Stock and sales-order quantities
                     // are committed by FinalizeApprovedShipmentAsync after GL approval.
@@ -478,8 +559,8 @@ namespace Primafit_ERP.Services
                         if (cogsAccountId == Guid.Empty || inventoryAssetAccountId == Guid.Empty)
                             return $"Configuration Error: Item '{freshItem.Name}' is missing COGS or Inventory Asset GL account mappings.";
 
-                        glLines.Add(new GLJournalLine { SegCoaId = cogsAccountId, Debit = totalCogsValue, Credit = 0, Reference = $"COGS: {freshItem.Name}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = inventoryAssetAccountId, Debit = 0, Credit = totalCogsValue, Reference = $"Stock Out: {freshItem.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = dbLine.DimensionSetId, IsDimensionDetail = true,  SegCoaId = cogsAccountId, Debit = totalCogsValue, Credit = 0, Reference = $"COGS: {freshItem.Name}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = dbLine.DimensionSetId, IsDimensionDetail = true,  SegCoaId = inventoryAssetAccountId, Debit = 0, Credit = totalCogsValue, Reference = $"Stock Out: {freshItem.Name}" });
                     }
 
                     // Retain the requested quantity on the pending shipment for reviewer visibility.
@@ -489,28 +570,21 @@ namespace Primafit_ERP.Services
                 if (!glLines.Any())
                     return "Validation Error: No financial lines were generated for this shipment. Check item costing and GL mappings.";
 
-                if (glLines.Any())
-                {
-                    var (err, batchId) = await _glOps.CreateJournalEntryAsync(
-                        shipment.CompanyId,
-                        DateOnly.FromDateTime(DateTime.Today),
-                        "Shipment Dispatch",
-                        $"Ship {shipment.ShipmentNumber}",
-                        glLines,
-                        userId,
-                        existingBatchId: shipment.ShipmentBatchId,
-                        inheritedProjectId: shipment.SalesOrder?.ProjectId);
+                // Lines excluded from this submission must not retain their draft reservation:
+                // finalization processes the saved quantities, not the submitted collection.
+                var submittedQuantities = actualShippedLines.ToDictionary(l => l.Id, l => l.QtyShipped);
+                foreach (var line in shipment.Lines)
+                    if (!submittedQuantities.TryGetValue(line.Id, out var quantity) || quantity == 0)
+                        line.QtyShipped = 0;
 
-                    if (!string.IsNullOrEmpty(err)) throw new Exception($"Journal Creation Failed: {err}");
-
-                    if (batchId.HasValue)
-                    {
-                        var postErr = await _glOps.PostBatchAsync(shipment.CompanyId, batchId.Value, userId);
-                        if (!string.IsNullOrEmpty(postErr)) throw new Exception($"GL Engine Rejected Posting: {postErr}");
-
-                        shipment.ShipmentBatchId = batchId;
-                    }
-                }
+                var projects = invoiceSource ? invoiceHeaders.Select(x => x.ProjectId).Distinct().ToList()
+                    : sourceOrders.Select(x => x.ProjectId).Distinct().ToList();
+                var (err, batchId) = await _glOps.StageNewSubledgerBatchAsync(ctx, shipment.CompanyId,
+                    DateOnly.FromDateTime(DateTime.Today), "Shipment Dispatch", $"Ship {shipment.ShipmentNumber}",
+                    shipment.ShipmentNumber, glLines, userId, inheritedProjectId: projects.Count == 1 ? projects[0] : null);
+                if (!string.IsNullOrEmpty(err) || !batchId.HasValue)
+                    return $"Journal creation failed: {err}";
+                shipment.ShipmentBatchId = batchId;
 
                 shipment.ConfirmedBy = confirmedBy;
 
@@ -528,9 +602,11 @@ namespace Primafit_ERP.Services
         public async Task<string> FinalizeApprovedShipmentAsync(Guid shipmentId, string userId)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            await using var transaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
             var shipment = await ctx.SalesShipments
-                .Include(s => s.SalesOrder).ThenInclude(o => o.Lines)
                 .Include(s => s.Lines).ThenInclude(l => l.Item)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesInvoiceLine).ThenInclude(l => l!.SalesInvoice)
+                .Include(s => s.Lines).ThenInclude(l => l.SalesOrderLine).ThenInclude(l => l!.Header)
                 .FirstOrDefaultAsync(s => s.Id == shipmentId);
 
             if (shipment == null) return "Shipment document not found.";
@@ -541,14 +617,35 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(b => b.Id == shipment.ShipmentBatchId.Value && b.CompanyId == shipment.CompanyId);
             if (batch?.Status != BatchStatus.Posted) return "Shipment financial batch has not been approved and posted.";
 
+            var sourceOrderIds = shipment.Lines.Where(l => l.SalesOrderLine?.Header != null)
+                .Select(l => l.SalesOrderLine!.Header!.Id).Distinct().ToList();
+            var invoiceSource = shipment.Lines.Any(l => l.SalesInvoiceLineId.HasValue);
+            if ((!invoiceSource && (sourceOrderIds.Count == 0 || shipment.Lines.Any(l => l.SalesOrderLine == null)))
+                || (invoiceSource && shipment.Lines.Any(l => !l.SalesInvoiceLineId.HasValue || l.SalesInvoiceLine?.SalesInvoice == null)))
+                return "Shipment lines must link to valid sales orders before finalization.";
+            if (invoiceSource)
+            {
+                var customerId = shipment.Lines.First().SalesInvoiceLine!.SalesInvoice!.CustomerId;
+                var available = (await ShipmentDraftService.GetInvoiceCandidatesAsync(ctx, shipment.CompanyId, customerId, shipment.Id)).ToDictionary(x => x.LineId);
+                if (shipment.Lines.Any(l => l.QtyShipped > 0 && (!available.TryGetValue(l.SalesInvoiceLineId!.Value, out var candidate) || UomConversion.Exceeds(l.QtyShipped, candidate.Remaining)
+                    || candidate.ItemId != l.ItemId || l.SalesInvoiceLine!.SalesOrderLineId != l.SalesOrderLineId)))
+                    return "The invoice source quantity is no longer available for this shipment.";
+            }
+            var sourceOrders = await ctx.SalesOrders.Include(o => o.Lines).ThenInclude(l => l.Item)
+                .Where(o => sourceOrderIds.Contains(o.Id)).ToListAsync();
+            var sourceOrderLines = sourceOrders.SelectMany(o => o.Lines).ToDictionary(l => l.Id);
+            foreach (var group in shipment.Lines.Where(l => l.QtyShipped > 0).GroupBy(l => l.ItemId))
+            {
+                var available = await ctx.StockLedgers.Where(x => x.CompanyId == shipment.CompanyId && x.ItemId == group.Key && x.WarehouseId == shipment.WarehouseId).SumAsync(x => x.QuantityChanged);
+                if (UomConversion.Exceeds(group.Sum(x => x.QtyShipped), available))
+                    return $"Fulfillment refused after approval: insufficient stock for '{group.First().Item?.Name ?? group.Key.ToString()}'.";
+            }
             foreach (var line in shipment.Lines.Where(l => l.QtyShipped > 0))
             {
-                var orderLine = shipment.SalesOrder?.Lines.FirstOrDefault(l => l.Id == line.SalesOrderLineId);
+                SalesOrderLine? orderLine = null;
+                if (line.SalesOrderLineId.HasValue) sourceOrderLines.TryGetValue(line.SalesOrderLineId.Value, out orderLine);
                 var item = line.Item ?? await ctx.Items.FindAsync(line.ItemId);
                 if (item == null) return $"Product master ID reference broken for item ID {line.ItemId}.";
-                var currentStock = await _invService.GetStockLevel(line.ItemId, shipment.WarehouseId);
-                if (currentStock < line.QtyShipped)
-                    return $"Fulfillment refused after approval: insufficient stock for '{item.Name}'.";
 
                 decimal unitCost = item.CostingType switch
                 {
@@ -559,7 +656,7 @@ namespace Primafit_ERP.Services
                     _ => item.WeightedAverageCost
                 };
                 ctx.StockLedgers.Add(new StockLedger
-                {
+                { DimensionSetId = line.DimensionSetId,
                     Id = Guid.NewGuid(), CompanyId = shipment.CompanyId, ItemId = line.ItemId,
                     WarehouseId = shipment.WarehouseId, QuantityChanged = -line.QtyShipped,
                     UomId = line.UomId,
@@ -567,23 +664,22 @@ namespace Primafit_ERP.Services
                     UomConversionFactor = UomConversion.NormalizeFactor(line.UomConversionFactor),
                     QuantityInUom = UomConversion.FromBase(line.QtyShipped, line.UomConversionFactor),
                     Type = StockMovementType.Sale, CostAtTime = unitCost,
-                    ProjectId = shipment.SalesOrder?.ProjectId,
+                    ProjectId = orderLine?.Header?.ProjectId,
                     Reference = shipment.ShipmentNumber, Date = DateTime.UtcNow,
                     GLBatchId = shipment.ShipmentBatchId
                 });
 
-                var soLine = shipment.SalesOrder?.Lines.FirstOrDefault(l => l.Id == line.SalesOrderLineId);
-                if (soLine != null) soLine.QtyShipped += line.QtyShipped;
+                if (orderLine != null) orderLine.QtyShipped += line.QtyShipped;
             }
 
             shipment.Status = ShipmentStatus.Shipped;
             shipment.ShippedDate = DateTime.UtcNow;
-            if (shipment.SalesOrder != null)
+            foreach (var order in sourceOrders)
             {
-                bool allShipped = shipment.SalesOrder.Lines.Where(l => l.Item != null && !l.Item.IsService)
-                    .All(l => l.QtyShipped >= l.Quantity);
-                if (shipment.SalesOrder.Status != OrderStatus.Invoiced && shipment.SalesOrder.Status != OrderStatus.PartiallyInvoiced)
-                    shipment.SalesOrder.Status = allShipped ? OrderStatus.Shipped : OrderStatus.PartiallyShipped;
+                bool allShipped = order.Lines.Where(l => l.Item != null && !l.Item.IsService)
+                    .All(l => l.QtyShipped + UomConversion.QuantityTolerance >= l.Quantity);
+                if (order.Status != OrderStatus.Invoiced && order.Status != OrderStatus.PartiallyInvoiced)
+                    order.Status = allShipped ? OrderStatus.Shipped : OrderStatus.PartiallyShipped;
             }
 
             ctx.AuditLogs.Add(new AuditLog
@@ -598,6 +694,7 @@ namespace Primafit_ERP.Services
             });
 
             await ctx.SaveChangesAsync();
+            await transaction.CommitAsync();
             return string.Empty;
         }
 
@@ -613,9 +710,12 @@ namespace Primafit_ERP.Services
 
             return await ctx.SalesShipments
                 .AsNoTracking()
-                .Where(s => ids.Contains(s.SalesOrderId) && s.Status == ShipmentStatus.Shipped)
+                .Where(s => s.Status == ShipmentStatus.Shipped)
                 .SelectMany(s => s.Lines)
-                .GroupBy(line => line.SalesOrderLineId)
+                .Where(line => ctx.SalesOrderLines.Any(orderLine =>
+                    orderLine.Id == line.SalesOrderLineId && ids.Contains(orderLine.HeaderId)))
+                .Where(line => line.SalesOrderLineId.HasValue)
+                .GroupBy(line => line.SalesOrderLineId!.Value)
                 .ToDictionaryAsync(group => group.Key, group => group.Sum(line => line.QtyShipped));
         }
     }

@@ -25,6 +25,7 @@ namespace Primafit_ERP.Components.Models
         public Guid? UomId { get; set; }
         [ForeignKey(nameof(UomId))]
         public virtual UnitOfMeasure? PrimaryUom { get; set; }
+        public virtual List<ItemUomConversionLine> UomConversions { get; set; } = new();
         public Guid? AlternateUomId { get; set; }
         [ForeignKey(nameof(AlternateUomId))]
         public virtual UnitOfMeasure? AlternateUom { get; set; }

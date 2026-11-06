@@ -120,6 +120,7 @@ namespace Primafit_ERP.Services
             var source = await context.Currencies.FirstOrDefaultAsync(c => c.Id == rate.CurrencyId && c.CompanyId == companyId);
             var target = await context.Currencies.FirstOrDefaultAsync(c => c.Id == rate.ExchangeCurrencyId && c.CompanyId == companyId);
             if (source == null || target == null) return "Select currencies belonging to this company.";
+            if (!target.IsBaseCurrency) return "The target currency is fixed to the company base currency.";
             if (source.Id == target.Id) return "Source and target currencies must be different.";
 
             // Normalize Date to pure Date boundary (midnight UTC)
@@ -150,6 +151,9 @@ namespace Primafit_ERP.Services
                 var existing = await context.CurrencyManagements.FindAsync(rate.Id);
                 if (existing == null) return "Rate record not found.";
                 if (existing.CompanyId != companyId) return "Rate record not found.";
+                if ((existing.ExchangeCurrencyId.HasValue && existing.ExchangeCurrencyId != target.Id)
+                    || (!existing.ExchangeCurrencyId.HasValue && !string.Equals(existing.ExchangeCurrency, target.CurrencyCode, StringComparison.OrdinalIgnoreCase)))
+                    return "Create a new base-currency rate instead of retargeting a historical currency pair.";
 
                 existing.CurrencyId = rate.CurrencyId;
                 existing.ExchangeCurrencyId = rate.ExchangeCurrencyId;

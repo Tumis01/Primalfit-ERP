@@ -1,0 +1,149 @@
+@page "/dimensions/setup/types"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
+@inject DimensionService Service
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider Auth
+@inject ILogger<DimensionTypes> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Dimension Types</PageTitle>
+<DimensionWorkspace Title="Dimension Types" Description="Organise transaction analysis into categories such as Project, Department or Cost Centre." Section="types">
+    <Actions><button class="ds-button ds-button-primary" data-dimension-primary @onclick="NewType" disabled="@(loading || companyId == Guid.Empty || loadError.Length > 0)"><DimensionIcon Name="plus" />New type</button></Actions>
+    <Summary>
+        <div><dt>Total types</dt><dd>@(loading ? "—" : types.Count)</dd></div>
+        <div><dt>Active</dt><dd>@(loading ? "—" : types.Count(x => x.IsActive))</dd></div>
+        <div><dt>Active required</dt><dd>@(loading ? "—" : types.Count(x => x.IsActive && x.IsRequired))</dd></div>
+    </Summary>
+    <ChildContent>
+        @if (message.Length > 0) { <div class="ds-notice" role="status"><DimensionIcon Name="check" /><p>@message</p><button aria-label="Dismiss notification" @onclick='() => message = ""'><DimensionIcon Name="close" /></button></div> }
+        <section class="ds-panel" aria-label="Dimension types" aria-busy="@(loading ? "true" : "false")">
+            <div class="ds-toolbar">
+                <label class="ds-filter ds-search"><span>Search types</span><div class="ds-search-box"><DimensionIcon Name="search" /><input type="search" placeholder="Search by name or code" @bind="Search" @bind:event="oninput" disabled="@loading" /></div></label>
+                <label class="ds-filter"><span>Entry requirement</span><select @bind="Requirement" disabled="@loading"><option value="all">All requirements</option><option value="required">Required</option><option value="optional">Optional</option></select></label>
+                <label class="ds-filter"><span>Status</span><select @bind="Status" disabled="@loading"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+                <label class="ds-filter"><span>Sort by</span><select @bind="Sort" disabled="@loading"><option value="order">Display order</option><option value="name">Name A–Z</option><option value="code">Code A–Z</option></select></label>
+            </div>
+            @if (loading) { <div class="ds-empty" role="status"><p>Loading dimension types…</p></div> }
+            else if (loadError.Length > 0) { <div class="ds-empty"><h2>Unable to load dimension types</h2><p role="alert">@loadError</p><button class="ds-button" @onclick="Reload">Try again</button></div> }
+            else if (types.Count == 0) { <div class="ds-empty"><DimensionIcon /><h2>Create your first dimension type</h2><p>Start with a category, then add the dimensions people can select on transaction lines.</p><button class="ds-button ds-button-primary" @onclick="NewType" disabled="@(companyId == Guid.Empty)"><DimensionIcon Name="plus" />New type</button></div> }
+            else if (Filtered.Count == 0) { <div class="ds-empty"><DimensionIcon Name="search" /><h2>No matching types</h2><p>Try another name or code, or clear your filters.</p><button class="ds-button" @onclick="ClearFilters">Clear filters</button></div> }
+            else {
+                <div class="ds-results"><span>@Filtered.Count type@(Filtered.Count == 1 ? "" : "s") · Required types must be completed on transaction lines.</span>@if (HasFilters) { <button class="ds-link" @onclick="ClearFilters">Clear filters</button> }</div>
+                <div class="ds-desktop-table"><table class="ds-table"><thead><tr><th scope="col">Dimension type</th><th scope="col">Entry requirement</th><th scope="col">Dimensions</th><th scope="col">Order</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>
+                    @foreach (var type in Paged) {
+                        <tr @key="type.Id" class="@(highlight == type.Id ? "ds-highlight" : null)"><td><div class="ds-record-name">@type.Name</div><div class="ds-code">@type.Code</div></td><td><span class="@(type.IsRequired ? "ds-badge ds-badge-required" : "ds-badge")">@(type.IsRequired ? "Required" : "Optional")</span></td><td><a class="ds-link ds-numeric" href="@ValuesUrl(type)">@ValueCount(type.Id)</a></td><td class="ds-numeric">@type.DisplayOrder</td><td><span class="@(type.IsActive ? "ds-badge ds-badge-active" : "ds-badge")">@(type.IsActive ? "Active" : "Inactive")</span></td><td>@RowActions(type)</td></tr>
+                    }
+                </tbody></table></div>
+                <div class="ds-mobile-list">
+                    @foreach (var type in Paged) {
+                        <article class="ds-mobile-card" @key="type.Id" aria-label="@type.Name"><div class="ds-card-title"><div><h2 class="ds-record-name">@type.Name</h2><div class="ds-code">@type.Code</div></div><span class="@(type.IsActive ? "ds-badge ds-badge-active" : "ds-badge")">@(type.IsActive ? "Active" : "Inactive")</span></div><div class="ds-card-meta"><span class="@(type.IsRequired ? "ds-badge ds-badge-required" : "ds-badge")">@(type.IsRequired ? "Required" : "Optional")</span><span>@ValueCount(type.Id) dimensions</span><span>Order @type.DisplayOrder</span></div>@RowActions(type)</article>
+                    }
+                </div>
+                <DimensionPagination Total="@Filtered.Count" Page="@CurrentPage" PageSize="@pageSize" PageChanged="SetPage" PageSizeChanged="SetPageSize" Records="types" />
+            }
+        </section>
+        <DimensionDialog @ref="editor" Open="@(typeEdit != null)" Busy="@saving" Title="@(typeEdit?.Id == Guid.Empty ? "New dimension type" : "Edit dimension type")" OnClose="CloseEditor">
+            <ChildContent>
+                @if (typeEdit != null && editContext != null) {
+                    <EditForm id="dimension-type-form" EditContext="@editContext" OnValidSubmit="SaveType" OnInvalidSubmit="InvalidSubmit">
+                        <DataAnnotationsValidator />
+                        <fieldset class="ds-form" disabled="@saving">
+                            <p class="ds-hint">Fields marked <span class="ds-required">*</span> are required.</p>
+                            @if (editError.Length > 0) { <p class="ds-error" role="alert" tabindex="-1" data-form-error>@editError</p> }
+                            <div class="ds-field"><label for="type-code">Code <span class="ds-required">*</span></label><InputText id="type-code" @bind-Value="typeEdit.Code" maxlength="50" aria-required="true" aria-describedby="type-code-hint type-code-error" /><p id="type-code-hint" class="ds-hint">A unique code for this category, for example DEPT.</p><ValidationMessage id="type-code-error" For="() => typeEdit.Code" /></div>
+                            <div class="ds-field"><label for="type-name">Name <span class="ds-required">*</span></label><InputText id="type-name" aria-describedby="type-name-error" @bind-Value="typeEdit.Name" maxlength="200" aria-required="true" placeholder="e.g. Department" /><ValidationMessage id="type-name-error" For="() => typeEdit.Name" /></div>
+                            <div class="ds-form-row">
+                                <div class="ds-field"><label for="type-requirement">Entry requirement</label><select id="type-requirement" value="@(typeEdit.IsRequired ? "true" : "false")" @onchange="ChangeRequirement" aria-describedby="type-requirement-hint"><option value="false">Optional</option><option value="true">Required</option></select><p id="type-requirement-hint" class="ds-hint">Required types must have a dimension on each transaction line.</p></div>
+                                <div class="ds-field"><label for="type-order">Display order</label><InputNumber id="type-order" @bind-Value="typeEdit.DisplayOrder" aria-describedby="type-order-hint type-order-error" /><p id="type-order-hint" class="ds-hint">Lower numbers appear first.</p><ValidationMessage id="type-order-error" For="() => typeEdit.DisplayOrder" /></div>
+                            </div>
+                            <label class="ds-check"><InputCheckbox @bind-Value="typeEdit.IsActive" /><span><strong>Active</strong><span class="ds-hint">Available for transaction entry. Inactive types remain in saved records.</span></span></label>
+                        </fieldset>
+                    </EditForm>
+                }
+            </ChildContent>
+            <Footer><button type="button" class="ds-button" disabled="@saving" @onclick="CloseEditor">Cancel</button><button type="submit" form="dimension-type-form" class="ds-button ds-button-primary" disabled="@saving">@(saving ? "Saving…" : "Save type")</button></Footer>
+        </DimensionDialog>
+        <DimensionDialog Open="@(deleteTarget != null)" Busy="@saving" Title="Delete dimension type?" OnClose="CloseDelete">
+            <ChildContent><p class="ds-delete-copy">Delete <strong>@deleteTarget?.Name</strong>? This action cannot be undone. Types with dimensions must be deactivated instead.</p>@if (deleteError.Length > 0) { <p class="ds-error" role="alert">@deleteError</p> }</ChildContent>
+            <Footer><button class="ds-button" disabled="@saving" @onclick="CloseDelete">Cancel</button><button class="ds-button ds-button-danger" disabled="@(saving || deleteError.Length > 0)" @onclick="DeleteType">@(saving ? "Deleting…" : "Delete type")</button></Footer>
+        </DimensionDialog>
+    </ChildContent>
+</DimensionWorkspace>
+@code {
+    private Guid companyId, highlight;
+    private List<DimensionType> types = new();
+    private List<DimensionValue> values = new();
+    private DimensionType? typeEdit, deleteTarget;
+    private EditContext? editContext;
+    private DimensionDialog? editor;
+    private bool loading = true, saving;
+    private string message = "", editError = "", loadError = "", deleteError = "";
+    private string search = "", requirement = "all", status = "all", sort = "order";
+    private int page = 1, pageSize = 10;
+    private string Search { get => search; set { search = value; page = 1; } }
+    private string Requirement { get => requirement; set { requirement = value; page = 1; } }
+    private string Status { get => status; set { status = value; page = 1; } }
+    private string Sort { get => sort; set { sort = value; page = 1; } }
+    private bool HasFilters => search.Length > 0 || requirement != "all" || status != "all";
+    private List<DimensionType> Filtered {
+        get {
+            var query = types.Where(x => (search.Trim().Length == 0 || x.Name.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) || x.Code.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)) && (requirement == "all" || x.IsRequired == (requirement == "required")) && (status == "all" || x.IsActive == (status == "active")));
+            return (sort switch { "name" => query.OrderBy(x => x.Name), "code" => query.OrderBy(x => x.Code), _ => query.OrderBy(x => x.DisplayOrder).ThenBy(x => x.Name) }).ToList();
+        }
+    }
+    private int CurrentPage => Math.Clamp(page, 1, Math.Max(1, (Filtered.Count + pageSize - 1) / pageSize));
+    private IEnumerable<DimensionType> Paged => Filtered.Skip((CurrentPage - 1) * pageSize).Take(pageSize);
+    private void SetPage(int value) => page = value;
+    private void SetPageSize(int value) { pageSize = value; page = 1; }
+    private void ClearFilters() { search = ""; requirement = status = "all"; page = 1; }
+    private int ValueCount(Guid id) => values.Count(x => x.DimensionTypeId == id);
+    private static string ValuesUrl(DimensionType type) => $"/dimensions/setup/dimensions?type={type.Id}";
+    private RenderFragment RowActions(DimensionType type) => @<div class="ds-row-actions"><button class="ds-button ds-action" aria-label="@($"Edit {type.Name}")" @onclick="() => EditType(type)"><DimensionIcon Name="edit" /><span>Edit</span></button><a class="ds-button ds-action" href="@ValuesUrl(type)"><span>Dimensions</span><DimensionIcon Name="arrow" /></a><button class="ds-icon-button ds-delete" aria-label="@($"Delete {type.Name}")" title="Delete type" @onclick="() => AskDelete(type)"><DimensionIcon Name="trash" /></button></div>;
+    protected override async Task OnInitializedAsync() {
+        var user = await UserManager.GetUserAsync((await Auth.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty;
+        await Reload();
+    }
+    private async Task Load() {
+        var typeTask = Service.GetTypesAsync(companyId); var valueTask = Service.GetValuesAsync(companyId);
+        await Task.WhenAll(typeTask, valueTask); types = await typeTask; values = await valueTask;
+    }
+    private async Task Reload() {
+        loading = true; loadError = "";
+        try { if (companyId == Guid.Empty) loadError = "Your account needs a company before you can manage dimensions."; else await Load(); }
+        catch (Exception ex) { Logger.LogError(ex, "Unable to load dimension types"); loadError = "Please try again. If the problem continues, contact your administrator."; }
+        finally { loading = false; }
+    }
+    private void ChangeRequirement(ChangeEventArgs e) { if (typeEdit != null) typeEdit.IsRequired = bool.TryParse(e.Value?.ToString(), out var required) && required; }
+    private void BeginEdit(DimensionType value) { editError = ""; typeEdit = value; editContext = new(value); }
+    private void NewType() => BeginEdit(new() { Id = Guid.Empty, CompanyId = companyId, DisplayOrder = types.Count });
+    private void EditType(DimensionType x) => BeginEdit(new() { Id = x.Id, CompanyId = companyId, Code = x.Code, Name = x.Name, IsActive = x.IsActive, IsRequired = x.IsRequired, DisplayOrder = x.DisplayOrder });
+    private void CloseEditor() { if (!saving) { typeEdit = null; editContext = null; } }
+    private void InvalidSubmit() { editError = "Check the highlighted fields and try again."; editor?.FocusInvalid(); }
+    private async Task SaveType() {
+        if (saving || typeEdit == null) return;
+        saving = true; editError = "";
+        try {
+            editError = await Service.SaveTypeAsync(typeEdit);
+            if (editError.Length > 0) { editor?.FocusInvalid(); return; }
+            highlight = typeEdit.Id; var name = typeEdit.Name; typeEdit = null; editContext = null;
+            message = $"Dimension type “{name}” saved."; await Reload(); ClearFilters(); page = Math.Max(0, Filtered.FindIndex(x => x.Id == highlight)) / pageSize + 1;
+        }
+        catch (Exception ex) { Logger.LogError(ex, "Unable to save dimension type"); editError = "Unable to save. Your entries are still here; please try again."; editor?.FocusInvalid(); }
+        finally { saving = false; }
+    }
+    private void AskDelete(DimensionType value) { deleteError = ""; deleteTarget = value; }
+    private void CloseDelete() { if (!saving) deleteTarget = null; }
+    private async Task DeleteType() {
+        if (saving || deleteTarget == null) return;
+        saving = true;
+        try { deleteError = await Service.DeleteTypeAsync(companyId, deleteTarget.Id); if (deleteError.Length == 0) { message = $"Dimension type “{deleteTarget.Name}” deleted."; deleteTarget = null; await Reload(); } }
+        catch (Exception ex) { Logger.LogError(ex, "Unable to delete dimension type"); deleteError = "Unable to delete. Close this dialog and try again."; }
+        finally { saving = false; }
+    }
+}

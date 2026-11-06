@@ -1,0 +1,24 @@
+<HeadContent><link rel="stylesheet" href="dimension-setup.css?v=20261104-1" /></HeadContent>
+<div class="dimension-workspace">
+    <header class="ds-header">
+        <div class="ds-breadcrumb"><span>Dimensions</span><span aria-hidden="true">/</span><span>Setup</span></div>
+        <div class="ds-title-row">
+            <div><h1 tabindex="-1" data-dimension-heading>@Title</h1><p class="ds-description">@Description</p></div>
+            <div class="ds-header-actions">@Actions</div>
+        </div>
+        <dl class="ds-summary">@Summary</dl>
+    </header>
+    <nav class="ds-tabs" aria-label="Dimension setup pages">
+        <a href="/dimensions/setup/types" class="@(Section == "types" ? "ds-tab ds-tab-active" : "ds-tab")" aria-current="@(Section == "types" ? "page" : null)">Dimension Types</a>
+        <a href="/dimensions/setup/dimensions" class="@(Section == "values" ? "ds-tab ds-tab-active" : "ds-tab")" aria-current="@(Section == "values" ? "page" : null)">Dimensions</a>
+    </nav>
+    <div class="ds-content">@ChildContent</div>
+</div>
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Description { get; set; } = "";
+    [Parameter] public string Section { get; set; } = "types";
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public RenderFragment? Summary { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

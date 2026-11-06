@@ -2,6 +2,7 @@
 @page "/ap/debit-note/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
 @using Microsoft.EntityFrameworkCore
@@ -35,7 +36,7 @@
                 }
                 else if (IsNewInitialization)
                 {
-                    <span>Initialize Debit Note</span>
+                    <span>New Debit Note</span>
                 }
                 else
                 {
@@ -45,11 +46,15 @@
             <p class="text-sm font-medium @(IsPosted ? "text-emerald-600" : (IsRejected ? "text-rose-600" : "text-amber-600"))">
                 @if (IsListMode)
                 {
-                    <span class="text-slate-500">Review, track, and manage vendor purchase billing line adjustments</span>
+                    <span class="text-slate-500">Reverse posted purchase invoice quantities and review their adjustments</span>
                 }
                 else if (IsPosted)
                 {
                     <span>● Posted Financial Document - Read Only</span>
+                }
+                else if (currentBatchStatus == BatchStatus.Ready)
+                {
+                    <span>● Awaiting GL Review - Read Only</span>
                 }
                 else if (IsRejected)
                 {
@@ -70,7 +75,7 @@
                 </button>
             }
 
-            @if (!IsListMode && !IsNewInitialization && currentDebitNote != null && canConfigureRoute)
+            @if (!IsListMode && !IsNewInitialization && currentDebitNote != null && canConfigureRoute && !IsLocked)
             {
                 <!-- Configure Route Button -->
                 <button type="button" @onclick="OpenRouteModal" class="px-4 py-2.5 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95">
@@ -90,7 +95,7 @@
                     <span>New Debit Note</span>
                 </button>
             }
-            else if (!IsPosted && !IsNewInitialization)
+            else if (!IsLocked && !IsNewInitialization)
             {
                 <button type="button" @onclick="DeleteDraft" class="px-5 py-2.5 bg-white border border-slate-200 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50 transition-colors shadow-sm active:scale-95">
                     Delete Draft
@@ -117,6 +122,8 @@
             <span class="font-bold uppercase tracking-wider">GL review rejection:</span> @currentBatchRejectionReason
         </div>
     }
+
+    @if (!IsNewInitialization && !string.IsNullOrWhiteSpace(_errMsg)) { <div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">@_errMsg</div> }
 
     @if (isLoading)
     {
@@ -164,7 +171,7 @@
                                         <td class="px-6 py-4 font-mono font-bold text-slate-900">@dn.DebitNoteNumber</td>
                                         <td class="px-6 py-4 text-slate-500 font-medium">@dn.TransactionDateTime.ToString("yyyy-MM-dd HH:mm")</td>
                                         <td class="px-6 py-4 font-bold text-slate-900">@(dn.Vendor?.Name ?? "Unknown Vendor")</td>
-                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(dn.PurchaseOrder?.OrderNumber ?? "N/A")</td>
+                                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-600">@(dn.PurchaseInvoice?.PurchaseInvoiceNumber ?? dn.PurchaseOrder?.OrderNumber ?? "N/A")</td>
                                         <td class="px-6 py-4 text-center">
                                             @if (isPosted)
                                             {
@@ -203,7 +210,7 @@
                                         </td>
                                         <td class="px-6 py-4 text-center">
                                             <button type="button" @onclick="() => RouteToTargetNote(dn.Id)" class="inline-flex items-center justify-center rounded-lg px-4 py-1.5 text-xs font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors">
-                                                @(isRejected ? "Edit & Resubmit" : (isPosted ? "View Details" : "Edit Draft"))
+                                                @(isRejected ? "Edit & Resubmit" : (isPosted || batchStatus == BatchStatus.Ready ? "View Details" : "Edit Draft"))
                                             </button>
                                         </td>
                                     </tr>
@@ -232,33 +239,21 @@
             <!-- INITIALIZATION WIZARD -->
             <div class="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-6 space-y-6">
                 <div>
-                    <h3 class="text-base font-bold text-slate-900 uppercase tracking-wider">Initialize Invoice Line Adjustment</h3>
-                    <p class="text-xs text-slate-500 mt-1">Select a vendor partner and the target purchase invoice to adjust quantities and costs.</p>
+                    <h3 class="text-base font-bold text-slate-900 uppercase tracking-wider">New Debit Note</h3>
+                    <p class="text-xs text-slate-500 mt-1">Select a posted invoice and enter the quantities to reverse. Its items, costs and units stay fixed.</p>
                 </div>
 
                 <div class="space-y-4">
                     <div>
                         <label class="label">Step 1: Select Vendor <span class="text-rose-500">*</span></label>
-                        <select value="@selectedVendorId" @onchange="OnVendorSelected" class="input-class font-bold">
-                            <option value="@Guid.Empty">-- Select Vendor --</option>
-                            @foreach (var ven in vendors)
-                            {
-                                <option value="@ven.Id">@ven.Name</option>
-                            }
-                        </select>
+                        <SearchableGuidSelect Options="@(vendors.Select(v => new DropdownOption(v.Id, v.Name)).ToList())" Value="@(selectedVendorId == Guid.Empty ? null : selectedVendorId)" ValueChanged="OnVendorSelected" Disabled="@_loadingInvoices" Placeholder="Search supplier" />
                     </div>
 
                     @if (selectedVendorId != Guid.Empty)
                     {
                         <div class="animate-in fade-in duration-300">
                             <label class="label">Step 2: Choose Target Purchase Invoice <span class="text-rose-500">*</span></label>
-                            <select @bind="selectedInvoiceId" class="input-class font-mono font-bold">
-                                <option value="@Guid.Empty">-- Select Invoice --</option>
-                                @foreach (var inv in eligibleInvoices)
-                                {
-                                    <option value="@inv.Id">@inv.OrderNumber (@inv.OrderDate.ToString("yyyy-MM-dd HH:mm"))</option>
-                                }
-                            </select>
+                            <SearchableGuidSelect Options="@(eligibleInvoices.Select(inv => new DropdownOption(inv.Id, inv.OrderNumber, inv.OrderDate.ToString("yyyy-MM-dd HH:mm"))).ToList())" Value="@(selectedInvoiceId == Guid.Empty ? null : selectedInvoiceId)" ValueChanged="@(id => selectedInvoiceId = id ?? Guid.Empty)" Placeholder="Search invoice number" />
                             @if (_loadingInvoices)
                             {
                                 <p class="text-xs text-rose-600 font-bold mt-2 animate-pulse">Scanning eligible transactions...</p>
@@ -275,7 +270,7 @@
                         {
                             <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
                         }
-                        <span>Open Debit Note Workspace</span>
+                        <span>Create Debit Note</span>
                     </button>
 
                     @if (!string.IsNullOrEmpty(_errMsg))
@@ -297,7 +292,7 @@
 
                         <div>
                             <label class="label">Execution Date</label>
-                            <input type="datetime-local" value="@currentDebitNote.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { currentDebitNote.TransactionDateTime = d; currentDebitNote.Date = DateOnly.FromDateTime(d); } })" class="input-class font-bold text-slate-800" disabled="@IsPosted" />
+                            <input type="datetime-local" value="@currentDebitNote.TransactionDateTime.ToString("yyyy-MM-ddTHH:mm")" @onchange="@(e => { if (DateTime.TryParse(e.Value?.ToString(), out var d)) { currentDebitNote.TransactionDateTime = d; currentDebitNote.Date = DateOnly.FromDateTime(d); } })" class="input-class font-bold text-slate-800" disabled="@IsLocked" />
                         </div>
 
                         <div>
@@ -310,7 +305,8 @@
                         <div>
                             <label class="label">Reference Invoice Link</label>
                             <div class="font-mono bg-slate-50 p-3 rounded-xl border border-slate-200 text-sm font-bold text-slate-800">
-                                @(currentDebitNote.PurchaseOrder?.OrderNumber ?? "N/A")
+                                @if (currentDebitNote.PurchaseInvoiceId.HasValue) { <a href="@($"/ap/purchase-invoices?view={currentDebitNote.PurchaseInvoiceId}")" class="text-indigo-700 underline">@currentDebitNote.PurchaseInvoice?.PurchaseInvoiceNumber</a> }
+                                else { <span>@currentDebitNote.PurchaseOrder?.OrderNumber</span> }
                             </div>
                         </div>
 
@@ -321,10 +317,10 @@
 
                         <div>
                             <label class="label">Reason / Narrative</label>
-                            <input type="text" @bind="currentDebitNote.Reason" class="input-class" placeholder="Correction description..." disabled="@IsPosted" />
+                            <input type="text" @bind="currentDebitNote.Reason" class="input-class" placeholder="Correction description..." disabled="@IsLocked" />
                         </div>
 
-                        @if (currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m)
+                        @if (currentDebitNote.ExchangeRate != 1m)
                         {
                             <div class="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
                                 <span class="text-[10px] font-extrabold text-indigo-900 uppercase tracking-wider">Exchange Rate</span>
@@ -341,7 +337,7 @@
                     <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
                         <div class="flex items-center justify-between border-b border-slate-100 pb-2">
                             <span class="text-xs font-bold text-slate-700 uppercase tracking-wider">Active Route</span>
-                            <button type="button" @onclick="OpenRouteModal" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
+                            <button type="button" @onclick="OpenRouteModal" disabled="@IsLocked" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
                                 Edit Mappings
                             </button>
                         </div>
@@ -353,11 +349,11 @@
                                 </span>
                             </div>
                             <div class="flex justify-between items-center p-2 bg-slate-50 rounded-lg">
-                                <span class="text-slate-500 font-medium">Inventory Stock (Cr):</span>
+                                <span class="text-slate-500 font-medium">Invoice account (Cr):</span>
                                 <span class="font-mono font-bold text-slate-800 truncate max-w-[160px]" title="@GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId ?? defaultGrIrAccountId)">
                                     @(currentDebitNote.OverrideGrIrClearingGlAccountId.HasValue
                                         ? GetAccountDisplayName(currentDebitNote.OverrideGrIrClearingGlAccountId.Value)
-                                        : "Per-item Inventory Asset Account")
+                                        : "Original invoice accounts")
                                 </span>
                             </div>
                         </div>
@@ -372,34 +368,34 @@
                         <!-- BILLING QUANTITY GRID -->
                         <div class="p-6 border-b border-slate-100 bg-slate-50/50">
                             <h3 class="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                                Invoice Line Item Adjustments
+                                Invoice quantities to reverse
                             </h3>
-                            <p class="text-xs text-slate-500 mt-1">Specify deduction quantities against original billed amounts to reduce AP liability.</p>
+                            <p class="text-xs text-slate-500 mt-1">Enter quantities against the existing invoice items. Discount and tax are reversed proportionally.</p>
                         </div>
 
                         <div class="overflow-x-auto flex-1 p-6">
-                            <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                 <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th class="px-4 py-3">Item / Service Component</th>
+                                        <th class="px-4 py-3">Invoice Item</th>
                                         <th class="px-4 py-3 text-center">UOM</th>
                                         <th class="px-4 py-3 text-center">Billed Qty</th>
-                                        <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
+                                        <th class="px-4 py-3 text-center text-amber-600">Available Qty</th>
                                         <th class="px-4 py-3 text-right">Unit Cost (@(currentDebitNote.Currency?.CurrencyCode ?? "BASE"))</th>
-                                        <th class="px-4 py-3 text-right w-36">Reduction Qty</th>
-                                    </tr>
+                                        <th class="px-4 py-3 text-right w-36">Reverse Qty</th>
+                                    <th class="p-3">Dimensions</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in currentDebitNote.Lines)
                                     {
                                         <tr class="bg-white hover:bg-slate-50 transition-colors">
-                                            <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? "Item Reference")</td>
+                                            <td class="px-4 py-3 font-medium text-slate-800">@(line.Item?.Name ?? line.PurchaseInvoiceLine?.Description ?? "Invoice line")</td>
                                             <td class="px-4 py-3 text-center text-xs font-semibold text-slate-500">@(string.IsNullOrWhiteSpace(line.UomName) ? (line.Item?.UoM ?? "Each") : line.UomName)</td>
                                             <td class="px-4 py-3 text-center font-mono text-slate-600">@((line.UomConversionFactor > 0 ? line.OriginalPurchasedQty / line.UomConversionFactor : line.OriginalPurchasedQty).ToString("N2"))</td>
                                             <td class="px-4 py-3 text-center font-mono font-bold text-amber-600 bg-amber-50/30">@((line.UomConversionFactor > 0 ? line.MaxReturnableQty / line.UomConversionFactor : line.MaxReturnableQty).ToString("N2"))</td>
                                             <td class="px-4 py-3 text-right font-mono text-slate-500">
                                                 @GetDisplayedUnitCost(line).ToString("N4")
-                                                @if (currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m)
+                                                @if (currentDebitNote.ExchangeRate != 1m)
                                                 {
                                                     <div class="text-[10px] text-slate-400 font-semibold">
                                                         (@((GetDisplayedUnitCost(line) * currentDebitNote.ExchangeRate).ToString("N4")) @companyBaseCurrency)
@@ -407,46 +403,51 @@
                                                 }
                                             </td>
                                             <td class="px-4 py-3 text-right">
-                                                <input type="number"   min="0" max="@line.MaxReturnableQty"
-                                                 value="@(line.Quantity == 0 ? "" : (line.UomConversionFactor > 0 ? line.Quantity / line.UomConversionFactor : line.Quantity).ToString("N2"))"
+                                                <input type="number"   min="0" step="0.0001" max="@((line.MaxReturnableQty / (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m)).ToString(System.Globalization.CultureInfo.InvariantCulture))" aria-label="@($"Quantity to reverse for {line.Item?.Name ?? line.PurchaseInvoiceLine?.Description}")"
+                                                 value="@(line.Quantity == 0 ? "" : (line.Quantity / (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m)).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
                                                        @oninput="@(e => ValidateLineQty(line, e.Value?.ToString()))"
-                                                       disabled="@IsPosted"
+                                                       disabled="@IsLocked"
                                                        placeholder="0.0000"
                                                        class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 appearance-none outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                             </td>
-                                        </tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentDebitNote.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentDebitNote.Status != DebitNoteStatus.Draft)" /></td></tr>
                                     }
                                 </tbody>
-                            </table>
+                            </table></div>
                         </div>
 
                         <!-- FOOTER TOTALS -->
                         <div class="border-t border-slate-200 bg-slate-50 p-6 flex justify-between items-center mt-auto rounded-b-2xl">
                             <div>
-                                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Adjustment Value:</span>
+                                <dl class="space-y-1 text-sm text-slate-500">
+                                    <div class="flex justify-between gap-8"><dt>Gross reversal</dt><dd>@PreviewGross.ToString("N2")</dd></div>
+                                    <div class="flex justify-between gap-8"><dt>Discount reversal</dt><dd>−@PreviewDiscount.ToString("N2")</dd></div>
+                                    <div class="flex justify-between gap-8"><dt>Tax reversal</dt><dd>@PreviewTax.ToString("N2")</dd></div>
+                                </dl>
+                                <span class="mt-3 block text-xs font-bold text-slate-500 uppercase tracking-wider">Total debit:</span>
                             </div>
                             <div class="text-right font-mono">
                                 @{
-                                    decimal totalForeign = currentDebitNote.Lines.Sum(l => l.Quantity * l.UnitCost);
-                                    bool hasFx = currentDebitNote.ExchangeRate > 1 && currentDebitNote.ExchangeRate != 1m;
+                                    decimal totalForeign = IsLocked ? currentDebitNote.TotalAmount : PreviewTotal;
+                                    bool hasFx = currentDebitNote.ExchangeRate != 1m;
                                     decimal totalBase = Math.Round(totalForeign * currentDebitNote.ExchangeRate, 2);
                                 }
 
                                 @if (hasFx)
                                 {
                                     <div class="text-3xl font-black text-rose-600">
-                                        @totalForeign.ToString("N4")
+                                        @totalForeign.ToString("N2")
                                         <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentDebitNote.Currency?.CurrencyCode ?? "FX")</span>
                                     </div>
                                     <div class="text-sm font-bold text-slate-600 mt-0.5">
-                                        ≈ @totalBase.ToString("N4")
+                                        ≈ @totalBase.ToString("N2")
                                         <span class="text-xs font-sans font-semibold text-slate-400 uppercase ml-1">@companyBaseCurrency</span>
                                     </div>
                                 }
                                 else
                                 {
                                     <div class="text-3xl font-black text-rose-600">
-                                        @totalForeign.ToString("N4")
+                                        @totalForeign.ToString("N2")
                                         <span class="text-sm font-sans font-bold text-slate-400 uppercase ml-1">@(currentDebitNote.Currency?.CurrencyCode ?? companyBaseCurrency)</span>
                                     </div>
                                 }
@@ -468,7 +469,7 @@
             <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
                             <div>
                                 <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Debit Note GL Route Mapping</h3>
-                                <p class="text-[11px] text-slate-500 mt-0.5">Configure the inventory-stock credit and vendor-AP debit route. Debit notes do not use a bank account.</p>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Review the accounts used to reverse the source invoice.</p>
                 </div>
                 <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -489,14 +490,7 @@
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         }
-                        <select value="@(currentDebitNote.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
-                                class="input-class font-bold text-xs bg-white flex-1" disabled="@IsPosted">
-                            <option value="">-- Standard Debit Note (Default) --</option>
-                            @foreach (var custom in customTemplates)
-                            {
-                                <option value="@custom.Id">@custom.Name (Transaction Type)</option>
-                            }
-                        </select>
+                        <SearchableGuidSelect Options="@(customTemplates.Select(t => new DropdownOption(t.Id, t.Name)).ToList())" Value="@currentDebitNote.CustomTransactionTypeId" ValueChanged="@(id => OnCustomTemplateSelected(new ChangeEventArgs { Value = id?.ToString() }))" Placeholder="Search routing profile" ClearLabel="Use standard route" Disabled="@IsPosted" />
                     </div>
                 </div>
 
@@ -650,6 +644,7 @@
     private BatchStatus? currentBatchStatus;
     private string? currentBatchRejectionReason;
     private Dictionary<Guid, BatchStatus> batchStatuses = new();
+    private bool IsLocked => IsPosted || currentBatchStatus == BatchStatus.Ready;
     private bool IsRejected => currentBatchStatus == BatchStatus.Rejected;
     private bool IsPosted => currentDebitNote?.Status == DebitNoteStatus.Posted
         && currentBatchStatus != BatchStatus.Ready
@@ -665,7 +660,7 @@
         .Where(d => string.IsNullOrWhiteSpace(listSearchTerm)
                  || d.DebitNoteNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)
                  || (d.Vendor?.Name != null && d.Vendor.Name.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase))
-                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
+                 || (d.PurchaseOrder?.OrderNumber != null && d.PurchaseOrder.OrderNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)) || (d.PurchaseInvoice?.PurchaseInvoiceNumber != null && d.PurchaseInvoice.PurchaseInvoiceNumber.Contains(listSearchTerm, StringComparison.OrdinalIgnoreCase)));
 
     private int TotalFilteredCount => FilteredDebitNotes.Count();
     private int TotalPages => Math.Max(1, (int)Math.Ceiling(TotalFilteredCount / (double)pageSize));
@@ -715,6 +710,7 @@
             .AsNoTracking()
             .Include(d => d.Vendor)
             .Include(d => d.PurchaseOrder)
+            .Include(d => d.PurchaseInvoice)
             .Include(d => d.Currency)
             .Where(d => d.CompanyId == currentCompanyId)
             .OrderByDescending(d => d.Date)
@@ -755,7 +751,7 @@
             currentBatchRejectionReason = batch?.RejectionReason;
             isCreateMode = false;
             selectedVendorId = currentDebitNote.VendorId;
-            selectedInvoiceId = currentDebitNote.PurchaseOrderId ?? Guid.Empty;
+            selectedInvoiceId = currentDebitNote.PurchaseInvoiceId ?? currentDebitNote.PurchaseOrderId ?? Guid.Empty;
 
             var vendor = vendors.FirstOrDefault(v => v.Id == currentDebitNote.VendorId);
             defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
@@ -769,10 +765,12 @@
         StateHasChanged();
     }
 
-    private async Task OnVendorSelected(ChangeEventArgs e)
+    private async Task OnVendorSelected(Guid? id)
     {
-        if (Guid.TryParse(e.Value?.ToString(), out var venId) && venId != Guid.Empty)
+        selectedInvoiceId = Guid.Empty;
+        if (id.HasValue && id.Value != Guid.Empty)
         {
+            var venId = id.Value;
             selectedVendorId = venId;
             var vendor = vendors.FirstOrDefault(v => v.Id == venId);
             defaultApAccountId = vendor?.PayablesAccountId ?? Guid.Empty;
@@ -831,12 +829,12 @@
 
     private async Task OpenRouteModal()
     {
-        if (currentDebitNote == null) return;
+        if (currentDebitNote == null || IsLocked) return;
 
         using var ctx = await DbFactory.CreateDbContextAsync();
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
+            .Where(t => t.CompanyId == currentCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AP))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
@@ -882,19 +880,18 @@
         return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
     }
 
+    private static decimal Money(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+    private decimal PreviewGross => currentDebitNote?.Lines.Sum(l => currentDebitNote.PurchaseInvoiceId.HasValue ? l.GrossReversal : Money(l.Quantity * l.UnitCost)) ?? 0;
+    private decimal PreviewDiscount => currentDebitNote?.Lines.Sum(l => currentDebitNote.PurchaseInvoiceId.HasValue ? l.DiscountReversal : Money(l.Quantity * l.UnitCost) * l.ReversalDiscountRate) ?? 0;
+    private decimal PreviewTax => currentDebitNote?.Lines.Sum(l => currentDebitNote.PurchaseInvoiceId.HasValue ? l.TaxReversal : Money(l.Quantity * l.UnitCost) * l.ReversalTaxRate) ?? 0;
+    private decimal PreviewTotal => Money(PreviewGross - PreviewDiscount + PreviewTax);
+
     private void ValidateLineQty(DebitNoteLineModel line, string? val)
     {
-        if (decimal.TryParse(val, out var parsed))
-        {
-            var factor = line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
-            if (parsed < 0) line.Quantity = 0;
-            else if (parsed > line.MaxReturnableQty / factor) line.Quantity = line.MaxReturnableQty;
-            else line.Quantity = parsed * factor;
-        }
-        else
-        {
-            line.Quantity = 0;
-        }
+        var factor = line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m;
+        line.Quantity = decimal.TryParse(val, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var qty) ? qty * factor : 0;
+        _errMsg = currentDebitNote!.Lines.Any(x => x.Quantity < 0 || x.Quantity > x.MaxReturnableQty)
+            ? "Enter a quantity between zero and the available invoice quantity, in the displayed UOM." : "";
     }
 
     // Debit-note quantities and stored costs remain normalized to the
@@ -904,7 +901,7 @@
 
     private async Task SaveDraftWorkspace()
     {
-        if (currentDebitNote == null) return;
+        if (currentDebitNote == null || IsLocked || isBusy) return;
 
         isBusy = true;
         string err = await DebitService.SaveDraftAsync(currentDebitNote);
@@ -924,7 +921,7 @@
 
     private async Task PostStockDebitNote()
     {
-        if (currentDebitNote == null) return;
+        if (currentDebitNote == null || IsLocked || isBusy) return;
 
         decimal draftTotal = currentDebitNote.Lines.Sum(l => l.Quantity * l.UnitCost);
         if (draftTotal <= 0)
@@ -933,10 +930,11 @@
             return;
         }
 
-        if (!await JS.InvokeAsync<bool>("confirm", "This operation will permanently adjust Accounts Payable and Expense/Cost ledgers. Proceed?")) return;
+        if (!await JS.InvokeAsync<bool>("confirm", "Submit this debit note for General Ledger review?")) return;
 
         isBusy = true;
-        await DebitService.SaveDraftAsync(currentDebitNote);
+        var saveError = await DebitService.SaveDraftAsync(currentDebitNote);
+        if (!string.IsNullOrWhiteSpace(saveError)) { isBusy = false; _errMsg = saveError; return; }
 
         Guid parsedUserId = Guid.TryParse(currentUserId, out var uid) ? uid : Guid.Empty;
         string err = await DebitService.PostStockDebitNoteAsync(currentDebitNote.Id, parsedUserId);

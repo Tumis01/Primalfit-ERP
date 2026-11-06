@@ -36,23 +36,30 @@ namespace PrimafitERP.Data
         public DbSet<UnitOfMeasure> UnitOfMeasures { get; set; }
         public DbSet<UomConversionRule> UomConversionRules { get; set; }
         public DbSet<ItemUomConversionLine> ItemUomConversionLines { get; set; }
+        public DbSet<ReleasedDocumentNumber> ReleasedDocumentNumbers { get; set; }
         public DbSet<StockLedger> StockLedgers { get; set; }
         public DbSet<StockTransfer> StockTransfers { get; set; }
         public DbSet<StockTransferLine> StockTransferLines { get; set; }
         public DbSet<SalesOrder> SalesOrders { get; set; }
         public DbSet<SalesOrderLine> SalesOrderLines { get; set; }
+        public DbSet<SalesQuote> SalesQuotes { get; set; }
+        public DbSet<SalesQuoteLine> SalesQuoteLines { get; set; }
         public DbSet<CustomerPayment> CustomerPayments { get; set; }
         public DbSet<DebitNote> DebitNotes => Set<DebitNote>();
         public DbSet<DebitNoteLine> DebitNoteLines => Set<DebitNoteLine>();
         public DbSet<PaymentApplication> PaymentApplications { get; set; }
-        public DbSet<VendorBill> VendorBills { get; set; }
-        public DbSet<VendorBillLine> VendorBillLines { get; set; }
+        public DbSet<PurchaseInvoice> PurchaseInvoices { get; set; }
+        public DbSet<PurchaseInvoiceLine> PurchaseInvoiceLines { get; set; }
         public DbSet<VendorPayment> VendorPayments { get; set; }
         public DbSet<Customer> Customers { get; set; }
         public DbSet<Vendor> Vendors { get; set; }
         public DbSet<PurchaseOrder> PurchaseOrders { get; set; }
         public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
         public DbSet<GoodsReceiptLine> GoodsReceiptLines { get; set; }
+        public DbSet<GoodsReceiptDraft> GoodsReceiptDrafts { get; set; }
+        public DbSet<GoodsReceiptDraftLine> GoodsReceiptDraftLines { get; set; }
+        public DbSet<PurchaseRequest> PurchaseRequests { get; set; }
+        public DbSet<PurchaseRequestLine> PurchaseRequestLines { get; set; }
         public DbSet<SalesInvoice> SalesInvoices { get; set; }
         public DbSet<SalesInvoiceLine> SalesInvoiceLines { get; set; }
         public DbSet<PurchaseOrderLine> PurchaseOrderLines { get; set; }
@@ -110,6 +117,11 @@ namespace PrimafitERP.Data
         public DbSet<SequenceDefinition> SequenceDefinitions => Set<SequenceDefinition>();
         public DbSet<SequenceComponent> SequenceComponents => Set<SequenceComponent>();
         public DbSet<SequenceTracker> SequenceTrackers => Set<SequenceTracker>();
+        public DbSet<DimensionType> DimensionTypes => Set<DimensionType>();
+        public DbSet<DimensionValue> DimensionValues => Set<DimensionValue>();
+        public DbSet<DimensionSet> DimensionSets => Set<DimensionSet>();
+        public DbSet<DimensionSetValue> DimensionSetValues => Set<DimensionSetValue>();
+
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
@@ -196,7 +208,7 @@ namespace PrimafitERP.Data
                 .HasOne(x => x.Uom).WithMany().HasForeignKey(x => x.UomId)
                 .OnDelete(DeleteBehavior.Restrict);
             builder.Entity<ItemUomConversionLine>()
-                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .HasOne(x => x.Item).WithMany(x => x.UomConversions).HasForeignKey(x => x.ItemId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             builder.Entity<Currency>()
@@ -228,13 +240,19 @@ namespace PrimafitERP.Data
             builder.Entity<SalesOrder>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<SalesQuote>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<PurchaseRequest>()
+                .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.NoAction);
             builder.Entity<PurchaseOrder>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
             builder.Entity<GoodsReceipt>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
-            builder.Entity<VendorBill>()
+            builder.Entity<PurchaseInvoice>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
             builder.Entity<VendorPayment>()
@@ -249,6 +267,135 @@ namespace PrimafitERP.Data
             builder.Entity<ReceiptRefund>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            builder.Entity<PurchaseRequest>().ToTable("PurchaseRequests");
+            builder.Entity<PurchaseRequestLine>().ToTable("PurchaseRequestLines");
+            builder.Entity<SalesQuote>().ToTable("SalesQuotes");
+            builder.Entity<SalesQuoteLine>().ToTable("SalesQuoteLines");
+            builder.Entity<PurchaseInvoice>().ToTable("PurchaseInvoices");
+            builder.Entity<PurchaseInvoiceLine>().ToTable("PurchaseInvoiceLines");
+            builder.Entity<SalesInvoice>().ToTable("SalesInvoices");
+            builder.Entity<SalesInvoiceLine>().ToTable("SalesInvoiceLines");
+
+            builder.Entity<PurchaseRequest>()
+                .HasOne(x => x.Vendor).WithMany().HasForeignKey(x => x.VendorId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseRequest>()
+                .HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseRequest>()
+                .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseRequestLine>()
+                .HasOne(x => x.PurchaseRequest).WithMany(x => x.Lines)
+                .HasForeignKey(x => x.PurchaseRequestId).OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<PurchaseRequestLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseRequest>()
+                .HasIndex(x => new { x.CompanyId, x.RequestNumber }).IsUnique();
+            builder.Entity<PurchaseOrder>()
+                .HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseOrderLine>()
+                .HasOne(x => x.PurchaseRequestLine).WithMany()
+                .HasForeignKey(x => x.PurchaseRequestLineId).OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<PurchaseOrderLine>()
+                .HasIndex(x => x.PurchaseRequestLineId).IsUnique()
+                .HasFilter("[PurchaseRequestLineId] IS NOT NULL");
+            builder.Entity<GoodsReceipt>()
+                .HasOne<Warehouse>().WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<GoodsReceiptLine>()
+                .HasOne(x => x.PurchaseOrderLine).WithMany().HasForeignKey(x => x.PurchaseOrderLineId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<GoodsReceiptLine>()
+                .HasIndex(x => new { x.GoodsReceiptId, x.PurchaseOrderLineId }).IsUnique()
+                .HasFilter("[PurchaseOrderLineId] IS NOT NULL");
+            builder.Entity<GoodsReceiptDraftLine>()
+                .HasOne(x => x.GoodsReceiptDraft).WithMany(x => x.Lines)
+                .HasForeignKey(x => x.GoodsReceiptDraftId).OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<GoodsReceiptDraftLine>()
+                .HasOne(x => x.PurchaseOrderLine).WithMany()
+                .HasForeignKey(x => x.PurchaseOrderLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<GoodsReceiptDraftLine>()
+                .HasIndex(x => new { x.GoodsReceiptDraftId, x.PurchaseOrderLineId }).IsUnique().HasFilter("[PurchaseOrderLineId] IS NOT NULL");
+            builder.Entity<GoodsReceiptDraftLine>()
+                .HasOne(x => x.PurchaseInvoiceLine).WithMany().HasForeignKey(x => x.PurchaseInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<GoodsReceiptDraftLine>()
+                .HasIndex(x => new { x.GoodsReceiptDraftId, x.PurchaseInvoiceLineId }).IsUnique().HasFilter("[PurchaseInvoiceLineId] IS NOT NULL");
+            builder.Entity<GoodsReceiptLine>()
+                .HasOne(x => x.PurchaseInvoiceLine).WithMany().HasForeignKey(x => x.PurchaseInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<GoodsReceiptLine>()
+                .HasIndex(x => new { x.GoodsReceiptId, x.PurchaseInvoiceLineId }).IsUnique().HasFilter("[PurchaseInvoiceLineId] IS NOT NULL");
+            builder.Entity<PurchaseInvoice>()
+                .HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseInvoiceLine>()
+                .HasOne(x => x.PurchaseInvoice).WithMany(x => x.Lines)
+                .HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<PurchaseInvoiceLine>()
+                .HasOne(x => x.GoodsReceiptLine).WithMany()
+                .HasForeignKey(x => x.GoodsReceiptLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseInvoiceLine>()
+                .HasOne(x => x.PurchaseOrderLine).WithMany()
+                .HasForeignKey(x => x.PurchaseOrderLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<PurchaseInvoiceLine>()
+                .HasIndex(x => x.GoodsReceiptLineId).IsUnique()
+                .HasFilter("[GoodsReceiptLineId] IS NOT NULL");
+
+            builder.Entity<SalesQuote>()
+                .HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesQuote>()
+                .HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesQuote>()
+                .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesQuoteLine>()
+                .HasOne(x => x.SalesQuote).WithMany(x => x.Lines)
+                .HasForeignKey(x => x.SalesQuoteId).OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<SalesQuoteLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesQuote>()
+                .HasIndex(x => new { x.CompanyId, x.QuoteNumber }).IsUnique();
+            builder.Entity<SalesOrderLine>()
+                .HasOne(x => x.SalesQuoteLine).WithMany()
+                .HasForeignKey(x => x.SalesQuoteLineId).OnDelete(DeleteBehavior.NoAction);
+            builder.Entity<SalesOrderLine>()
+                .HasIndex(x => x.SalesQuoteLineId).IsUnique()
+                .HasFilter("[SalesQuoteLineId] IS NOT NULL");
+            builder.Entity<SalesInvoice>()
+                .HasOne(x => x.Customer).WithMany().HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoice>()
+                .HasOne(x => x.Currency).WithMany().HasForeignKey(x => x.CurrencyId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoice>()
+                .HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoiceLine>()
+                .HasOne(x => x.SalesInvoice).WithMany(x => x.Lines)
+                .HasForeignKey(x => x.SalesInvoiceId).OnDelete(DeleteBehavior.Cascade);
+            builder.Entity<SalesInvoiceLine>().Property(x => x.LegacyAmount).HasColumnName("Amount");
+            builder.Entity<SalesInvoiceLine>()
+                .HasOne(x => x.ShipmentLine).WithMany()
+                .HasForeignKey(x => x.ShipmentLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoiceLine>()
+                .HasOne(x => x.SalesOrderLine).WithMany()
+                .HasForeignKey(x => x.SalesOrderLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoiceLine>()
+                .HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesInvoiceLine>()
+                .HasIndex(x => x.ShipmentLineId).IsUnique()
+                .HasFilter("[ShipmentLineId] IS NOT NULL");
+            builder.Entity<PurchaseInvoice>()
+                .HasIndex(x => new { x.CompanyId, x.PurchaseInvoiceNumber }).IsUnique();
+            builder.Entity<SalesInvoice>()
+                .HasIndex(x => new { x.CompanyId, x.InvoiceNumber }).IsUnique();
             builder.Entity<VendorReturn>()
                 .HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId)
                 .OnDelete(DeleteBehavior.NoAction);
@@ -304,6 +451,15 @@ namespace PrimafitERP.Data
                 .WithMany()
                 .HasForeignKey(l => l.SalesOrderLineId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            builder.Entity<CreditNote>().HasOne(x => x.SalesInvoice).WithMany().HasForeignKey(x => x.SalesInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<CreditNoteLine>().HasOne(x => x.SalesInvoiceLine).WithMany().HasForeignKey(x => x.SalesInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<DebitNote>().HasOne(x => x.PurchaseInvoice).WithMany().HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<DebitNoteLine>().HasOne(x => x.PurchaseInvoiceLine).WithMany().HasForeignKey(x => x.PurchaseInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ReceiptRefund>().HasOne(x => x.SalesInvoice).WithMany().HasForeignKey(x => x.SalesInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ReceiptRefundLine>().HasOne(x => x.SalesInvoiceLine).WithMany().HasForeignKey(x => x.SalesInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<VendorReturn>().HasOne(x => x.PurchaseInvoice).WithMany().HasForeignKey(x => x.PurchaseInvoiceId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<VendorReturnLine>().HasOne(x => x.PurchaseInvoiceLine).WithMany().HasForeignKey(x => x.PurchaseInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
 
             // Credit Note Lines can cascade (if header dies, lines die)
             builder.Entity<CreditNoteLine>()
@@ -361,6 +517,22 @@ namespace PrimafitERP.Data
                 .HasForeignKey(s => s.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            builder.Entity<SalesShipment>()
+                .HasOne(s => s.SalesOrder).WithMany()
+                .HasForeignKey(s => s.SalesOrderId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesShipmentLine>()
+                .HasOne(s => s.SalesOrderLine).WithMany()
+                .HasForeignKey(s => s.SalesOrderLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesShipmentLine>()
+                .HasIndex(s => new { s.ShipmentId, s.SalesOrderLineId }).IsUnique()
+                .HasFilter("[SalesOrderLineId] IS NOT NULL");
+            builder.Entity<SalesShipmentLine>()
+                .HasOne(s => s.SalesInvoiceLine).WithMany()
+                .HasForeignKey(s => s.SalesInvoiceLineId).OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<SalesShipmentLine>()
+                .HasIndex(s => new { s.ShipmentId, s.SalesInvoiceLineId }).IsUnique()
+                .HasFilter("[SalesInvoiceLineId] IS NOT NULL");
+
             builder.Entity<SalesOrderLine>()
                 .HasOne(l => l.Item)
                 .WithMany()
@@ -387,17 +559,22 @@ namespace PrimafitERP.Data
 
             builder.Entity<CompanyRolePermission>()
                 .HasKey(crp => new { crp.ApplicationRoleId, crp.PermissionId });
-            builder.Entity<VendorBill>()
+            builder.Entity<PurchaseInvoice>()
                 .HasOne(b => b.Vendor)
                 .WithMany()
                 .HasForeignKey(b => b.VendorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            builder.Entity<VendorBill>()
+            builder.Entity<PurchaseInvoice>()
                 .HasOne(b => b.PurchaseOrder)
                 .WithMany()
                 .HasForeignKey(b => b.PurchaseOrderId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<UnitOfMeasure>()
+                .Property(u => u.Code).HasMaxLength(32).IsRequired(false);
+            builder.Entity<UnitOfMeasure>()
+                .HasIndex(u => new { u.CompanyId, u.Code }).IsUnique().HasFilter("[Code] IS NOT NULL");
 
             builder.Entity<UnitOfMeasure>()
                 .HasOne(u => u.ConversionUom)
@@ -519,6 +696,22 @@ namespace PrimafitERP.Data
                 .HasForeignKey(r => r.SalesOrderId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Index released numbers by company and document type.
+            builder.Entity<ReleasedDocumentNumber>().HasIndex(x => new { x.CompanyId, x.TargetType });
+
+            // A primary carton can contain, for example, 24 pieces. Preserve
+            // fractional primary quantities through orders, movements and returns.
+            foreach (var property in builder.Model.GetEntityTypes()
+                .Where(x => x.ClrType.Assembly == typeof(Item).Assembly)
+                .SelectMany(x => x.GetProperties())
+                .Where(x => x.ClrType == typeof(decimal) || x.ClrType == typeof(decimal?)))
+            {
+                if (property.Name is "UomConversionFactor" or "ConversionFactorToBase") property.SetColumnType("decimal(28,16)");
+                else if (property.Name.Contains("Quantity", StringComparison.Ordinal) || property.Name.Contains("Qty", StringComparison.Ordinal))
+                    property.SetColumnType("decimal(28,12)");
+            }
+
+            DimensionModel.Configure(builder);
         }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -536,14 +729,65 @@ namespace PrimafitERP.Data
 
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
+            DimensionPersistence.ValidateAsync(this).GetAwaiter().GetResult();
             BlockSegAccountTypeChanges();
-            return base.SaveChanges(acceptAllChangesOnSuccess);
+            TrackDeletedDraftNumbers();
+            var locks = ReleasedNumberLocks();
+            if (locks.Count == 0) return base.SaveChanges(acceptAllChangesOnSuccess);
+            using var transaction = Database.CurrentTransaction == null ? Database.BeginTransaction() : null;
+            foreach (var resource in locks)
+                Database.ExecuteSqlInterpolated($"DECLARE @result int; EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000; IF @result < 0 THROW 51000, 'Document numbering is busy. Please try again.', 1;");
+            var count = base.SaveChanges(acceptAllChangesOnSuccess);
+            transaction?.Commit();
+            return count;
         }
 
-        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
+            await DimensionPersistence.ValidateAsync(this, cancellationToken);
             BlockSegAccountTypeChanges();
-            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            TrackDeletedDraftNumbers();
+            var locks = ReleasedNumberLocks();
+            if (locks.Count == 0) return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            await using var transaction = Database.CurrentTransaction == null ? await Database.BeginTransactionAsync(cancellationToken) : null;
+            foreach (var resource in locks)
+                await Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000; IF @result < 0 THROW 51000, 'Document numbering is busy. Please try again.', 1;", cancellationToken);
+            var count = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            if (transaction != null) await transaction.CommitAsync(cancellationToken);
+            return count;
+        }
+
+        private List<string> ReleasedNumberLocks() => ChangeTracker.Entries<ReleasedDocumentNumber>()
+            .Where(x => x.State == EntityState.Added).Select(x => ReleasedDocumentNumber.LockKey(x.Entity.CompanyId, x.Entity.TargetType))
+            .Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
+
+        private void TrackDeletedDraftNumbers()
+        {
+            foreach (var entry in ChangeTracker.Entries().Where(x => x.State == EntityState.Deleted).ToList())
+            {
+                (Guid Company, SequenceTargetType Target, string Number, DateTime Date)? released = entry.Entity switch
+                {
+                    SalesQuote x when x.Status is SalesQuoteStatus.Draft or SalesQuoteStatus.Open => (x.CompanyId, SequenceTargetType.AR_Quote, x.QuoteNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    PurchaseRequest x when x.Status is PurchaseRequestStatus.Draft or PurchaseRequestStatus.Open => (x.CompanyId, SequenceTargetType.AP_Request, x.RequestNumber, x.RequestDate),
+                    SalesInvoice x when x.Status == SalesInvoiceStatus.Draft && !x.GLBatchId.HasValue => (x.CompanyId, SequenceTargetType.AR_Invoice, x.InvoiceNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    PurchaseInvoice x when !x.IsPosted && !x.GLBatchId.HasValue => (x.CompanyId, SequenceTargetType.AP_Invoice, x.PurchaseInvoiceNumber, x.InvoiceDate),
+                    SalesShipment x when x.Status == ShipmentStatus.Pending && !x.ShipmentBatchId.HasValue => (x.CompanyId, SequenceTargetType.AR_Shipment, x.ShipmentNumber, x.CreatedDate),
+                    GoodsReceiptDraft x when !ChangeTracker.Entries<GoodsReceipt>().Any(r => r.State == EntityState.Added && r.Entity.CompanyId == x.CompanyId && r.Entity.GrnNumber == x.GrnNumber) => (x.CompanyId, SequenceTargetType.AP_GoodsReceipt, x.GrnNumber, x.DateReceived),
+                    SalesOrder x when !x.InvoiceBatchId.HasValue && !x.ShipmentBatchId.HasValue && x.Status is OrderStatus.Draft or OrderStatus.Order or OrderStatus.Quote =>
+                        (x.CompanyId, x.IsDirectInvoice || x.Status == OrderStatus.Draft ? SequenceTargetType.AR_Invoice : x.Status == OrderStatus.Quote ? SequenceTargetType.AR_Quote : SequenceTargetType.AR_Order, x.OrderNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    PurchaseOrder x when !x.GLBatchId.HasValue && x.Status is PurchaseOrderStatus.Open or PurchaseOrderStatus.Request or PurchaseOrderStatus.DraftInvoice =>
+                        (x.CompanyId, x.IsDirectInvoice || x.Status == PurchaseOrderStatus.DraftInvoice ? SequenceTargetType.AP_Invoice : x.Status == PurchaseOrderStatus.Request ? SequenceTargetType.AP_Request : SequenceTargetType.AP_PurchaseOrder, x.OrderNumber, x.OrderDate),
+                    CreditNote x when x.Status == CreditNoteStatus.Draft && !x.GlBatchId.HasValue => (x.CompanyId, SequenceTargetType.AR_CreditNote, x.CreditNoteNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    DebitNote x when x.Status == DebitNoteStatus.Draft && !x.GlBatchId.HasValue => (x.CompanyId, SequenceTargetType.AP_DebitNote, x.DebitNoteNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    ReceiptRefund x when x.Status == ReceiptRefundStatus.Draft && !x.GlBatchId.HasValue => (x.CompanyId, SequenceTargetType.AR_ReceiptRefund, x.RefundNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    VendorReturn x when x.Status == VendorReturnStatus.Draft && !x.GlBatchId.HasValue => (x.CompanyId, SequenceTargetType.AP_ReturnToVendor, x.ReturnNumber, x.Date.ToDateTime(TimeOnly.MinValue)),
+                    CustomerPayment x when x.Status == PaymentStatus.Draft && !x.GLBatchId.HasValue => (x.CompanyId, SequenceTargetType.AR_CustomerReceipt, x.Reference, x.Date),
+                    _ => null
+                };
+                if (released is not { } value || value.Company == Guid.Empty || string.IsNullOrWhiteSpace(value.Number) || value.Number.Length > 200) continue;
+                if (!ChangeTracker.Entries<ReleasedDocumentNumber>().Any(x => x.State == EntityState.Added && x.Entity.CompanyId == value.Company && x.Entity.TargetType == value.Target && x.Entity.DocumentNumber == value.Number))
+                    ReleasedDocumentNumbers.Add(new ReleasedDocumentNumber { CompanyId = value.Company, TargetType = value.Target, DocumentNumber = value.Number, DocumentDate = value.Date });
+            }
         }
 
         private void BlockSegAccountTypeChanges()

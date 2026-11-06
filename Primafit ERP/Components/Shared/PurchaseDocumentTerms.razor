@@ -1,0 +1,54 @@
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="rounded-xl border border-emerald-100 bg-emerald-50/20 p-5 shadow-sm">
+        <h4 class="mb-4 text-xs font-extrabold uppercase tracking-wider text-emerald-800">Discount Terms</h4>
+        <div class="grid grid-cols-2 gap-4">
+            <label class="text-[10px] font-extrabold uppercase text-slate-500">Percentage (%)<input type="number" min="0" max="100" step="0.0001" @bind="Terms.DiscountPercentage" @bind:after="PercentageChanged" class="mt-1 w-full rounded-xl border border-emerald-200 bg-white p-2.5 text-right text-sm font-bold text-emerald-700 focus:border-emerald-500 focus:outline-none" /></label>
+            <label class="text-[10px] font-extrabold uppercase text-slate-500">Flat amount<input type="number" min="0" step="0.0001" @bind="Terms.DiscountAmount" @bind:after="AmountChanged" class="mt-1 w-full rounded-xl border border-emerald-200 bg-white p-2.5 text-right text-sm font-mono focus:border-emerald-500 focus:outline-none" /></label>
+        </div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm space-y-4">
+        <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">Tax and currency</h4>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <SearchableGuidSelect Label="Tax / VAT" Options="@TaxOptions" Value="@Terms.TaxId" ValueChanged="SetTax" Placeholder="Search tax" ClearLabel="No tax" />
+            <SearchableGuidSelect Label="Withholding Tax" Options="@WithholdingOptions" Value="@Terms.WithholdingTaxId" ValueChanged="SetWithholding" Placeholder="Search withholding" ClearLabel="No withholding" />
+        </div>
+        <label class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Exchange rate <span class="text-rose-600">*</span><input type="number" min="0.0001" step="0.0001" @bind="Terms.ExchangeRate" @bind:after="Changed" readonly="@(!IsForeign)" aria-readonly="@(!IsForeign)" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-right text-sm font-mono font-bold focus:border-indigo-500 focus:outline-none @(IsForeign ? "bg-white" : "bg-slate-100 text-slate-500")" /></label>
+        @if (!IsForeign && Terms.CurrencyId != Guid.Empty) { <p class="text-xs text-slate-500">The base currency rate is fixed at 1.</p> }
+        @if (RequireConfirmation) { <label class="flex items-start gap-2 text-xs font-medium text-slate-600"><input type="checkbox" @bind="Terms.Confirmed" class="mt-0.5 accent-indigo-600" /> I have reviewed the terms for this document.</label> }
+    </div>
+</div>
+@code {
+    [Parameter, EditorRequired] public DestinationDocumentTerms Terms { get; set; } = new();
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public bool RequireConfirmation { get; set; } = true;
+    [Parameter] public EventCallback OnTermsChanged { get; set; }
+    private List<Tax> taxes = new();
+    private List<WithholdingTax> withholding = new();
+    private List<Currency> currencies = new();
+    private Guid loadedCompanyId;
+    private bool IsForeign => currencies.Any(x => x.Id == Terms.CurrencyId && !x.IsBaseCurrency);
+    private IReadOnlyCollection<DropdownOption> TaxOptions => taxes.Select(x => new DropdownOption(x.Id, x.TaxName, $"{x.Per:0.####}%" )).ToList();
+    private IReadOnlyCollection<DropdownOption> WithholdingOptions => withholding.Select(x => new DropdownOption(x.Id, x.Name, $"{x.PercentageValue:0.####}%" )).ToList();
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CompanyId != Guid.Empty && CompanyId != loadedCompanyId)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            taxes = await db.Taxes.AsNoTracking().Where(x => x.CompanyId == CompanyId).OrderBy(x => x.TaxName).ToListAsync();
+            withholding = await db.WithholdingTaxes.AsNoTracking().Where(x => x.CompanyId == CompanyId).OrderBy(x => x.Name).ToListAsync();
+            currencies = await db.Currencies.AsNoTracking().Where(x => x.CompanyId == CompanyId).ToListAsync();
+            loadedCompanyId = CompanyId;
+        }
+        if (currencies.Any(x => x.Id == Terms.CurrencyId && x.IsBaseCurrency)) Terms.ExchangeRate = 1m;
+    }
+    private Task Changed() { Terms.Confirmed = false; return OnTermsChanged.InvokeAsync(); }
+    private Task PercentageChanged() { if (Terms.DiscountPercentage > 0) Terms.DiscountAmount = 0; return Changed(); }
+    private Task AmountChanged() { if (Terms.DiscountAmount > 0) Terms.DiscountPercentage = 0; return Changed(); }
+    private Task SetTax(Guid? id) { Terms.TaxId = id; return Changed(); }
+    private Task SetWithholding(Guid? id) { Terms.WithholdingTaxId = id; return Changed(); }
+}

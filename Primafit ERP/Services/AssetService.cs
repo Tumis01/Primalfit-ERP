@@ -181,8 +181,8 @@ namespace Primafit_ERP.Services
 
             var glLines = new List<GLJournalLine>
             {
-                new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" },
-                new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" }
+                new GLJournalLine { DimensionSetId = asset.DimensionSetId, IsDimensionDetail = true, SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" },
+                new GLJournalLine { DimensionSetId = asset.DimensionSetId, IsDimensionDetail = true, SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" }
             };
 
             var history = new AssetDepreciationHistory
@@ -315,8 +315,8 @@ namespace Primafit_ERP.Services
                         asset.LastDepreciationDate = runDate;
                         if (asset.CurrentBookValue <= asset.SalvageValue) asset.Status = AssetStatus.FullyDepreciated;
 
-                        glLines.Add(new GLJournalLine { SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" });
-                        glLines.Add(new GLJournalLine { SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = asset.DimensionSetId, IsDimensionDetail = true, SegCoaId = asset.DepreciationExpenseAccountId, Debit = amount, Credit = 0, Reference = $"Depr {asset.DepreciationMethod} {runDate:MM/yy}: {asset.AssetTag}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = asset.DimensionSetId, IsDimensionDetail = true, SegCoaId = asset.AccumulatedDepreciationAccountId, Debit = 0, Credit = amount, Reference = $"Accum Depr: {asset.AssetTag}" });
 
                         newHistories.Add(new AssetDepreciationHistory
                         {

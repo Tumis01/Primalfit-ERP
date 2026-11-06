@@ -9,6 +9,7 @@
 @using System.Globalization
 
 @inject PaymentService PayService
+@inject DocumentWorkflowService DocumentWorkflow
 @inject MasterDataService MasterService
 @inject SegCoaService SegCoaService
 @inject CurrencyService CurrService
@@ -198,6 +199,7 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+                    <div class="rounded-xl border bg-white p-4"><h3 class="mb-2 text-sm font-bold">Receipt dimensions</h3><p class="mb-3 text-xs text-slate-500">Leave all selections blank to inherit the invoice line dimensions. Select values here to use one combination for this receipt.</p><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="receiptDimensionSetId" Disabled="@IsPaymentPosted" /></div>
                     @if (canConfigureRoute)
                     {
                         <!-- Configure Route Button -->
@@ -283,7 +285,7 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="label">Currency</label>
-                                <select value="@payment.CurrencyId" class="input-class @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" disabled="@(HasInvoiceSelected || IsPaymentPosted)">
+                                <select value="@payment.CurrencyId" class="input-class bg-slate-100 text-slate-600" disabled aria-readonly="true">
                                     <option value="@Guid.Empty">N/A</option>
                                     @foreach (var c in currencies)
                                     {
@@ -293,7 +295,7 @@
                             </div>
                             <div>
                                 <label class="label">Exchange Rate</label>
-                                <input type="number"   @bind="payment.ExchangeRate" @bind:after="NormalizePaymentAmounts" class="input-class font-mono text-right @(HasInvoiceSelected ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "")" readonly="@HasInvoiceSelected" disabled="@IsPaymentPosted" />
+                                <input type="number" min="0.0001" step="0.0001" @bind="payment.ExchangeRate" @bind:after="NormalizePaymentAmounts" class="input-class font-mono text-right" readonly="@(!currencies.Any(x => x.Id == payment.CurrencyId && !x.IsBaseCurrency))" disabled="@IsPaymentPosted" />
                             </div>
                         </div>
 
@@ -398,7 +400,7 @@
                         <div class="overflow-x-auto flex-1 p-6">
                             @if (SelectedInvoice != null)
                             {
-                                <table class="w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
                                         <tr>
                                             <th class="px-4 py-3 w-[38%]">Item</th>
@@ -417,7 +419,7 @@
                                                 <td class="px-4 py-3 text-center font-mono font-bold text-slate-600">@((line.UomConversionFactor > 0 ? line.Quantity / line.UomConversionFactor : line.Quantity).ToString("N2"))</td>
                                                 <td class="px-4 py-3 text-right font-mono text-slate-500">@((line.UnitPrice * (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m)).ToString("N4"))</td>
                                                 <td class="px-4 py-3 pr-6 text-right font-mono font-bold text-slate-700">@((line.Quantity * line.UnitPrice).ToString("N4"))</td>
-                                            </tr>
+                                            <td class="p-3"><DimensionDisplay CompanyId="@payment.CompanyId" Value="@line.DimensionSetId" /></td></tr>
                                         }
                                     </tbody>
 
@@ -445,7 +447,7 @@
                                             <td class="px-4 py-3 pr-6 font-mono font-black text-lg text-indigo-700">@currencySymbol@SelectedInvoice.OriginalTotal.ToString("N4")</td>
                                         </tr>
                                     </tfoot>
-                                </table>
+                                </table></div>
                             }
                             else
                             {
@@ -483,7 +485,7 @@
                     <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Customer Receipt Route Mapping</h3>
                     <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override account routes for customer payment inflows.</p>
                 </div>
-                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
+                <button type="button" @onclick="CancelRoute" class="text-slate-400 hover:text-rose-600 transition-colors">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
             </div>
@@ -493,16 +495,16 @@
                 <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
                     <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
                     <div class="flex items-center gap-2">
-                        @if (payment.CustomTransactionTypeId.HasValue)
+                        @if (routePayment.CustomTransactionTypeId.HasValue)
                         {
                             <button type="button"
-                                    @onclick="() => payment.CustomTransactionTypeId = null"
+                                    @onclick="() => OnCustomTemplateSelected(new ChangeEventArgs())"
                                     class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
                                     title="Reset to Standard Receipt Route">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         }
-                        <select value="@(payment.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
+                        <select value="@(routePayment.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
                                 class="input-class font-bold text-xs bg-white flex-1">
                             <option value="">-- Standard Customer Receipt Route (Default) --</option>
                             @foreach (var custom in customTemplates)
@@ -526,10 +528,10 @@
                                 <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
                             </div>
                             <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (payment.DepositToGlAccountId != Guid.Empty && payment.DepositToGlAccountId != defaultBankAccountId)
+                                @if (routePayment.DepositToGlAccountId != Guid.Empty && routePayment.DepositToGlAccountId != defaultBankAccountId)
                                 {
                                     <button type="button"
-                                            @onclick="() => payment.DepositToGlAccountId = defaultBankAccountId"
+                                            @onclick="() => routePayment.DepositToGlAccountId = defaultBankAccountId"
                                             class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
                                             title="Reset to Default Bank">
                                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -539,8 +541,8 @@
                                     <SearchableGlAccount Label=""
                                                          Placeholder="Search Bank Asset..."
                                                          Accounts="@bankAccounts"
-                                                         Value="@payment.DepositToGlAccountId"
-                                                         ValueChanged="@((Guid val) => payment.DepositToGlAccountId = val)" />
+                                                         Value="@routePayment.DepositToGlAccountId"
+                                                         ValueChanged="@((Guid val) => routePayment.DepositToGlAccountId = val)" />
                                 </div>
                             </div>
                         </div>
@@ -552,10 +554,10 @@
                                 <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side</span>
                             </div>
                             <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (payment.CreditGlAccountId != Guid.Empty && payment.CreditGlAccountId != defaultArAccountId)
+                                @if (routePayment.CreditGlAccountId != Guid.Empty && routePayment.CreditGlAccountId != defaultArAccountId)
                                 {
                                     <button type="button"
-                                            @onclick="() => payment.CreditGlAccountId = defaultArAccountId"
+                                            @onclick="() => routePayment.CreditGlAccountId = defaultArAccountId"
                                             class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
                                             title="Reset to Default Customer AR">
                                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -565,8 +567,8 @@
                                     <SearchableGlAccount Label=""
                                                          Placeholder="Search AR Control Account..."
                                                          Accounts="@allAccounts"
-                                                         Value="@payment.CreditGlAccountId"
-                                                         ValueChanged="@((Guid val) => payment.CreditGlAccountId = val)" />
+                                                         Value="@routePayment.CreditGlAccountId"
+                                                         ValueChanged="@((Guid val) => routePayment.CreditGlAccountId = val)" />
                                 </div>
                             </div>
                         </div>
@@ -578,10 +580,10 @@
                                 <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side</span>
                             </div>
                             <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (payment.DiscountGlAccountId.HasValue)
+                                @if (routePayment.DiscountGlAccountId.HasValue)
                                 {
                                     <button type="button"
-                                            @onclick="() => payment.DiscountGlAccountId = null"
+                                            @onclick="() => routePayment.DiscountGlAccountId = null"
                                             class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
                                             title="Clear Override">
                                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -591,8 +593,8 @@
                                     <SearchableGlAccount Label=""
                                                          Placeholder="Default Discount Allowed Account"
                                                          Accounts="@allAccounts"
-                                                         Value="@(payment.DiscountGlAccountId ?? defaultDiscountAccountId)"
-                                                         ValueChanged="@((Guid val) => payment.DiscountGlAccountId = val == Guid.Empty ? null : val)" />
+                                                         Value="@(routePayment.DiscountGlAccountId ?? defaultDiscountAccountId)"
+                                                         ValueChanged="@((Guid val) => routePayment.DiscountGlAccountId = val == Guid.Empty ? null : val)" />
                                 </div>
                             </div>
                         </div>
@@ -602,10 +604,10 @@
             </div>
 
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] route-config-footer">
-                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
-                    Close
+                <button type="button" @onclick="CancelRoute" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
+                    Cancel
                 </button>
-                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
+                <button type="button" @onclick="ApplyRoute" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
                     Apply to Payment
                 </button>
             </div>
@@ -703,6 +705,7 @@
     private int activeTab = 0;
 
     private CustomerPayment payment = new();
+    private Guid? receiptDimensionSetId;
     private List<Customer> customers = new();
     private List<Currency> currencies = new();
 
@@ -712,6 +715,9 @@
 
     // Route Configuration Modal State
     private bool showRouteModal = false;
+    private CustomerPayment routePayment = new();
+    private void CancelRoute() => showRouteModal = false;
+    private void ApplyRoute() { payment.CustomTransactionTypeId = routePayment.CustomTransactionTypeId; payment.DepositToGlAccountId = routePayment.DepositToGlAccountId; payment.CreditGlAccountId = routePayment.CreditGlAccountId; payment.DiscountGlAccountId = routePayment.DiscountGlAccountId; showRouteModal = false; }
     private List<CustomTransactionType> customTemplates = new();
     private Guid defaultBankAccountId = Guid.Empty;
     private Guid defaultArAccountId = Guid.Empty;
@@ -778,6 +784,7 @@
     public class InvoiceStatusRow
     {
         public Guid InvoiceId { get; set; }
+        public Guid CustomerId { get; set; }
         public string OrderNumber { get; set; } = "";
         public string CustomerName { get; set; } = "";
         public DateTime Date { get; set; }
@@ -829,6 +836,7 @@
             defaultDiscountAccountId = await MappingService.GetMappedAccountAsync(
                 currentCompanyId, SystemTransactionType.DiscountAllowed, isDebit: true, defaultAccountId: Guid.Empty);
 
+            await DocumentWorkflow.GetSalesInvoicesAsync(currentCompanyId);
             await LoadInvoiceStatuses();
             await CreateNewAsync();
 
@@ -837,9 +845,13 @@
                 activeTab = 1;
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 var targetInvoice = await ctx.SalesOrders.FirstOrDefaultAsync(o => o.Id == invoiceId.Value);
-                if (targetInvoice != null)
+                var targetSalesInvoice = targetInvoice == null
+                    ? await ctx.SalesInvoices.FirstOrDefaultAsync(o => o.Id == invoiceId.Value)
+                    : null;
+                var targetCustomerId = targetInvoice?.CustomerId ?? targetSalesInvoice?.CustomerId;
+                if (targetCustomerId.HasValue)
                 {
-                    await OnCustomerChanged(new ChangeEventArgs { Value = targetInvoice.CustomerId.ToString() });
+                    await OnCustomerChanged(new ChangeEventArgs { Value = targetCustomerId.Value.ToString() });
                     OnInvoiceChanged(new ChangeEventArgs { Value = invoiceId.Value.ToString() });
                 }
             }
@@ -848,6 +860,7 @@
 
     private async Task CreateNewAsync()
     {
+        receiptDimensionSetId = null;
         payment = new CustomerPayment
         {
             CompanyId = currentCompanyId,
@@ -899,6 +912,7 @@
         }
 
         payment = loaded;
+        receiptDimensionSetId = loaded.Applications.FirstOrDefault()?.DimensionSetId;
         currentPaymentBatchStatus = batch?.Status;
         currentPaymentRejectionReason = batch?.RejectionReason;
         defaultArAccountId = customers.FirstOrDefault(c => c.Id == payment.CustomerId)?.ReceivablesAccountId ?? Guid.Empty;
@@ -940,6 +954,7 @@
 
     private async Task LoadInvoiceStatuses()
     {
+        await DocumentWorkflow.GetSalesInvoicesAsync(currentCompanyId);
         using var ctx = await DbFactory.CreateDbContextAsync();
         var taxes = await ctx.Taxes.Where(t => t.CompanyId == currentCompanyId).ToDictionaryAsync(t => t.Id, t => t.Per);
 
@@ -948,12 +963,20 @@
             .Include(o => o.Currency)
             .Include(o => o.Lines)
             .Where(o => o.CompanyId == currentCompanyId &&
+                        !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == currentCompanyId &&
+                            (documentInvoice.Id == o.Id || (documentInvoice.InvoiceNumber.StartsWith("AR-LEGACY-") && documentInvoice.SalesOrderId == o.Id))) &&
                         (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                         (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .OrderByDescending(o => o.Date)
             .ToListAsync();
 
-        var invoiceIds = invoices.Select(i => i.Id).ToList();
+        var documentInvoices = await ctx.SalesInvoices
+            .Include(x => x.Customer).Include(x => x.Currency).Include(x => x.Lines)
+            .Where(x => x.CompanyId == currentCompanyId && x.Status == SalesInvoiceStatus.Posted)
+            .OrderByDescending(x => x.Date).ToListAsync();
+        var invoiceIds = invoices.Select(i => i.Id).Concat(documentInvoices.Select(i => i.Id))
+            .Concat(documentInvoices.Where(i => i.InvoiceNumber.StartsWith("AR-LEGACY-", StringComparison.Ordinal) && i.SalesOrderId.HasValue)
+                .Select(i => i.SalesOrderId!.Value)).Distinct().ToList();
 
         var arPayments = await (from pa in ctx.PaymentApplications
                                 join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
@@ -992,12 +1015,8 @@
             .GroupBy(x => x.InvoiceId)
             .ToDictionary(g => g.Key, g => g.First());
 
-        var creditNotesMap = await ctx.CreditNotes
-            .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted
-                      && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-            .GroupBy(cn => cn.SalesOrderId)
-            .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
-            .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+        var creditNotesMap = await InvoiceFinancialBalances.SalesCreditsAsync(ctx, invoiceIds, includeReserved: true);
+        var cashRefundsMap = await InvoiceFinancialBalances.SalesCashRefundsAsync(ctx, invoiceIds);
 
         invoiceStatuses.Clear();
         foreach (var inv in invoices)
@@ -1008,7 +1027,7 @@
             decimal taxPer = inv.TaxId.HasValue && taxes.ContainsKey(inv.TaxId.Value) ? taxes[inv.TaxId.Value] : 0;
             decimal grandTotal = net + (net * (taxPer / 100));
 
-            decimal paid = arPayments.GetValueOrDefault(inv.Id, 0);
+            decimal paid = Math.Max(0, arPayments.GetValueOrDefault(inv.Id, 0) - cashRefundsMap.GetValueOrDefault(inv.Id, 0));
             decimal credited = creditNotesMap.GetValueOrDefault(inv.Id, 0);
 
             decimal balance = grandTotal - paid - credited;
@@ -1024,6 +1043,7 @@
             invoiceStatuses.Add(new InvoiceStatusRow
             {
                 InvoiceId = inv.Id,
+                CustomerId = inv.CustomerId,
                 OrderNumber = inv.OrderNumber,
                 CustomerName = inv.Customer?.Name ?? "Unknown",
                 Date = inv.Date.ToDateTime(TimeOnly.MinValue),
@@ -1038,11 +1058,41 @@
                 ReviewRejectionReason = review?.RejectionReason
             });
         }
+        foreach (var inv in documentInvoices)
+        {
+            var subTotal = inv.Lines.Sum(x => x.Amount);
+            var discount = inv.DiscountPercentage > 0 ? subTotal * inv.DiscountPercentage / 100m : Math.Min(inv.DiscountAmount, subTotal);
+            var net = subTotal - discount;
+            var taxRate = inv.TaxId.HasValue && taxes.TryGetValue(inv.TaxId.Value, out var configuredRate) ? configuredRate : 0m;
+            var grandTotal = inv.TotalAmountForeign > 0 ? inv.TotalAmountForeign : net + net * taxRate / 100m;
+            var legacyOrderId = inv.InvoiceNumber.StartsWith("AR-LEGACY-", StringComparison.Ordinal) ? inv.SalesOrderId : null;
+            var paid = arPayments.GetValueOrDefault(inv.Id, 0)
+                + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? arPayments.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            paid = Math.Max(0, paid - cashRefundsMap.GetValueOrDefault(inv.Id, 0) - (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? cashRefundsMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0));
+            var credited = creditNotesMap.GetValueOrDefault(inv.Id, 0) + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? creditNotesMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            var balance = grandTotal - paid - credited;
+            var withholding = net * inv.WithholdingPercentage / 100m;
+            var priorWithholding = withholdingPaid.GetValueOrDefault(inv.Id, 0)
+                + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? withholdingPaid.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            var remainingWithholding = Math.Min(Math.Max(0, balance), Math.Max(0, withholding - priorWithholding));
+            var review = reviewByInvoice.GetValueOrDefault(inv.Id)
+                ?? (legacyOrderId.HasValue ? reviewByInvoice.GetValueOrDefault(legacyOrderId.Value) : null);
+            var status = balance <= 0.01m ? "Paid in Full" : paid > 0 ? "Partially Paid" : "Unpaid";
+            invoiceStatuses.Add(new InvoiceStatusRow
+            {
+                InvoiceId = inv.Id, CustomerId = inv.CustomerId, OrderNumber = inv.InvoiceNumber,
+                CustomerName = inv.Customer?.Name ?? "Unknown", Date = inv.Date.ToDateTime(TimeOnly.MinValue),
+                GrandTotal = grandTotal, AmountPaid = paid, BalanceDue = balance,
+                CashBalanceDue = Math.Max(0, balance - remainingWithholding), Status = status,
+                CurrencyCode = inv.Currency?.CurrencyCode ?? "", ReviewPaymentId = review?.PaymentId,
+                ReviewStatus = review?.Status, ReviewRejectionReason = review?.RejectionReason
+            });
+        }
     }
 
     private async Task SelectAndLoadInvoice(InvoiceStatusRow statusRow)
     {
-        var targetCustomer = customers.FirstOrDefault(c => c.Name == statusRow.CustomerName);
+        var targetCustomer = customers.FirstOrDefault(c => c.Id == statusRow.CustomerId);
         if (targetCustomer == null) return;
 
         isBusy = true; StateHasChanged();
@@ -1108,24 +1158,30 @@
 
     private async Task LoadCustomerInvoices(Guid customerId)
     {
+        await DocumentWorkflow.GetSalesInvoicesAsync(currentCompanyId);
         using var ctx = await DbFactory.CreateDbContextAsync();
 
         var invoices = await ctx.SalesOrders
             .Include(o => o.Lines).ThenInclude(l => l.Item)
             .Where(o => o.CompanyId == currentCompanyId &&
                         o.CustomerId == customerId &&
+                        !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == currentCompanyId &&
+                            (documentInvoice.Id == o.Id || (documentInvoice.InvoiceNumber.StartsWith("AR-LEGACY-") && documentInvoice.SalesOrderId == o.Id))) &&
                         (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV")) &&
                         (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.IsDirectInvoice == true))
             .ToListAsync();
 
-        var invoiceIds = invoices.Select(i => i.Id).ToList();
+        var documentInvoices = await ctx.SalesInvoices
+            .Include(x => x.Lines).ThenInclude(x => x.Item)
+            .Where(x => x.CompanyId == currentCompanyId && x.CustomerId == customerId && x.Status == SalesInvoiceStatus.Posted)
+            .ToListAsync();
 
-        var creditNotesMap = await ctx.CreditNotes
-            .Where(cn => invoiceIds.Contains(cn.SalesOrderId) && cn.Status == CreditNoteStatus.Posted
-                      && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId.Value && b.Status == BatchStatus.Posted)))
-            .GroupBy(cn => cn.SalesOrderId)
-            .Select(g => new { InvoiceId = g.Key, TotalCredited = g.Sum(x => x.TotalAmount) })
-            .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalCredited);
+        var invoiceIds = invoices.Select(i => i.Id).Concat(documentInvoices.Select(i => i.Id))
+            .Concat(documentInvoices.Where(i => i.InvoiceNumber.StartsWith("AR-LEGACY-", StringComparison.Ordinal) && i.SalesOrderId.HasValue)
+                .Select(i => i.SalesOrderId!.Value)).Distinct().ToList();
+
+        var creditNotesMap = await InvoiceFinancialBalances.SalesCreditsAsync(ctx, invoiceIds, includeReserved: true);
+        var cashRefundsMap = await InvoiceFinancialBalances.SalesCashRefundsAsync(ctx, invoiceIds);
 
         var arPaymentsMap = await (from pa in ctx.PaymentApplications
                                    join p in ctx.CustomerPayments on pa.CustomerPaymentId equals p.Id
@@ -1171,7 +1227,7 @@
 
             decimal grandTotal = discountedSubTotal + taxAmount;
 
-            decimal paidAmount = arPaymentsMap.GetValueOrDefault(inv.Id, 0);
+            decimal paidAmount = Math.Max(0, arPaymentsMap.GetValueOrDefault(inv.Id, 0) - cashRefundsMap.GetValueOrDefault(inv.Id, 0));
             decimal creditedAmount = creditNotesMap.GetValueOrDefault(inv.Id, 0);
 
             decimal balanceDue = grandTotal - paidAmount - creditedAmount;
@@ -1200,6 +1256,42 @@
                     CreditNoteTotal = creditedAmount
                 });
             }
+        }
+
+        foreach (var inv in documentInvoices)
+        {
+            var subTotal = inv.Lines.Sum(x => x.Amount);
+            var discountValue = inv.DiscountPercentage > 0 ? subTotal * inv.DiscountPercentage / 100m : Math.Min(inv.DiscountAmount, subTotal);
+            var discountedSubTotal = subTotal - discountValue;
+            var taxAmount = Math.Max(0, inv.TotalAmountForeign - discountedSubTotal);
+            var grandTotal = inv.TotalAmountForeign > 0 ? inv.TotalAmountForeign : discountedSubTotal + taxAmount;
+            var legacyOrderId = inv.InvoiceNumber.StartsWith("AR-LEGACY-", StringComparison.Ordinal) ? inv.SalesOrderId : null;
+            var paidAmount = arPaymentsMap.GetValueOrDefault(inv.Id, 0)
+                + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? arPaymentsMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            paidAmount = Math.Max(0, paidAmount - cashRefundsMap.GetValueOrDefault(inv.Id, 0) - (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? cashRefundsMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0));
+            var creditedAmount = creditNotesMap.GetValueOrDefault(inv.Id, 0) + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? creditNotesMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            var balanceDue = grandTotal - paidAmount - creditedAmount;
+            var invoiceWithholding = discountedSubTotal * inv.WithholdingPercentage / 100m;
+            var priorWithholding = withholdingPaidMap.GetValueOrDefault(inv.Id, 0)
+                + (legacyOrderId.HasValue && legacyOrderId.Value != inv.Id ? withholdingPaidMap.GetValueOrDefault(legacyOrderId.Value, 0) : 0);
+            var remainingWithholding = Math.Min(Math.Max(0, balanceDue), Math.Max(0, invoiceWithholding - priorWithholding));
+            if (balanceDue <= 0.01m) continue;
+            openInvoices.Add(new InvoiceRow
+            {
+                InvoiceId = inv.Id, OrderNumber = inv.InvoiceNumber,
+                Date = inv.Date.ToDateTime(TimeOnly.MinValue), OriginalTotal = grandTotal,
+                BalanceDue = balanceDue, CashBalanceDue = Math.Max(0, balanceDue - remainingWithholding),
+                WithholdingRemaining = remainingWithholding, OriginalRate = inv.ExchangeRate > 0 ? inv.ExchangeRate : 1m,
+                CurrencyId = inv.CurrencyId,
+                Lines = inv.Lines.Select(x => new SalesOrderLine
+                { DimensionSetId = x.DimensionSetId,
+                    ItemId = x.ItemId, Item = x.Item, Description = x.Description,
+                    Quantity = x.QuantityInvoiced, UnitPrice = x.UnitPrice,
+                    UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor
+                }).ToList(),
+                SubTotal = subTotal, DiscountValue = discountValue, TaxAmount = taxAmount,
+                TaxDescription = "Tax", CreditNoteTotal = creditedAmount
+            });
         }
 
         openInvoices = openInvoices.OrderBy(i => i.Date).ToList();
@@ -1239,10 +1331,11 @@
 
         customTemplates = await ctx.CustomTransactionTypes
             .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
+            .Where(t => t.CompanyId == currentCompanyId && (t.Module == TransactionTemplateModule.General || t.Module == TransactionTemplateModule.AR))
             .OrderBy(t => t.Name)
             .ToListAsync();
 
+        routePayment = new CustomerPayment { CustomTransactionTypeId = payment.CustomTransactionTypeId, DepositToGlAccountId = payment.DepositToGlAccountId, CreditGlAccountId = payment.CreditGlAccountId, DiscountGlAccountId = payment.DiscountGlAccountId };
         showRouteModal = true;
     }
 
@@ -1251,7 +1344,10 @@
         var val = e.Value?.ToString();
         if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
         {
-            payment.CustomTransactionTypeId = customId;
+            if (!customTemplates.Any(x => x.Id == customId)) return;
+            routePayment.CustomTransactionTypeId = customId;
+            routePayment.DepositToGlAccountId = defaultBankAccountId;
+            routePayment.CreditGlAccountId = defaultArAccountId;
 
             using var ctx = await DbFactory.CreateDbContextAsync();
             var map = await ctx.TransactionGlMappings
@@ -1261,15 +1357,17 @@
             if (map != null)
             {
                 if (map.OverrideDebitGlAccountId.HasValue)
-                    payment.DepositToGlAccountId = map.OverrideDebitGlAccountId.Value;
+                    routePayment.DepositToGlAccountId = map.OverrideDebitGlAccountId.Value;
 
                 if (map.OverrideCreditGlAccountId.HasValue)
-                    payment.CreditGlAccountId = map.OverrideCreditGlAccountId.Value;
+                    routePayment.CreditGlAccountId = map.OverrideCreditGlAccountId.Value;
             }
         }
         else
         {
-            payment.CustomTransactionTypeId = null;
+            routePayment.CustomTransactionTypeId = null;
+            routePayment.DepositToGlAccountId = defaultBankAccountId;
+            routePayment.CreditGlAccountId = defaultArAccountId;
         }
     }
 
@@ -1314,12 +1412,13 @@
             return;
         }
 
+        var savedDimensions = receiptDimensionSetId;
         payment.Applications.Clear();
         if (SelectedInvoice != null)
         {
             payment.Applications.Add(new PaymentApplication
             {
-                InvoiceId = SelectedInvoice.InvoiceId,
+                DimensionSetId = savedDimensions, InvoiceId = SelectedInvoice.InvoiceId,
                 AppliedAmount = payment.AmountReceived,
                 CashDiscountTaken = 0
             });

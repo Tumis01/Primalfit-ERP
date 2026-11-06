@@ -1,0 +1,148 @@
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject GoodsReceiptDraftService DraftService
+@inject PurchasingService Purchasing
+@inject TransactionMappingService Mapping
+@inject IJSRuntime JS
+
+<div class="p-6 bg-white animate-in slide-in-from-top-2 space-y-6">
+    <PageNotice Message="@message" IsError="true" Revision="@attempt" />
+    @if (loading) { <p class="text-sm text-slate-400">Loading receipt parameters...</p> }
+    else {
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Receipt Parameters</span>
+            @if (canConfigure && !IsReview) { <button type="button" @onclick="() => routeEditor!.Open()" class="rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-1.5 text-xs font-bold text-indigo-700">Configure GL Route</button> }
+        </div>
+        <div class="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 sm:grid-cols-2">
+            <SearchableGuidSelect Label="Receiving warehouse" Required="true" Disabled="@IsReview" Options="@WarehouseOptions" Value="@warehouseId" ValueChanged="@(id => warehouseId = id)" Placeholder="Search warehouse" />
+            <label class="text-xs font-bold text-slate-600">Date received<input type="datetime-local" disabled="@IsReview" @bind="receipt.DateReceived" class="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-normal" /></label>
+        </div>
+        <div class="overflow-x-auto">
+            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-left text-sm">
+                <thead class="border-b border-slate-200 text-xs font-bold uppercase text-slate-500"><tr><th class="min-w-[220px] pb-3">Item Name</th><th class="pb-3 text-right">Qty<br />Required</th><th class="pb-3 text-right">Previously Received</th><th class="pb-3 text-right">Max Left to Receive</th><th class="w-36 pb-3 text-center">UOM</th><th class="w-40 pb-3 text-center">Qty to receive</th><th class="p-3">Dimensions</th></tr></thead>
+                <tbody class="divide-y divide-slate-100">
+                    @foreach (var line in receipt.Lines) {
+                        var source = Source(line); var invalid = source == null || line.QuantityReceived <= 0 || UomConversion.Exceeds(line.QuantityReceived, source.Remaining); var showError = attempt > 0 || touched.Contains(line.Id);
+                        <tr @key="line.Id" class="@(showError && invalid ? "bg-rose-50/40" : "")">
+                            <td class="py-4 font-bold text-slate-800">@(source?.ItemName ?? "Source no longer available")<span class="block text-xs font-normal text-indigo-700">@source?.DocumentNumber</span></td>
+                            <td class="py-4 text-right font-mono text-slate-600">@Display(source?.Required ?? 0, line).ToString("N4")</td>
+                            <td class="py-4 text-right font-mono text-slate-500">@Display(source?.Received ?? 0, line).ToString("N4")</td>
+                            <td class="py-4 text-right font-mono font-bold text-indigo-700">@Display(source?.Remaining ?? 0, line).ToString("N4")@if (source?.Reserved > 0) { <span class="mt-1 block text-[10px] font-normal text-slate-500">Other drafts: @Display(source.Reserved, line).ToString("N4") @line.UomName</span> }</td>
+                            <td class="py-4">@if (IsReview) { <span class="block text-center font-semibold text-slate-600">@line.UomName</span> } else { <SearchableGuidSelect Options="@UomOptions(line)" Value="@line.UomId" ValueChanged="@(id => SetUom(line, id))" AllowClear="false" InlineMenu="true" Placeholder="Search receipt unit" /> }</td>
+                            <td class="py-4"><input type="number" min="0.0001" max="@Display(source?.Remaining ?? 0, line).ToString("0.####", CultureInfo.InvariantCulture)" step="0.0001" value="@Display(line.QuantityReceived, line).ToString("0.####", CultureInfo.InvariantCulture)" @onchange="e => SetQuantity(line, e)" aria-label="Quantity to receive for @source?.ItemName from @source?.DocumentNumber" aria-invalid="@(showError && invalid)" aria-describedby="@($"receipt-quantity-{line.Id}")" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-center font-bold" />@if (showError && invalid) { <span id="@($"receipt-quantity-{line.Id}")" role="alert" class="mt-1 block text-center text-xs text-rose-700">Enter a positive quantity up to @Display(source?.Remaining ?? 0, line).ToString("N4") @line.UomName.</span> }</td>
+                        <td class="p-3 align-top"><DimensionSelect CompanyId="@CompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsReview" /></td></tr>
+                    }
+                </tbody>
+            </table></div>
+        </div>
+        <div class="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-4">
+            @if (!IsReview) { <button type="button" @onclick="Delete" disabled="@busy" class="rounded-xl border border-rose-200 bg-rose-50 px-5 py-2 font-bold text-rose-700 disabled:opacity-50">Delete Draft</button> }
+            <button type="button" @onclick="() => OnCancel.InvokeAsync()" disabled="@busy" class="rounded-xl border border-slate-200 px-5 py-2 font-bold text-slate-600">Cancel</button>
+            @if (IsReview) { <button type="button" @onclick="() => Save(true)" disabled="@busy" class="rounded-xl bg-indigo-600 px-6 py-2 font-bold text-white disabled:opacity-50">@(busy ? "Saving..." : "Update Receipt Quantities")</button> } else {
+            <button type="button" @onclick="() => Save(false)" disabled="@busy" class="rounded-xl border border-indigo-200 px-5 py-2 font-bold text-indigo-700 disabled:opacity-50">Save Draft</button>
+            <button type="button" @onclick="() => Save(true)" disabled="@busy" class="rounded-xl bg-indigo-600 px-6 py-2 font-bold text-white shadow-md disabled:opacity-50">@(busy ? "Saving..." : "Submit Receipt for GL Review")</button>
+            }
+        </div>
+    }
+</div>
+<InvoiceRouteEditor @ref="routeEditor" CompanyId="@CompanyId" Module="TransactionTemplateModule.AP" Value="@route" ValueChanged="ApplyRoute" ShowTaxAndDiscount="false" CreditLocked="@clearingLocked" DebitLabel="Inventory asset account" CreditLabel="GR/IR clearing account" />
+
+@code {
+    [Parameter, EditorRequired] public GoodsReceiptDraft Draft { get; set; } = new();
+    [Parameter] public bool IsReview { get; set; }
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public string UserId { get; set; } = "";
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public EventCallback<Guid> OnSubmitted { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    private GoodsReceipt receipt = new();
+    private HashSet<Guid> touched = new();
+    private Guid loadedId; private Guid? warehouseId;
+    private bool loading = true, busy, canConfigure, clearingLocked, loadedReview;
+    private string message = ""; private int attempt;
+    private List<ReceiptSourceCandidate> sources = new();
+    private List<Item> items = new(); private List<UnitOfMeasure> uoms = new(); private List<Warehouse> warehouses = new();
+    private List<ItemUomConversionLine> itemUoms = new(); private List<UomConversionRule> rules = new();
+    private InvoiceRoute route = new(); private InvoiceRouteEditor? routeEditor;
+    private IReadOnlyCollection<DropdownOption> WarehouseOptions => warehouses.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private ReceiptSourceCandidate? Source(GoodsReceiptLine line) => sources.FirstOrDefault(x => x.LineId == (line.PurchaseInvoiceLineId ?? line.PurchaseOrderLineId));
+    private IReadOnlyDictionary<(Guid, Guid), decimal> ConversionMap => rules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedId == Draft.Id && loadedReview == IsReview) return;
+        loadedId = Draft.Id; loadedReview = IsReview; loading = true; touched.Clear(); attempt = 0; message = "";
+        receipt = GoodsReceiptDraftService.ToReceipt(Draft); warehouseId = Draft.WarehouseId;
+        sources = await DraftService.GetCandidatesAsync(CompanyId, Draft.VendorId, receipt.Lines.Any(x => x.PurchaseInvoiceLineId.HasValue), IsReview ? null : Draft.Id, IsReview ? Draft.Id : null);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        items = await db.Items.Include(x => x.UomConversions).AsNoTracking().Where(x => x.CompanyId == CompanyId).ToListAsync();
+        uoms = await db.UnitOfMeasures.AsNoTracking().Where(x => x.CompanyId == CompanyId).ToListAsync();
+        warehouses = await db.Warehouses.AsNoTracking().Where(x => x.CompanyId == CompanyId && (x.Type == WarehouseType.Purchase || x.Type == WarehouseType.Both)).ToListAsync();
+        itemUoms = await db.ItemUomConversionLines.AsNoTracking().Where(x => x.IsActive && x.Item!.CompanyId == CompanyId).ToListAsync();
+        rules = await db.UomConversionRules.AsNoTracking().Where(x => x.CompanyId == CompanyId && x.IsActive).ToListAsync();
+        canConfigure = await Mapping.IsRouteConfigVisibleAsync(CompanyId);
+        clearingLocked = receipt.Lines.Any(x => Source(x)?.ClearingAccountId.HasValue == true);
+        var recordedAccounts = receipt.Lines.Select(x => Source(x)?.ClearingAccountId).Where(x => x.HasValue).Distinct().ToList();
+        if (recordedAccounts.Count == 1) receipt.InventoryGlAccountId = recordedAccounts[0]!.Value;
+        route = new InvoiceRoute { TemplateId = receipt.CustomTransactionTypeId, DebitAccountId = receipt.OverrideInventoryAssetGlAccountId,
+            CreditAccountId = receipt.OverrideGrIrClearingGlAccountId ?? (receipt.InventoryGlAccountId == Guid.Empty ? null : receipt.InventoryGlAccountId) };
+        loading = false;
+    }
+    private IReadOnlyCollection<DropdownOption> UomOptions(GoodsReceiptLine line)
+    {
+        var item = items.FirstOrDefault(x => x.Id == Source(line)?.ItemId);
+        if (item == null) return Array.Empty<DropdownOption>();
+        var ids = item.UomId.HasValue ? UomConversion.ConfiguredUoms(item).ToHashSet() : new HashSet<Guid>();
+        foreach (var unit in itemUoms.Where(x => x.ItemId == item.Id)) ids.Add(unit.UomId);
+        return uoms.Where(x => ids.Contains(x.Id)).Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    }
+    private static decimal Display(decimal qty, GoodsReceiptLine line) => UomConversion.FromBase(qty, line.UomConversionFactor);
+    private void SetUom(GoodsReceiptLine line, Guid? id)
+    {
+        var item = items.FirstOrDefault(x => x.Id == Source(line)?.ItemId);
+        if (item == null || !id.HasValue || !UomOptions(line).Any(x => x.Id == id)) return;
+        var factors = itemUoms.Where(x => x.ItemId == item.Id).GroupBy(x => x.UomId).ToDictionary(x => x.Key, x => x.First().ConversionFactorToBase);
+        line.UomId = id; line.UomName = uoms.First(x => x.Id == id).Name;
+        line.UomConversionFactor = UomConversion.FactorFor(item, id, factors, ConversionMap);
+    }
+    private void SetQuantity(GoodsReceiptLine line, ChangeEventArgs e)
+    {
+        touched.Add(line.Id);
+        try { line.QuantityReceived = decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var qty) ? UomConversion.ToBase(qty, line.UomConversionFactor) : 0; }
+        catch (OverflowException) { line.QuantityReceived = 0; }
+    }
+    private void ApplyRoute(InvoiceRoute value) { route = value; receipt.CustomTransactionTypeId = value.TemplateId; receipt.OverrideInventoryAssetGlAccountId = value.DebitAccountId; receipt.OverrideGrIrClearingGlAccountId = value.CreditAccountId; receipt.InventoryGlAccountId = value.CreditAccountId ?? Guid.Empty; }
+    private async Task Save(bool submit)
+    {
+        if (busy) return;
+        attempt++; message = "";
+        if (!warehouseId.HasValue) { message = "Select a receiving warehouse."; return; }
+        busy = true;
+        try {
+            sources = await DraftService.GetCandidatesAsync(CompanyId, Draft.VendorId, receipt.Lines.Any(x => x.PurchaseInvoiceLineId.HasValue), IsReview ? null : Draft.Id, IsReview ? Draft.Id : null);
+            if (receipt.Lines.Any(x => Source(x) == null || x.QuantityReceived <= 0 || UomConversion.Exceeds(x.QuantityReceived, Source(x)!.Remaining))) { message = "Enter a positive quantity within the available balance for every receipt line."; return; }
+            if (IsReview) {
+                message = await Purchasing.UpdateGoodsReceiptQuantitiesAsync(CompanyId, receipt.Id,
+                    receipt.Lines.Select(x => new ReceiptQuantityUpdate(x.Id, x.QuantityReceived)).ToList(), UserId);
+                if (string.IsNullOrEmpty(message)) await OnSaved.InvokeAsync();
+                return;
+            }
+            message = await DraftService.SaveAsync(receipt, Draft.VendorId, warehouseId.Value);
+            if (!string.IsNullOrEmpty(message)) return;
+            if (submit) {
+                message = await Purchasing.SaveGoodsReceiptAsync(receipt, warehouseId.Value, UserId, receipt.Id);
+                if (string.IsNullOrEmpty(message)) await OnSubmitted.InvokeAsync(receipt.Id);
+            } else await OnSaved.InvokeAsync();
+        } finally { busy = false; }
+    }
+    private async Task Delete()
+    {
+        if (IsReview || busy || !await JS.InvokeAsync<bool>("confirm", $"Delete receipt draft {Draft.GrnNumber} and release its reserved quantities?")) return;
+        busy = true;
+        try { message = await DraftService.DeleteAsync(CompanyId, Draft.Id); if (string.IsNullOrEmpty(message)) await OnSaved.InvokeAsync(); }
+        finally { busy = false; }
+    }
+}

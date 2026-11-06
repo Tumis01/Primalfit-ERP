@@ -71,3 +71,42 @@ input[type="number"] {
 [class~="group-hover:opacity-100"] {
     opacity: 1 !important;
 }
+
+/* Transaction rows retain real table columns at every viewport size. */
+.transaction-lines-scroll {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+table.transaction-lines {
+    table-layout: auto;
+    width: max-content;
+    min-width: 100%;
+}
+.transaction-lines > thead > tr > th {
+    width: auto;
+    white-space: nowrap;
+}
+.transaction-lines > tbody > tr > td {
+    vertical-align: top;
+    white-space: nowrap;
+}
+.transaction-lines input:not([type="checkbox"]):not([type="radio"]),
+.transaction-lines select { min-width: 7rem; }
+.transaction-lines [role="combobox"] { min-width: 11rem; }
+.dimension-fields { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; min-width: 0; }
+.dimension-field { flex: 1 1 190px; min-width: 180px; max-width: 240px; }
+table .dimension-fields { flex-wrap: nowrap; width: max-content; }
+table .dimension-field { flex: 0 0 190px; }
+.dimension-entry-scroll { min-width: 0; max-width: 100%; overflow-x: auto; padding-bottom: 6px; }
+.dimension-entry-scroll .dimension-fields { flex-wrap: nowrap; width: max-content; }
+.dimension-entry-scroll .dimension-field { flex: 0 0 190px; }
+/* Leave room for dimension labels while keeping each row's inputs level. */
+.transaction-lines > tbody > tr:has(.dimension-fields) > td:not(:has(.dimension-fields)) { padding-top: 32px; }
+.transaction-lines > tbody > tr > td:has(.dimension-fields) { padding-top: 12px; }
+.transaction-lines .dimension-field label { line-height: 14px; margin-bottom: 6px; }
+.transaction-lines-scroll:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+.report-viewer { min-width: 0; }
+.report-viewer .report-table-scroll { max-width: 100%; overflow: auto; max-height: 70vh; }
+.report-viewer thead { position: sticky; top: 0; z-index: 1; }

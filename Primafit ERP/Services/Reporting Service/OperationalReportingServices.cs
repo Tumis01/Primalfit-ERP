@@ -173,10 +173,19 @@ namespace Primafit_ERP.Services
                 .AsNoTracking()
                 .Include(o => o.Lines)
                 .Where(o => o.CompanyId == companyId
+                    && !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == companyId && documentInvoice.Id == o.Id)
                     && customerIds.Contains(o.CustomerId)
                     && o.Date <= endDate
                     && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
                     && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
+                .ToListAsync();
+
+            var documentInvoices = await ctx.SalesInvoices.AsNoTracking()
+                .Include(x => x.Lines)
+                .Where(x => x.CompanyId == companyId && customerIds.Contains(x.CustomerId) && x.Date <= endDate
+                    && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
+                    && ((!x.GLBatchId.HasValue && x.Status == SalesInvoiceStatus.Posted)
+                        || (x.GLBatchId.HasValue && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
                 .ToListAsync();
 
             var payments = await ctx.CustomerPayments
@@ -185,6 +194,7 @@ namespace Primafit_ERP.Services
                 .Where(p => p.CompanyId == companyId
                     && customerIds.Contains(p.CustomerId)
                     && p.Status == PaymentStatus.Posted
+                    && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
                     && p.Date <= endDate.ToDateTime(TimeOnly.MaxValue))
                 .ToListAsync();
 
@@ -193,6 +203,7 @@ namespace Primafit_ERP.Services
                 .Where(cn => cn.CompanyId == companyId
                     && customerIds.Contains(cn.CustomerId)
                     && cn.Status == CreditNoteStatus.Posted
+                    && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
                     && cn.Date <= endDate)
                 .ToListAsync();
 
@@ -203,9 +214,11 @@ namespace Primafit_ERP.Services
             var receiptRefunds = await ctx.ReceiptRefunds
                 .AsNoTracking()
                 .Include(r => r.SalesOrder)
+                .Include(r => r.SalesInvoice)
                 .Where(r => r.CompanyId == companyId
                     && customerIds.Contains(r.CustomerId)
                     && r.Status == ReceiptRefundStatus.Posted
+                    && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
                     && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both)
                     && r.Date <= endDate)
                 .ToListAsync();
@@ -280,10 +293,37 @@ namespace Primafit_ERP.Services
                     });
                 }
 
+                foreach (var invoice in documentInvoices.Where(i => i.CustomerId == customer.Id))
+                {
+                    decimal invoiceTotal = invoice.TotalAmountForeign;
+                    if (invoiceTotal <= 0)
+                    {
+                        var subtotal = invoice.Lines.Sum(line => line.Amount);
+                        var discount = invoice.DiscountPercentage > 0
+                            ? subtotal * invoice.DiscountPercentage / 100m
+                            : Math.Min(invoice.DiscountAmount, subtotal);
+                        var taxRate = invoice.TaxId.HasValue && taxes.TryGetValue(invoice.TaxId.Value, out var configuredTaxRate) ? configuredTaxRate : 0m;
+                        invoiceTotal = subtotal - discount + (subtotal - discount) * taxRate / 100m;
+                    }
+                    var rate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1m;
+                    activity.Add(new CustomerStatementLine
+                    {
+                        CustomerId = customer.Id,
+                        CustomerName = customer.Name,
+                        CustomerAddress = customer.Address ?? "",
+                        Date = invoice.Date,
+                        DocumentNumber = invoice.InvoiceNumber,
+                        Type = "Invoice",
+                        Description = invoice.IsDirectInvoice ? "Direct sales invoice" : "Sales invoice",
+                        Debit = Math.Round(invoiceTotal * rate, 2)
+                    });
+                }
+
                 foreach (var payment in payments.Where(p => p.CustomerId == customer.Id))
                 {
                     decimal rate = payment.ExchangeRate > 0 ? payment.ExchangeRate : 1;
                     decimal cashDiscount = payment.Applications.Sum(a => a.CashDiscountTaken);
+                    decimal withholding = payment.Applications.Sum(a => a.WithholdingAmountForeign);
 
                     activity.Add(new CustomerStatementLine
                     {
@@ -294,7 +334,7 @@ namespace Primafit_ERP.Services
                         DocumentNumber = payment.Reference,
                         Type = "Receipt",
                         Description = cashDiscount > 0 ? "Customer receipt / cash discount" : "Customer receipt",
-                        Credit = Math.Round((payment.AmountReceived + cashDiscount) * rate, 2)
+                        Credit = Math.Round((payment.AmountReceived + cashDiscount + withholding) * rate, 2)
                     });
                 }
 
@@ -309,9 +349,10 @@ namespace Primafit_ERP.Services
                         CustomerAddress = customer.Address ?? "",
                         Date = creditNote.Date,
                         DocumentNumber = creditNote.CreditNoteNumber,
-                        Type = "Credit Note",
+                        Type = creditNote.ReturnToStock ? "Credit Note" : "Cash Refund",
                         Description = string.IsNullOrWhiteSpace(creditNote.Reason) ? "Credit note" : creditNote.Reason,
-                        Credit = Math.Round(creditNote.TotalAmount * rate, 2)
+                        Debit = creditNote.ReturnToStock ? 0 : Math.Round(creditNote.TotalAmount * rate, 2),
+                        Credit = creditNote.ReturnToStock ? Math.Round(creditNote.TotalAmount * rate, 2) : 0
                     });
                 }
 
@@ -321,7 +362,7 @@ namespace Primafit_ERP.Services
                     decimal amountBase = Math.Round(receiptRefund.TotalAmount * rate, 2);
                     if (amountBase <= 0) continue;
 
-                    string invoiceReference = receiptRefund.SalesOrder?.OrderNumber ?? "sales invoice";
+                    string invoiceReference = receiptRefund.SalesInvoice?.InvoiceNumber ?? receiptRefund.SalesOrder?.OrderNumber ?? "sales invoice";
                     activity.Add(new CustomerStatementLine
                     {
                         CustomerId = customer.Id,
@@ -607,7 +648,7 @@ namespace Primafit_ERP.Services
 
             var vendorIds = vendors.Select(v => v.Id).ToHashSet();
 
-            var bills = await ctx.VendorBills
+            var bills = await ctx.PurchaseInvoices
                 .AsNoTracking()
                 .Include(b => b.Payments)
                 .Where(b => b.CompanyId == companyId
@@ -618,7 +659,7 @@ namespace Primafit_ERP.Services
 
             // Debit notes reduce the vendor AP balance. TotalAmount is stored in
             // the document currency, so convert it to the same base currency used
-            // by VendorBill.TotalAmount and VendorPayment.Amount in this report.
+            // by PurchaseInvoice.TotalAmount and VendorPayment.Amount in this report.
             var debitNotes = await ctx.DebitNotes
                 .AsNoTracking()
                 .Include(d => d.PurchaseOrder)

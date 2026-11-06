@@ -1,0 +1,151 @@
+@page "/procurement/goods-receipts"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
+@using Primafit_ERP.Services
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Goods Receipts</PageTitle>
+<div class="max-w-[1400px] mx-auto space-y-6 animate-in fade-in duration-500 pb-16 font-sans text-slate-800">
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm gap-4">
+        <div><h1 class="text-2xl font-bold tracking-tight text-slate-900">Goods Receipts</h1><p class="text-sm text-slate-500 mt-1">Process physical receipts, configure inventory GL routes, and view receipt history.</p></div>
+        <PermissionGate Key="PO_CREATE"><Authorized><a href="/procurement/goods-receipt" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">New Goods Receipt</a></Authorized></PermissionGate>
+    </div>
+    <div class="flex flex-wrap gap-4 border-b border-slate-200">
+        <button type="button" @onclick="() => ShowTab(0)" disabled="@refreshing" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 0 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">Pending Receipt / GL Review</button>
+        <button type="button" @onclick="() => ShowTab(1)" disabled="@refreshing" class="pb-3 px-4 text-sm font-bold border-b-2 transition-colors @(activeTab == 1 ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700")">Receipt History</button>
+    </div>
+    <PageNotice Message="@message" IsError="@isError" />
+    @if (loading) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading receipt data...</div> }
+    else if (activeTab == 0) {
+        @if (!PendingCards.Any()) { <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400">No pending goods receipts. Create a goods receipt to begin.</div> }
+        <div class="space-y-4">
+            @foreach (var card in PendingCards) {
+                var receipt = card.Receipt;
+                <div @key="card.Id" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm transition-all hover:shadow-md">
+                    <button type="button" @onclick="() => expandedId = expandedId == card.Id ? null : card.Id" aria-expanded="@(expandedId == card.Id ? "true" : "false")" aria-label="@(expandedId == card.Id ? $"Close {receipt.GrnNumber}" : $"View {receipt.GrnNumber}")" class="flex w-full justify-between items-center gap-3 bg-slate-50 p-4 border-b border-slate-200 text-left hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500">
+                        <span class="flex items-center gap-4 flex-wrap"><span class="font-mono font-bold text-indigo-700">@receipt.GrnNumber</span><span class="text-sm font-bold text-slate-700">Sources: @SourceReferences(receipt)</span><span class="text-sm text-slate-500 hidden sm:inline">| Supplier: @SupplierName(receipt, card.Draft?.VendorId)</span>@if (receipt.CustomTransactionTypeId.HasValue) { <span class="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full">Custom Route Active</span> }</span>
+                        <span class="flex items-center gap-3"><span class="px-2.5 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider @ReviewPillClass(receipt)">@ReviewLabel(receipt)</span><svg class="w-5 h-5 text-slate-400 transform transition-transform @(expandedId == card.Id ? "rotate-180" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></span>
+                    </button>
+                    @if (expandedId == card.Id) {
+                        @if (PermissionCache.Has("PO_CREATE")) {
+                            <GoodsReceiptDraftEditor @key="card.Id" Draft="@(card.Draft ?? ReviewDraft(receipt))" IsReview="@(card.Draft == null)" CompanyId="@companyId" UserId="@userId" OnSaved="() => ReceiptSaved(card.Draft == null)" OnSubmitted="Submitted" OnCancel="() => expandedId = null" />
+                        } else {
+                            <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto space-y-6">
+                                <div class="flex flex-wrap justify-between gap-3 border-b border-slate-100 pb-2"><span class="text-xs font-bold uppercase tracking-wider text-slate-400">Receipt Parameters</span><span class="text-xs text-slate-500">@WarehouseName(receipt.WarehouseId) · @receipt.DateReceived.ToString("dd MMM yyyy HH:mm")</span></div>
+                                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[650px] text-left text-sm"><thead class="border-b border-slate-200 text-xs font-bold uppercase text-slate-500"><tr><th class="pb-3">Item Name</th><th class="pb-3">Source document</th><th class="pb-3 text-right">Qty Received</th><th class="pb-3 text-center">Receipt UOM</th></tr></thead><tbody class="divide-y divide-slate-100">
+                                    @foreach (var line in receipt.Lines) { <tr><td class="py-4 font-bold text-slate-800">@ItemName(line)</td><td class="py-4 font-mono text-xs text-indigo-700">@SourceNumber(line)</td><td class="py-4 text-right font-mono text-slate-600">@UomConversion.FromBase(line.QuantityReceived, line.UomConversionFactor).ToString("N4")</td><td class="py-4 text-center text-xs font-bold text-slate-600">@line.UomName</td></tr> }
+                                </tbody></table></div>
+                                <div class="flex flex-wrap justify-end gap-3 mt-6 pt-4 border-t border-slate-100"><button type="button" @onclick="() => expandedId = null" class="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-50 border border-slate-200">Cancel</button></div>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    } else {
+        @if (ViewSourceId.HasValue) { <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900"><span>Showing the linked receipt.</span><a href="/procurement/goods-receipts" class="font-bold text-indigo-700 underline">View all receipts</a></div> }
+        <section aria-label="Receipt history filters" class="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:grid-cols-2 xl:grid-cols-4">
+            <label class="text-xs font-bold text-slate-600 sm:col-span-2">Search history<input type="search" @bind="historySearch" @bind:event="oninput" @bind:after="ResetHistoryPage" placeholder="Document number, item or supplier" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <label class="text-xs font-bold text-slate-600">From date<input type="date" @bind="historyFrom" @bind:after="ResetHistoryPage" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <label class="text-xs font-bold text-slate-600">To date<input type="date" @bind="historyTo" @bind:after="ResetHistoryPage" class="mt-1 w-full rounded-xl border border-slate-200 p-2.5 text-sm font-normal" /></label>
+            <div class="flex flex-wrap items-center justify-between gap-3 sm:col-span-2 xl:col-span-4"><label class="flex items-center gap-2 text-xs font-bold text-slate-600">Rows per page<select @bind="historyPageSize" @bind:after="ResetHistoryPage" class="rounded-lg border border-slate-200 p-2"><option value="10">10</option><option value="20">20</option><option value="50">50</option><option value="100">100</option></select></label><button type="button" @onclick="ClearHistoryFilters" class="text-xs font-bold text-indigo-700">Clear filters</button></div>
+            @if (historyFrom.HasValue && historyTo.HasValue && historyFrom > historyTo) { <p role="alert" class="text-sm text-rose-700 sm:col-span-2 xl:col-span-4">From date must be on or before To date.</p> }
+        </section>
+        <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm"><div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm text-slate-900 min-w-[800px]">
+            <thead class="bg-slate-50 text-xs uppercase font-bold text-slate-500 border-b border-slate-200"><tr><th class="p-4 w-32">Date Received</th><th class="p-4">Receipt #</th><th class="p-4">Source document(s)</th><th class="p-4">Supplier</th><th class="p-4">Warehouse</th><th class="p-4">Items Processed</th><th class="p-4">Confirmed by</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var receipt in PagedHistory) {
+                    <tr class="hover:bg-slate-50 transition-colors"><td class="p-4 font-mono text-slate-600 text-xs">@receipt.DateReceived.ToString("dd MMM, yyyy HH:mm")</td><td class="p-4 font-mono font-bold text-indigo-700">@receipt.GrnNumber</td><td class="p-4 font-mono text-xs font-bold text-slate-600">@SourceReferences(receipt)</td><td class="p-4 font-medium">@SupplierName(receipt)</td><td class="p-4 text-xs font-bold text-slate-600">@WarehouseName(receipt.WarehouseId)</td><td class="p-4 text-sm">@foreach (var line in receipt.Lines.Where(x => x.QuantityReceived > 0)) { <div class="text-xs mt-0.5"><span class="text-slate-700 font-medium">@ItemName(line)</span><span class="text-emerald-600 font-bold ml-1">(Qty: @UomConversion.FromBase(line.QuantityReceived, line.UomConversionFactor).ToString("N4") @line.UomName)</span>@if (line.PurchaseInvoiceLineId.HasValue && invoiceLines.GetValueOrDefault(line.PurchaseInvoiceLineId.Value)?.PurchaseInvoice is { } invoice) { <a class="ml-1 text-indigo-700 underline" href="@($"/ap/purchase-invoices?view={invoice.Id}")">@invoice.PurchaseInvoiceNumber</a> }</div> }</td><td class="p-4 text-xs text-slate-600">@confirmedBy.GetValueOrDefault(receipt.Id, "Unavailable")</td></tr>
+                }
+                @if (!FilteredHistory.Any()) { <tr><td colspan="7" class="p-12 text-center text-slate-400">No receipt history matches these filters.</td></tr> }
+            </tbody>
+        </table></div></div>
+        <nav aria-label="Receipt history pagination" class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"><span aria-live="polite">@(HistoryCount == 0 ? 0 : (CurrentHistoryPage - 1) * historyPageSize + 1)–@Math.Min(CurrentHistoryPage * historyPageSize, HistoryCount) of @HistoryCount receipts</span><div class="flex items-center gap-3"><button type="button" @onclick="() => historyPage = CurrentHistoryPage - 1" disabled="@(CurrentHistoryPage == 1)" class="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Previous</button><span>Page @CurrentHistoryPage of @HistoryPages</span><button type="button" @onclick="() => historyPage = CurrentHistoryPage + 1" disabled="@(CurrentHistoryPage == HistoryPages)" class="rounded-lg border px-3 py-2 font-semibold disabled:opacity-40">Next</button></div></nav>
+    }
+</div>
+@code {
+    [SupplyParameterFromQuery(Name = "view")] public Guid? ViewSourceId { get; set; }
+    [SupplyParameterFromQuery(Name = "draft")] public Guid? ViewDraftId { get; set; }
+    private Guid companyId; private string userId = "", message = ""; private bool loading = true, isError, refreshing;
+    private int activeTab, historyPage = 1, historyPageSize = 10;
+    private string historySearch = ""; private DateTime? historyFrom, historyTo;
+    private Guid? expandedId;
+    private List<GoodsReceipt> receipts = new(); private List<GoodsReceiptDraft> drafts = new();
+    private Dictionary<Guid, string> vendors = new(), warehouses = new(), items = new();
+    private Dictionary<Guid, ReceiptRegisterState> receiptStates = new();
+    private Dictionary<Guid, string> confirmedBy = new();
+    private Dictionary<Guid, PurchaseOrderLine> orderLines = new(); private Dictionary<Guid, PurchaseOrder> orders = new();
+    private Dictionary<Guid, PurchaseInvoiceLine> invoiceLines = new();
+    private sealed record PendingCard(Guid Id, GoodsReceipt Receipt, GoodsReceiptDraft? Draft);
+    private IEnumerable<PendingCard> PendingCards => drafts.Select(x => new PendingCard(x.Id, GoodsReceiptDraftService.ToReceipt(x), x)).Concat(receipts.Where(x => !IsHistory(x)).Select(x => new PendingCard(x.Id, x, null))).OrderByDescending(x => x.Receipt.DateReceived);
+    private GoodsReceiptDraft ReviewDraft(GoodsReceipt receipt) => new() {
+        Id = receipt.Id, CompanyId = receipt.CompanyId, VendorId = receipt.Lines.Select(x => invoiceLines.GetValueOrDefault(x.PurchaseInvoiceLineId ?? Guid.Empty)?.PurchaseInvoice?.VendorId ?? Order(x)?.VendorId).FirstOrDefault(x => x.HasValue) ?? Guid.Empty,
+        WarehouseId = receipt.WarehouseId ?? Guid.Empty, GrnNumber = receipt.GrnNumber, DateReceived = receipt.DateReceived,
+        ProjectId = receipt.ProjectId, InventoryGlAccountId = receipt.InventoryGlAccountId, CustomTransactionTypeId = receipt.CustomTransactionTypeId,
+        OverrideInventoryAssetGlAccountId = receipt.OverrideInventoryAssetGlAccountId, OverrideGrIrClearingGlAccountId = receipt.OverrideGrIrClearingGlAccountId,
+        Lines = receipt.Lines.Select(x => new GoodsReceiptDraftLine { DimensionSetId = x.DimensionSetId,  Id = x.Id, GoodsReceiptDraftId = receipt.Id,
+            PurchaseOrderLineId = x.PurchaseOrderLineId, PurchaseInvoiceLineId = x.PurchaseInvoiceLineId,
+            QuantityReceived = x.QuantityReceived, UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList()
+    };
+    private bool IsHistory(GoodsReceipt r) => GoodsReceiptRegisterService.IsHistory(receiptStates.GetValueOrDefault(r.Id, ReceiptRegisterState.NeedsReview));
+    private ReceiptRegisterState ReviewStatus(GoodsReceipt r) => receiptStates.GetValueOrDefault(r.Id, ReceiptRegisterState.NeedsReview);
+    private string ReviewLabel(GoodsReceipt r) => ReviewStatus(r) switch { ReceiptRegisterState.InReview => "In Review", ReceiptRegisterState.Rejected => "Rejected", ReceiptRegisterState.Posted => "Posted", ReceiptRegisterState.Recorded => "Recorded", ReceiptRegisterState.Draft => "Draft", ReceiptRegisterState.GlDraft => "GL Draft", _ => "Needs review" };
+    private string ReviewPillClass(GoodsReceipt r) => ReviewStatus(r) switch { ReceiptRegisterState.InReview => "bg-amber-100 text-amber-800", ReceiptRegisterState.Rejected => "bg-rose-100 text-rose-800", ReceiptRegisterState.Posted => "bg-emerald-100 text-emerald-800", _ => "bg-slate-100 text-slate-600" };
+    private PurchaseOrder? Order(GoodsReceiptLine line) => orders.GetValueOrDefault(orderLines.GetValueOrDefault(line.PurchaseOrderLineId ?? Guid.Empty)?.PurchaseOrderId ?? Guid.Empty);
+    private string SourceNumber(GoodsReceiptLine line) => invoiceLines.GetValueOrDefault(line.PurchaseInvoiceLineId ?? Guid.Empty)?.PurchaseInvoice?.PurchaseInvoiceNumber ?? Order(line)?.OrderNumber ?? "Unavailable";
+    private string SourceReferences(GoodsReceipt receipt) => string.Join(", ", receipt.Lines.Select(SourceNumber).Distinct());
+    private string ItemName(GoodsReceiptLine line) => items.GetValueOrDefault(invoiceLines.GetValueOrDefault(line.PurchaseInvoiceLineId ?? Guid.Empty)?.ItemId ?? orderLines.GetValueOrDefault(line.PurchaseOrderLineId ?? Guid.Empty)?.ItemId ?? Guid.Empty, "Unknown");
+    private string SupplierName(GoodsReceipt receipt, Guid? vendorId = null) => vendorId.HasValue ? vendors.GetValueOrDefault(vendorId.Value, "Unknown") : string.Join(", ", receipt.Lines.Select(x => invoiceLines.GetValueOrDefault(x.PurchaseInvoiceLineId ?? Guid.Empty)?.PurchaseInvoice?.VendorId ?? Order(x)?.VendorId).Where(x => x.HasValue).Select(x => vendors.GetValueOrDefault(x!.Value, "Unknown")).Distinct());
+    private string WarehouseName(Guid? id) => warehouses.GetValueOrDefault(id ?? Guid.Empty, "Unknown");
+    private IEnumerable<GoodsReceipt> FilteredHistory => receipts.Where(x => IsHistory(x) && (!historyFrom.HasValue || x.DateReceived.Date >= historyFrom.Value.Date) && (!historyTo.HasValue || x.DateReceived.Date <= historyTo.Value.Date) && (string.IsNullOrWhiteSpace(historySearch) || x.GrnNumber.Contains(historySearch, StringComparison.OrdinalIgnoreCase) || SourceReferences(x).Contains(historySearch, StringComparison.OrdinalIgnoreCase) || SupplierName(x).Contains(historySearch, StringComparison.OrdinalIgnoreCase) || x.Lines.Any(l => ItemName(l).Contains(historySearch, StringComparison.OrdinalIgnoreCase))));
+    private int HistoryCount => FilteredHistory.Count(); private int HistoryPages => Math.Max(1, (int)Math.Ceiling(HistoryCount / (double)historyPageSize)); private int CurrentHistoryPage => Math.Clamp(historyPage, 1, HistoryPages);
+    private IEnumerable<GoodsReceipt> PagedHistory => FilteredHistory.Skip((CurrentHistoryPage - 1) * historyPageSize).Take(historyPageSize);
+    private void ResetHistoryPage() => historyPage = 1;
+    private void ClearHistoryFilters() { historySearch = ""; historyFrom = historyTo = null; historyPage = 1; }
+    private async Task ShowTab(int tab)
+    {
+        if (refreshing) return;
+        refreshing = true;
+        try { await LoadAsync(); activeTab = tab; }
+        finally { refreshing = false; }
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        if (!PermissionCache.Has("PURCHASING_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
+        var user = await UserManager.GetUserAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty; userId = user?.Id ?? "";
+        if (companyId == Guid.Empty) { message = "Company context is unavailable."; isError = true; loading = false; return; }
+        await LoadAsync();
+        if (ViewDraftId.HasValue && drafts.Any(x => x.Id == ViewDraftId.Value)) expandedId = ViewDraftId;
+        if (ViewSourceId.HasValue && receipts.FirstOrDefault(x => x.Id == ViewSourceId.Value) is { } linked) { expandedId = linked.Id; activeTab = IsHistory(linked) ? 1 : 0; historySearch = linked.GrnNumber; }
+        loading = false;
+    }
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var register = await GoodsReceiptRegisterService.LoadAsync(db, companyId);
+        drafts = register.Drafts; receipts = register.Receipts; receiptStates = register.States; confirmedBy = register.ConfirmedBy;
+        var lines = receipts.SelectMany(x => x.Lines).Concat(drafts.SelectMany(x => GoodsReceiptDraftService.ToReceipt(x).Lines)).ToList();
+        var rootIds = lines.Where(x => x.PurchaseOrderLineId.HasValue).Select(x => x.PurchaseOrderLineId!.Value).Distinct().ToList();
+        orderLines = await db.PurchaseOrderLines.AsNoTracking().Where(x => rootIds.Contains(x.Id) && db.PurchaseOrders.Any(p => p.Id == x.PurchaseOrderId && p.CompanyId == companyId)).ToDictionaryAsync(x => x.Id);
+        var ids = orderLines.Values.Select(x => x.PurchaseOrderId).Distinct().ToList();
+        orders = await db.PurchaseOrders.AsNoTracking().Where(x => x.CompanyId == companyId && ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id);
+        var invoiceIds = lines.Where(x => x.PurchaseInvoiceLineId.HasValue).Select(x => x.PurchaseInvoiceLineId!.Value).Distinct().ToList();
+        invoiceLines = await db.PurchaseInvoiceLines.AsNoTracking().Include(x => x.PurchaseInvoice).Where(x => invoiceIds.Contains(x.Id) && x.PurchaseInvoice!.CompanyId == companyId).ToDictionaryAsync(x => x.Id);
+        vendors = await db.Vendors.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.Name);
+        warehouses = await db.Warehouses.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.Name);
+        items = await db.Items.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id, x => x.Name);
+
+    }
+    private async Task ReceiptSaved(bool review) { var id = expandedId; await LoadAsync(); expandedId = review ? id : null; message = review ? "Receipt quantities updated for GL review." : "Receipt drafts updated."; isError = false; }
+    private async Task Submitted(Guid id) { await LoadAsync(); expandedId = id; message = "Receipt submitted for GL review."; isError = false; }
+}

@@ -1,0 +1,20 @@
+@inject IJSRuntime JS
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div @ref="notice" role="@(IsError ? "alert" : "status")" tabindex="-1" class="rounded-xl border px-4 py-3 text-sm @(IsError ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")">@Message</div>
+}
+@code {
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public bool IsError { get; set; }
+    [Parameter] public int Revision { get; set; }
+    private ElementReference notice;
+    private (string?, bool, int)? shown;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var current = (Message, IsError, Revision);
+        if (shown == current) return;
+        shown = current;
+        if (!string.IsNullOrWhiteSpace(Message) && IsError)
+            await JS.InvokeVoidAsync("primafitScrollToNotice", notice);
+    }
+}

@@ -1,0 +1,24 @@
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@inject IDocumentNumberingService Numbering
+<div class="rounded-xl border border-indigo-100 bg-indigo-50 px-5 py-3" aria-label="Document number">
+    <span class="text-xs font-bold uppercase tracking-wider text-indigo-700">@(string.IsNullOrEmpty(Number) ? "Document number preview" : "Document number")</span>
+    <strong class="ml-3 font-mono text-sm text-slate-900">@(string.IsNullOrEmpty(Number) ? preview : Number)</strong>
+    @if (string.IsNullOrEmpty(Number)) { <p class="mt-1 text-xs text-slate-500">Final number is assigned when saved. Deleted draft numbers are available for reuse.</p> }
+</div>
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public SequenceTargetType Target { get; set; }
+    [Parameter] public DateTime? Date { get; set; }
+    [Parameter] public string? Number { get; set; }
+    private string preview = "Loading…";
+    private (Guid, SequenceTargetType, DateTime?)? loaded;
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = (CompanyId, Target, Date?.Date);
+        if (CompanyId == Guid.Empty || !string.IsNullOrEmpty(Number) || loaded == key) return;
+        loaded = key;
+        try { preview = await Numbering.PeekNextNumberAsync(CompanyId, Target, Date); }
+        catch (InvalidOperationException) { preview = "Set up document numbering"; }
+    }
+}

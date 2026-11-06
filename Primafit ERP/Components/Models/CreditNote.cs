@@ -7,6 +7,8 @@ namespace Primafit_ERP.Components.Models
 
     public class CreditNote
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -22,10 +24,12 @@ namespace Primafit_ERP.Components.Models
         public Customer? Customer { get; set; }
 
         // --- CHANGE: Link to Order instead of Invoice ---
-        [Required]
-        public Guid SalesOrderId { get; set; }
+        public Guid? SalesOrderId { get; set; }
         [ForeignKey(nameof(SalesOrderId))]
         public SalesOrder? SalesOrder { get; set; }
+        public Guid? SalesInvoiceId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceId))]
+        public SalesInvoice? SalesInvoice { get; set; }
 
         public Guid? ProjectId { get; set; }
         [ForeignKey(nameof(ProjectId))]
@@ -71,8 +75,10 @@ namespace Primafit_ERP.Components.Models
         public List<CreditNoteLine> Lines { get; set; } = new();
     }
 
-    public class CreditNoteLine
+    public class CreditNoteLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -81,8 +87,7 @@ namespace Primafit_ERP.Components.Models
         [ForeignKey(nameof(HeaderId))]
         public CreditNote? Header { get; set; }
 
-        [Required]
-        public Guid ItemId { get; set; }
+        public Guid? ItemId { get; set; }
 
         public Guid? UomId { get; set; }
         public string UomName { get; set; } = string.Empty;
@@ -92,7 +97,12 @@ namespace Primafit_ERP.Components.Models
         public Item? Item { get; set; }
 
         // Link to the specific Order Line being returned
-        public Guid SalesOrderLineId { get; set; }
+        public Guid? SalesOrderLineId { get; set; }
+        public Guid? SalesInvoiceLineId { get; set; }
+        [ForeignKey(nameof(SalesInvoiceLineId))]
+        public SalesInvoiceLine? SalesInvoiceLine { get; set; }
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal UnfulfilledQuantity { get; set; }
 
         [Column(TypeName = "decimal(18,4)")]
         public decimal Quantity { get; set; }
@@ -109,5 +119,14 @@ namespace Primafit_ERP.Components.Models
 
         [NotMapped]
         public decimal MaxReturnableQty { get; set; }
+
+        [NotMapped] public decimal ReversalDiscountRate { get; set; }
+        [NotMapped] public decimal ReversalTaxRate { get; set; }
+        [NotMapped] public decimal ReversalDiscountValue { get; set; }
+        [NotMapped] public decimal ReversalTaxValue { get; set; }
+        [NotMapped] public decimal PreviouslyReversedQty { get; set; }
+        [NotMapped] public decimal GrossReversal => InvoiceReversalMath.Portion(Math.Round(OriginalSoldQty * UnitPrice, 2, MidpointRounding.AwayFromZero), PreviouslyReversedQty, Quantity, OriginalSoldQty);
+        [NotMapped] public decimal DiscountReversal => InvoiceReversalMath.Portion(ReversalDiscountValue, PreviouslyReversedQty, Quantity, OriginalSoldQty);
+        [NotMapped] public decimal TaxReversal => InvoiceReversalMath.Portion(ReversalTaxValue, PreviouslyReversedQty, Quantity, OriginalSoldQty);
     }
 }

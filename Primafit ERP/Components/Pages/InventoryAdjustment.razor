@@ -83,7 +83,7 @@
         </div>
 
         <div class="adj-table-scroll">
-            <table class="w-full min-w-[1250px] text-sm text-left adj-table">
+            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[1250px] text-sm text-left adj-table">
                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                     <tr>
                         <th class="p-4 w-[28%] pl-6">Physical Inventory Item Reference</th>
@@ -93,7 +93,7 @@
                         <th class="p-4 text-right w-[11%]">Unit Cost</th>
                         <th class="p-4 text-right w-[10%] text-emerald-700">Debit (Dr)</th>
                         <th class="p-4 text-right w-[10%] text-rose-700">Credit (Cr)</th>
-                        <th class="p-4">Project</th>
+                        <th class="p-4">Dimensions</th>
                         <th class="p-4 pr-6 text-center w-[5%]">Action</th>
                     </tr>
                 </thead>
@@ -191,7 +191,7 @@
                                 </div>
                             </td>
 
-                            <td class="p-3 align-middle"><ProjectSelect @bind-Value="line.ProjectId" Projects="@projects" Label="" /></td>
+                            <td class="p-3 align-middle"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td>
                             <td class="p-3 pr-6 text-center align-middle">
                                 <button type="button" @onclick="() => RemoveLine(line)"
                                         class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
@@ -203,7 +203,7 @@
                         </tr>
                     }
                 </tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between mt-auto relative z-20">
@@ -330,7 +330,7 @@
 
         public decimal DebitAmount { get; set; }
         public decimal CreditAmount { get; set; }
-        public Guid? ProjectId { get; set; }
+        public Guid? ProjectId { get; set; } public Guid? DimensionSetId { get; set; }
 
         public bool IsDebitReadOnly => CreditAmount > 0;
         public bool IsCreditReadOnly => DebitAmount > 0;
@@ -493,7 +493,7 @@
                 IsDebitInventory = isDebit,
                 QuantityChange = computedQuantityChange,
                 TotalValueChange = absoluteValueChange,
-                ProjectId = uiLine.ProjectId
+                DimensionSetId = uiLine.DimensionSetId, ProjectId = uiLine.ProjectId
             });
         }
 

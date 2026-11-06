@@ -73,8 +73,10 @@ namespace Primafit_ERP.Components.Models
         public decimal ValueAtShipment { get; set; } // Snapshot of cost
     }
 
-    public class StockTransferLine
+    public class StockTransferLine : IDimensionedLine
     {
+        public Guid? DimensionSetId { get; set; }
+
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         [Required] public Guid StockTransferId { get; set; }
         [ForeignKey(nameof(StockTransferId))] public StockTransfer? Transfer { get; set; }

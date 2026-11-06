@@ -123,13 +123,15 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 2. PROFIT & LOSS (Income Statement)
         // =========================================================
-        public async Task<StandardReportData> GeneratePnLAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
+        public async Task<StandardReportData> GeneratePnLAsync(Guid companyId, DateOnly startDate, DateOnly endDate, IReadOnlyCollection<Guid>? dimensionValueIds = null)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var accountTypes = await _segCoaService.GetAccountTypesAsync();
 
+            var source = ctx.GLTransactions.AsNoTracking();
+            if (dimensionValueIds != null) source = await DimensionReportService.ApplyFiltersAsync(ctx, companyId, source, dimensionValueIds);
             // Fetch all transactions in the period for P&L accounts (IsBalanceSheet == false)
-            var pnlTxns = await (from t in ctx.GLTransactions.AsNoTracking()
+            var pnlTxns = await (from t in source
                                  join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
                                  where t.CompanyId == companyId && t.PostingDate >= startDate && t.PostingDate <= endDate
                                  select new { t.Debit, t.Credit, a.SegAccountTypeId, a.AccountCode, a.Description })
@@ -192,13 +194,15 @@ namespace Primafit_ERP.Services
         // =========================================================
         // 3. BALANCE SHEET
         // =========================================================
-        public async Task<StandardReportData> GenerateBalanceSheetAsync(Guid companyId, DateOnly asOfDate)
+        public async Task<StandardReportData> GenerateBalanceSheetAsync(Guid companyId, DateOnly asOfDate, IReadOnlyCollection<Guid>? dimensionValueIds = null)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var accountTypes = await _segCoaService.GetAccountTypesAsync();
 
+            var source = ctx.GLTransactions.AsNoTracking();
+            if (dimensionValueIds != null) source = await DimensionReportService.ApplyFiltersAsync(ctx, companyId, source, dimensionValueIds);
             // Balance Sheet requires ALL transactions from the beginning of time up to AsOfDate
-            var txns = await (from t in ctx.GLTransactions.AsNoTracking()
+            var txns = await (from t in source
                               join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
                               where t.CompanyId == companyId && t.PostingDate <= asOfDate
                               select new BsTransactionDto

@@ -1,873 +1,119 @@
 @page "/procurement/goods-receipt/{poId:guid?}"
-
+@using System.Globalization
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
 @using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Shared
 @using Primafit_ERP.Services
 @using PrimafitERP.Data
-@using Microsoft.EntityFrameworkCore
-@using Microsoft.AspNetCore.Identity
-@using Microsoft.AspNetCore.Components.Authorization
-
-@inject PurchasingService PurchService
-@inject IDocumentNumberingService NumberingService
-@inject MasterDataService MasterService
-@inject WarehouseService WarehouseService
-@inject InventoryValuationService ValuationService
-@inject SegCoaService SegCoaService
-@inject TransactionMappingService MappingService
 @inject IDbContextFactory<AppDbContext> DbFactory
-@inject AuthenticationStateProvider AuthStateProvider
+@inject GoodsReceiptDraftService DraftService
+@inject IDocumentNumberingService Numbering
+@inject AuthenticationStateProvider AuthenticationStateProvider
 @inject UserManager<ApplicationUser> UserManager
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager Navigation
 @inject IJSRuntime JS
-@inject NavigationManager Nav
 @rendermode InteractiveServer
 
-<div class="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-500 relative pb-16 font-sans text-slate-800">
-
-    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900">Receive Goods (GRN)</h1>
-            <p class="text-sm text-slate-500">Prepare physical receipt and GR/IR accrual for GL review before the receipt is posted.</p>
-        </div>
-
-        <div class="flex items-center gap-3">
-            @if (!showLandedCostModal)
-            {
-                @if (canConfigureRoute)
-                {
-                    <!-- Configure Route Button -->
-                    <button type="button" @onclick="OpenRouteModal" class="px-4 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold text-sm rounded-xl hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-1.5 active:scale-95">
-                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        <span>Configure Route</span>
-                        @if (currentGrn.CustomTransactionTypeId.HasValue)
-                        {
-                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500"></span>
-                        }
-                    </button>
-                }
-
-                <button @onclick="SaveReceipt" disabled="@isBusy" class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2 active:scale-95 text-sm">
-                    @if (isBusy)
-                    {
-                        <span class="animate-spin">↻</span> <span>Processing...</span>
-                    }
-                    else
-                    {
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-                        <span>Submit Receipt for GL Review</span>
-                    }
-                </button>
-            }
-        </div>
-    </div>
-
-    <div class="@(showLandedCostModal ? "opacity-30 pointer-events-none" : "") transition-opacity duration-300">
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 md:grid-cols-4 gap-6 overflow-visible">
-            <div>
-                <label class="label">Receiving Warehouse <span class="text-rose-500">*</span></label>
-                <select @bind="selectedWarehouseId" class="input-class font-bold border-indigo-200 bg-indigo-50/30 text-indigo-700">
-                    <option value="@Guid.Empty">-- Select Warehouse --</option>
-                    @foreach (var w in warehouses)
-                    {
-                        <option value="@w.Id">@w.Name</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <label class="label">Vendor <span class="text-rose-500">*</span></label>
-                <select @bind="selectedVendorId" class="input-class" disabled="@poId.HasValue">
-                    <option value="@Guid.Empty">-- Select Vendor --</option>
-                    @foreach (var v in vendors)
-                    {
-                        <option value="@v.Id">@v.Name</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <label class="label">Purchase Order <span class="text-rose-500">*</span></label>
-                <select @onchange="OnPoSelected" value="@(selectedPO?.Id.ToString() ?? "")" class="input-class font-mono" disabled="@(poId.HasValue || selectedVendorId == Guid.Empty)">
-                    <option value="">-- Select PO to Receive --</option>
-                    @foreach (var po in openPOs.Where(p => p.VendorId == selectedVendorId))
-                    {
-                        <option value="@po.Id">@po.OrderNumber (@po.OrderDate.ToString("MM/dd"))</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <label class="label">Date Received</label>
-                <input type="datetime-local" @bind="currentGrn.DateReceived" class="input-class" />
-            </div>
-
-            <div class="bg-rose-50/40 border border-rose-200 p-3.5 rounded-xl md:col-span-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div class="space-y-0.5">
-                    <span class="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider block">GR/IR Clearing Account Routing</span>
-                    <p class="text-xs text-slate-600 font-medium">Temporary accrual account to be matched during supplier invoice posting.</p>
-                </div>
-
-                <div class="text-right">
-                    @if (isGrIrAccountLocked)
-                    {
-                        <span class="text-[10px] text-rose-600 font-bold tracking-wide uppercase block">Locked by First Receipt</span>
-                    }
-                    <span class="font-mono font-bold text-xs text-indigo-700 bg-white px-3 py-1.5 rounded-lg border border-slate-200 inline-block shadow-sm">
-                        @GetAccountDisplayName(currentGrn.InventoryGlAccountId)
-                    </span>
-                </div>
-            </div>
-        </div>
-
-        @if (currentGrn.Lines.Any())
-        {
-            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mt-6">
-                <div class="p-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                    <h3 class="font-bold text-slate-700">Items to Receive</h3>
-                    <span class="text-xs text-slate-400">Cannot exceed remaining ordered balance.</span>
-                </div>
-
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-slate-50 text-[10px] uppercase font-bold text-slate-500">
-                        <tr>
-                            <th class="p-4">Item</th>
-                            <th class="p-4 text-center">Receipt UOM</th>
-                            <th class="p-4 text-center">Ordered</th>
-                            <th class="p-4 text-center text-amber-600">Max Allowed</th>
-                            <th class="p-4 text-right w-40">Received Now</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        @foreach (var line in currentGrn.Lines)
-                        {
-                            var poLine = selectedPO?.Lines.FirstOrDefault(l => l.Id == line.PurchaseOrderLineId);
-                            var item = items.FirstOrDefault(i => i.Id == poLine?.ItemId);
-                            var lineFactor = GetLineFactor(line);
-                            var uomOptions = GetUomOptions(line, item).ToList();
-                            <tr class="hover:bg-slate-50">
-                                <td class="p-4 font-medium text-slate-900">
-                                    @(item?.Name ?? "Unknown Item")
-                                </td>
-                                <td class="p-4">
-                                    @if (uomOptions.Count > 0)
-                                    {
-                                        <select value="@(line.UomId?.ToString() ?? "")" @onfocus="RefreshUomCatalogAsync" @onchange="e => OnUomChanged(line, e, item)"
-                                                class="input-class text-xs font-bold" aria-label="Receipt unit of measure">
-                                            @foreach (var option in uomOptions)
-                                            {
-                                                <option value="@option.Id">@option.Name (@option.Factor.ToString("N4"))</option>
-                                            }
-                                        </select>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-xs font-bold text-slate-500">@GetLineUomName(line)</span>
-                                    }
-                                </td>
-                                <td class="p-4 text-center text-slate-500 font-mono">
-                                    @(poLine == null ? "0" : UomConversion.FromBase(poLine.QuantityOrdered, lineFactor).ToString("N2")) @GetLineUomName(line)
-                                </td>
-                                <td class="p-4 text-center font-bold text-amber-600 bg-amber-50/50 font-mono">
-                                    @UomConversion.FromBase(line.MaxAllowed, lineFactor).ToString("N2") @GetLineUomName(line)
-                                </td>
-                                <td class="p-4">
-                                    <div class="flex flex-col items-end">
-                                         <input type="text" inputmode="decimal"
-                                               value="@UomConversion.FromBase(line.QuantityReceived, lineFactor).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
-                                               @onchange="@(e => ValidateQuantity(line, e.Value?.ToString()))"
-                                               class="w-full text-right font-bold text-emerald-700 border border-slate-300 rounded-lg px-2 py-1.5 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
-                                               min="0" max="@UomConversion.FromBase(line.MaxAllowed, lineFactor)" />
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </div>
-
-    @if (showLandedCostModal)
+<PageTitle>New Goods Receipt</PageTitle>
+<div class="mx-auto max-w-[1400px] space-y-6 px-4 py-8 font-sans text-slate-800">
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div><h1 class="text-2xl font-bold text-slate-900">New Goods Receipt</h1><p class="mt-1 text-sm text-slate-500">Select a supplier, warehouse, and source document lines.</p></div><a href="/procurement/goods-receipts" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">All Receipts</a></div>
+    <PageNotice Message="@message" IsError="true" Revision="@attempt" />
+    @if (loading) { <div class="p-8 text-center text-slate-400">Loading receipt details...</div> }
+    else if (companyId != Guid.Empty)
     {
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in zoom-in-95">
-            <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-                <div class="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-                    <div>
-                        <h3 class="text-lg font-bold text-slate-900">Step 2: Landed Cost Allocation</h3>
-                        <p class="text-xs text-slate-500">Add Freight, Duty, or Insurance costs to value this stock correctly.</p>
-                    </div>
-                    <div class="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200">
-                        GRN Saved
-                    </div>
-                </div>
-
-                <div class="p-6 space-y-4">
-                    <div class="flex gap-3 items-end p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div class="flex-1">
-                            <label class="label">Cost Type</label>
-                            <select @bind="newCostType" class="input-class">
-                                <option value="">-- Select Cost Type --</option>
-                                @foreach (LandedCostType type in Enum.GetValues(typeof(LandedCostType)))
-                                {
-                                    <option value="@type">@FormatCostType(type)</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="w-32">
-                            <label class="label">Amount</label>
-                            <input type="number"   @bind="newCostAmount" class="input-class font-bold" placeholder="0.0000" />
-                        </div>
-                        <div class="w-40">
-                            <label class="label">Allocation</label>
-                            <select @bind="newAllocMethod" class="input-class">
-                                <option value="@AllocationMethod.ByValue">By Value</option>
-                                <option value="@AllocationMethod.ByQuantity">By Quantity</option>
-                            </select>
-                        </div>
-                        <button @onclick="AddCostLine" class="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 h-[38px]">
-                            Add
-                        </button>
-                    </div>
-
-                    @if (addedCosts.Any())
-                    {
-                        <table class="w-full text-sm text-left">
-                            <thead class="text-xs text-slate-400 font-bold uppercase border-b border-slate-100">
-                                <tr>
-                                    <th class="py-2">Type</th>
-                                    <th class="py-2">Method</th>
-                                    <th class="py-2 text-right">Amount</th>
-                                    <th class="py-2"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var c in addedCosts)
-                                {
-                                    <tr class="border-b border-slate-50">
-                                        <td class="py-2 font-medium">@FormatCostType(c.CostType)</td>
-                                        <td class="py-2 text-xs text-slate-500">@c.AllocationMethod</td>
-                                        <td class="py-2 text-right font-mono font-bold text-slate-700">@c.Amount.ToString("N4")</td>
-                                        <td class="py-2 text-right">
-                                            <button @onclick="() => RemoveCost(c)" class="text-rose-500 hover:text-rose-700 text-xs font-bold">Remove</button>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                            <tfoot class="border-t-2 border-slate-300 bg-slate-50">
-                                @{
-                                    var exchangeRate = selectedPO?.ExchangeRate ?? 1m;
-                                    var goodsTotalBase = currentGrn.Lines.Sum(l =>
-                                    {
-                                        var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
-                                        return Math.Round(l.QuantityReceived * (poLine?.UnitCost ?? 0), 2, MidpointRounding.AwayFromZero);
-                                    }) * exchangeRate;
-                                    var extrasTotal = addedCosts.Sum(x => x.Amount);
-                                    var totalLandedValue = goodsTotalBase + extrasTotal;
-                                }
-                                <tr>
-                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Goods Value (Base Rate):</td>
-                                    <td class="py-2 text-right font-mono font-bold text-slate-700">
-                                        @goodsTotalBase.ToString("N4")
-                                    </td>
-                                    <td></td>
-                                </tr>
-                                <tr>
-                                    <td colspan="2" class="py-2 font-bold text-right text-slate-500 pr-4">Total Extra Costs:</td>
-                                    <td class="py-2 text-right font-mono font-bold text-rose-600">
-                                        @extrasTotal.ToString("N4")
-                                    </td>
-                                    <td></td>
-                                </tr>
-                                <tr class="bg-indigo-50 border-t border-indigo-100">
-                                    <td colspan="2" class="py-3 font-black text-right text-indigo-900 uppercase text-xs pr-4">Total Landed Value:</td>
-                                    <td class="py-3 text-right font-mono font-black text-indigo-700 text-lg">
-                                        @totalLandedValue.ToString("N4")
-                                    </td>
-                                    <td></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    }
-                    else
-                    {
-                        <div class="text-center py-6 text-slate-400 text-sm border-2 border-dashed border-slate-100 rounded-xl">
-                            No extra costs added. WACC will be based on Purchase Price only.
-                        </div>
-                    }
-                </div>
-
-                <div class="p-6 bg-slate-50 border-t border-slate-200 flex justify-end gap-3">
-                    <button @onclick="FinalizeValuation" disabled="@isValuationBusy"
-                            class="w-full px-6 py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 disabled:opacity-50 flex justify-center items-center gap-2">
-                        @if (isValuationBusy)
-                        {
-                            <span class="animate-spin">↻</span> <span>Calculating WACC...</span>
-                        }
-                        else
-                        {
-                            <span>Finalize Valuation & Close</span>
-                        }
-                    </button>
-                </div>
-            </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-6">
+            <div class="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-3"><SearchableGuidSelect Label="Supplier" Required="true" Options="@SupplierOptions" Value="@supplierId" ValueChanged="OnSupplierChanged" Placeholder="Search supplier" /><SearchableGuidSelect Label="Warehouse" Required="true" Options="@WarehouseOptions" Value="@warehouseId" ValueChanged="@(id => warehouseId = id)" Placeholder="Search warehouse" /><fieldset><legend class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">Source document</legend><div class="flex flex-wrap gap-2"><button type="button" @onclick="() => ChangeSource(false)" aria-pressed="@(!invoiceSource)" class="rounded-xl border px-3 py-2 text-sm font-semibold @(invoiceSource ? "border-slate-200 text-slate-600" : "border-indigo-600 bg-indigo-50 text-indigo-700")">Purchase order</button><button type="button" @onclick="() => ChangeSource(true)" aria-pressed="@invoiceSource" class="rounded-xl border px-3 py-2 text-sm font-semibold @(invoiceSource ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600")">Posted invoice</button></div></fieldset></div>
+            @if (!supplierId.HasValue)
+            {
+                <div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">Select a supplier to find their available source lines. Then select a warehouse and enter the quantity to receive.</div>
+            }
+            @if (supplierId.HasValue)
+            {
+                <div class="flex flex-wrap items-end justify-between gap-3"><div><h2 class="text-sm font-bold text-slate-900">Available @(invoiceSource ? "invoice" : "order") lines</h2><p class="mt-1 text-xs text-slate-600">Select a document header for all displayed lines, or choose individual lines. Enter a quantity for each selected line.</p></div><input type="search" @bind="search" @bind:event="oninput" aria-label="Search documents and items" placeholder="Search document number or item" class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 md:max-w-sm" /></div>
+                <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"><span aria-live="polite">@lines.Count(x => x.Selected) selected · @Filtered.Count() displayed</span><div class="flex gap-4"><button type="button" @onclick="SelectVisible" disabled="@(!Filtered.Any())" class="font-bold text-indigo-700 disabled:opacity-50">Select displayed lines</button><button type="button" @onclick="ClearSelected" disabled="@(!lines.Any(x => x.Selected))" class="font-bold text-slate-600 disabled:opacity-50">Clear selection</button></div></div>
+                <div class="overflow-x-auto rounded-xl border border-slate-200"><table class="w-full min-w-[1000px] text-left text-sm"><thead class="bg-slate-50 text-xs font-bold uppercase text-slate-500"><tr><th class="p-3">Select</th><th class="p-3">Document / Item</th><th class="p-3 text-right">@(invoiceSource ? "Invoiced" : "Ordered")</th><th class="p-3 text-right">Received</th><th class="p-3 text-right">Reserved</th><th class="p-3 text-right">Available</th><th class="p-3">Receipt UOM</th><th class="p-3 text-right">Quantity to receive</th></tr></thead><tbody class="divide-y divide-slate-100">
+                @foreach (var group in Filtered.GroupBy(x => x.Source.DocumentId))
+                {
+                    var first = group.First();
+                    <tr class="bg-slate-50 font-bold"><td class="p-3"><input type="checkbox" checked="@group.All(x => x.Selected)" @onchange="e => ToggleGroup(group, e)" aria-label="Select displayed lines from @first.Source.DocumentNumber" /></td><td colspan="7" class="p-3 font-mono">@first.Source.DocumentNumber</td></tr>
+                    @foreach (var line in group) { <tr @key="line.Source.LineId" class="@(line.Selected ? "bg-indigo-50/30" : "")"><td class="p-3"><input type="checkbox" @bind="line.Selected" aria-label="Select @line.Source.ItemName from @line.Source.DocumentNumber" class="accent-indigo-600" /></td><td class="p-3 font-semibold">@line.Source.ItemName</td><td class="p-3 text-right font-mono">@Display(line.Source.Required, line).ToString("N4")</td><td class="p-3 text-right font-mono">@Display(line.Source.Received, line).ToString("N4")</td><td class="p-3 text-right font-mono">@Display(line.Source.Reserved, line).ToString("N4")</td><td class="p-3 text-right font-mono font-bold">@Display(line.Source.Remaining, line).ToString("N4")</td><td class="p-3 min-w-[160px]"><SearchableGuidSelect Options="@UomOptions(line)" Value="@line.UomId" ValueChanged="@(id => SetUom(line, id))" Disabled="@(!line.Selected || UomOptions(line).Count == 0)" AllowClear="false" Placeholder="Search unit" InlineMenu="true" /></td><td class="p-3"><input type="number" min="0" step="0.0001" value="@Number(Display(line.QuantityBase, line))" @onchange="e => SetQuantity(line, e)" disabled="@(!line.Selected)" aria-invalid="@(showQuantityErrors && line.Selected && !ValidQuantity(line) ? "true" : "false")" aria-label="Quantity to receive for @line.Source.ItemName from @line.Source.DocumentNumber" class="w-32 rounded-lg border @(showQuantityErrors && line.Selected && !ValidQuantity(line) ? "border-rose-500" : "border-slate-200") p-2 text-right font-mono disabled:bg-slate-100" />@if (showQuantityErrors && line.Selected && !ValidQuantity(line)) { <span class="block mt-1 text-xs text-rose-700">Enter a positive quantity up to @Display(line.Source.Remaining, line).ToString("N4") @line.UomName.</span> }</td></tr> }
+                }
+                @if (!Filtered.Any()) { <tr><td colspan="8" class="p-10 text-center text-slate-400">No available source lines match the selection.</td></tr> }
+                </tbody></table></div>
+                <p class="text-xs text-slate-500">Quantities are shown in the selected receipt unit. Saving reserves them until the draft is processed or deleted. Selections remain when you search.</p>
+                @if (lines.Any(x => x.Selected))
+                {
+                    <section class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4" aria-label="Selected receipt lines"><h3 class="text-sm font-bold text-slate-900">Receipt selection</h3><p class="mt-1 text-xs text-slate-600">Review all selected lines, including those hidden by the search.</p><ul class="mt-3 divide-y divide-indigo-100">@foreach (var line in lines.Where(x => x.Selected)) { <li @key="line.Source.LineId" class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><span><span class="font-mono text-xs text-indigo-700">@line.Source.DocumentNumber</span> · @line.Source.ItemName</span><span class="font-mono">@Display(line.QuantityBase, line).ToString("N4") @line.UomName <button type="button" @onclick="() => line.Selected = false" aria-label="Remove @line.Source.ItemName from @line.Source.DocumentNumber" class="ml-2 font-sans text-xs font-bold text-rose-700">Remove</button></span></li> }</ul></section>
+                }
+            }
+            <div class="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-5"><a href="/procurement/goods-receipts" class="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-600">Cancel</a><button type="button" @onclick="Save" disabled="@(saving || !supplierId.HasValue || !warehouseId.HasValue || !lines.Any(x => x.Selected))" class="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">@(saving ? "Saving..." : "Save Receipt Draft")</button></div>
         </div>
     }
 </div>
-
-<!-- ========================================================= -->
-<!-- ROUTE CONFIGURATION MODAL (WITH OVERLAPPING DROPDOWNS & 'X' BUTTONS) -->
-<!-- ========================================================= -->
-@if (showRouteModal)
-{
-    <div class="fixed inset-0 z-[120] flex items-start sm:items-center justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 route-config-overlay">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden route-config-dialog">
-
-            <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center rounded-t-2xl">
-                <div>
-                    <h3 class="font-bold text-slate-800 uppercase tracking-wider text-xs">Goods Receipt GL Route Mapping</h3>
-                    <p class="text-[11px] text-slate-500 mt-0.5">Inspect and override accounting routes for physical stock reception.</p>
-                </div>
-                <button type="button" @onclick="() => showRouteModal = false" class="text-slate-400 hover:text-rose-600 transition-colors">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-            </div>
-
-            <div class="p-6 overflow-visible space-y-5 flex-1 route-config-body">
-                <!-- Custom Template Profile Selector -->
-                <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2 relative z-[60]">
-                    <label class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Transaction Routing Profile</label>
-                    <div class="flex items-center gap-2">
-                        @if (currentGrn.CustomTransactionTypeId.HasValue)
-                        {
-                            <button type="button"
-                                    @onclick="() => currentGrn.CustomTransactionTypeId = null"
-                                    class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                    title="Reset to Standard Goods Receipt Route">
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                        }
-                        <select value="@(currentGrn.CustomTransactionTypeId?.ToString() ?? "")" @onchange="OnCustomTemplateSelected"
-                                class="input-class font-bold text-xs bg-white flex-1">
-                            <option value="">-- Standard Goods Receipt Route (Default) --</option>
-                            @foreach (var custom in customTemplates)
-                            {
-                                <option value="@custom.Id">@custom.Name (Custom Template)</option>
-                            }
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Live Ledger Breakdown Table -->
-                <div class="space-y-3 overflow-visible">
-                    <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active GL Account Routing</span>
-
-                    <div class="border border-slate-200 rounded-xl overflow-visible divide-y divide-slate-100 text-xs bg-white">
-
-                        <!-- 1. Inventory Stock Asset (Debit Side) -->
-                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[50] rounded-t-xl overflow-visible">
-                            <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">Inventory Stock Asset</span>
-                                <span class="text-[10px] text-indigo-600 font-bold uppercase">Debit Side (Inflow)</span>
-                            </div>
-                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (currentGrn.OverrideInventoryAssetGlAccountId.HasValue)
-                                {
-                                    <button type="button"
-                                            @onclick="() => currentGrn.OverrideInventoryAssetGlAccountId = null"
-                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                            title="Clear Override">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                }
-                                <div class="flex-1 overflow-visible relative">
-                                    <SearchableGlAccount Label=""
-                                                         Placeholder="Default Line Item Asset Accounts"
-                                                         Accounts="@allAccounts"
-                                                         Value="@(currentGrn.OverrideInventoryAssetGlAccountId ?? defaultInventoryAssetAccountId)"
-                                                         ValueChanged="@((Guid val) => currentGrn.OverrideInventoryAssetGlAccountId = val == Guid.Empty ? null : val)" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2. GR/IR Clearing Account (Credit Side) -->
-                        <div class="p-3 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative z-[40] rounded-b-xl overflow-visible">
-                            <div class="w-1/3">
-                                <span class="font-bold text-slate-700 block">GR/IR Clearing Account</span>
-                                <span class="text-[10px] text-emerald-600 font-bold uppercase">Credit Side (Accrual)</span>
-                            </div>
-                            <div class="w-2/3 flex items-center gap-2 overflow-visible">
-                                @if (currentGrn.OverrideGrIrClearingGlAccountId.HasValue && !isGrIrAccountLocked)
-                                {
-                                    <button type="button"
-                                            @onclick="() => currentGrn.OverrideGrIrClearingGlAccountId = null"
-                                            class="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 bg-white border border-rose-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                                            title="Clear Override">
-                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                }
-                                <div class="flex-1 overflow-visible relative">
-                                    <SearchableGlAccount Label=""
-                                                         Placeholder="Select GR/IR Clearing Account"
-                                                         Accounts="@liabilityAccounts"
-                                                         Value="@(currentGrn.OverrideGrIrClearingGlAccountId ?? currentGrn.InventoryGlAccountId)"
-                                                         ValueChanged="@((Guid val) => { currentGrn.OverrideGrIrClearingGlAccountId = val == Guid.Empty ? null : val; currentGrn.InventoryGlAccountId = val; })" />
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
-            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] route-config-footer">
-                <button type="button" @onclick="() => showRouteModal = false" class="px-5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-xl transition-colors">
-                    Close
-                </button>
-                <button type="button" @onclick="() => showRouteModal = false" class="px-6 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-all active:scale-95">
-                    Apply to Document
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-<style>
-    .label {
-        display: block;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #64748b;
-        text-transform: uppercase;
-        margin-bottom: 0.25rem;
-    }
-
-    .input-class {
-        width: 100%;
-        border-radius: 0.5rem;
-        border: 1px solid #cbd5e1;
-        padding: 0.6rem;
-        font-size: 0.875rem;
-    }
-
-        .input-class:disabled {
-            background-color: #f8fafc;
-            color: #94a3b8;
-            cursor: not-allowed;
-        }
-
-    tr, td {
-        overflow: visible !important;
-    }
-</style>
-
 @code {
     [Parameter] public Guid? poId { get; set; }
-
-    private GoodsReceipt currentGrn = new();
-    private PurchaseOrder? selectedPO;
-    private List<Vendor> vendors = new();
-    private List<Warehouse> warehouses = new();
-    private List<PurchaseOrder> openPOs = new();
-    private List<Item> items = new();
-    private List<UnitOfMeasure> uoms = new();
-    private List<ItemUomConversionLine> itemUomLines = new();
-    private List<UomConversionRule> conversionRules = new();
-    private IReadOnlyDictionary<(Guid From, Guid To), decimal> ConversionMap =>
-        conversionRules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
-
-    private List<SegChartOfAccount> allAccounts = new();
-    private List<SegChartOfAccount> liabilityAccounts = new();
-    private bool canConfigureRoute = false;
-
-    // Route Configuration Modal State
-    private bool showRouteModal = false;
-    private List<CustomTransactionType> customTemplates = new();
-    private Guid defaultInventoryAssetAccountId = Guid.Empty;
-    private Guid defaultGrIrAccountId = Guid.Empty;
-
-    private Guid selectedVendorId;
-    private Guid selectedWarehouseId;
-    private Guid currentCompanyId;
-    private string currentUserId = "";
-    private bool isBusy = false;
-    private bool showLandedCostModal = false;
-    private bool isValuationBusy = false;
-
-    private LandedCostType? newCostType;
-    private decimal newCostAmount;
-    private AllocationMethod newAllocMethod = AllocationMethod.ByValue;
-    private List<GrnLandedCost> addedCosts = new();
-    private bool isGrIrAccountLocked = false;
-
+    [SupplyParameterFromQuery(Name = "order")] public Guid? InitialOrderId { get; set; }
+    [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    private sealed class DraftRow { public required ReceiptSourceCandidate Source { get; init; } public bool Selected { get; set; } public decimal QuantityBase { get; set; } public Guid? UomId { get; set; } public string UomName { get; set; } = ""; public decimal Factor { get; set; } = 1; }
+    private int attempt;
+    private Guid companyId; private Guid? supplierId, warehouseId; private string message = "", search = ""; private bool loading = true, saving, showQuantityErrors, invoiceSource;
+    private List<Vendor> suppliers = new(); private List<Warehouse> warehouses = new(); private List<Item> items = new(); private List<UnitOfMeasure> uoms = new(); private List<UomConversionRule> rules = new(); private List<ItemUomConversionLine> itemUoms = new(); private List<DraftRow> lines = new();
+    private IReadOnlyCollection<DropdownOption> SupplierOptions => suppliers.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyCollection<DropdownOption> WarehouseOptions => warehouses.Select(x => new DropdownOption(x.Id, x.Name)).ToList();
+    private IReadOnlyDictionary<(Guid, Guid), decimal> ConversionMap => rules.ToDictionary(x => (x.FromUomId, x.ToUomId), x => x.ConversionFactor);
+    private IEnumerable<DraftRow> Filtered => lines.Where(x => string.IsNullOrWhiteSpace(search) || x.Source.DocumentNumber.Contains(search, StringComparison.OrdinalIgnoreCase) || x.Source.ItemName.Contains(search, StringComparison.OrdinalIgnoreCase));
+    private IReadOnlyCollection<DropdownOption> UomOptions(DraftRow row) { var item = items.FirstOrDefault(x => x.Id == row.Source.ItemId); if (item == null) return Array.Empty<DropdownOption>(); var ids = item.UomId.HasValue ? UomConversion.ConfiguredUoms(item).ToHashSet() : new HashSet<Guid>(); foreach (var unit in itemUoms.Where(x => x.ItemId == item.Id)) ids.Add(unit.UomId); return uoms.Where(x => ids.Contains(x.Id)).Select(x => new DropdownOption(x.Id, x.Name)).ToList(); }
+    private static decimal Display(decimal baseQty, DraftRow row) => UomConversion.FromBase(baseQty, row.Factor);
+    private static string Number(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
     protected override async Task OnInitializedAsync()
     {
-        var user = await UserManager.GetUserAsync((await AuthStateProvider.GetAuthenticationStateAsync()).User);
-        if (user?.CompanyDetailsId != null)
-        {
-            currentUserId = user.Id;
-            currentCompanyId = user.CompanyDetailsId.Value;
-            currentGrn.CompanyId = currentCompanyId;
-            canConfigureRoute = await MappingService.IsRouteConfigVisibleAsync(currentCompanyId);
-
-            var t1 = MasterService.GetVendorsAsync(currentCompanyId);
-            var t2 = WarehouseService.GetWarehousesAsync(currentCompanyId, WarehouseType.Purchase);
-            var t3 = PurchService.GetOpenPOsAsync(currentCompanyId);
-            var t4 = MasterService.GetItemsAsync(currentCompanyId);
-            var t5 = SegCoaService.GetActiveCoaAsync(currentCompanyId);
-            var t6 = SegCoaService.GetAccountTypesAsync();
-            var t7 = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
-            var t8 = MasterService.GetUomConversionRulesAsync(currentCompanyId);
-
-            await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7, t8);
-
-            vendors = t1.Result;
-            warehouses = t2.Result;
-            openPOs = t3.Result;
-            items = t4.Result;
-            itemUomLines = t7.Result;
-            conversionRules = t8.Result;
-
-            await using (var uomCtx = await DbFactory.CreateDbContextAsync())
-            {
-                uoms = await uomCtx.UnitOfMeasures.AsNoTracking()
-                    .Where(u => u.CompanyId == currentCompanyId)
-                    .OrderBy(u => u.Name)
-                    .ToListAsync();
-            }
-
-            allAccounts = t5.Result;
-            var accountTypes = t6.Result;
-
-            liabilityAccounts = allAccounts.Where(a =>
-            {
-                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == true && type.IsDebit == false;
-            }).OrderBy(x => x.AccountCode).ToList();
-
-            defaultInventoryAssetAccountId = await MappingService.GetMappedAccountAsync(
-                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: true, defaultAccountId: Guid.Empty);
-
-            defaultGrIrAccountId = await MappingService.GetMappedAccountAsync(
-                currentCompanyId, SystemTransactionType.GoodsReceipt, isDebit: false, defaultAccountId: Guid.Empty);
-
-            if (poId.HasValue && poId.Value != Guid.Empty)
-            {
-                var targetPO = openPOs.FirstOrDefault(p => p.Id == poId.Value);
-                if (targetPO != null)
-                {
-                    selectedVendorId = targetPO.VendorId;
-                    await OnPoSelected(new ChangeEventArgs { Value = poId.Value.ToString() });
-                }
+        if (!PermissionCache.Has("PO_CREATE")) { Navigation.NavigateTo("/access-denied"); return; }
+        if (DraftId.HasValue) { Navigation.NavigateTo($"/procurement/goods-receipts?draft={DraftId.Value}", replace: true); return; }
+        var user = await UserManager.GetUserAsync((await AuthenticationStateProvider.GetAuthenticationStateAsync()).User);
+        companyId = user?.CompanyDetailsId ?? Guid.Empty;
+        if (companyId != Guid.Empty) {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            suppliers = await db.Vendors.AsNoTracking().Where(x => x.CompanyId == companyId).OrderBy(x => x.Name).ToListAsync();
+            warehouses = await db.Warehouses.AsNoTracking().Where(x => x.CompanyId == companyId && (x.Type == WarehouseType.Purchase || x.Type == WarehouseType.Both)).OrderBy(x => x.Name).ToListAsync();
+            items = await db.Items.Include(x => x.UomConversions).AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync();
+            uoms = await db.UnitOfMeasures.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync();
+            rules = await db.UomConversionRules.AsNoTracking().Where(x => x.CompanyId == companyId && x.IsActive).ToListAsync();
+            itemUoms = await db.ItemUomConversionLines.AsNoTracking().Where(x => x.IsActive && x.Item!.CompanyId == companyId).ToListAsync();
+            var initialId = poId ?? InitialOrderId;
+            if (initialId.HasValue) {
+                var order = await db.PurchaseOrders.AsNoTracking().FirstOrDefaultAsync(x => x.Id == initialId && x.CompanyId == companyId);
+                if (order != null) { await OnSupplierChanged(order.VendorId); foreach (var row in lines.Where(x => x.Source.DocumentId == order.Id)) row.Selected = true; }
             }
         }
+        loading = false;
     }
-
-    private string FormatCostType(LandedCostType type) => type switch
+    private async Task OnSupplierChanged(Guid? id) { if (id == supplierId) return; if (lines.Any(x => x.Selected) && !await JS.InvokeAsync<bool>("confirm", "Changing the supplier will remove the selected receipt lines. Continue?")) return; supplierId = id; message = ""; search = ""; showQuantityErrors = false; lines = id.HasValue ? (await LoadCandidates(id.Value)).Select(NewRow).ToList() : new(); }
+    private Task<List<ReceiptSourceCandidate>> LoadCandidates(Guid id) => DraftService.GetCandidatesAsync(companyId, id, invoiceSource);
+    private async Task ChangeSource(bool value) { if (invoiceSource == value) return; if (lines.Any(x => x.Selected) && !await JS.InvokeAsync<bool>("confirm", "Changing the source document will remove the selected receipt lines. Continue?")) return; invoiceSource = value; search = ""; message = ""; showQuantityErrors = false; lines = supplierId.HasValue ? (await LoadCandidates(supplierId.Value)).Select(NewRow).ToList() : new(); }
+    private DraftRow NewRow(ReceiptSourceCandidate source) { var row = new DraftRow { Source = source, UomId = source.UomId, UomName = source.UomName }; var item = items.First(x => x.Id == source.ItemId); if (row.UomId.HasValue && !UomOptions(row).Any(x => x.Id == row.UomId)) { row.UomId = item.UomId; row.UomName = uoms.FirstOrDefault(x => x.Id == item.UomId)?.Name ?? item.UoM; } var factors = itemUoms.Where(x => x.ItemId == item.Id).GroupBy(x => x.UomId).ToDictionary(x => x.Key, x => x.First().ConversionFactorToBase); row.Factor = UomConversion.FactorFor(item, row.UomId, factors, ConversionMap); return row; }
+    private static void ToggleGroup(IEnumerable<DraftRow> rows, ChangeEventArgs e) { foreach (var row in rows) row.Selected = e.Value is bool b && b; }
+    private void SelectVisible() { foreach (var row in Filtered) row.Selected = true; }
+    private void ClearSelected() { foreach (var row in lines) row.Selected = false; showQuantityErrors = false; }
+    private static bool ValidQuantity(DraftRow row) => row.QuantityBase > 0 && !UomConversion.Exceeds(row.QuantityBase, row.Source.Remaining);
+    private void SetUom(DraftRow row, Guid? id) { var item = items.First(x => x.Id == row.Source.ItemId); if (!id.HasValue || !UomOptions(row).Any(x => x.Id == id)) return; row.UomId = id; row.UomName = uoms.First(x => x.Id == id).Name; var factors = itemUoms.Where(x => x.ItemId == item.Id).GroupBy(x => x.UomId).ToDictionary(x => x.Key, x => x.First().ConversionFactorToBase); row.Factor = UomConversion.FactorFor(item, id, factors, ConversionMap); }
+    private static void SetQuantity(DraftRow row, ChangeEventArgs e) { row.QuantityBase = decimal.TryParse(e.Value?.ToString(), NumberStyles.Number, CultureInfo.InvariantCulture, out var value) ? UomConversion.ToBase(value, row.Factor) : 0; }
+    private async Task Save()
     {
-        LandedCostType.HandlingCharges => "Handling Charges",
-        LandedCostType.FreightAndShipping => "Freight & Shipping",
-        LandedCostType.CustomsDutyAndTariffs => "Customs Duty & Tariffs",
-        LandedCostType.TransitInsurance => "Transit Insurance",
-        _ => type.ToString()
-    };
-
-    private async Task OnPoSelected(ChangeEventArgs e)
-    {
-        if (Guid.TryParse(e.Value?.ToString(), out Guid parsedId))
-        {
-            // The item setup screen may have changed UOMs/conversions while this
-            // page was open. Refresh the catalog before building GRN lines.
-            await RefreshUomCatalogAsync();
-            selectedPO = openPOs.FirstOrDefault(p => p.Id == parsedId);
-            if (selectedPO != null)
-            {
-                currentGrn = new GoodsReceipt
-                {
-                    CompanyId = currentCompanyId,
-                    PurchaseOrderId = selectedPO.Id,
-                    GrnNumber = await NumberingService.GenerateAndReserveNextNumberAsync(currentCompanyId, SequenceTargetType.AP_GoodsReceipt, DateTime.Now),
-                    DateReceived = DateTime.Now
-                };
-
-                using var ctx = await DbFactory.CreateDbContextAsync();
-
-                var historicalReceipts = await ctx.GoodsReceipts
-                    .AsNoTracking()
-                    .Where(g => g.PurchaseOrderId == selectedPO.Id && g.CompanyId == currentCompanyId)
-                    .ToListAsync();
-
-                if (historicalReceipts.Any())
-                {
-                    currentGrn.InventoryGlAccountId = historicalReceipts.First().InventoryGlAccountId;
-                    isGrIrAccountLocked = true;
-                }
-                else
-                {
-                    Guid defaultGrIrAccount = await MappingService.GetMappedAccountAsync(
-                        currentCompanyId,
-                        SystemTransactionType.GoodsReceipt,
-                        isDebit: false,
-                        defaultAccountId: Guid.Empty);
-
-                    currentGrn.InventoryGlAccountId = defaultGrIrAccount;
-                    isGrIrAccountLocked = false;
-                }
-
-                foreach (var line in selectedPO.Lines)
-                {
-                    var itemForLine = items.FirstOrDefault(i => i.Id == line.ItemId);
-                    decimal alreadyReceived = await ctx.GoodsReceiptLines
-                        .Where(x => x.PurchaseOrderLineId == line.Id)
-                        .SumAsync(x => x.QuantityReceived);
-
-                    decimal remainingToReceive = line.QuantityOrdered - alreadyReceived;
-
-                    if (remainingToReceive > 0)
-                    {
-                        currentGrn.Lines.Add(new GoodsReceiptLine
-                        {
-                            Id = Guid.NewGuid(),
-                            GoodsReceiptId = currentGrn.Id,
-                            PurchaseOrderLineId = line.Id,
-                            UomId = line.UomId ?? itemForLine?.UomId,
-                            UomName = string.IsNullOrWhiteSpace(line.UomName) ? (itemForLine?.PrimaryUom?.Name ?? itemForLine?.UoM ?? "base") : line.UomName,
-                            UomConversionFactor = line.UomId.HasValue
-                                ? UomConversion.NormalizeFactor(line.UomConversionFactor)
-                                : 1m,
-                            QuantityReceived = remainingToReceive,
-                            MaxAllowed = remainingToReceive
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    private async Task RefreshUomCatalogAsync()
-    {
-        var itemsTask = MasterService.GetItemsAsync(currentCompanyId);
-        var itemUomLinesTask = MasterService.GetItemUomConversionLinesAsync(currentCompanyId, true);
-        var conversionRulesTask = MasterService.GetUomConversionRulesAsync(currentCompanyId);
-
-        await using var uomCtx = await DbFactory.CreateDbContextAsync();
-        var uomsTask = uomCtx.UnitOfMeasures.AsNoTracking()
-            .Where(u => u.CompanyId == currentCompanyId)
-            .OrderBy(u => u.Name)
-            .ToListAsync();
-
-        await Task.WhenAll(itemsTask, itemUomLinesTask, conversionRulesTask, uomsTask);
-        items = itemsTask.Result;
-        itemUomLines = itemUomLinesTask.Result;
-        conversionRules = conversionRulesTask.Result;
-        uoms = uomsTask.Result;
-    }
-
-    private decimal GetLineFactor(GoodsReceiptLine line) => UomConversion.NormalizeFactor(line.UomConversionFactor);
-
-    private string GetLineUomName(GoodsReceiptLine line) =>
-        string.IsNullOrWhiteSpace(line.UomName)
-            ? uoms.FirstOrDefault(u => u.Id == line.UomId)?.Name ?? "base"
-            : line.UomName;
-
-    private IEnumerable<UomOption> GetUomOptions(GoodsReceiptLine line, Item? item)
-    {
-        if (item == null) yield break;
-
-        if (item.UomId.HasValue)
-            yield return new UomOption(item.UomId.Value, uoms.FirstOrDefault(u => u.Id == item.UomId.Value)?.Name ?? item.UoM,
-                1m);
-
-        foreach (var conversion in itemUomLines.Where(x => x.ItemId == item.Id && x.UomId != item.UomId))
-        {
-            var name = conversion.Uom?.Name ?? uoms.FirstOrDefault(u => u.Id == conversion.UomId)?.Name ?? "UOM";
-                yield return new UomOption(conversion.UomId, name, 1m / UomConversion.NormalizeFactor(conversion.ConversionFactorToBase));
-        }
-
-        if (item.UomId.HasValue)
-        {
-            foreach (var uomId in UomConversion.ReachableUoms(item.UomId.Value,
-                conversionRules.Select(x => (x.FromUomId, x.ToUomId))))
-            {
-                if (uomId == item.UomId.Value || itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == uomId)) continue;
-                var factor = UomConversion.FactorBetween(item.UomId.Value, uomId, ConversionMap);
-                if (factor.HasValue)
-                    yield return new UomOption(uomId, uoms.FirstOrDefault(x => x.Id == uomId)?.Name ?? "UOM", 1m / factor.Value);
-            }
-        }
-
-        if (line.UomId.HasValue && !itemUomLines.Any(x => x.ItemId == item.Id && x.UomId == line.UomId) && line.UomId != item.UomId)
-            yield return new UomOption(line.UomId.Value, GetLineUomName(line), GetLineFactor(line));
-    }
-
-    private void OnUomChanged(GoodsReceiptLine line, ChangeEventArgs e, Item? item)
-    {
-        if (item == null || !Guid.TryParse(e.Value?.ToString(), out var selectedId)) return;
-        var option = GetUomOptions(line, item).FirstOrDefault(x => x.Id == selectedId);
-        if (option == null) return;
-
-        line.UomId = option.Id;
-        line.UomName = option.Name;
-        line.UomConversionFactor = option.Factor;
-        StateHasChanged();
-    }
-
-    private void ValidateQuantity(GoodsReceiptLine line, string? inputVal)
-    {
-        if (TryParseDecimal(inputVal, out decimal val))
-        {
-            decimal normalized = val < 0 ? 0 : UomConversion.ToBase(val, GetLineFactor(line));
-            if (normalized > line.MaxAllowed)
-            {
-                line.QuantityReceived = line.MaxAllowed;
-                _ = JS.InvokeVoidAsync("alert", $"You cannot receive more than the balance left ({UomConversion.FromBase(line.MaxAllowed, GetLineFactor(line)):N2} {GetLineUomName(line)}).");
-            }
-            else line.QuantityReceived = normalized;
-        }
-        else line.QuantityReceived = 0;
-    }
-
-    private sealed record UomOption(Guid Id, string Name, decimal Factor);
-
-    private static bool TryParseDecimal(string? value, out decimal result) =>
-        decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out result)
-        || decimal.TryParse(value, out result);
-
-    private async Task OpenRouteModal()
-    {
-        using var ctx = await DbFactory.CreateDbContextAsync();
-        customTemplates = await ctx.CustomTransactionTypes
-            .AsNoTracking()
-            .Where(t => t.CompanyId == currentCompanyId)
-            .OrderBy(t => t.Name)
-            .ToListAsync();
-
-        showRouteModal = true;
-    }
-
-    private async Task OnCustomTemplateSelected(ChangeEventArgs e)
-    {
-        var val = e.Value?.ToString();
-        if (Guid.TryParse(val, out var customId) && customId != Guid.Empty)
-        {
-            currentGrn.CustomTransactionTypeId = customId;
-
-            using var ctx = await DbFactory.CreateDbContextAsync();
-            var map = await ctx.TransactionGlMappings
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.CompanyId == currentCompanyId && m.CustomTransactionTypeId == customId);
-
-            if (map != null)
-            {
-                if (map.OverrideDebitGlAccountId.HasValue)
-                    currentGrn.OverrideInventoryAssetGlAccountId = map.OverrideDebitGlAccountId.Value;
-
-                if (map.OverrideCreditGlAccountId.HasValue && !isGrIrAccountLocked)
-                {
-                    currentGrn.OverrideGrIrClearingGlAccountId = map.OverrideCreditGlAccountId.Value;
-                    currentGrn.InventoryGlAccountId = map.OverrideCreditGlAccountId.Value;
-                }
-            }
-        }
-        else
-        {
-            currentGrn.CustomTransactionTypeId = null;
-        }
-    }
-
-    private string GetAccountDisplayName(Guid accountId)
-    {
-        if (accountId == Guid.Empty) return "System Default [GR/IR Clearing]";
-        var acc = allAccounts.FirstOrDefault(a => a.Id == accountId);
-        return acc != null ? $"{acc.AccountCode} - {acc.Description}" : "System Default";
-    }
-
-    private async Task SaveReceipt()
-    {
-        if (selectedWarehouseId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a Warehouse."); return; }
-        if (currentGrn.InventoryGlAccountId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a GR/IR Clearing Account."); return; }
-        if (!currentGrn.Lines.Any(l => l.QuantityReceived > 0)) { await JS.InvokeVoidAsync("alert", "Please receive at least one item."); return; }
-
-        isBusy = true;
-        try
-        {
-            string result = await PurchService.SaveGoodsReceiptAsync(currentGrn, selectedWarehouseId, currentUserId);
-
-            if (string.IsNullOrEmpty(result))
-            {
-                var whName = warehouses.FirstOrDefault(w => w.Id == selectedWarehouseId)?.Name ?? "the warehouse";
-                var receivedDetails = currentGrn.Lines
-                    .Where(l => l.QuantityReceived > 0)
-                    .Select(l =>
-                    {
-                        var poLine = selectedPO?.Lines.FirstOrDefault(pl => pl.Id == l.PurchaseOrderLineId);
-                        var itemName = items.FirstOrDefault(i => i.Id == poLine?.ItemId)?.Name ?? "Item";
-                        return $"{l.QuantityReceived} quantity of {itemName}";
-                    });
-
-                string msg = string.Join(", ", receivedDetails) + $" has been received in {whName}.";
-                await JS.InvokeVoidAsync("alert", msg);
-
-                showLandedCostModal = true;
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("alert", "Error: " + result);
-            }
-        }
-        catch (Exception ex) { await JS.InvokeVoidAsync("alert", "System Error: " + ex.Message); }
-        finally { isBusy = false; }
-    }
-
-    private void AddCostLine()
-    {
-        if (newCostType == null || newCostAmount <= 0) return;
-
-        addedCosts.Add(new GrnLandedCost
-        {
-            Id = Guid.NewGuid(),
-            GoodsReceiptId = currentGrn.Id,
-            CostType = newCostType.Value,
-            Amount = newCostAmount,
-            AllocationMethod = newAllocMethod
-        });
-
-        newCostAmount = 0;
-        newCostType = null;
-    }
-
-    private void RemoveCost(GrnLandedCost c) => addedCosts.Remove(c);
-
-    private async Task FinalizeValuation()
-    {
-        isValuationBusy = true;
-        try
-        {
-            using var ctx = await DbFactory.CreateDbContextAsync();
-
-            if (addedCosts.Any())
-            {
-                ctx.GrnLandedCosts.AddRange(addedCosts);
-                await ctx.SaveChangesAsync();
-            }
-
-            string result = await ValuationService.RecalculateWACC(currentGrn.Id);
-
-            if (string.IsNullOrEmpty(result))
-            {
-                await JS.InvokeVoidAsync("alert", "Receipt & Valuation Completed Successfully!");
-                Nav.NavigateTo("/procurement/purchase-orders");
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("alert", "Valuation Error: " + result);
-            }
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("alert", "Error: " + ex.Message);
-        }
-        finally
-        {
-            isValuationBusy = false;
-        }
+        if (saving || !supplierId.HasValue || !warehouseId.HasValue) return;
+        attempt++;
+        var selected = lines.Where(x => x.Selected).ToList();
+        var invalid = selected.FirstOrDefault(x => !ValidQuantity(x));
+        if (selected.Count == 0 || invalid != null) { showQuantityErrors = true; message = invalid == null ? "Select at least one receipt line." : $"Enter a positive quantity up to the available balance for {invalid.Source.ItemName} on {invalid.Source.DocumentNumber}. Clear the search if this line is hidden."; return; }
+        saving = true;
+        try {
+            var inputs = selected.Select(x => new ReceiptDraftLineInput(x.Source.LineId, x.QuantityBase, x.UomId, x.UomName, x.Factor)).ToList();
+            var error = await DraftService.CreateAsync(companyId, supplierId.Value, warehouseId.Value, invoiceSource, inputs, DateTime.Today, Numbering);
+            if (!string.IsNullOrEmpty(error)) message = error;
+            else Navigation.NavigateTo("/procurement/goods-receipts");
+        } catch (InvalidOperationException) { message = "The receipt could not be prepared. Check document numbering and refresh the available source lines."; }
+        finally { saving = false; }
     }
 }
