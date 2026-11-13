@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -19,6 +19,7 @@ namespace Primafit_ERP.Components.Models
     }
     public class ReceiptRefund
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -67,6 +68,7 @@ namespace Primafit_ERP.Components.Models
     }
     public class ReceiptRefundLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -60,6 +60,8 @@ namespace Primafit_ERP.Components.Models
         [Required] public Guid BranchId { get; set; }
         [Required] public Guid JobRoleId { get; set; }
         [Required] public Guid SalaryStructureId { get; set; }
+
+        [StringLength(50)] public string? TaxIdentificationNumber { get; set; }
 
         public string BankName { get; set; } = string.Empty;
         public string AccountNumber { get; set; } = string.Empty;

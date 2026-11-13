@@ -1,4 +1,4 @@
-﻿@page "/reports/trial-balance"
+@page "/reports/trial-balance"
 
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
@@ -11,12 +11,13 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer PermissionKey="FINANCE_REPORTS_PAGE" CompanyId="companyId"
                   Title="Trial Balance"
-                  Description="Structured Trial Balance Report"
+                  Description="Net debit/credit movements for the selected period. Opening balances are excluded."
                   ShowDateRange="true"
                   ShowAsOfDate="false"
                   FetchData="GetData" />

@@ -16,6 +16,7 @@
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
 
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
@@ -24,17 +25,21 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Fixed Asset Valuation Report</h1>
-            <p class="text-sm text-slate-500 mt-1">Track asset costs, accumulated depreciation, and current book values.</p>
+            <p class="text-sm text-slate-500 mt-1">Acquisition cost and posted depreciation as of the selected date.</p>
         </div>
 
         <div class="flex flex-wrap gap-3 items-center bg-slate-50 p-2 rounded-xl border border-slate-200">
+            <select aria-label="Asset report scope" @bind="reportScope" @bind:after="FilterData"><option value="AsOf">All assets as of date</option><option value="Acquisitions">Acquired during period</option></select>
+            @if (reportScope == "Acquisitions") {
+
             <div class="flex items-center gap-2">
                 <span class="text-xs font-bold text-slate-500 uppercase ml-2">From:</span>
-                <input type="date" @bind="fromDate" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+                <input type="date" @bind="fromDate" @bind:after="FilterData" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
             </div>
+            }
             <div class="flex items-center gap-2">
-                <span class="text-xs font-bold text-slate-500 uppercase">To:</span>
-                <input type="date" @bind="toDate" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
+                <span class="text-xs font-bold text-slate-500 uppercase">As of:</span>
+                <input type="date" @bind="toDate" @bind:after="FilterData" class="px-3 py-1.5 text-sm font-bold bg-white border border-slate-200 rounded-lg outline-none focus:border-indigo-500" />
             </div>
             <button @onclick="FilterData" class="px-4 py-1.5 bg-slate-900 text-white text-sm font-bold rounded-lg shadow-sm hover:bg-slate-800 transition-colors">
                 Apply Filter
@@ -42,6 +47,7 @@
         </div>
     </div>
 
+    @if (reportError.Length > 0) { <p role="alert" class="p-4 text-rose-700">@reportError</p> }
     <!-- Actions Section -->
     <div class="flex justify-end gap-3">
         <button @onclick="ExportToPdf" disabled="@isExporting" class="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-50 text-rose-700 border border-rose-200 text-sm font-bold rounded-xl shadow-sm hover:bg-rose-100 disabled:opacity-50 transition-all">
@@ -175,6 +181,7 @@
     private bool isExportingExcel = false;
     private bool isExporting => isExportingPdf || isExportingExcel;
 
+    private string reportScope = "AsOf", reportError = "";
     private DateTime fromDate = new DateTime(DateTime.Today.Year, 1, 1); // Default to start of current year
     private DateTime toDate = DateTime.Today;
 
@@ -215,17 +222,16 @@
         isLoading = true;
         allAssets = await AssetService.GetAssetsAsync(companyId);
         categories = await CategoryService.GetCategoriesAsync(companyId);
-        FilterData();
+        await FilterData();
         isLoading = false;
     }
 
-    private void FilterData()
+    private async Task FilterData()
     {
-        // Filter assets where Purchase Date falls between the selected range
-        filteredAssets = allAssets
-            .Where(a => a.PurchaseDate.Date >= fromDate.Date && a.PurchaseDate.Date <= toDate.Date)
-            .OrderBy(a => a.PurchaseDate)
-            .ToList();
+        reportError = "";
+        filteredAssets.Clear();
+        try { filteredAssets = await AssetService.GetRegisterAsOfAsync(companyId, DateOnly.FromDateTime(toDate), reportScope == "Acquisitions" ? DateOnly.FromDateTime(fromDate) : null); }
+        catch (ArgumentException ex) { reportError = ex.Message; }
     }
 
     private StandardReportData BuildReportData()
@@ -234,7 +240,7 @@
         {
             ReportName = "Fixed Asset Valuation & Depreciation Report",
             CompanyName = companyName,
-            ReportingPeriod = $"{fromDate:dd MMM, yyyy} to {toDate:dd MMM, yyyy}",
+            ReportingPeriod = reportScope == "AsOf" ? $"As of {toDate:dd MMM yyyy} · Posted depreciation only" : $"Acquired {fromDate:dd MMM yyyy} to {toDate:dd MMM yyyy}; values as of {toDate:dd MMM yyyy}",
             Currency = companyBaseCurrency,
             GeneratedBy = userName,
             DateGenerated = DateTime.Now,

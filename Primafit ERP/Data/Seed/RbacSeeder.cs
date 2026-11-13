@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
@@ -125,6 +125,11 @@ namespace Primafit_ERP.Data.Seed
             }
 
             // Always fetch the DB dictionary (whether just seeded or already existed)
+            var customFieldPermissions = new[] { "CUSTOM_FIELDS_SETUP", "CUSTOM_FIELDS_VIEW", "CUSTOM_FIELDS_EDIT", "CUSTOM_FIELDS_REPORTS" };
+            foreach (var key in customFieldPermissions)
+                if (!await context.Permissions.AnyAsync(p => p.ActionKey == key))
+                    context.Permissions.Add(new Permission { Module = "CUSTOM_FIELDS", PageKey = "CUSTOM_FIELDS_PAGE", ActionKey = key, DisplayName = key switch { "CUSTOM_FIELDS_SETUP" => "Configure Custom Fields", "CUSTOM_FIELDS_VIEW" => "View Custom Field Values", "CUSTOM_FIELDS_EDIT" => "Edit Custom Field Values", _ => "Run & Export Custom Field Reports" }, Category = "Custom Fields" });
+            await context.SaveChangesAsync();
             var pDict = await context.Permissions.ToDictionaryAsync(p => p.ActionKey ?? p.PageKey, p => p.Id);
 
             // 3. Define System Role Templates (Only insert if empty)
@@ -204,6 +209,13 @@ namespace Primafit_ERP.Data.Seed
                 context.SystemRolePermissions.AddRange(systemRolePermissions);
                 await context.SaveChangesAsync();
             }
+            // Upgrade existing system templates idempotently; custom company roles remain explicit.
+            foreach (var role in new[] { "CFO", "IT/Admin", "Accountant", "Clerk" })
+                if (roleMap.TryGetValue(role, out var templateId))
+                    foreach (var key in customFieldPermissions.Where(k => role is "CFO" or "IT/Admin" || k == "CUSTOM_FIELDS_VIEW" || k == "CUSTOM_FIELDS_EDIT" || role == "Accountant" && k == "CUSTOM_FIELDS_REPORTS"))
+                        if (!await context.SystemRolePermissions.AnyAsync(x => x.SystemRoleTemplateId == templateId && x.PermissionId == pDict[key]))
+                            context.SystemRolePermissions.Add(new SystemRolePermission { SystemRoleTemplateId = templateId, PermissionId = pDict[key] });
+            await context.SaveChangesAsync();
         }
     }
 }

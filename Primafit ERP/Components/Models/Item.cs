@@ -14,6 +14,7 @@ namespace Primafit_ERP.Components.Models
     }
     public class Item
     {
+        [ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         [Required] public Guid CompanyId { get; set; }
 

@@ -218,8 +218,11 @@ namespace Primafit_ERP.Services
                 ClearAfterPost = false
             };
 
+            var customContext = new[] { CustomFieldScope.GeneralLedgerAdjustmentHeader, CustomFieldScope.CustomerAdjustmentHeader, CustomFieldScope.VendorAdjustmentHeader }.Select(scope => (Scope: scope, Id: ctx.CustomFieldWrites?.NewOwnerId(scope))).FirstOrDefault(x => x.Id.HasValue);
+            if (customContext.Id.HasValue) { batch.Id = customContext.Id.Value; batch.CustomFieldContext = customContext.Scope; foreach (var detail in cleanLines.Where(l => l.IsDimensionDetail)) detail.HasManualCustomFields = true; }
             batch.Journals.Add(new GLJournalHeader
             {
+                HasManualCustomFields = customContext.Id.HasValue,
                 CompanyId = companyId,
                 AccountingPeriodId = period.Id,
                 JournalNumber = journalNumber,
@@ -278,8 +281,11 @@ namespace Primafit_ERP.Services
                 ClearAfterPost = false
             };
 
+            var customContext = new[] { CustomFieldScope.GeneralLedgerAdjustmentHeader, CustomFieldScope.CustomerAdjustmentHeader, CustomFieldScope.VendorAdjustmentHeader }.Select(scope => (Scope: scope, Id: ctx.CustomFieldWrites?.NewOwnerId(scope))).FirstOrDefault(x => x.Id.HasValue);
+            if (customContext.Id.HasValue) { batch.Id = customContext.Id.Value; batch.CustomFieldContext = customContext.Scope; foreach (var detail in cleanLines.Where(l => l.IsDimensionDetail)) detail.HasManualCustomFields = true; }
             batch.Journals.Add(new GLJournalHeader
             {
+                HasManualCustomFields = customContext.Id.HasValue,
                 CompanyId = companyId,
                 AccountingPeriodId = period.Id,
                 JournalNumber = journalNumber,
@@ -566,6 +572,8 @@ namespace Primafit_ERP.Services
                 batch.IsLocked = true;
                 batch.PostedByUserId = userId;
                 batch.PostedAt = DateTime.UtcNow;
+                var acceptedMovements = await ctx.StockLedgers.IgnoreQueryFilters().Where(x => x.GLBatchId == batch.Id && x.CompanyId == companyId && !x.CommittedAt.HasValue).ToListAsync();
+                foreach (var movement in acceptedMovements) movement.CommittedAt = batch.PostedAt;
                 var transferReceiptMovements = await ctx.StockLedgers.IgnoreQueryFilters()
                     .Where(movement => movement.GLBatchId == batch.Id
                         && movement.CompanyId == companyId
@@ -633,6 +641,7 @@ namespace Primafit_ERP.Services
 
             var batch = new GLBatch
             {
+                CustomFieldContext = CustomFieldScope.JournalHeader,
                 CompanyId = companyId,
                 AccountingPeriodId = period.Id,
                 BatchName = batchName,
@@ -645,6 +654,7 @@ namespace Primafit_ERP.Services
 
             batch.Journals.Add(new GLJournalHeader
             {
+                HasManualCustomFields = true,
                 CompanyId = companyId,
                 AccountingPeriodId = period.Id,
                 JournalNumber = batchName,
@@ -724,6 +734,9 @@ namespace Primafit_ERP.Services
             if (batch == null) return "Batch not found.";
             if (batch.Status == BatchStatus.Posted) return "Cannot unlock or edit a batch that has already been posted to the General Ledger. Use Reuse Batch to begin a new posting cycle.";
 
+            var committedMovements = await ctx.StockLedgers.IgnoreQueryFilters().Where(x => x.GLBatchId == batch.Id && x.CompanyId == batch.CompanyId && !x.CommittedAt.HasValue).ToListAsync();
+            foreach (var movement in committedMovements) movement.CommittedAt = batch.PostedAt ?? DateTime.UtcNow;
+            if (!batch.PostedAt.HasValue) batch.PostedAt = await ctx.GLTransactions.Where(x => x.BatchId == batch.Id && x.CompanyId == batch.CompanyId).Select(x => (DateTime?)x.CreatedAt).MaxAsync();
             batch.Status = BatchStatus.Draft;
             batch.IsLocked = false;
             batch.ReleasedByUserId = null;
@@ -805,6 +818,8 @@ namespace Primafit_ERP.Services
 
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 
+            header.HasManualCustomFields = true;
+            batch.CustomFieldContext ??= CustomFieldScope.JournalHeader;
             line.HeaderId = header.Id;
             ctx.Set<GLJournalLine>().Add(line);
             await ctx.SaveChangesAsync();
@@ -993,7 +1008,7 @@ namespace Primafit_ERP.Services
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
             var query =
-                from t in ctx.GLTransactions.AsNoTracking()
+                from t in ReportAccounting.PostedTransactions(ctx, companyId)
                 join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
                 join j in ctx.GLJournalHeaders.AsNoTracking() on t.JournalId equals j.Id
                 where t.CompanyId == companyId

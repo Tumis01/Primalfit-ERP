@@ -17,6 +17,7 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
@@ -261,6 +262,7 @@
 
         Section("Reconciliation Summary");
         Summary("Opening book balance", model.OpeningBookBalance);
+        Summary("Opening cleared book balance", model.OpeningClearedBookBalance);
         Summary("Period debits", model.PeriodDebits);
         Summary("Period credits", model.PeriodCredits);
         Summary("Book balance (cleared)", model.ClearedBookBalance);
@@ -274,13 +276,13 @@
             .Where(t => t.PostingDate >= model.PeriodStartDate && t.PostingDate <= model.Reconciliation.StatementDate)
             .OrderBy(t => t.PostingDate)
             .ToList();
-        var cleared = periodTransactions.Where(t => t.BankReconciliationId == model.Reconciliation.Id).ToList();
+        var cleared = model.CandidateGLTransactions.Where(t => t.BankReconciliationId == model.Reconciliation.Id).ToList();
         foreach (var txn in cleared)
             rows.Add(new() { txn.PostingDate.ToString("yyyy-MM-dd"), txn.JournalId.ToString("N")[..8], txn.Narration ?? "", Amount(txn.Debit), Amount(txn.Credit), "Cleared" });
         if (cleared.Count == 0) rows.Add(new() { "", "", "No cleared GL transactions.", "", "", "" });
 
         Section("Outstanding GL Transactions Through Statement End");
-        var outstanding = periodTransactions.Where(t => t.BankReconciliationId == null).ToList();
+        var outstanding = model.CandidateGLTransactions.Where(t => t.BankReconciliationId == null).ToList();
         foreach (var txn in outstanding)
             rows.Add(new() { txn.PostingDate.ToString("yyyy-MM-dd"), txn.JournalId.ToString("N")[..8], txn.Narration ?? "", Amount(txn.Debit), Amount(txn.Credit), "Outstanding" });
         if (outstanding.Count == 0) rows.Add(new() { "", "", "No outstanding GL transactions.", "", "", "" });

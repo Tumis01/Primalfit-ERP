@@ -1,3 +1,4 @@
+﻿@inject CustomFieldWriteSession CustomFieldWrites
 @page "/wh/shipments"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Components.Shared
@@ -69,6 +70,7 @@
                                 <span class="font-mono font-bold text-indigo-700">@shp.ShipmentNumber</span>
                                 <span class="text-sm font-bold text-slate-700">Sources: @GetShipmentOrderRefs(shp)</span>
                                 <span class="text-sm text-slate-500 hidden sm:inline">| Customer: @GetShipmentCustomer(shp)</span>
+                                <span class="text-xs text-slate-500">Warehouse: @GetWarehouseName(shp.WarehouseId)</span>
                                 @if (shp.CustomTransactionTypeId.HasValue)
                                 {
                                     <span class="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full">
@@ -102,7 +104,12 @@
                                     }
                                 </div>
 
-                                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left min-w-[500px]">
+                                <div class="max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                    <SearchableGuidSelect Label="Dispatch warehouse" Required="true" Options="@DispatchWarehouseOptions" Value="@(shp.WarehouseId == Guid.Empty ? null : shp.WarehouseId)" ValueChanged="@(id => shp.WarehouseId = id ?? Guid.Empty)" Disabled="@(!IsShipmentEditable(shp) || isBusy)" AllowClear="false" Placeholder="Search dispatch warehouse" />
+                                </div>
+                                <TransactionCustomFields CompanyId="companyId" Scope="CustomFieldScope.ShipmentHeader" OwnerId="shp.Id" ReadOnly="@(!IsShipmentEditable(shp))" />
+@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines dispatch-lines w-full text-sm text-left min-w-[850px]">
                                     <thead class="text-xs text-slate-500 uppercase font-bold border-b border-slate-200">
                                         <tr>
                                             <th class="pb-3 min-w-[220px]">Item Name</th>
@@ -111,7 +118,7 @@
                                             <th class="pb-3 text-right">Max Left to Ship</th>
                                             <th class="pb-3 text-center w-36">Ship UOM</th>
                                             <th class="pb-3 text-center w-40">Qty Shipped<br /><span class="text-[9px] font-semibold normal-case">This Dispatch</span></th>
-                                        <th class="p-3">Dimensions</th></tr>
+                                        <th class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in shp.Lines)
@@ -149,7 +156,7 @@
                                                          <div class="text-[10px] text-rose-500 mt-1 font-bold text-center">Exceeds maximum left to ship</div>
                                                     }
                                                 </td>
-                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@shp.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(!IsShipmentEditable(shp))" /></td></tr>
+                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@shp.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(!IsShipmentEditable(shp))" /></td><td class="p-3 udf-column"><TransactionCustomFields CompanyId="companyId" Scope="CustomFieldScope.ShipmentLine" OwnerId="line.Id" ReadOnly="@(!IsShipmentEditable(shp))" Inline="true" /></td></tr>
                                         }
                                     </tbody>
                                 </table></div>
@@ -365,6 +372,15 @@
 }
 
 @code {
+    private string customFieldError = "";
+    private async Task ConfirmDispatch(SalesShipment shp)
+    {
+        customFieldError = "";
+        try { using var edit = CustomFieldWrites.BeginDocument(companyId, CustomFieldScope.ShipmentHeader, shp.Id, CustomFieldScope.ShipmentLine, shp.Lines.Select(l => l.Id)); await ConfirmDispatchCore(shp); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (DbUpdateConcurrencyException) { customFieldError = "The shipment changed. Refresh before saving."; }
+    }
+
     private int activeTab = 1;
     private bool isLoading = true;
     private bool isBusy = false;
@@ -602,6 +618,7 @@
     }
 
     private string GetWarehouseName(Guid warehouseId) => warehouses.FirstOrDefault(w => w.Id == warehouseId)?.Name ?? "No warehouse";
+    private IReadOnlyCollection<DropdownOption> DispatchWarehouseOptions => warehouses.Select(w => new DropdownOption(w.Id, w.Name)).ToList();
 
     private static string GetShipmentOrderRefs(SalesShipment shipment)
     {
@@ -776,7 +793,7 @@
         StateHasChanged();
     }
 
-    private async Task ConfirmDispatch(SalesShipment shp)
+    private async Task ConfirmDispatchCore(SalesShipment shp)
     {
         if (shp == null || shp.Lines == null || shp.Lines.Count == 0)
         {
@@ -812,7 +829,7 @@
         bool confirm = await JS.InvokeAsync<bool>("confirm", msg);
         if (!confirm) return;
 
-        var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser, currentUserId);
+        var err = await ShipmentService.PostShipmentAsync(shp.Id, shp.Lines, currentUser, currentUserId, shp.WarehouseId, companyId);
 
         if (!string.IsNullOrEmpty(err))
         {

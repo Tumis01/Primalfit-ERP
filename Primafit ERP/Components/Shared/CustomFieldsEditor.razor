@@ -1,0 +1,123 @@
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using System.Globalization
+@inject CustomFieldService FieldsService
+
+@if (!string.IsNullOrEmpty(loadError))
+{
+    <div class="udf-error" role="alert">@loadError</div>
+}
+else if (loading)
+{
+    <span class="udf-help" role="status">Loading additional fields…</span>
+}
+else if (form?.Fields.Count > 0)
+{
+    <div class="@(Inline ? "udf-inline" : "udf-section")" aria-label="Custom fields">
+        @if (!Inline) { <h3>Additional information</h3> }
+        @foreach (var section in form.Fields.GroupBy(x => x.Revision.Section))
+        {
+            @if (!Inline && section.Key != "Additional information") { <h4 class="udf-group-title">@section.Key</h4> }
+            <div class="@(Inline ? "udf-inline-fields" : "udf-grid")">
+            @foreach (var field in section)
+            {
+                var id = $"udf-{OwnerId:N}-{field.Definition.Id:N}";
+                var disabled = ReadOnly || !form.CanEdit || !field.Definition.IsActive;
+                <div class="udf-field" @key="field.Definition.Id">
+                    <label for="@id">@field.Revision.Label @if (field.Revision.Required && field.Definition.IsActive) { <span class="udf-required">*</span> } @if (!field.Definition.IsActive) { <span class="udf-help">(inactive)</span> }</label>
+                    @if (ReadOnly)
+                    {
+                        <div class="udf-readonly">@CustomFieldService.Format(field.Input, field.Definition.DataType, field.Options, field.Revision.DecimalPlaces)</div>
+                    }
+                    else if (field.Definition.DataType == CustomFieldDataType.SingleSelect)
+                    {
+                        <SearchableGuidSelect Options="@(field.Options.Select(x => new DropdownOption(x.Id, x.Label, Disabled: !x.IsActive)).ToList())" Value="field.Input.OptionId" ValueChanged="@(async id => { field.Input.OptionId = id; await Changed(field); })" Label="" Placeholder="@($"Select {field.Revision.Label}")" Required="field.Revision.Required" Disabled="disabled" InlineMenu="true" />
+                    }
+                    else if (field.Definition.DataType == CustomFieldDataType.Boolean)
+                    {
+                        <select id="@id" value="@(field.Input.BooleanValue?.ToString().ToLowerInvariant() ?? "")" disabled="@disabled" @onchange="@(async e => { field.Input.BooleanValue = bool.TryParse(e.Value?.ToString(), out var v) ? v : null; await Changed(field); })" aria-required="@field.Revision.Required">
+                            <option value="">Select an answer</option><option value="true">Yes</option><option value="false">No</option>
+                        </select>
+                    }
+                    else if (field.Definition.DataType == CustomFieldDataType.Date)
+                    {
+                        <input id="@id" type="date" value="@(field.Input.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))" disabled="@disabled" @onchange="@(async e => { field.Input.DateValue = DateOnly.TryParseExact(e.Value?.ToString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var v) ? v : null; await Changed(field); })" aria-required="@field.Revision.Required" />
+                    }
+                    else if (field.Definition.DataType == CustomFieldDataType.Decimal)
+                    {
+                        <input id="@id" type="text" inputmode="decimal" value="@(field.Input.DecimalValue?.ToString($"F{field.Revision.DecimalPlaces}", CultureInfo.CurrentCulture))" disabled="@disabled" @onchange="@(e => DecimalChanged(field, e.Value?.ToString()))" aria-required="@field.Revision.Required" />
+                    }
+                    else if (field.Definition.DataType == CustomFieldDataType.LongText)
+                    {
+                        <textarea id="@id" rows="2" maxlength="@field.Revision.MaxLength" disabled="@disabled" @bind="field.Input.TextValue" @bind:after="() => Changed(field)" aria-required="@field.Revision.Required"></textarea>
+                    }
+                    else
+                    {
+                        <input id="@id" type="text" maxlength="@field.Revision.MaxLength" disabled="@disabled" @bind="field.Input.TextValue" @bind:after="() => Changed(field)" aria-required="@field.Revision.Required" />
+                    }
+                    @if (!string.IsNullOrEmpty(field.Revision.HelpText)) { <span class="udf-help">@field.Revision.HelpText</span> }
+                    @if (!string.IsNullOrEmpty(field.Error ?? field.ParseError)) { <span class="udf-error" role="alert">@(field.Error ?? field.ParseError)</span> }
+                </div>
+            }
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(form.Error)) { <div class="udf-error" role="alert">@form.Error</div> }
+    </div>
+}
+else if (Inline)
+{
+    <span class="udf-help">No custom fields configured</span>
+}
+
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public CustomFieldScope Scope { get; set; }
+    [Parameter] public Guid OwnerId { get; set; }
+    [Parameter] public bool Inline { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public EventCallback<CustomFieldFormState> StateChanged { get; set; }
+    private CustomFieldFormState? form;
+    private string? loadedKey, loadError;
+    private bool loading;
+    private Task? load;
+    protected override Task OnParametersSetAsync()
+    {
+        var key = $"{CompanyId}:{Scope}:{OwnerId}:{ReadOnly}";
+        if (key == loadedKey) return Task.CompletedTask;
+        loadedKey = key;
+        return load = LoadAsync(key);
+    }
+    private async Task LoadAsync(string key)
+    {
+        loading = true; loadError = null; form = null;
+        try
+        {
+            var result = await FieldsService.LoadEditorAsync(CompanyId, Scope, OwnerId, ReadOnly);
+            if (key != loadedKey) return;
+            form = result; await StateChanged.InvokeAsync(form);
+        }
+        catch (UnauthorizedAccessException) { if (key == loadedKey) loadError = "You do not have access to custom fields for this record."; }
+        catch (Exception) { if (key == loadedKey) loadError = "Additional fields could not be loaded. Refresh before saving."; }
+        finally { if (key == loadedKey) loading = false; }
+    }
+    public async Task<CustomFieldFormState?> GetStateAsync()
+    {
+        if (load != null) await load;
+        if (loadError != null) return new CustomFieldFormState { CompanyId = CompanyId, Scope = Scope, OwnerId = OwnerId, Error = loadError };
+        if (form != null) form.Error = form.Fields.Select(x => x.ParseError).FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? "";
+        return form;
+    }
+    private async Task Changed(CustomFieldEditorField field)
+    {
+        field.Error = null;
+        if (form != null) { form.Error = form.Fields.Select(x => x.ParseError).FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? ""; await StateChanged.InvokeAsync(form); }
+    }
+    private async Task DecimalChanged(CustomFieldEditorField field, string? text)
+    {
+        field.ParseError = null;
+        if (string.IsNullOrWhiteSpace(text)) field.Input.DecimalValue = null;
+        else if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.CurrentCulture, out var number)) field.Input.DecimalValue = number;
+        else field.ParseError = $"Enter a valid number for {field.Revision.Label}.";
+        await Changed(field);
+    }
+}

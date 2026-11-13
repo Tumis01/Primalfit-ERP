@@ -23,6 +23,30 @@ namespace Primafit_ERP.Services
             return await ctx.FixedAssets.AsNoTracking().Where(a => a.CompanyId == companyId).OrderBy(a => a.AssetTag).ToListAsync();
         }
 
+        public async Task<List<FixedAsset>> GetRegisterAsOfAsync(Guid companyId, DateOnly asOf, DateOnly? acquiredFrom = null)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            if (acquiredFrom.HasValue) ReportAccounting.ValidatePeriod(acquiredFrom.Value, asOf);
+            var cutoff = asOf.ToDateTime(TimeOnly.MaxValue);
+            var assets = await db.FixedAssets.AsNoTracking().Where(x => x.CompanyId == companyId && x.PurchaseDate <= cutoff).ToListAsync();
+            if (acquiredFrom.HasValue) assets = assets.Where(x => DateOnly.FromDateTime(x.PurchaseDate) >= acquiredFrom.Value).ToList();
+            var ids = assets.Select(x => x.Id).ToList();
+            var histories = await db.AssetDepreciationHistories.AsNoTracking().Where(x => ids.Contains(x.FixedAssetId)).ToListAsync();
+            var posted = (await db.GLBatches.Where(x => x.CompanyId == companyId && x.Status == BatchStatus.Posted).Select(x => x.Id).ToListAsync()).ToHashSet();
+            foreach (var asset in assets)
+            {
+                var history = histories.Where(x => x.FixedAssetId == asset.Id).ToList();
+                if (asset.Status is AssetStatus.Sold or AssetStatus.Scrapped)
+                    throw new ArgumentException($"Asset {asset.AssetTag} has no dated disposal history. Restore that history before running an as-of asset register.");
+                if (asset.PurchaseCost - asset.CurrentBookValue - history.Sum(x => x.Amount) > 0.01m)
+                    throw new ArgumentException($"Depreciation history is incomplete for asset {asset.AssetTag}. Restore its opening/depreciation entries before historical reporting.");
+                var accepted = history.Where(x => x.Date <= cutoff && posted.Contains(x.GlBatchId)).ToList();
+                asset.CurrentBookValue = asset.PurchaseCost - accepted.Sum(x => x.Amount);
+                asset.LastDepreciationDate = accepted.Count == 0 ? null : accepted.Max(x => x.Date);
+            }
+            return assets.OrderBy(x => x.AssetTag).ToList();
+        }
+
         public async Task<string> CreateAssetAsync(FixedAsset asset)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();

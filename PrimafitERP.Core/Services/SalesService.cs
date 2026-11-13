@@ -289,6 +289,7 @@ namespace Primafit_ERP.Services
             var order = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order in the document editor before shipping or invoicing.";
             if (order.Status != OrderStatus.Order) return "Only Confirmed Orders can be converted to Invoices.";
 
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
@@ -342,6 +343,7 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order in the document editor before shipping or invoicing.";
 
             var glLines = new List<GLJournalLine>();
             var stockMovements = new List<StockLedger>();
@@ -412,6 +414,7 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(o => o.Id == orderId);
 
                 if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order in the document editor before shipping or invoicing.";
                 if (order.Status == OrderStatus.Invoiced) return "Order is already fully invoiced.";
                 if (order.Status == OrderStatus.Quote) return "Quotes cannot be invoiced directly.";
 

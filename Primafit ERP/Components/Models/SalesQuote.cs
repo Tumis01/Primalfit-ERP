@@ -16,6 +16,7 @@ public enum SalesQuoteStatus
 /// <summary>A sales quotation, stored independently from a sales order.</summary>
 public class SalesQuote
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     [Key]
@@ -70,6 +71,7 @@ public class SalesQuote
 
 public class SalesQuoteLine : IDimensionedLine
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     [Key]

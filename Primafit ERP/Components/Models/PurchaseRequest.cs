@@ -15,6 +15,7 @@ public enum PurchaseRequestStatus
 /// <summary>A purchasing request, stored independently from a purchase order.</summary>
 public class PurchaseRequest
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     [Key]
@@ -71,6 +72,7 @@ public class PurchaseRequest
 
 public class PurchaseRequestLine : IDimensionedLine
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     [Key]

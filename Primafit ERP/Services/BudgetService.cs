@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -332,203 +332,56 @@ namespace Primafit_ERP.Services
         // ==========================================
         public async Task<StandardReportData> GeneratePeriodicVarianceReportAsync(Guid companyId, DateOnly start, DateOnly end, string searchAccount = "", Guid? budgetId = null)
         {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            // 1. Convert dates to DateTime specifically for the PurchaseOrder queries
-            DateTime globalPoStart = start.ToDateTime(TimeOnly.MinValue);
-            DateTime globalPoEnd = end.ToDateTime(TimeOnly.MaxValue);
-
-            var selectedBudgets = await ctx.BudgetHeaders
-                .Include(b => b.Lines)
-                    .ThenInclude(l => l.PeriodAllocations)
-                .AsNoTracking()
-                .Where(b => b.CompanyId == companyId &&
-                            (budgetId.HasValue ? b.Id == budgetId.Value : b.IsActive))
-                .OrderBy(b => b.BudgetName)
-                .ToListAsync();
-
-            // The variance report must not silently discard budgets when a company
-            // has more than one active budget. Flatten all selected budgets into
-            // one report set; the optional selector above still supports a single
-            // budget view when required.
-            var activeBudget = selectedBudgets.Count == 0
-                ? null
-                : new BudgetHeader
+            ReportAccounting.ValidatePeriod(start, end);
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var budgets = await db.BudgetHeaders.AsNoTracking().Include(b => b.Lines).ThenInclude(l => l.PeriodAllocations)
+                .Where(b => b.CompanyId == companyId && (budgetId.HasValue ? b.Id == budgetId.Value : b.IsActive)).ToListAsync();
+            var report = new StandardReportData { ReportName = "Detailed Budget Variance Report",
+                ReportingPeriod = $"{start:dd MMM yyyy} to {end:dd MMM yyyy} · Budgets/forecasts prorated by overlapping calendar days; PO commitments at period end",
+                Headers = new() { "Account / Period", "Description", "Budget", "Forecast", "Actuals (Posted)", "Closing Encumbrance", "Total Committed", "Budget Variance", "Forecast Variance", "% Used" } };
+            var lines = budgets.SelectMany(b => b.Lines).ToList();
+            var accounts = await db.SegChartOfAccounts.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id);
+            var groups = lines.GroupBy(x => x.GlAccountId).Where(g => accounts.ContainsKey(g.Key)
+                && (string.IsNullOrWhiteSpace(searchAccount) || (accounts[g.Key].AccountCode + " " + accounts[g.Key].Description).Contains(searchAccount, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (groups.Count == 0) { report.Rows.Add(new() { "N/A", "No budget accounts match these filters.", "", "", "", "", "", "", "", "" }); return report; }
+            var debitTypes = (await db.Set<SegAccountType>().Where(t => t.IsDebit).Select(t => t.Id).ToListAsync()).ToHashSet();
+            decimal Net(GLTransaction t) => debitTypes.Contains(accounts[t.SegCoaId].SegAccountTypeId) ? t.Debit - t.Credit : t.Credit - t.Debit;
+            var accountIds = groups.Select(x => x.Key).ToList();
+            var actuals = await ReportAccounting.PostedTransactions(db, companyId).Where(t => accountIds.Contains(t.SegCoaId) && t.PostingDate >= start && t.PostingDate <= end).ToListAsync();
+            var periods = await db.AccountingPeriods.AsNoTracking().Where(x => x.CompanyId == companyId).ToDictionaryAsync(x => x.Id);
+            var to = end.ToDateTime(TimeOnly.MaxValue);
+            var orders = await db.PurchaseOrders.AsNoTracking().Include(p => p.Lines).Where(p => p.CompanyId == companyId && p.OrderDate <= to
+                && p.Status != PurchaseOrderStatus.Request && p.Status != PurchaseOrderStatus.DraftInvoice && p.Status != PurchaseOrderStatus.Cancelled && p.Status != PurchaseOrderStatus.Closed
+                && !p.IsDirectInvoice && p.ConvertedFromPONumber == null).ToListAsync();
+            var items = await db.Items.AsNoTracking().Where(i => i.CompanyId == companyId).ToDictionaryAsync(i => i.Id);
+            var receiptDates = await db.GoodsReceipts.AsNoTracking().Where(r => r.CompanyId == companyId && r.DateReceived <= to).ToDictionaryAsync(r => r.Id, r => r.DateReceived);
+            var receipts = await ReportAccounting.PostedReceiptLines(db, companyId).Where(r => r.PurchaseOrderLineId.HasValue && receiptDates.Keys.Contains(r.GoodsReceiptId)).ToListAsync();
+            decimal Encumbered(Guid accountId, DateOnly cutoff) => orders.Where(p => DateOnly.FromDateTime(p.OrderDate) <= cutoff).Sum(p => p.Lines.Where(l => items.TryGetValue(l.ItemId, out var item)
+                && (item.IsService ? item.CostOfGoodsSoldAccountId : item.InventoryAssetAccountId) == accountId).Sum(l =>
+                ReportAccounting.Money(Math.Max(0m, l.QuantityOrdered - receipts.Where(r => r.PurchaseOrderLineId == l.Id && DateOnly.FromDateTime(receiptDates[r.GoodsReceiptId]) <= cutoff).Sum(r => r.QuantityReceived)) * l.UnitCost * p.ExchangeRate)));
+            decimal Allocation(IEnumerable<BudgetLine> group, DateOnly from, DateOnly until, bool forecast) => group.SelectMany(x => x.PeriodAllocations).Sum(a => {
+                if (!periods.TryGetValue(a.AccountingPeriodId, out var p)) return 0m;
+                var left = from > p.StartDate ? from : p.StartDate; var right = until < p.EndDate ? until : p.EndDate;
+                return left > right ? 0m : (forecast ? a.ForecastAmount ?? 0m : a.Amount ?? 0m) * (right.DayNumber - left.DayNumber + 1m) / (p.EndDate.DayNumber - p.StartDate.DayNumber + 1m);
+            });
+            List<string> Row(string code, string description, decimal budget, decimal forecast, decimal actual, decimal encumbered) => new() {
+                code, description, budget.ToString("N4"), forecast.ToString("N4"), actual.ToString("N4"), encumbered.ToString("N4"), (actual + encumbered).ToString("N4"),
+                (budget - actual - encumbered).ToString("N4"), (forecast - actual - encumbered).ToString("N4"), (budget == 0 ? 0 : (actual + encumbered) / budget * 100).ToString("N2") + "%" };
+            decimal totalBudget = 0, totalForecast = 0, totalActual = 0, totalEncumbered = 0;
+            foreach (var group in groups.OrderBy(g => accounts[g.Key].AccountCode))
+            {
+                var budget = Allocation(group, start, end, false); var forecast = Allocation(group, start, end, true);
+                var actual = actuals.Where(x => x.SegCoaId == group.Key).Sum(Net); var encumbered = Encumbered(group.Key, end);
+                report.Rows.Add(Row(accounts[group.Key].AccountCode, accounts[group.Key].Description, budget, forecast, actual, encumbered));
+                for (var month = new DateOnly(start.Year, start.Month, 1); month <= end; month = month.AddMonths(1))
                 {
-                    BudgetName = selectedBudgets.Count == 1
-                        ? selectedBudgets[0].BudgetName
-                        : $"{selectedBudgets.Count} Active Budgets",
-                    IsActive = true,
-                    Lines = selectedBudgets.SelectMany(b => b.Lines ?? new List<BudgetLine>()).ToList()
-                };
-
-            var report = new StandardReportData
-            {
-                ReportName = "Detailed Budget Variance Report",
-                ReportingPeriod = $"{(activeBudget?.BudgetName ?? "No Active Budget")} | {start:MMM dd, yyyy} - {end:MMM dd, yyyy}",
-                Headers = new List<string> { "Account / Period", "Description", "Budget", "Forecast", "Actuals (Posted)", "Encumbered (POs)", "Total Committed", "Budget Variance", "Forecast Variance", "% Used" }
-            };
-
-            if (activeBudget == null || !activeBudget.Lines.Any())
-            {
-                report.Rows.Add(new List<string> { "N/A", budgetId.HasValue ? "Selected budget not found." : "No active budget found.", "", "", "", "", "", "", "", "" });
-                return report;
+                    var monthEnd = month.AddMonths(1).AddDays(-1); var left = start > month ? start : month; var right = end < monthEnd ? end : monthEnd;
+                    var monthActual = actuals.Where(x => x.SegCoaId == group.Key && x.PostingDate >= left && x.PostingDate <= right).Sum(Net);
+                    report.Rows.Add(Row("", $"↳ {left:dd MMM} – {right:dd MMM yyyy}", Allocation(group, left, right, false), Allocation(group, left, right, true), monthActual, Encumbered(group.Key, right)));
+                }
+                totalBudget += budget; totalForecast += forecast; totalActual += actual; totalEncumbered += encumbered;
             }
-
-            // AccountingPeriod uses DateOnly, so we compare directly to 'start' and 'end'
-            var validPeriods = await ctx.AccountingPeriods
-                .Where(p => p.CompanyId == companyId && p.StartDate <= end && p.EndDate >= start)
-                .ToListAsync();
-
-            var validPeriodIds = validPeriods.Select(p => p.Id).ToList();
-
-            decimal grandBudget = 0, grandForecast = 0, grandActuals = 0, grandEncumbered = 0, grandCommitted = 0;
-
-            foreach (var line in activeBudget.Lines)
-            {
-                var account = await ctx.SegChartOfAccounts.FindAsync(line.GlAccountId);
-                if (account == null) continue;
-
-                if (!string.IsNullOrWhiteSpace(searchAccount))
-                {
-                    if (!account.AccountCode.Contains(searchAccount, StringComparison.OrdinalIgnoreCase) &&
-                        !account.Description.Contains(searchAccount, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-                }
-
-                decimal targetLimit = line.PeriodAllocations
-                    .Where(p => validPeriodIds.Contains(p.AccountingPeriodId))
-                    .Sum(p => p.Amount ?? 0);
-                decimal targetForecast = line.PeriodAllocations
-                    .Where(p => validPeriodIds.Contains(p.AccountingPeriodId))
-                    .Sum(p => p.ForecastAmount ?? 0);
-
-                // 2. GLTransactions uses DateOnly! Compare directly to 'start' and 'end'
-                decimal actualSpent = await ctx.GLTransactions
-                    .Where(t => t.CompanyId == companyId
-                             && t.SegCoaId == line.GlAccountId
-                             && t.PostingDate >= start
-                             && t.PostingDate <= end)
-                    .SumAsync(t => t.Debit - t.Credit);
-
-                var relevantItemIds = await ctx.Items
-                    .Where(i => i.CompanyId == companyId &&
-                                (i.InventoryAssetAccountId == line.GlAccountId || i.CostOfGoodsSoldAccountId == line.GlAccountId))
-                    .Select(i => i.Id)
-                    .ToListAsync();
-
-                decimal encumberedAmount = 0;
-                if (relevantItemIds.Any())
-                {
-                    // 3. PurchaseOrders uses DateTime! Compare to the converted 'globalPoStart' and 'globalPoEnd'
-                    encumberedAmount = await ctx.PurchaseOrders
-                        .Where(p => p.CompanyId == companyId
-                                    && (p.Status == PurchaseOrderStatus.Open || p.Status == PurchaseOrderStatus.PartiallyReceived)
-                                    && !p.IsInvoicePosted
-                                    && p.OrderDate >= globalPoStart
-                                    && p.OrderDate <= globalPoEnd)
-                        .SelectMany(p => p.Lines)
-                        .Where(l => relevantItemIds.Contains(l.ItemId))
-                        .SumAsync(l => l.QuantityOrdered * l.UnitCost);
-                }
-
-                decimal totalCommitted = actualSpent + encumberedAmount;
-                decimal budgetVariance = targetLimit - totalCommitted;
-                decimal forecastVariance = targetForecast - totalCommitted;
-                decimal percentUsed = targetLimit > 0 ? (totalCommitted / targetLimit) * 100 : 0;
-
-                report.Rows.Add(new List<string>
-            {
-                    account.AccountCode,
-                    account.Description,
-                    targetLimit.ToString("N2"),
-                    targetForecast.ToString("N2"),
-                    actualSpent.ToString("N2"),
-                    encumberedAmount.ToString("N2"),
-                    totalCommitted.ToString("N2"),
-                    budgetVariance.ToString("N2"),
-                    forecastVariance.ToString("N2"),
-                    $"{percentUsed:N1}%"
-                });
-
-                // --- SUB-ROWS (Breakdown by Period) ---
-                foreach (var period in validPeriods.OrderBy(p => p.StartDate))
-                {
-                    decimal periodLimit = line.PeriodAllocations.FirstOrDefault(pa => pa.AccountingPeriodId == period.Id)?.Amount ?? 0;
-                    decimal periodForecast = line.PeriodAllocations.FirstOrDefault(pa => pa.AccountingPeriodId == period.Id)?.ForecastAmount ?? 0;
-
-                    // 4. Create DateTime versions of the Period dates for the PurchaseOrder query
-                    DateTime periodPoStart = period.StartDate.ToDateTime(TimeOnly.MinValue);
-                    DateTime periodPoEnd = period.EndDate.ToDateTime(TimeOnly.MaxValue);
-
-                    // 5. GLTransactions uses DateOnly -> Compare to period.StartDate
-                    decimal pActual = await ctx.GLTransactions
-                        .Where(t => t.CompanyId == companyId
-                                 && t.SegCoaId == line.GlAccountId
-                                 && t.PostingDate >= period.StartDate
-                                 && t.PostingDate <= period.EndDate)
-                        .SumAsync(t => t.Debit - t.Credit);
-
-                    decimal pEncumbered = 0;
-                    if (relevantItemIds.Any())
-                    {
-                        // 6. PurchaseOrders uses DateTime -> Compare to periodPoStart
-                        pEncumbered = await ctx.PurchaseOrders
-                            .Where(p => p.CompanyId == companyId
-                                        && (p.Status == PurchaseOrderStatus.Open || p.Status == PurchaseOrderStatus.PartiallyReceived)
-                                        && !p.IsInvoicePosted
-                                        && p.OrderDate >= periodPoStart
-                                        && p.OrderDate <= periodPoEnd)
-                            .SelectMany(p => p.Lines)
-                            .Where(l => relevantItemIds.Contains(l.ItemId))
-                            .SumAsync(l => l.QuantityOrdered * l.UnitCost);
-                    }
-
-                    decimal pCommitted = pActual + pEncumbered;
-                    decimal pBudgetVariance = periodLimit - pCommitted;
-                    decimal pForecastVariance = periodForecast - pCommitted;
-                    decimal pPercent = periodLimit > 0 ? (pCommitted / periodLimit) * 100 : 0;
-
-                    report.Rows.Add(new List<string>
-                {
-                    "",
-                    $" ↳ {period.PeriodName}",
-                    periodLimit.ToString("N2"),
-                    periodForecast.ToString("N2"),
-                    pActual.ToString("N2"),
-                    pEncumbered.ToString("N2"),
-                    pCommitted.ToString("N2"),
-                    pBudgetVariance.ToString("N2"),
-                    pForecastVariance.ToString("N2"),
-                    $"{pPercent:N1}%"
-                });
-                }
-
-                grandBudget += targetLimit;
-                grandForecast += targetForecast;
-                grandActuals += actualSpent;
-                grandEncumbered += encumberedAmount;
-                grandCommitted += totalCommitted;
-            }
-
-            decimal grandPercent = grandBudget > 0 ? (grandCommitted / grandBudget) * 100 : 0;
-
-            report.Rows.Add(new List<string>
-        {
-            "TOTALS",
-            "COMPANY WIDE",
-            grandBudget.ToString("N2"),
-            grandForecast.ToString("N2"),
-            grandActuals.ToString("N2"),
-            grandEncumbered.ToString("N2"),
-            grandCommitted.ToString("N2"),
-            (grandBudget - grandCommitted).ToString("N2"),
-            (grandForecast - grandCommitted).ToString("N2"),
-            $"{grandPercent:N1}%"
-        });
-
+            report.Rows.Add(Row("TOTALS", "COMPANY WIDE", totalBudget, totalForecast, totalActual, totalEncumbered));
             return report;
         }
     }

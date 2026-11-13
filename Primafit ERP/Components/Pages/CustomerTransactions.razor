@@ -1,4 +1,4 @@
-﻿@page "/reports/customer-transactions"
+@page "/reports/customer-transactions"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -10,6 +10,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6 space-y-4">
@@ -24,11 +25,11 @@
         </button>
     </div>
 
-    <ReportViewer @key="reportKey"
+    <ReportViewer PermissionKey="SALES_REPORTS_PAGE" @key="reportKey"
                   CompanyId="companyId"
                   Title="Customer Transaction Report"
                   Description="Detailed breakdown of items purchased and amounts paid by customers."
-                  ShowAsOfDate="false"
+                  ShowDateRange="true" ShowAsOfDate="false"
                   FetchData="GetData" />
 </div>
 

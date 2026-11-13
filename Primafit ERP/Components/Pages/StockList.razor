@@ -12,6 +12,7 @@
 @inject CompanyApiService CompanyService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">

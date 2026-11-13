@@ -1,0 +1,120 @@
+@page "/setup/custom-fields"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@rendermode InteractiveServer
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@inject CustomFieldService FieldsService
+@inject AuthenticationStateProvider Authentication
+@inject UserManager<ApplicationUser> Users
+@inject PermissionCacheService Permissions
+@inject NavigationManager Navigation
+
+<div class="udf-workspace">
+    <div class="udf-heading"><div><h1>Custom fields</h1><p>Configure additional information for documents and master records.</p></div><a href="/reports/custom-fields">Custom Field Register</a></div>
+    @if (!string.IsNullOrEmpty(message)) { <div class="@(hasError ? "udf-error" : "udf-success")" role="status">@message</div> }
+    @if (company != Guid.Empty && scopes.Count > 0)
+    {
+        <div class="udf-toolbar"><label>Record and field location<select aria-label="Record and field location" value="@scope" @onchange="ChangeScope">@foreach (var s in scopes) { <option value="@s">@CustomFieldService.Module(s) / @CustomFieldService.ScopeLabel(s)</option> }</select></label><button type="button" class="udf-button udf-primary" @onclick="NewField">New field</button></div>
+        <div class="udf-setup-layout">
+            <div class="udf-section"><h2>Configured fields</h2>
+                @if (definitions.Count == 0) { <p class="udf-help">No fields configured for this location.</p> }
+                @foreach (var field in definitions)
+                {
+                    var rev = field.Revisions.Single(x => x.RevisionNumber == field.CurrentRevision);
+                    <button type="button" class="udf-definition" @onclick="() => Edit(field)"><strong>@rev.Label</strong><span>@field.Code · @field.DataType</span><span>@(field.IsActive ? "Active" : "Inactive") · @(rev.Required ? "Required" : "Optional") · Revision @field.CurrentRevision</span></button>
+                }
+            </div>
+            @if (edit != null)
+            {
+                <div class="udf-section"><h2>@(isNew ? "New field" : "Field settings")</h2>
+                    <div class="udf-grid">
+                        <label>Field label<input @bind="edit.Revision.Label" maxlength="100" /></label>
+                        <label>Stable code<input @bind="edit.Definition.Code" disabled="@(!isNew)" maxlength="60" placeholder="DELIVERY_ZONE" /></label>
+                        <label>Field type<select @bind="edit.Definition.DataType" disabled="@(!isNew)">@foreach (var type in Enum.GetValues<CustomFieldDataType>()) { <option value="@type">@type</option> }</select></label>
+                        <label>Section<input @bind="edit.Revision.Section" maxlength="80" /></label>
+                        <label>Display order<input type="number" @bind="edit.Revision.DisplayOrder" /></label>
+                        <label>Help text<input @bind="edit.Revision.HelpText" maxlength="300" /></label>
+                        @if (edit.Definition.DataType is CustomFieldDataType.ShortText or CustomFieldDataType.LongText) { <label>Maximum characters<input type="number" min="1" max="4000" @bind="edit.Revision.MaxLength" /></label> }
+                        @if (edit.Definition.DataType == CustomFieldDataType.Decimal)
+                        {
+                            <label>Decimal places<input type="number" min="0" max="4" @bind="edit.Revision.DecimalPlaces" /></label><label>Minimum<input type="number" step="0.0001" @bind="edit.Revision.Minimum" /></label><label>Maximum<input type="number" step="0.0001" @bind="edit.Revision.Maximum" /></label>
+                        }
+                    </div>
+                    @if (edit.Definition.DataType == CustomFieldDataType.SingleSelect)
+                    {
+                        <div class="udf-options"><h3>Dropdown choices</h3>
+                        @foreach (var option in edit.Options)
+                        { <div class="udf-option-row" @key="option.Id"><input aria-label="Choice label" @bind="option.Label" maxlength="100" /><label class="udf-check"><input type="checkbox" @bind="option.IsActive" />Active</label></div> }
+                        <button type="button" class="udf-button" @onclick="AddOption">Add choice</button></div>
+                    }
+                    <div class="udf-grid">
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Definition.IsActive" />Active</label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.Required" />@(scope is CustomFieldScope.Customer or CustomFieldScope.Vendor or CustomFieldScope.Item ? "Required on save" : "Required on submission")</label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IncludeInExports" />Include in exports</label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsReportable" />Available as report column</label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsFilterable" />Allow report filtering</label>
+                    </div>
+                    <details class="udf-preview"><summary>Field preview</summary><label>@edit.Revision.Label @(edit.Revision.Required ? "*" : "")
+                        @switch (edit.Definition.DataType)
+                        {
+                            case CustomFieldDataType.SingleSelect: <select aria-label="Preview dropdown"><option>Select a choice</option>@foreach (var option in edit.Options.Where(x => x.IsActive)) { <option>@option.Label</option> }</select> break;
+                            case CustomFieldDataType.Boolean: <select aria-label="Preview yes/no"><option>Select an answer</option><option>Yes</option><option>No</option></select> break;
+                            case CustomFieldDataType.LongText: <textarea rows="2" aria-label="Preview long text"></textarea> break;
+                            default: <input type="@(edit.Definition.DataType == CustomFieldDataType.Date ? "date" : edit.Definition.DataType == CustomFieldDataType.Decimal ? "number" : "text")" aria-label="Preview field" /> break;
+                        }
+                        <span class="udf-help">@edit.Revision.HelpText</span></label></details>
+                    <div class="udf-actions"><button type="button" class="udf-button" @onclick="() => edit = null">Cancel</button><button type="button" class="udf-button udf-primary" disabled="@busy" @onclick="Publish">@(busy ? "Publishing…" : "Publish field")</button></div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleFilter { get; set; }
+    private Guid company;
+    private CustomFieldScope scope;
+    private List<CustomFieldScope> scopes = new();
+    private List<CustomFieldDefinition> definitions = new();
+    private CustomFieldDefinitionEdit? edit;
+    private bool busy, isNew, hasError;
+    private string message = "";
+    private string appliedModule = "";
+    private bool initialized;
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await Users.GetUserAsync((await Authentication.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId == null) { Navigation.NavigateTo("/access-denied"); return; }
+        company = user.CompanyDetailsId.Value; await Permissions.LoadAsync(user.Id, company);
+        if (!Permissions.Has("CUSTOM_FIELDS_SETUP")) { Navigation.NavigateTo("/access-denied"); return; }
+        scopes = Enum.GetValues<CustomFieldScope>().Where(x => Permissions.Has(CustomFieldService.ViewPermission(x)) && (string.IsNullOrEmpty(ModuleFilter) || CustomFieldService.Module(x).Equals(ModuleFilter, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (scopes.Count == 0) { Navigation.NavigateTo("/access-denied"); return; }
+        scope = scopes[0]; await Load(); appliedModule = ModuleFilter ?? ""; initialized = true;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!initialized || appliedModule == (ModuleFilter ?? "")) return;
+        appliedModule = ModuleFilter ?? "";
+        scopes = Enum.GetValues<CustomFieldScope>().Where(x => Permissions.Has(CustomFieldService.ViewPermission(x)) && (appliedModule.Length == 0 || CustomFieldService.Module(x).Equals(appliedModule, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (scopes.Count == 0) { Navigation.NavigateTo("/access-denied"); return; }
+        scope = scopes[0]; message = ""; await Load();
+    }
+    private async Task Load() { edit = null; try { definitions = await FieldsService.GetDefinitionsAsync(company, scope); } catch (UnauthorizedAccessException) { Navigation.NavigateTo("/access-denied"); } }
+    private async Task ChangeScope(ChangeEventArgs e) { if (Enum.TryParse<CustomFieldScope>(e.Value?.ToString(), out var value) && scopes.Contains(value)) { scope = value; message = ""; await Load(); } }
+    private void NewField() { isNew = true; message = ""; edit = new() { Definition = new() { CompanyId = company, Scope = scope }, Revision = new() { DisplayOrder = definitions.Count + 1 } }; }
+    private void Edit(CustomFieldDefinition d)
+    {
+        isNew = false; message = "";
+        edit = System.Text.Json.JsonSerializer.Deserialize<CustomFieldDefinitionEdit>(System.Text.Json.JsonSerializer.Serialize(new CustomFieldDefinitionEdit { Definition = d, Revision = d.Revisions.Single(x => x.RevisionNumber == d.CurrentRevision), Options = d.Options.OrderBy(x => x.DisplayOrder).ToList() }));
+    }
+    private void AddOption() { if (edit != null) edit.Options.Add(new() { DisplayOrder = edit.Options.Count }); }
+    private async Task Publish()
+    {
+        if (edit == null || busy) return; busy = true;
+        try { var error = await FieldsService.PublishAsync(company, scope, edit); hasError = error.Length > 0; message = hasError ? error : "Field published. New edits use this configuration; saved historical values are retained."; if (!hasError) await Load(); }
+        catch (UnauthorizedAccessException) { hasError = true; message = "You do not have permission to configure these fields."; }
+        finally { busy = false; }
+    }
+}

@@ -1,4 +1,4 @@
-﻿@page "/reports/balance-sheet"
+@page "/reports/balance-sheet"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -10,11 +10,12 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId" Title="Balance Sheet"
+    <ReportViewer PermissionKey="FINANCE_REPORTS_PAGE" CompanyId="companyId" Title="Balance Sheet"
                   Description="Snapshot of Assets, Liabilities, and Equity."
                   ShowAsOfDate="true"
                   FetchData="GetData" />

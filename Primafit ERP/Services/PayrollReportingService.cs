@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
@@ -19,14 +19,14 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var items = await ctx.PayrollItems
                 .Include(i => i.Employee)
-                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId && i.PAYETax > 0)
+                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId && i.PayrollRun!.CompanyId == companyId && i.PayrollRun.Status != PayrollRunStatus.Draft && i.PAYETax > 0)
                 .AsNoTracking()
                 .ToListAsync();
 
             return items.Select(i => new PayeScheduleRow
             {
                 EmployeeName = $"{i.Employee!.FirstName} {i.Employee.LastName}",
-                TaxId = "TIN-PENDING", // In reality, add TIN to Employee model
+                TaxId = i.Employee.TaxIdentificationNumber?.Trim() ?? "",
                 GrossPay = i.GrossPay + i.OtherEarnings,
                 PensionDeducted = i.EmployeePension,
                 PayeDeducted = i.PAYETax
@@ -38,7 +38,7 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var items = await ctx.PayrollItems
                 .Include(i => i.Employee)
-                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId && (i.EmployeePension > 0 || i.EmployerPension > 0))
+                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId && i.PayrollRun!.CompanyId == companyId && i.PayrollRun.Status != PayrollRunStatus.Draft && (i.EmployeePension > 0 || i.EmployerPension > 0))
                 .AsNoTracking()
                 .ToListAsync();
 
@@ -57,11 +57,11 @@ namespace Primafit_ERP.Services
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var items = await ctx.PayrollItems
                 .Include(i => i.Employee).ThenInclude(e => e!.Branch)
-                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId)
+                .Where(i => i.PayrollRunId == runId && i.Employee!.CompanyId == companyId && i.PayrollRun!.CompanyId == companyId && i.PayrollRun.Status != PayrollRunStatus.Draft)
                 .AsNoTracking()
                 .ToListAsync();
 
-            return items.GroupBy(i => i.Employee!.Branch!.Name)
+            return items.GroupBy(i => i.Employee!.Branch?.Name ?? "Unassigned branch")
                 .Select(g => new PayrollSummaryRow
                 {
                     BranchName = g.Key,
@@ -79,7 +79,9 @@ namespace Primafit_ERP.Services
             using var workbook = new XLWorkbook();
             var ws = workbook.Worksheets.Add(sheetName);
 
-            if (!data.Any()) return Array.Empty<byte>();
+            var taxProperty = typeof(T).GetProperty("TaxId");
+            if (taxProperty != null && data.Any(x => string.IsNullOrWhiteSpace(taxProperty.GetValue(x)?.ToString())))
+                throw new ArgumentException("Enter the missing employee Tax IDs in Employee Directory before exporting this tax schedule.");
 
             // Auto-generate headers based on properties
             var properties = typeof(T).GetProperties();
@@ -103,8 +105,9 @@ namespace Primafit_ERP.Services
                     if (val is decimal d)
                     {
                         ws.Cell(row, i + 1).Value = d;
-                        ws.Cell(row, i + 1).Style.NumberFormat.Format = "#,##0.00";
+                        ws.Cell(row, i + 1).Style.NumberFormat.Format = "#,##0.0000";
                     }
+                    else if (val is int count) ws.Cell(row, i + 1).Value = count;
                     else
                     {
                         ws.Cell(row, i + 1).Value = val?.ToString();
@@ -134,25 +137,28 @@ namespace Primafit_ERP.Services
 
             // Find the immediately preceding run based on RunDate
             var previousRun = await ctx.PayrollRuns
-                .Include(r => r.PayrollItems)
+                .Include(r => r.PayrollItems).ThenInclude(i => i.Employee)
                 .AsNoTracking()
-                .Where(r => r.CompanyId == companyId && r.RunDate < currentRun.RunDate)
+                .Where(r => r.CompanyId == companyId && r.RunDate < currentRun.RunDate && r.Status != PayrollRunStatus.Draft)
                 .OrderByDescending(r => r.RunDate)
                 .FirstOrDefaultAsync();
 
             var varianceList = new List<PayrollVarianceRow>();
 
-            foreach (var currentItem in currentRun.PayrollItems)
+            var current = currentRun.PayrollItems.ToDictionary(x => x.EmployeeId);
+            var previous = previousRun?.PayrollItems.ToDictionary(x => x.EmployeeId) ?? new Dictionary<Guid, PayrollItem>();
+            foreach (var employeeId in current.Keys.Union(previous.Keys))
             {
-                var prevItem = previousRun?.PayrollItems.FirstOrDefault(i => i.EmployeeId == currentItem.EmployeeId);
-
+                var currentItem = current.GetValueOrDefault(employeeId);
+                var prevItem = previous.GetValueOrDefault(employeeId);
+                var employee = currentItem?.Employee ?? prevItem?.Employee;
                 varianceList.Add(new PayrollVarianceRow
                 {
-                    EmployeeName = $"{currentItem.Employee!.FirstName} {currentItem.Employee.LastName}",
-                    CurrentGross = currentItem.GrossPay + currentItem.OtherEarnings,
-                    CurrentNet = currentItem.NetPay,
-                    PreviousGross = prevItem != null ? (prevItem.GrossPay + prevItem.OtherEarnings) : 0,
-                    PreviousNet = prevItem != null ? prevItem.NetPay : 0
+                    EmployeeName = $"{employee?.FirstName} {employee?.LastName}",
+                    CurrentGross = (currentItem?.GrossPay ?? 0) + (currentItem?.OtherEarnings ?? 0),
+                    CurrentNet = currentItem?.NetPay ?? 0,
+                    PreviousGross = (prevItem?.GrossPay ?? 0) + (prevItem?.OtherEarnings ?? 0),
+                    PreviousNet = prevItem?.NetPay ?? 0
                 });
             }
 
@@ -182,8 +188,8 @@ namespace Primafit_ERP.Services
                 .Select(g => new YtdTaxReportRow
                 {
                     EmployeeName = $"{g.First().Employee!.FirstName} {g.First().Employee!.LastName}",
-                    TaxId = "TIN-PENDING",
-                    MonthsWorked = g.Count(),
+                    TaxId = g.First().Employee!.TaxIdentificationNumber?.Trim() ?? "",
+                    MonthsWorked = g.Select(x => new { x.PayrollRun!.RunDate.Year, x.PayrollRun.RunDate.Month }).Distinct().Count(),
                     TotalGross = g.Sum(i => i.GrossPay + i.OtherEarnings),
                     TotalPension = g.Sum(i => i.EmployeePension), // Employee portion for H1
                     TotalPAYE = g.Sum(i => i.PAYETax),

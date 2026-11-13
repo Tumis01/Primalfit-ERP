@@ -8,7 +8,8 @@ namespace PrimafitERP.Data
 {
     public class AppDbContext : IdentityDbContext<ApplicationUser, ApplicationRole, string>
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+        public AppDbContext(DbContextOptions<AppDbContext> options, Primafit_ERP.Services.CustomFieldWriteSession? customFields = null) : base(options) { CustomFieldWrites = customFields; }
+        public Primafit_ERP.Services.CustomFieldWriteSession? CustomFieldWrites { get; }
 
         // --- MASTER DATA ---
         public DbSet<CompanyDetails> CompanyDetails { get; set; }
@@ -125,6 +126,8 @@ namespace PrimafitERP.Data
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+            CustomFieldMapping.Configure(builder);
+            TransactionCustomFieldModel.Configure(builder);
 
             foreach (var property in builder.Model.GetEntityTypes()
                 .SelectMany(t => t.GetProperties())
@@ -146,8 +149,8 @@ namespace PrimafitERP.Data
             // balance, report, or availability query. Null batch IDs are kept
             // visible for historical ledger rows created before GL linking.
             builder.Entity<StockLedger>().HasQueryFilter(x =>
-                x.GLBatchId == null || GLBatches.Any(batch => batch.Id == x.GLBatchId
-                    && batch.CompanyId == x.CompanyId && batch.Status == BatchStatus.Posted));
+                x.GLBatchId == null || x.CommittedAt.HasValue || GLBatches.Any(batch => batch.Id == x.GLBatchId
+                    && batch.CompanyId == x.CompanyId && (batch.Status == BatchStatus.Posted || (x.ValueChanged == null && batch.PostedAt.HasValue))));
 
             builder.Entity<UomConversionRule>()
                 .HasIndex(x => new { x.CompanyId, x.FromUomId, x.ToUomId })
@@ -729,31 +732,39 @@ namespace PrimafitERP.Data
 
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
+            TransactionCustomFieldPersistence.PrepareAsync(this).GetAwaiter().GetResult();
+            CustomFieldPersistence.ValidateAsync(this).GetAwaiter().GetResult();
+            StockValueSnapshots.Capture(this);
             DimensionPersistence.ValidateAsync(this).GetAwaiter().GetResult();
             BlockSegAccountTypeChanges();
             TrackDeletedDraftNumbers();
             var locks = ReleasedNumberLocks();
-            if (locks.Count == 0) return base.SaveChanges(acceptAllChangesOnSuccess);
+            if (locks.Count == 0) { var saved = base.SaveChanges(acceptAllChangesOnSuccess); CustomFieldWrites?.Saved(this); return saved; }
             using var transaction = Database.CurrentTransaction == null ? Database.BeginTransaction() : null;
             foreach (var resource in locks)
                 Database.ExecuteSqlInterpolated($"DECLARE @result int; EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000; IF @result < 0 THROW 51000, 'Document numbering is busy. Please try again.', 1;");
             var count = base.SaveChanges(acceptAllChangesOnSuccess);
             transaction?.Commit();
+            CustomFieldWrites?.Saved(this);
             return count;
         }
 
         public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
+            await TransactionCustomFieldPersistence.PrepareAsync(this, cancellationToken);
+            await CustomFieldPersistence.ValidateAsync(this, cancellationToken);
+            StockValueSnapshots.Capture(this);
             await DimensionPersistence.ValidateAsync(this, cancellationToken);
             BlockSegAccountTypeChanges();
             TrackDeletedDraftNumbers();
             var locks = ReleasedNumberLocks();
-            if (locks.Count == 0) return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            if (locks.Count == 0) { var saved = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken); CustomFieldWrites?.Saved(this); return saved; }
             await using var transaction = Database.CurrentTransaction == null ? await Database.BeginTransactionAsync(cancellationToken) : null;
             foreach (var resource in locks)
                 await Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000; IF @result < 0 THROW 51000, 'Document numbering is busy. Please try again.', 1;", cancellationToken);
             var count = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
             if (transaction != null) await transaction.CommitAsync(cancellationToken);
+            CustomFieldWrites?.Saved(this);
             return count;
         }
 

@@ -1,3 +1,4 @@
+﻿@using Primafit_ERP.Components.Pages
 @inherits LayoutComponentBase
 @using Microsoft.AspNetCore.Components.Routing
 @implements IDisposable
@@ -137,7 +138,8 @@
                                             @if (_financeSetupOpen)
                                             {
                                                 <div class="space-y-0.5 mb-2">
-                                                    <NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
+                                                    <PermissionGate Key="CUSTOM_FIELDS_SETUP"><NavLink href="/setup/custom-fields?module=Finance" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Fields</NavLink></PermissionGate>
+<NavLink href="/seg-account-types" class="@NestedNavLink" activeClass="@NestedNavActive">Account Types</NavLink>
                                                     <NavLink href="/finance/segments-setup" class="@NestedNavLink" activeClass="@NestedNavActive">Segments</NavLink>
                                                     <NavLink href="/finance/segmented-coa" class="@NestedNavLink" activeClass="@NestedNavActive">Chart of Accounts</NavLink>
                                                 </div>
@@ -180,7 +182,8 @@
                                             @if (_financeReportOpen)
                                             {
                                                 <div class="space-y-0.5 mb-2">
-                                                    <NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
+                                                    <PermissionGate Key="CUSTOM_FIELDS_REPORTS"><NavLink href="/reports/custom-fields?module=Finance" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Field Register</NavLink></PermissionGate>
+<NavLink href="reports/general-ledger" class="@NestedNavLink" activeClass="@NestedNavActive">Ledger Report</NavLink>
                                                     <NavLink href="reports/trial-balance" class="@NestedNavLink" activeClass="@NestedNavActive">Trial Balance</NavLink>
                                                     <NavLink href="reports/profit-and-loss" class="@NestedNavLink" activeClass="@NestedNavActive">Profit & Loss</NavLink>
                                                     <NavLink href="reports/balance-sheet" class="@NestedNavLink" activeClass="@NestedNavActive">Balance Sheet</NavLink>
@@ -229,6 +232,7 @@
                                         <NavLink href="/ar/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="md/customer-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Groups</NavLink>
                                             <NavLink href="md/customers" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Setup</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_SETUP"><NavLink href="/setup/custom-fields?module=Sales" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Fields</NavLink></PermissionGate>
                                         </div>
                                     }
 
@@ -264,6 +268,7 @@
                                                     <NavLink href="reports/ar-age-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Age Analysis</NavLink>
                                                     <NavLink href="reports/sales-analysis" class="@NestedNavLink" activeClass="@NestedNavActive">Sales Analysis</NavLink>
                                                     <NavLink href="reports/customer-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Customer Statement</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_REPORTS"><NavLink href="/reports/custom-fields?module=Sales" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Field Register</NavLink></PermissionGate>
                                                 </div>
 
                                         </PermissionGate>
@@ -305,6 +310,7 @@
                                         <NavLink href="/ap/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                         <NavLink href="md/vendor-groups" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Groups</NavLink>
                                             <NavLink href="md/vendors" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Setup</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_SETUP"><NavLink href="/setup/custom-fields?module=Purchasing" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Fields</NavLink></PermissionGate>
                                         </div>
                                     }
 
@@ -341,6 +347,7 @@
                                                     <NavLink href="/reports/po-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Aging Report</NavLink>
                                                     <NavLink href="/reports/purchase-spend-by-vendor" class="@NestedNavLink" activeClass="@NestedNavActive">Purchase By Vendor</NavLink>
                                                     <NavLink href="reports/vendor-statement" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Statement</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_REPORTS"><NavLink href="/reports/custom-fields?module=Purchasing" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Field Register</NavLink></PermissionGate>
                                                     <NavLink href="/reports/vendor-payment-history" class="@NestedNavLink" activeClass="@NestedNavActive">Vendor Payment History</NavLink>
                                             <NavLink href="/reports/grn-log" class="@NestedNavLink" activeClass="@NestedNavActive">Goods Receipt Log</NavLink>
                                                 </div>
@@ -382,6 +389,7 @@
                                         <div class="space-y-0.5 mb-2">
                                             <NavLink href="/inventory/defaults" class="@NestedNavLink" activeClass="@NestedNavActive">Defaults</NavLink>
                                             <NavLink href="sc/items" class="@NestedNavLink" activeClass="@NestedNavActive">Items & Services</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_SETUP"><NavLink href="/setup/custom-fields?module=Inventory" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Fields</NavLink></PermissionGate>
                                             <NavLink href="/sc/item-categories" class="@NestedNavLink" activeClass="@NestedNavActive">Item Category</NavLink>
                                             <NavLink href="sc/uom" class="@NestedNavLink" activeClass="@NestedNavActive">Units of Measure</NavLink>
                                             <NavLink href="warehouses" class="@NestedNavLink" activeClass="@NestedNavActive">Warehouses</NavLink>
@@ -414,6 +422,7 @@
                                                     <NavLink href="reports/stock-by-uom" class="@NestedNavLink" activeClass="@NestedNavActive">Stock by UOM</NavLink>
                                                     <NavLink href="reports/inventory-valuation" class="@NestedNavLink" activeClass="@NestedNavActive">Inventory Valuation</NavLink>
                                                     <NavLink href="reports/stock-aging" class="@NestedNavLink" activeClass="@NestedNavActive">Stock Aging</NavLink>
+                                            <PermissionGate Key="CUSTOM_FIELDS_REPORTS"><NavLink href="/reports/custom-fields?module=Inventory" class="@NestedNavLink" activeClass="@NestedNavActive">Custom Field Register</NavLink></PermissionGate>
                                                 </div>
 
                                         </PermissionGate>
@@ -449,6 +458,7 @@
                                     <NavLink href="/dimensions/setup/dimensions" Match="NavLinkMatch.All" class="@NestedNavLink" activeClass="@NestedNavActive">Dimensions</NavLink>
                                 </div>
                             }
+                            <PermissionGate Key="FINANCE_REPORTS_PAGE"><Authorized>
                             <button @onclick="ToggleProjectsReport" class="@SubNavFolderBase">
                                 <span>Reports</span>
                                 <svg class="h-3 w-3 text-slate-400 @(_projectsReportOpen ? "rotate-90" : "")" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
@@ -461,6 +471,7 @@
                                     <NavLink href="/dimensions/reports/general-ledger" Match="NavLinkMatch.All" class="@NestedNavLink" activeClass="@NestedNavActive">General Ledger</NavLink>
                                 </div>
                             }
+                            </Authorized></PermissionGate>
                         </div>
                     </div>
                 }
@@ -593,6 +604,8 @@
                 <div class="relative pl-4 animate-in slide-in-from-left-2 duration-300">
                     <div class="absolute left-[22px] top-0 bottom-2 w-px bg-slate-200"></div>
                     <div class="space-y-1 pt-1">
+                        @* <PermissionGate Key="CUSTOM_FIELDS_SETUP"><NavLink href="/setup/custom-fields" class="@SubNavBase" activeClass="@SubNavActive">Custom Fields</NavLink></PermissionGate>
+                        <PermissionGate Key="CUSTOM_FIELDS_REPORTS"><NavLink href="/reports/custom-fields" class="@SubNavBase" activeClass="@SubNavActive">Custom Field Register</NavLink></PermissionGate> *@
                         <NavLink href="/companydetails" class="@SubNavBase" activeClass="@SubNavActive">
                             <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Company Details
                         </NavLink>

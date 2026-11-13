@@ -17,6 +17,7 @@
 @inject ReportExportService ExportService
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12 mt-6">
@@ -222,22 +223,7 @@
             .ToDictionaryAsync(x => x.Id, x => x.Name);
         var warehouseMap = warehouses.ToDictionary(x => x.Id, x => x.Name);
 
-        var stockQuery = ctx.StockLedgers
-            .AsNoTracking()
-            .Where(x => x.CompanyId == companyId);
-        if (selectedWarehouseId.HasValue)
-            stockQuery = stockQuery.Where(x => x.WarehouseId == selectedWarehouseId.Value);
-
-        var stock = await stockQuery
-            .GroupBy(x => new { x.ItemId, x.WarehouseId })
-            .Select(g => new
-            {
-                ItemId = g.Key.ItemId,
-                WarehouseId = g.Key.WarehouseId,
-                Quantity = g.Sum(x => x.QuantityChanged)
-            })
-            .Where(x => x.Quantity != 0)
-            .ToListAsync();
+        var stock = await InventoryBookValueService.GetAsync(ctx, companyId, DateOnly.FromDateTime(DateTime.Today), selectedWarehouseId);
 
         totalStockValue = 0m;
         groups = new List<StockUomGroup>();
@@ -252,8 +238,8 @@
 
             // CurrentDisplayCost resolves WACC, standard, user-specified, and
             // most-recent costing according to the item's configured method.
-            var baseUnitCost = item.CurrentDisplayCost;
-            var stockValue = position.Quantity * baseUnitCost;
+            var baseUnitCost = position.UnitCost;
+            var stockValue = position.Value;
             totalStockValue += stockValue;
 
             var lines = options.Select(option => new StockUomLine

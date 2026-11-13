@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject CustomFieldWriteSession CustomFieldWrites
 @page "/sc/stock-entry"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -303,12 +305,12 @@
                             <h3 class="text-sm font-black uppercase tracking-wide text-slate-700">Entry Lines</h3>
                             <span class="text-xs font-bold text-slate-500">@entryLines.Count item(s)</span>
                         </div>
-                        <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left">
-                            <thead class="text-[10px] uppercase text-slate-500 bg-white border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3 text-right">Value</th><th class="p-3">Dimensions</th><th class="p-3"></th></tr></thead>
+                        <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.StockEntryHeader" OwnerId="customFieldId" />@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error">@customFieldError</div> }<table class="transaction-lines w-full text-sm text-left">
+                            <thead class="text-[10px] uppercase text-slate-500 bg-white border-b"><tr><th class="p-3">Item</th><th class="p-3 text-right">Quantity</th><th class="p-3 text-right">Value</th><th class="p-3">Dimensions</th><th class="p-3"></th><th class="p-3 udf-column">Custom fields</th></tr></thead>
                             <tbody class="divide-y divide-slate-100">
                                 @foreach (var line in entryLines)
                                 {
-                                    <tr class="@(ReferenceEquals(editingStockLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3 text-right font-mono">@line.TotalValueChange.ToString("N2")</td><td class="p-3 text-xs"><DimensionDisplay CompanyId="@selectedCompanyId" Value="@line.DimensionSetId" /></td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditStockLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveStockLine(line)" class="text-rose-600 font-bold">Remove</button></td></tr>
+                                    <tr class="@(ReferenceEquals(editingStockLine, line) ? "bg-indigo-50" : "")"><td class="p-3 font-semibold">@GetItemName(line.ItemId)</td><td class="p-3 text-right font-mono">@line.QuantityInUom.ToString("N4") @line.UomName</td><td class="p-3 text-right font-mono">@line.TotalValueChange.ToString("N2")</td><td class="p-3 text-xs"><DimensionDisplay CompanyId="@selectedCompanyId" Value="@line.DimensionSetId" /></td><td class="p-3 text-right whitespace-nowrap"><button type="button" @onclick="() => EditStockLine(line)" class="text-indigo-600 font-bold mr-3">Edit</button><button type="button" @onclick="() => RemoveStockLine(line)" class="text-rose-600 font-bold">Remove</button></td><td class="p-3 udf-column"><TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.StockEntryLine" OwnerId="line.Id" Inline="true" /></td></tr>
                                 }
                                 @if (entryLines.Count == 0)
                                 {
@@ -382,6 +384,14 @@
 </style>
 
 @code {
+    private Guid customFieldId = Guid.NewGuid();
+    private string customFieldError = "";
+    private async Task ProcessEntry()
+    {
+        try { using var edit = CustomFieldWrites.BeginRegistered(selectedCompanyId, CustomFieldScope.StockEntryHeader, CustomFieldScope.StockEntryLine); await ProcessEntryCore(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+    }
+
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
     private bool HasCompany => selectedCompanyId != Guid.Empty;
@@ -670,6 +680,7 @@
         var uomName = IsServiceItem ? string.Empty : (GetItemUoms(SelectedItem).FirstOrDefault(x => x.Id == selectedUomId)?.Name ?? SelectedItem?.UoM ?? "Each");
         var updatedLine = new StockEntryBatchLineDto
         {
+            Id = editingStockLine?.Id ?? Guid.NewGuid(),
             ItemId = selectedItemId,
             WarehouseId = IsServiceItem ? Guid.Empty : selectedWarehouseId,
             Quantity = baseQuantity,
@@ -735,7 +746,7 @@
         ? projects.FirstOrDefault(x => x.Id == projectId)?.Name ?? "Inactive project"
         : "—";
 
-    private async Task ProcessEntry()
+    private async Task ProcessEntryCore()
     {
         if (editingStockLine is not null) { await JS.InvokeVoidAsync("alert", "Save or cancel the item line edit before submitting."); return; }
         if (entryLines.Count == 0) { await JS.InvokeVoidAsync("alert", "Add at least one item line."); return; }
@@ -750,7 +761,7 @@
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Stock entry submitted for GL review.");
-                entryLines.Clear();
+                entryLines.Clear(); customFieldId = Guid.NewGuid();
                 await LoadData();
                 currentPage = 1;
                 activeTab = 0;

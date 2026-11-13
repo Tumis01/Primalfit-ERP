@@ -7,6 +7,7 @@ namespace Primafit_ERP.Components.Models
 
     public class CustomerPayment
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         [Required]

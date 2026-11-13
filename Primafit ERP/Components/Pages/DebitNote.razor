@@ -1,3 +1,4 @@
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/ap/debit-note"
 @page "/ap/debit-note/entry/{Id:guid?}"
 
@@ -374,16 +375,18 @@
                         </div>
 
                         <div class="overflow-x-auto flex-1 p-6">
-                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+                            <TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.DebitNoteHeader" OwnerId="@(currentDebitNote.Id)" ReadOnly="@(IsLocked)" />
+                @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                 <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
-                                    <tr>
+                                    <tr class="udf-column-groups"><th colspan="6">Transaction details</th><th class="udf-dimension-column">Dimensions</th><th class="udf-column">Custom fields</th></tr><tr>
                                         <th class="px-4 py-3">Invoice Item</th>
                                         <th class="px-4 py-3 text-center">UOM</th>
                                         <th class="px-4 py-3 text-center">Billed Qty</th>
                                         <th class="px-4 py-3 text-center text-amber-600">Available Qty</th>
                                         <th class="px-4 py-3 text-right">Unit Cost (@(currentDebitNote.Currency?.CurrencyCode ?? "BASE"))</th>
                                         <th class="px-4 py-3 text-right w-36">Reverse Qty</th>
-                                    <th class="p-3">Dimensions</th></tr>
+                                    <th data-udf-dim="true" class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in currentDebitNote.Lines)
@@ -410,7 +413,7 @@
                                                        placeholder="0.0000"
                                                        class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 appearance-none outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                             </td>
-                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentDebitNote.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentDebitNote.Status != DebitNoteStatus.Draft)" /></td></tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentDebitNote.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentDebitNote.Status != DebitNoteStatus.Draft)" /></td><td class="p-3 align-top udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.DebitNoteLine" OwnerId="line.Id" ReadOnly="@(IsLocked)" Inline="true" /></td></tr>
                                     }
                                 </tbody>
                             </table></div>
@@ -608,6 +611,18 @@
 </style>
 
 @code {
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.DebitNoteHeader, CustomFieldScope.DebitNoteLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task SaveDraftWorkspace() => RunCustomFieldSave(() => SaveDraftWorkspaceCore());
+    private Task PostStockDebitNote() => RunCustomFieldSave(() => PostStockDebitNoteCore());
+
     [Parameter] public Guid? Id { get; set; }
 
     private Guid currentCompanyId = Guid.Empty;
@@ -899,7 +914,7 @@
     private decimal GetDisplayedUnitCost(DebitNoteLineModel line) =>
         line.UnitCost * (line.UomConversionFactor > 0 ? line.UomConversionFactor : 1m);
 
-    private async Task SaveDraftWorkspace()
+    private async Task SaveDraftWorkspaceCore()
     {
         if (currentDebitNote == null || IsLocked || isBusy) return;
 
@@ -919,7 +934,7 @@
         }
     }
 
-    private async Task PostStockDebitNote()
+    private async Task PostStockDebitNoteCore()
     {
         if (currentDebitNote == null || IsLocked || isBusy) return;
 

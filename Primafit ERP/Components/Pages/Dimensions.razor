@@ -15,11 +15,7 @@
 <PageTitle>Dimensions</PageTitle>
 <DimensionWorkspace Title="Dimensions" Description="Manage the projects, departments and other values people select on transaction lines." Section="values">
     <Actions><button class="ds-button ds-button-primary" data-dimension-primary @onclick="NewValue" disabled="@(loading || companyId == Guid.Empty || types.Count == 0 || loadError.Length > 0)"><DimensionIcon Name="plus" />New dimension</button></Actions>
-    <Summary>
-        <div><dt>Total dimensions</dt><dd>@(loading ? "—" : values.Count)</dd></div>
-        <div><dt>Active</dt><dd>@(loading ? "—" : values.Count(x => x.IsActive))</dd></div>
-        <div><dt>Dimension types</dt><dd>@(loading ? "—" : types.Count)</dd></div>
-    </Summary>
+   
     <ChildContent>
         @if (message.Length > 0) { <div class="ds-notice" role="status"><DimensionIcon Name="check" /><p>@message</p><button aria-label="Dismiss notification" @onclick='() => message = ""'><DimensionIcon Name="close" /></button></div> }
         <section class="ds-panel" aria-label="Dimensions" aria-busy="@(loading ? "true" : "false")">

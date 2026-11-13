@@ -1,4 +1,4 @@
-﻿@page "/reports/stock-aging"
+@page "/reports/stock-aging"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -10,10 +10,11 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager Nav
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer PermissionKey="INVENTORY_REPORTS_PAGE" CompanyId="companyId"
                   Title="Stock Aging Report"
                   Description="Identify slow-moving items (90+ days no movement) and calculate dead capital tied up."
                   ShowDateRange="false"

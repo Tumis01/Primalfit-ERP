@@ -7,6 +7,8 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesOrder
     {
+        [ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
+        public SalesOrderSubmissionState SubmissionState { get; set; } = SalesOrderSubmissionState.Submitted;
         public Guid? DimensionSetId { get; set; }
 
         [Key]
@@ -88,7 +90,7 @@ namespace Primafit_ERP.Components.Models
         public bool IsInvoiceDocument => IsDirectInvoice
             || InvoiceBatchId.HasValue
             || (ConvertedFromQuoteNumber != null && Status == OrderStatus.Draft)
-            || OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase);
+            || (Status is OrderStatus.Draft or OrderStatus.Invoiced && OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase));
 
         [NotMapped] public decimal NetInvoiceTotalForeign => Math.Max(0, GrandTotalForeign - CreditNoteTotal);
         [NotMapped] public decimal BalanceDueForeign => Math.Max(0, NetInvoiceTotalForeign - AmountPaid);
@@ -143,6 +145,7 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesInvoice
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]
@@ -207,6 +210,7 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesInvoiceLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]
@@ -246,6 +250,7 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesShipment
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         [Required]
@@ -276,6 +281,7 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesShipmentLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]

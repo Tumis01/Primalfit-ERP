@@ -8,10 +8,7 @@
         </div>
         <dl class="ds-summary">@Summary</dl>
     </header>
-    <nav class="ds-tabs" aria-label="Dimension setup pages">
-        <a href="/dimensions/setup/types" class="@(Section == "types" ? "ds-tab ds-tab-active" : "ds-tab")" aria-current="@(Section == "types" ? "page" : null)">Dimension Types</a>
-        <a href="/dimensions/setup/dimensions" class="@(Section == "values" ? "ds-tab ds-tab-active" : "ds-tab")" aria-current="@(Section == "values" ? "page" : null)">Dimensions</a>
-    </nav>
+    
     <div class="ds-content">@ChildContent</div>
 </div>
 @code {
@@ -22,3 +19,4 @@
     [Parameter] public RenderFragment? Summary { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 }
+ 

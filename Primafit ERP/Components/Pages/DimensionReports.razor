@@ -7,6 +7,7 @@
 @using Primafit_ERP.Services
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
+@inject PermissionCacheService PermissionCache
 @inject DimensionService Dimensions
 @inject DimensionReportService Reports
 @inject FinancialReportingService Finance
@@ -23,7 +24,7 @@
     else if (loading) { <p role="status" class="p-10 text-center text-slate-500">Loading report filters…</p> }
     else
     {
-        <ReportViewer @ref="viewer" @key="kind" CompanyId="@companyId" Title="@ReportTitle"
+        <ReportViewer PermissionKey="FINANCE_REPORTS_PAGE" @ref="viewer" @key="kind" CompanyId="@companyId" Title="@ReportTitle"
             Description="Finance & GL statements filtered by dimensions. Only posted activity is included."
             ShowDateRange="@(kind != "balance-sheet")" ShowAsOfDate="@(kind == "balance-sheet")"
             ShowCsvExport="true" ShowInitialState="true" Paginate="true" FetchData="FetchReport">
@@ -59,19 +60,24 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("FINANCE_REPORTS_PAGE")) { Navigation.NavigateTo("/access-denied"); return; }
         try {
             var user = await UserManager.GetUserAsync((await Auth.GetAuthenticationStateAsync()).User);
             companyId = user?.CompanyDetailsId ?? Guid.Empty;
             if (companyId == Guid.Empty) { loadError = "Select a company before running dimension reports."; return; }
             types = await Dimensions.GetTypesAsync(companyId);
             values = await Dimensions.GetValuesAsync(companyId);
+            ApplyInitialFilter();
         } catch (Exception ex) { Logger.LogError(ex, "Could not load dimension report filters"); loadError = "Report filters could not be loaded. Refresh to try again."; }
         finally { loading = false; }
     }
     protected override void OnParametersSet()
     {
         kind = ReportKind is "profit-and-loss" or "balance-sheet" ? ReportKind : "general-ledger";
-        if (InitialValueId != appliedInitialValue) {
+        ApplyInitialFilter();
+    }
+    private void ApplyInitialFilter() {
+        if (values.Count > 0 && InitialValueId != appliedInitialValue) {
             if (values.FirstOrDefault(x => x.Id == InitialValueId) is { } initial) { filters[initial.DimensionTypeId] = initial.Id; viewer?.Invalidate(); }
             appliedInitialValue = InitialValueId;
         }
@@ -83,6 +89,7 @@
 
     private async Task<StandardReportData> FetchReport(DateOnly from, DateOnly to)
     {
+        if (!PermissionCache.Has("FINANCE_REPORTS_PAGE")) throw new UnauthorizedAccessException();
         var ids = filters.Values.Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
         StandardReportData report;
         if (kind == "profit-and-loss") report = await Finance.GeneratePnLAsync(companyId, from, to, ids);

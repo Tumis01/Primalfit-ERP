@@ -1,0 +1,16 @@
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Services
+@implements IDisposable
+@inject CustomFieldWriteSession Writes
+<CustomFieldsEditor @ref="editor" CompanyId="CompanyId" Scope="Scope" OwnerId="OwnerId" ReadOnly="ReadOnly" Inline="Inline" StateChanged="Registered" />
+@code {
+    [Parameter] public Guid CompanyId { get; set; }
+    [Parameter] public CustomFieldScope Scope { get; set; }
+    [Parameter] public Guid OwnerId { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    [Parameter] public bool Inline { get; set; }
+    private CustomFieldsEditor? editor;
+    private CustomFieldFormState? state;
+    private void Registered(CustomFieldFormState value) { if (state != null && !ReferenceEquals(state, value)) Writes.Unregister(state); state = value; Writes.Register(value); }
+    public void Dispose() { if (state != null) Writes.Unregister(state); }
+}

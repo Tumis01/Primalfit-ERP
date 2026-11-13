@@ -37,7 +37,7 @@
                     </button>
                     @if (expandedId == card.Id) {
                         @if (PermissionCache.Has("PO_CREATE")) {
-                            <GoodsReceiptDraftEditor @key="card.Id" Draft="@(card.Draft ?? ReviewDraft(receipt))" IsReview="@(card.Draft == null)" CompanyId="@companyId" UserId="@userId" OnSaved="() => ReceiptSaved(card.Draft == null)" OnSubmitted="Submitted" OnCancel="() => expandedId = null" />
+                            <GoodsReceiptDraftEditor @key="card.Id" Draft="@(card.Draft ?? ReviewDraft(receipt))" IsReview="@(card.Draft == null)" IsRejected="@(ReviewStatus(receipt) == ReceiptRegisterState.Rejected)" CompanyId="@companyId" UserId="@userId" OnSaved="() => ReceiptSaved(card.Draft == null)" OnSubmitted="Submitted" OnCancel="() => expandedId = null" />
                         } else {
                             <div class="p-6 bg-white animate-in slide-in-from-top-2 overflow-x-auto space-y-6">
                                 <div class="flex flex-wrap justify-between gap-3 border-b border-slate-100 pb-2"><span class="text-xs font-bold uppercase tracking-wider text-slate-400">Receipt Parameters</span><span class="text-xs text-slate-500">@WarehouseName(receipt.WarehouseId) · @receipt.DateReceived.ToString("dd MMM yyyy HH:mm")</span></div>

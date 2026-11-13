@@ -6,6 +6,7 @@ namespace Primafit_ERP.Components.Models;
 // Drafts reserve order quantities but are not physical receipts or GL entries.
 public class GoodsReceiptDraft
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -24,6 +25,7 @@ public class GoodsReceiptDraft
 
 public class GoodsReceiptDraftLine : IDimensionedLine
 {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
     public Guid Id { get; set; } = Guid.NewGuid();

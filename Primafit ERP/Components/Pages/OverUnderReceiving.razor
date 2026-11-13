@@ -5,16 +5,19 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject PurchasingService PurchasingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer PermissionKey="PURCHASING_REPORTS_PAGE" CompanyId="companyId"
                   Title="Over / Under Receiving Report"
                   Description="Compares quantities ordered vs quantities received for each purchase order line. Flags over-received and under-received items to support inventory and vendor accountability reviews."
-                  ShowAsOfDate="false"
+                  ShowDateRange="true" ShowAsOfDate="false"
                   FetchData="GetData" />
 </div>
 
@@ -23,6 +26,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_REPORTS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var user = await UserManager.GetUserAsync(
             (await AuthStateProvider.GetAuthenticationStateAsync()).User);
 
@@ -32,6 +36,7 @@
 
     private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
     {
+        if (!PermissionCache.Has("PURCHASING_REPORTS_PAGE")) throw new UnauthorizedAccessException();
         return await PurchasingService.GenerateOverUnderReceivingReportAsync(companyId, start, end);
     }
 }

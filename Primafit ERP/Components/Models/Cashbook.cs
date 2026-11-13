@@ -6,6 +6,7 @@ namespace Primafit_ERP.Components.Models
     // BatchStatus Enum (Keeping as per your request)
     public class CashbookBatch
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
@@ -50,6 +51,7 @@ namespace Primafit_ERP.Components.Models
 
     public class CashbookEntry : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]

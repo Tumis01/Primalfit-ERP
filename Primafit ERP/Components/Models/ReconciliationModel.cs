@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -17,6 +17,7 @@ namespace Primafit_ERP.Components.Models
 
     public class BankReconciliation
     {
+        [ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
@@ -41,6 +42,7 @@ namespace Primafit_ERP.Components.Models
 
     public class BankStatementLine
     {
+        [ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid ReconciliationId { get; set; }
@@ -64,6 +66,7 @@ namespace Primafit_ERP.Components.Models
         public List<GLTransaction> CandidateGLTransactions { get; set; } = new();
         public DateOnly PeriodStartDate { get; set; }
         public decimal OpeningBookBalance { get; set; }
+        public decimal OpeningClearedBookBalance { get; set; }
         public decimal PeriodDebits { get; set; }
         public decimal PeriodCredits { get; set; }
         public decimal BookClosingBalance { get; set; }
@@ -71,10 +74,9 @@ namespace Primafit_ERP.Components.Models
         public decimal OutstandingPayments { get; set; }
         public decimal ClearedPeriodActivity => CandidateGLTransactions
             .Where(t => t.BankReconciliationId.HasValue
-                && t.PostingDate >= PeriodStartDate
                 && t.PostingDate <= Reconciliation.StatementDate)
             .Sum(t => t.Debit - t.Credit);
-        public decimal ClearedBookBalance => OpeningBookBalance + ClearedPeriodActivity;
+        public decimal ClearedBookBalance => OpeningClearedBookBalance + ClearedPeriodActivity;
         public decimal Difference => Reconciliation.StatementEndingBalance - ClearedBookBalance;
     }
     

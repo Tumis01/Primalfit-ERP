@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -81,7 +81,7 @@ namespace Primafit_ERP.Services
 
                     foreach (var line in bill.Lines)
                     {
-                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                        if (line.Id == Guid.Empty) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.PurchaseInvoiceId = bill.Id;
                     }
 
@@ -105,7 +105,7 @@ namespace Primafit_ERP.Services
 
                     foreach (var line in bill.Lines)
                     {
-                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                        if (line.Id == Guid.Empty) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.PurchaseInvoiceId = bill.Id;
                     }
                     ctx.PurchaseInvoiceLines.AddRange(bill.Lines);
@@ -289,7 +289,7 @@ namespace Primafit_ERP.Services
 
                     foreach (var line in po.Lines)
                     {
-                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                        if (line.Id == Guid.Empty) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.PurchaseOrderId = po.Id;
                     }
                     ctx.PurchaseOrders.Add(po);
@@ -348,7 +348,7 @@ namespace Primafit_ERP.Services
                         }
                         else
                         {
-                            if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                            if (line.Id == Guid.Empty) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                             line.PurchaseOrderId = existing.Id;
                             ctx.PurchaseOrderLines.Add(line);
                         }
@@ -731,11 +731,12 @@ namespace Primafit_ERP.Services
                 }
                 else
                 {
-                    ctx.Entry(existingBill).CurrentValues.SetValues(bill);
+                    var version = existingBill.CustomFieldsVersion;
+                    ctx.Entry(existingBill).CurrentValues.SetValues(bill); existingBill.CustomFieldsVersion = version;
                     ctx.PurchaseInvoiceLines.RemoveRange(existingBill.Lines);
                     foreach (var line in bill.Lines)
                     {
-                        line.Id = Guid.NewGuid();
+                        if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                         line.PurchaseInvoiceId = existingBill.Id;
                         ctx.PurchaseInvoiceLines.Add(line);
                     }
@@ -765,7 +766,7 @@ namespace Primafit_ERP.Services
             }
         }
 
-        public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId, string userId, Guid? requiredDraftId = null, bool updatingReview = false)
+        public async Task<string> SaveGoodsReceiptAsync(GoodsReceipt grn, Guid warehouseId, string userId, Guid? requiredDraftId = null, bool updatingReview = false, bool fullCorrection = false)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
             using var transaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
@@ -776,7 +777,7 @@ namespace Primafit_ERP.Services
                 Dictionary<Guid, decimal>? originalQuantities = null;
                 if (updatingReview)
                 {
-                    var update = await PrepareReceiptReviewUpdateAsync(ctx, grn);
+                    var update = await PrepareReceiptReviewUpdateAsync(ctx, grn, fullCorrection);
                     if (!string.IsNullOrEmpty(update.Error)) return update.Error;
                     grn = update.Receipt!;
                     originalQuantities = update.OriginalQuantities;
@@ -901,7 +902,7 @@ namespace Primafit_ERP.Services
                 if (string.IsNullOrWhiteSpace(grn.GrnNumber))
                     grn.GrnNumber = await _numberingService.GenerateAndReserveNextNumberAsync(grn.CompanyId, SequenceTargetType.AP_GoodsReceipt, grn.DateReceived);
 
-                if (!updatingReview) foreach (var line in grn.Lines) line.Id = Guid.NewGuid();
+                if (!updatingReview) foreach (var line in grn.Lines) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
 
                 // 1. Resolve custom template mapping if assigned
                 TransactionGlMapping? customMapping = null;
@@ -1186,7 +1187,7 @@ namespace Primafit_ERP.Services
                 var asset = grn.OverrideInventoryAssetGlAccountId ?? await _mappingService.GetMappedAccountAsync(grn.CompanyId, SystemTransactionType.GoodsReceipt, true, item.InventoryAssetAccountId);
                 if (asset == Guid.Empty) return $"Item '{item.Name}' needs an inventory asset account.";
                 glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = asset, Debit = value, Reference = $"GRN Recv: {item.Name}" });
-                if (!updatingReview) line.Id = Guid.NewGuid(); line.GoodsReceiptId = grn.Id;
+                if (!updatingReview) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid(); line.GoodsReceiptId = grn.Id;
             }
             glLines.Add(new GLJournalLine { SegCoaId = clearing, Credit = total, Reference = $"GR/IR Accrual for {grn.GrnNumber}" });
             if (updatingReview)
@@ -1891,9 +1892,9 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
             draft.TotalAmount = Math.Round(draft.TotalAmountForeign * draft.ExchangeRate, 2);
             if (existing == null) db.PurchaseInvoices.Add(draft);
             else {
-                db.PurchaseInvoiceLines.RemoveRange(existing.Lines); existing.Lines.Clear();
-                db.Entry(existing).CurrentValues.SetValues(draft);
-                foreach (var row in draft.Lines) { row.Id = Guid.NewGuid(); row.PurchaseInvoiceId = existing.Id; row.PurchaseInvoice = existing; db.PurchaseInvoiceLines.Add(row); }
+                var version = existing.CustomFieldsVersion;
+                db.Entry(existing).CurrentValues.SetValues(draft); existing.CustomFieldsVersion = version;
+                CustomFieldLineIdentity.Sync(db, existing.Lines, draft.Lines, nameof(PurchaseInvoiceLine.PurchaseInvoiceId), existing.Id);
             }
             await db.SaveChangesAsync(); await tx.CommitAsync(); return string.Empty;
         }
@@ -2095,7 +2096,7 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
 
                 foreach (var line in bill.Lines)
                 {
-                    if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
+                    if (line.Id == Guid.Empty) if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                     line.PurchaseInvoiceId = bill.Id;
                 }
 
@@ -2114,15 +2115,7 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
                 {
                     bill.CompanyId = existingBill.CompanyId;
                     ctx.Entry(existingBill).CurrentValues.SetValues(bill);
-                    ctx.PurchaseInvoiceLines.RemoveRange(existingBill.Lines);
-                    existingBill.Lines.Clear();
-                    foreach (var line in bill.Lines)
-                    {
-                        line.Id = Guid.NewGuid();
-                        line.PurchaseInvoiceId = existingBill.Id;
-                        line.PurchaseInvoice = existingBill;
-                        ctx.PurchaseInvoiceLines.Add(line);
-                    }
+                    CustomFieldLineIdentity.Sync(ctx, existingBill.Lines, bill.Lines, nameof(PurchaseInvoiceLine.PurchaseInvoiceId), existingBill.Id);
                 }
 
                 await ctx.SaveChangesAsync();
@@ -2152,92 +2145,11 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
         // ─────────────────────────────────────────────────────────────────
         // 1. PO AGING REPORT (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GeneratePOAgingReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            // Fetch base open/active POs within range
-            var pos = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId
-                         && p.Status != PurchaseOrderStatus.Closed
-                         && p.OrderDate >= startDt && p.OrderDate <= endDt)
-                .OrderBy(p => p.OrderDate)
-                .ToListAsync();
-
-            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
-
-            // Locate downstream invoices tied to these PO numbers
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
-            // FILTER: Keep only POs that possess an invoice number link
-            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
-
-            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var today = DateOnly.FromDateTime(DateTime.Today);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Purchase Order Aging Report (Invoiced Orders)",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Invoice Order Number", "Vendor", "Order Date",
-                    "Days Outstanding", "Order Value", "Status", "Aging Bucket"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal grandTotal = 0;
-
-            foreach (var po in invoicedPOs)
-            {
-                string invoiceNumber = invoices[po.OrderNumber]; // Guaranteed to exist via filter
-                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
-                int days = today.DayNumber - DateOnly.FromDateTime(po.OrderDate.Date).DayNumber;
-
-                string bucket = days <= 30 ? "Current (0–30 Days)"
-                              : days <= 60 ? "31–60 Days"
-                              : days <= 90 ? "61–90 Days"
-                              : "Over 90 Days";
-
-                reportData.Rows.Add(new List<string>
-                {
-                    invoiceNumber, // Replaced PO Number with Invoice Order Number
-                    vendors.GetValueOrDefault(po.VendorId, "Unknown"),
-                    po.OrderDate.ToString("MMM dd, yyyy"),
-                    days.ToString("N0"),
-                    orderValue.ToString("N2"),
-                    po.Status.ToString(),
-                    bucket
-                });
-
-                grandTotal += orderValue;
-            }
-
-            reportData.Rows.Add(new List<string>
-                { "", "GRAND TOTAL", "", "", grandTotal.ToString("N2"), "", "" });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 2. GOODS RECEIPT NOTE (GRN) LOG
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GenerateGRNLogReportAsync(Guid companyId, DateOnly start, DateOnly end)
+        public async Task<StandardReportData> GenerateGRNLogReportAsync(Guid companyId, DateOnly start, DateOnly end, bool postedOnly = true)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -2248,7 +2160,8 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
                 .AsNoTracking()
                 .Include(g => g.Lines)
                 .Where(g => g.CompanyId == companyId
-                         && g.DateReceived >= startDt && g.DateReceived <= endDt)
+                         && g.DateReceived >= startDt && g.DateReceived <= endDt
+                         && (!postedOnly || (g.GLBatchId.HasValue && ctx.GLBatches.Any(b => b.Id == g.GLBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))))
                 .OrderByDescending(g => g.DateReceived)
                 .ToListAsync();
 
@@ -2292,7 +2205,7 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string>
                 {
-                    "GRN Number", "Invoice Number", "Vendor", "Date Received",
+                    "GRN Number", "Source PO / Invoice", "Vendor", "Date Received",
                     "Item", "Transaction UOM", "Qty Received (UOM)", "Qty Received (Primary)",
                     "Unit Cost (Transaction UOM)", "Line Value", "GL Status"
                 },
@@ -2373,565 +2286,28 @@ var stageError = await StagePurchaseInvoiceAsync(ctx, billId, userId);
         // ─────────────────────────────────────────────────────────────────
         // 3. OVER / UNDER RECEIVING REPORT (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GenerateOverUnderReceivingReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            var pos = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId
-                         && p.HasReceipt == true
-                         && p.OrderDate >= startDt && p.OrderDate <= endDt)
-                .ToListAsync();
-
-            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
-
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
-            // FILTER: Restrict collection to invoiced entities only
-            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
-            var poLineIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
-
-            var receivedLines = await ctx.GoodsReceiptLines
-                .AsNoTracking()
-                .Where(l => l.PurchaseOrderLineId.HasValue && poLineIds.Contains(l.PurchaseOrderLineId.Value))
-                .ToListAsync();
-
-            var itemIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.ItemId).Distinct().ToList();
-            var items = await ctx.Items
-                .Where(i => itemIds.Contains(i.Id))
-                .ToDictionaryAsync(i => i.Id, i => i.Name);
-
-            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Over / Under Receiving Report (Invoiced Orders)",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Invoice Order Number", "Vendor", "Item",
-                    "Qty Ordered", "Qty Received", "Variance", "Status"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal totalOrdered = 0;
-            decimal totalReceived = 0;
-
-            foreach (var po in invoicedPOs.OrderByDescending(p => p.OrderDate))
-            {
-                string invoiceNumber = invoices[po.OrderNumber];
-                string vendorName = vendors.GetValueOrDefault(po.VendorId, "Unknown");
-
-                foreach (var poLine in po.Lines)
-                {
-                    string itemName = items.GetValueOrDefault(poLine.ItemId, "Unknown");
-                    decimal qtyReceived = receivedLines
-                        .Where(r => r.PurchaseOrderLineId == poLine.Id)
-                        .Sum(r => r.QuantityReceived);
-                    decimal variance = qtyReceived - poLine.QuantityOrdered;
-
-                    string status = variance == 0 ? "Exact Match"
-                                  : variance > 0 ? "Over-Received"
-                                  : "Under-Received";
-
-                    reportData.Rows.Add(new List<string>
-                    {
-                        invoiceNumber,
-                        vendorName,
-                        itemName,
-                        poLine.QuantityOrdered.ToString("N2"),
-                        qtyReceived.ToString("N2"),
-                        variance.ToString("N2"),
-                        status
-                    });
-
-                    totalOrdered += poLine.QuantityOrdered;
-                    totalReceived += qtyReceived;
-                }
-            }
-
-            decimal totalVariance = totalReceived - totalOrdered;
-            reportData.Rows.Add(new List<string>
-            {
-                "", "GRAND TOTAL", "",
-                totalOrdered.ToString("N2"),
-                totalReceived.ToString("N2"),
-                totalVariance.ToString("N2"),
-                ""
-            });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 4. PARTIALLY RECEIVED POs (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GeneratePartiallyReceivedPOsReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            var pos = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId
-                         && p.HasReceipt == true
-                         && p.IsFullyReceived == false
-                         && p.Status != PurchaseOrderStatus.Closed
-                         && p.OrderDate >= startDt && p.OrderDate <= endDt)
-                .OrderBy(p => p.OrderDate)
-                .ToListAsync();
-
-            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
-
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
-            // FILTER: Keep only partially received POs that have been invoiced
-            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
-            var poLineIds = invoicedPOs.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
-
-            var receivedLines = await ctx.GoodsReceiptLines
-                .AsNoTracking()
-                .Where(l => l.PurchaseOrderLineId.HasValue && poLineIds.Contains(l.PurchaseOrderLineId.Value))
-                .ToListAsync();
-
-            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Partially Received Purchase Orders (Invoiced)",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Invoice Order Number", "Vendor", "Order Date",
-                    "Total Ordered", "Total Received", "Remaining", "% Received", "Order Value"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal grandOrderValue = 0;
-
-            foreach (var po in invoicedPOs)
-            {
-                string invoiceNumber = invoices[po.OrderNumber];
-                var lineIds = po.Lines.Select(l => l.Id).ToHashSet();
-
-                decimal qtyOrdered = po.Lines.Sum(l => l.QuantityOrdered);
-                decimal qtyReceived = receivedLines
-                    .Where(r => r.PurchaseOrderLineId.HasValue && lineIds.Contains(r.PurchaseOrderLineId.Value))
-                    .Sum(r => r.QuantityReceived);
-
-                decimal remaining = qtyOrdered - qtyReceived;
-                decimal pct = qtyOrdered > 0 ? (qtyReceived / qtyOrdered) * 100 : 0;
-                decimal orderValue = po.Lines.Sum(l => l.LineTotal) * po.ExchangeRate;
-
-                reportData.Rows.Add(new List<string>
-                {
-                    invoiceNumber,
-                    vendors.GetValueOrDefault(po.VendorId, "Unknown"),
-                    po.OrderDate.ToString("MMM dd, yyyy"),
-                    qtyOrdered.ToString("N2"),
-                    qtyReceived.ToString("N2"),
-                    remaining.ToString("N2"),
-                    $"{pct:N1}%",
-                    orderValue.ToString("N2")
-                });
-
-                grandOrderValue += orderValue;
-            }
-
-            reportData.Rows.Add(new List<string>
-                { "", "GRAND TOTAL", "", "", "", "", "", grandOrderValue.ToString("N2") });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 5. VENDOR PAYMENT HISTORY
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GenerateVendorPaymentHistoryReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            // 1. Load historical payment segments within the date window, stripping out UI Workspace drafts
-            var allPayments = await ctx.Set<VendorPayment>()
-                .AsNoTracking()
-                .Where(p => p.Date >= startDt && p.Date <= endDt
-                         && (p.Reference == null || !p.Reference.ToLower().StartsWith("draft-"))) // <-- FIXED TRANSLATION HERE
-                .OrderByDescending(p => p.Date)
-                .ToListAsync();
-
-            var billIds = allPayments.Select(p => p.PurchaseInvoiceId).Distinct().ToList();
-
-            // 2. Cross-reference against Posted Vendor Bills ONLY (drops all unposted bill drafts)
-            var bills = await ctx.PurchaseInvoices
-                .AsNoTracking()
-                .Where(b => billIds.Contains(b.Id) && b.CompanyId == companyId && b.IsPosted == true)
-                .ToDictionaryAsync(b => b.Id);
-
-            var companyBillIds = bills.Keys.ToHashSet();
-
-            // 3. FILTER: Keep payments only if they belong to a verified posted bill partition
-            var postedPayments = allPayments
-                .Where(p => companyBillIds.Contains(p.PurchaseInvoiceId))
-                .ToList();
-
-            var vendorIds = bills.Values.Select(b => b.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var glIds = postedPayments.Select(p => p.BankGlAccountId).Distinct().ToList();
-            var glAccounts = await ctx.SegChartOfAccounts
-                .Where(a => glIds.Contains(a.Id))
-                .ToDictionaryAsync(a => a.Id, a => a.Description);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Vendor Payment History",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Payment Date", "Vendor", "Invoice Order Number",
-                    "Payment Reference", "Bank Account", "Amount Paid"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal grandTotal = 0;
-
-            foreach (var payment in postedPayments)
-            {
-                var bill = bills.GetValueOrDefault(payment.PurchaseInvoiceId);
-                string vendorName = bill != null ? vendors.GetValueOrDefault(bill.VendorId, "Unknown") : "Unknown";
-                string bankAcct = glAccounts.GetValueOrDefault(payment.BankGlAccountId, "Unknown Account");
-
-                // Format negative allocations (debit note reversals) into (XXX.XX) bracket notations
-                string formattedAmount = payment.Amount < 0
-                    ? $"({Math.Abs(payment.Amount):N2})"
-                    : payment.Amount.ToString("N2");
-
-                reportData.Rows.Add(new List<string>
-                {
-                    payment.Date.ToString("MMM dd, yyyy"),
-                    vendorName,
-                    bill?.ExternalInvoiceNumber ?? "N/A",
-                    payment.Reference ?? "",
-                    bankAcct,
-                    formattedAmount
-                });
-
-                grandTotal += payment.Amount;
-            }
-
-            // Apply bracket format to grand total if cumulative operations trend negative
-            string formattedGrandTotal = grandTotal < 0
-                ? $"({Math.Abs(grandTotal):N2})"
-                : grandTotal.ToString("N2");
-
-            reportData.Rows.Add(new List<string>
-                { "", "GRAND TOTAL", "", "", "", formattedGrandTotal });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 6. PURCHASE SPEND BY VENDOR (INVOICED POs ONLY)
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GeneratePurchaseSpendByVendorReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            // 1. Fetch posted vendor bills within the range
-            var bills = await ctx.PurchaseInvoices
-                .AsNoTracking()
-                .Include(b => b.Payments)
-                .Where(b => b.CompanyId == companyId
-                         && b.IsPosted == true
-                         && b.BillDate >= startDt && b.BillDate <= endDt)
-                .ToListAsync();
-
-            // 2. Identify which of these bills are linked to a PO pipeline via ConvertedFromPONumber
-            var invoiceNumbers = bills.Select(b => b.ExternalInvoiceNumber).Distinct().ToList();
-
-            var invoicedPOsDict = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(p => p.CompanyId == companyId
-                         && !string.IsNullOrEmpty(p.ConvertedFromPONumber)
-                         && invoiceNumbers.Contains(p.OrderNumber))
-                .ToDictionaryAsync(p => p.OrderNumber); // Keyed by the Invoice Order Number
-
-            // FILTER: Keep only the bills that exist as a valid Invoice Order in the PO pipeline
-            var filteredBills = bills
-                .Where(b => !string.IsNullOrEmpty(b.ExternalInvoiceNumber) && invoicedPOsDict.ContainsKey(b.ExternalInvoiceNumber))
-                .ToList();
-
-            var vendorIds = filteredBills.Select(b => b.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Purchase Spend by Vendor (Invoiced Orders Only)",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Vendor", "No. of Bills",
-                    "Total Billed", "Total Paid", "Outstanding Balance"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            // Group the filtered invoiced bills by Vendor
-            var grouped = filteredBills
-                .GroupBy(b => b.VendorId)
-                .Select(g => new
-                {
-                    VendorId = g.Key,
-                    BillCount = g.Count(),
-                    TotalBilled = g.Sum(b => b.TotalAmount),
-                    TotalPaid = g.Sum(b => b.Payments.Sum(p => p.Amount))
-                })
-                .OrderByDescending(g => g.TotalBilled)
-                .ToList();
-
-            decimal grandBilled = 0, grandPaid = 0;
-
-            foreach (var row in grouped)
-            {
-                decimal outstanding = row.TotalBilled - row.TotalPaid;
-
-                // Handle standard bracket formatting for any outstanding negative balances
-                string formattedBilled = row.TotalBilled.ToString("N2");
-                string formattedPaid = row.TotalPaid.ToString("N2");
-                string formattedOutstanding = outstanding < 0
-                    ? $"({Math.Abs(outstanding):N2})"
-                    : outstanding.ToString("N2");
-
-                reportData.Rows.Add(new List<string>
-                {
-                    vendors.GetValueOrDefault(row.VendorId, "Unknown"),
-                    row.BillCount.ToString("N0"),
-                    formattedBilled,
-                    formattedPaid,
-                    formattedOutstanding
-                });
-
-                grandBilled += row.TotalBilled;
-                grandPaid += row.TotalPaid;
-            }
-
-            decimal grandOutstanding = grandBilled - grandPaid;
-            string formattedGrandOutstanding = grandOutstanding < 0
-                ? $"({Math.Abs(grandOutstanding):N2})"
-                : grandOutstanding.ToString("N2");
-
-            reportData.Rows.Add(new List<string>
-            {
-                "GRAND TOTAL", "",
-                grandBilled.ToString("N2"),
-                grandPaid.ToString("N2"),
-                formattedGrandOutstanding
-            });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 7. DISCOUNT RECEIVED SUMMARY (INVOICED ONLY)
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GenerateDiscountReceivedSummaryReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            var pos = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Include(p => p.Lines)
-                .Where(p => p.CompanyId == companyId
-                         && (p.DiscountAmount > 0 || p.DiscountPercentage > 0)
-                         && p.OrderDate >= startDt && p.OrderDate <= endDt)
-                .OrderByDescending(p => p.OrderDate)
-                .ToListAsync();
-
-            var poNumbers = pos.Select(p => p.OrderNumber).ToList();
-
-            var invoices = await ctx.PurchaseOrders
-                .AsNoTracking()
-                .Where(i => i.CompanyId == companyId
-                         && !string.IsNullOrEmpty(i.ConvertedFromPONumber)
-                         && poNumbers.Contains(i.ConvertedFromPONumber))
-                .ToDictionaryAsync(i => i.ConvertedFromPONumber!, i => i.OrderNumber);
-
-            // FILTER: Select only invoiced POs with promotional structures applied
-            var invoicedPOs = pos.Where(p => invoices.ContainsKey(p.OrderNumber)).ToList();
-
-            var vendorIds = invoicedPOs.Select(p => p.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Discount Received Summary (Invoiced Orders)",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Invoice Order Number", "Vendor", "Order Date",
-                    "Gross Value", "Discount Type", "Discount Amount", "Net Value"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal grandGross = 0;
-            decimal grandDiscount = 0;
-
-            foreach (var po in invoicedPOs)
-            {
-                string invoiceNumber = invoices[po.OrderNumber];
-                decimal grossForeign = po.Lines.Sum(l => l.LineTotal);
-                decimal grossBase = Math.Round(grossForeign * po.ExchangeRate, 2);
-
-                decimal discountForeign = po.DiscountAmount;
-                if (po.DiscountPercentage > 0)
-                    discountForeign = grossForeign * (po.DiscountPercentage / 100);
-
-                decimal discountBase = Math.Round(discountForeign * po.ExchangeRate, 2);
-                decimal netBase = grossBase - discountBase;
-                string discType = po.DiscountPercentage > 0 ? $"{po.DiscountPercentage:N2}%" : "Fixed Amount";
-
-                reportData.Rows.Add(new List<string>
-                {
-                    invoiceNumber,
-                    vendors.GetValueOrDefault(po.VendorId, "Unknown"),
-                    po.OrderDate.ToString("MMM dd, yyyy"),
-                    grossBase.ToString("N2"),
-                    discType,
-                    discountBase.ToString("N2"),
-                    netBase.ToString("N2")
-                });
-
-                grandGross += grossBase;
-                grandDiscount += discountBase;
-            }
-
-            reportData.Rows.Add(new List<string>
-            {
-                "", "GRAND TOTAL", "",
-                grandGross.ToString("N2"), "",
-                grandDiscount.ToString("N2"),
-                (grandGross - grandDiscount).ToString("N2")
-            });
-
-            return reportData;
-        }
 
         // ─────────────────────────────────────────────────────────────────
         // 8. THREE-WAY MATCH EXCEPTION REPORT
         //    Lists every vendor bill flagged with a MatchStatus of Variance,
         //    along with the reason, for AP approval/investigation workflows.
         // ─────────────────────────────────────────────────────────────────
-        public async Task<StandardReportData> GenerateThreeWayMatchExceptionReportAsync(Guid companyId, DateOnly start, DateOnly end)
-        {
-            using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            var startDt = start.ToDateTime(TimeOnly.MinValue);
-            var endDt = end.ToDateTime(TimeOnly.MaxValue);
-
-            var bills = await ctx.PurchaseInvoices
-                .AsNoTracking()
-                .Where(b => b.CompanyId == companyId
-                         && b.MatchStatus == BillMatchStatus.Variance
-                         && b.BillDate >= startDt && b.BillDate <= endDt)
-                .OrderByDescending(b => b.BillDate)
-                .ToListAsync();
-
-            var vendorIds = bills.Select(b => b.VendorId).Distinct().ToList();
-            var vendors = await ctx.Vendors
-                .Where(v => vendorIds.Contains(v.Id))
-                .ToDictionaryAsync(v => v.Id, v => v.Name);
-
-            var poIds = bills
-                .Where(b => b.PurchaseOrderId.HasValue)
-                .Select(b => b.PurchaseOrderId!.Value)
-                .Distinct()
-                .ToList();
-
-            var pos = await ctx.PurchaseOrders
-                .Where(p => poIds.Contains(p.Id))
-                .ToDictionaryAsync(p => p.Id, p => p.OrderNumber);
-
-            var reportData = new StandardReportData
-            {
-                ReportName = "Three-Way Match Exception Report",
-                ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
-                Headers = new List<string>
-                {
-                    "Bill Date", "Bill Reference", "Vendor",
-                    "Linked PO", "Bill Amount", "Variance Reason"
-                },
-                Rows = new List<List<string>>()
-            };
-
-            decimal grandTotal = 0;
-
-            foreach (var bill in bills)
-            {
-                string poNumber = bill.PurchaseOrderId.HasValue
-                    ? pos.GetValueOrDefault(bill.PurchaseOrderId.Value, "N/A")
-                    : "No PO Linked";
-
-                reportData.Rows.Add(new List<string>
-                {
-                    bill.BillDate.ToString("MMM dd, yyyy"),
-                    bill.ExternalInvoiceNumber ?? "N/A",
-                    vendors.GetValueOrDefault(bill.VendorId, "Unknown"),
-                    poNumber,
-                    bill.TotalAmount.ToString("N2"),
-                    bill.MatchVarianceReason ?? ""
-                });
-
-                grandTotal += bill.TotalAmount;
-            }
-
-            reportData.Rows.Add(new List<string>
-                { "", "GRAND TOTAL", "", "", grandTotal.ToString("N2"), "" });
-
-            return reportData;
-        }
         // =================================================================
         // ACCOUNTS PAYABLE DEBIT NOTE (PAYMENT REVERSAL ENGINE - NO STOCK)
         // =================================================================

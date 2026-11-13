@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -7,6 +7,8 @@ namespace Primafit_ERP.Components.Models
 
     public class SalesOrder
     {
+        [ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
+        public SalesOrderSubmissionState SubmissionState { get; set; } = SalesOrderSubmissionState.Submitted;
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -54,6 +56,7 @@ namespace Primafit_ERP.Components.Models
         public Guid? DirectIncomeGlAccountId { get; set; } 
         public List<SalesOrderLine> Lines { get; set; } = new();
 
+        [NotMapped] public bool IsInvoiceDocument => IsDirectInvoice || InvoiceBatchId.HasValue || (ConvertedFromQuoteNumber != null && Status == OrderStatus.Draft) || (Status is OrderStatus.Draft or OrderStatus.Invoiced && OrderNumber.StartsWith("INV", StringComparison.OrdinalIgnoreCase));
         [NotMapped] public bool IsFullyPaid => Status == OrderStatus.Invoiced && GrandTotalForeign > 0 && AmountPaid >= (GrandTotalForeign - 0.01m);
         [NotMapped] public decimal GrandTotalForeign { get; set; }
         [NotMapped] public decimal AmountPaid { get; set; }

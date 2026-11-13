@@ -115,6 +115,7 @@ namespace Primafit_ERP.Components.Models
 
     public class StockEntryBatchLineDto : IDimensionedLine
     {
+        public Guid Id { get; set; } = Guid.NewGuid();
         public Guid? DimensionSetId { get; set; }
 
         public Guid ItemId { get; set; }
@@ -130,6 +131,7 @@ namespace Primafit_ERP.Components.Models
 
     public class StockTransferBatchLineDto : IDimensionedLine
     {
+        public Guid Id { get; set; } = Guid.NewGuid();
         public Guid? DimensionSetId { get; set; }
 
         public Guid ItemId { get; set; }

@@ -2,6 +2,7 @@ namespace Primafit_ERP.Components.Models;
 
 public static class UomConversion
 {
+    public const int UnitPriceDecimalPlaces = 4;
     public const decimal QuantityTolerance = 0.0000000001m;
     public static decimal NormalizeFactor(decimal factor) => factor > 0 ? factor : 1m;
 
@@ -12,10 +13,25 @@ public static class UomConversion
         Math.Round(baseQuantity / NormalizeFactor(selectedToBaseFactor), 4, MidpointRounding.AwayFromZero);
 
     public static decimal PriceFromBase(decimal baseUnitPrice, decimal selectedToBaseFactor) =>
-        baseUnitPrice * NormalizeFactor(selectedToBaseFactor);
+        RoundUnitPrice(baseUnitPrice * NormalizeFactor(selectedToBaseFactor));
 
     public static decimal PriceToBase(decimal selectedUnitPrice, decimal selectedToBaseFactor) =>
-        selectedUnitPrice / NormalizeFactor(selectedToBaseFactor);
+        RoundUnitPrice(selectedUnitPrice) / NormalizeFactor(selectedToBaseFactor);
+
+    // Prices in the selected UOM have four decimals. Keep the derived base
+    // price and conversion factor precise; round at the transaction boundary.
+    public static decimal RoundUnitPrice(decimal price) =>
+        Math.Round(price, UnitPriceDecimalPlaces, MidpointRounding.AwayFromZero);
+
+    public static string FormatUnitPrice(decimal price) =>
+        RoundUnitPrice(price).ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture);
+
+    public static bool TryParseUnitPrice(string? text, out decimal price)
+    {
+        if (!decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out price)) return false;
+        price = RoundUnitPrice(price);
+        return true;
+    }
 
     public static decimal FactorFor(Item item, Guid? selectedUomId)
         => FactorFor(item, selectedUomId, item.UomConversions.Where(x => x.IsActive)

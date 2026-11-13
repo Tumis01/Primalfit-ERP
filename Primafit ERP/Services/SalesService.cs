@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -13,8 +13,9 @@ namespace Primafit_ERP.Services
         private readonly TransactionMappingService _mappingService;
         private readonly IDocumentNumberingService _numberingService;
         private readonly DocumentWorkflowService _documentWorkflow;
+        private readonly CustomFieldService? _customFields;
 
-        public SalesService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService, TransactionMappingService mappingService, IDocumentNumberingService numberingService, DocumentWorkflowService documentWorkflow)
+        public SalesService(IDbContextFactory<AppDbContext> dbFactory, GLOperationsService glOps, InventoryService invService, TransactionMappingService mappingService, IDocumentNumberingService numberingService, DocumentWorkflowService documentWorkflow, CustomFieldService? customFields = null)
         {
             _dbFactory = dbFactory;
             _glOps = glOps;
@@ -22,6 +23,7 @@ namespace Primafit_ERP.Services
             _mappingService = mappingService;
             _numberingService = numberingService;
             _documentWorkflow = documentWorkflow;
+            _customFields = customFields;
         }
 
         public async Task<List<SalesOrder>> GetOrdersAsync(Guid companyId)
@@ -161,11 +163,10 @@ namespace Primafit_ERP.Services
             return order;
         }
 
-        public async Task<string> SaveOrderAsync(SalesOrder order)
+        public async Task<string> SaveOrderAsync(SalesOrder order, CustomFieldFormState? customFields = null, IReadOnlyDictionary<Guid, CustomFieldFormState>? lineFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
-            await using var sourceTransaction = order.Lines.Any(x => x.SalesQuoteLineId.HasValue)
-                ? await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable) : null;
+            await using var sourceTransaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
 
             if (order.CompanyId == Guid.Empty) return "System Error: Company ID missing.";
             if (order.CustomerId == Guid.Empty) return "Customer is required.";
@@ -263,7 +264,7 @@ namespace Primafit_ERP.Services
                 foreach (var line in order.Lines)
                 {
                     line.HeaderId = order.Id;
-                    line.Id = Guid.NewGuid();
+                    if (line.Id == Guid.Empty) line.Id = Guid.NewGuid();
                     line.Header = null;
                 }
                 ctx.SalesOrders.Add(order);
@@ -291,6 +292,8 @@ namespace Primafit_ERP.Services
                 }
 
                 if (existing.CompanyId != order.CompanyId) return "Cannot change an order's company.";
+                if (existing.SubmissionState == SalesOrderSubmissionState.Submitted && order.SubmissionState == SalesOrderSubmissionState.Draft)
+                    return "A submitted order cannot be changed back to a draft.";
                 if (order.Lines.Where(l => l.Id != Guid.Empty).GroupBy(l => l.Id).Any(g => g.Count() > 1)) return "An order line cannot be repeated.";
                 if (existing.Lines.Any(l => l.SalesQuoteLineId.HasValue) && (existing.CustomerId != order.CustomerId || existing.CurrencyId != order.CurrencyId))
                     return "Customer and currency cannot be changed on an order created from quote lines.";
@@ -326,6 +329,7 @@ namespace Primafit_ERP.Services
                 existing.DirectIncomeGlAccountId = order.DirectIncomeGlAccountId;
 
                 existing.Status = order.Status;
+                existing.SubmissionState = order.SubmissionState;
 
                 var existingLines = existing.Lines.ToDictionary(l => l.Id);
                 var incomingIds = order.Lines.Select(l => l.Id).ToHashSet();
@@ -352,11 +356,25 @@ namespace Primafit_ERP.Services
                 }
             }
 
+            if (!order.IsInvoiceDocument && order.Status != OrderStatus.Quote)
+            {
+                var trackedOrder = ctx.ChangeTracker.Entries<SalesOrder>().Single(x => x.Entity.Id == order.Id).Entity;
+                var fieldError = _customFields == null ? await CustomFieldService.UnavailableAsync(ctx, order.CompanyId, CustomFieldScope.SalesOrderHeader, CustomFieldScope.SalesOrderLine)
+                    : await _customFields.ApplyAsync(ctx, order.CompanyId, CustomFieldScope.SalesOrderHeader, order.Id, trackedOrder, customFields, order.SubmissionState != SalesOrderSubmissionState.Draft);
+                if (fieldError.Length > 0) return fieldError;
+                if (_customFields != null)
+                    foreach (var line in order.Lines)
+                    {
+                        var error = await _customFields.ApplyAsync(ctx, order.CompanyId, CustomFieldScope.SalesOrderLine, line.Id, trackedOrder, lineFields?.GetValueOrDefault(line.Id), order.SubmissionState != SalesOrderSubmissionState.Draft);
+                        if (error.Length > 0) return $"Line {order.Lines.IndexOf(line) + 1}: {error}";
+                    }
+            }
             try
             {
                 await ctx.SaveChangesAsync();
                 if (sourceTransaction != null) await sourceTransaction.CommitAsync();
             }
+            catch (DbUpdateConcurrencyException) { return "This order changed while editing. Refresh and try again."; }
             catch (DbUpdateException)
             {
                 return "The order could not be saved. A selected quote line may already have been used; refresh and try again.";
@@ -397,6 +415,7 @@ namespace Primafit_ERP.Services
                 Date = DateOnly.FromDateTime(DateTime.Today),
                 TransactionDateTime = DateTime.Now,
                 Status = OrderStatus.Order,
+                SubmissionState = await ctx.Set<CustomFieldDefinition>().AnyAsync(d => d.CompanyId == quote.CompanyId && d.IsActive && (d.Scope == CustomFieldScope.SalesOrderHeader || d.Scope == CustomFieldScope.SalesOrderLine)) ? SalesOrderSubmissionState.Draft : SalesOrderSubmissionState.Submitted,
                 CurrencyId = quote.CurrencyId,
                 ExchangeRate = quote.ExchangeRate,
                 WarehouseId = quote.WarehouseId,
@@ -433,6 +452,7 @@ namespace Primafit_ERP.Services
             var order = await ctx.SalesOrders.Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order before shipping or invoicing.";
             if (order.Status != OrderStatus.Order) return "Only Confirmed Orders can be converted to Invoices.";
 
             bool alreadyConverted = await ctx.SalesOrders.AnyAsync(o => o.ConvertedFromQuoteNumber == order.OrderNumber);
@@ -489,6 +509,7 @@ namespace Primafit_ERP.Services
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order before shipping or invoicing.";
             if (order.Status == OrderStatus.Shipped) return "Order has already been completely fulfilled.";
             if (!await ctx.Warehouses.AnyAsync(w => w.Id == warehouseId && w.CompanyId == order.CompanyId &&
                 (w.Type == WarehouseType.Both || w.Type == WarehouseType.Sales)))
@@ -592,6 +613,7 @@ namespace Primafit_ERP.Services
                     .FirstOrDefaultAsync(o => o.Id == orderId);
 
                 if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft && !order.IsInvoiceDocument) return "Submit the sales order before shipping or invoicing.";
 
                 // Prevent modification if already committed to the General Ledger
                 if (order.InvoiceBatchId.HasValue)
@@ -970,10 +992,9 @@ namespace Primafit_ERP.Services
             invoice.GLBatchId = existing?.GLBatchId ?? draft.InvoiceBatchId;
             invoice.InvoiceBatchId = existing?.InvoiceBatchId ?? draft.InvoiceBatchId;
 
-            if (existing != null) { db.SalesInvoiceLines.RemoveRange(existing.Lines); existing.Lines.Clear(); }
-            invoice.Lines = draft.Lines.Select(line => new SalesInvoiceLine
+            var incomingLines = draft.Lines.Select(line => new SalesInvoiceLine
             { DimensionSetId = line.DimensionSetId,
-                Id = Guid.NewGuid(),
+                Id = line.Id == Guid.Empty ? Guid.NewGuid() : line.Id,
                 SalesInvoiceId = invoice.Id,
                 ItemId = null,
                 Description = line.Description?.Trim(),
@@ -983,6 +1004,7 @@ namespace Primafit_ERP.Services
                 TaxId = draft.TaxId,
                 TaxGLAccountId = draft.TaxGLAccountId
             }).ToList();
+            CustomFieldLineIdentity.Sync(db, invoice.Lines, incomingLines, nameof(SalesInvoiceLine.SalesInvoiceId), invoice.Id);
             var gross = invoice.Lines.Sum(x => x.Amount);
             var discount = invoice.DiscountPercentage > 0 ? gross * invoice.DiscountPercentage / 100m : Math.Min(invoice.DiscountAmount, gross);
             var taxRate = invoice.TaxId.HasValue
@@ -992,7 +1014,7 @@ namespace Primafit_ERP.Services
             invoice.TotalAmount = Math.Round(invoice.TotalAmountForeign * invoice.ExchangeRate, 2, MidpointRounding.AwayFromZero);
 
             if (existing == null) db.SalesInvoices.Add(invoice);
-            else db.SalesInvoiceLines.AddRange(invoice.Lines);
+            
             await db.SaveChangesAsync();
             if (submitUserId != null) {
                 var error = await _documentWorkflow.StageSalesInvoiceAsync(db, invoice.Id, submitUserId);
@@ -1008,6 +1030,7 @@ namespace Primafit_ERP.Services
         // 7. REPORTS
         public async Task<StandardReportData> GenerateCustomerTransactionReportAsync(Guid companyId, DateOnly start, DateOnly end, string customerSearch)
         {
+            ReportAccounting.ValidatePeriod(start, end);
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var taxes = await ctx.Taxes.Where(t => t.CompanyId == companyId).ToDictionaryAsync(t => t.Id, t => t.Per);
 
@@ -1022,7 +1045,8 @@ namespace Primafit_ERP.Services
                          && (o.IsDirectInvoice || o.InvoiceBatchId != null
                              || (o.ConvertedFromQuoteNumber != null && o.Status == OrderStatus.Draft)
                              || o.OrderNumber.StartsWith("INV"))
-                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced || o.Status == OrderStatus.Draft));
+                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced)
+                         && (!o.InvoiceBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == o.InvoiceBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue))));
 
             if (!string.IsNullOrWhiteSpace(customerSearch))
             {
@@ -1037,15 +1061,17 @@ namespace Primafit_ERP.Services
                     && (string.IsNullOrWhiteSpace(customerSearch) || (x.Customer != null && x.Customer.Name.Contains(customerSearch)))
                     && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
                     && ((!x.GLBatchId.HasValue && x.Status == SalesInvoiceStatus.Posted) || (x.GLBatchId.HasValue
-                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && (batch.Status == BatchStatus.Posted || batch.PostedAt.HasValue)))))
                 .ToListAsync();
+            var invoiceTotals = await ReportAccounting.LegacySalesTotalsAsync(ctx, companyId, orders);
+            foreach (var invoice in documentInvoices) invoiceTotals[invoice.Id] = invoice.TotalAmountForeign;
             orders.AddRange(documentInvoices.Select(ToSalesOrderReportRecord));
             var invoiceIds = orders.Select(o => o.Id).ToList();
 
             var payments = await (from pa in ctx.PaymentApplications join payment in ctx.CustomerPayments on pa.CustomerPaymentId equals payment.Id
                 where invoiceIds.Contains(pa.InvoiceId) && payment.CompanyId == companyId && payment.Status == PaymentStatus.Posted
                     && payment.Date <= end.ToDateTime(TimeOnly.MaxValue)
-                    && (!payment.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == payment.GLBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
+                    && (!payment.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == payment.GLBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                 group pa by pa.InvoiceId into g
                 select new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
@@ -1059,7 +1085,7 @@ namespace Primafit_ERP.Services
                 ReportName = "Customer Transaction Report",
                 ReportingPeriod = $"{start:MMM dd, yyyy} to {end:MMM dd, yyyy}",
                 Headers = new List<string> {
-            "Date", "Invoice #", "Customer", "Item", "Qty", "Unit Price", "Line Total",
+            "Date", "Invoice #", "Customer", "Item", "UOM", "Qty", "Unit Price", "Line Total",
             "Order Discount", "Order Tax", "Credit Applied", "Net Invoice Total", "Amount Paid"
         },
                 Rows = new List<List<string>>()
@@ -1067,45 +1093,49 @@ namespace Primafit_ERP.Services
 
             foreach (var o in orders)
             {
-                decimal subTotalForeign = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                decimal subTotalForeign = o.Lines.Sum(l => ReportAccounting.Money(l.Quantity * l.UnitPrice));
                 decimal discountForeign = o.DiscountPercentage > 0 ? subTotalForeign * (o.DiscountPercentage / 100) : o.DiscountAmount;
+                discountForeign = ReportAccounting.Money(discountForeign);
                 decimal netForeign = subTotalForeign - discountForeign;
 
-                decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
-                decimal taxForeign = netForeign * (taxPer / 100);
+                var snapshot = documentInvoices.FirstOrDefault(x => x.Id == o.Id);
+                discountForeign += snapshot?.Lines.Sum(x => x.DiscountAmount) ?? 0m;
+                netForeign = subTotalForeign - discountForeign;
+                decimal taxForeign = invoiceTotals[o.Id] - netForeign;
 
                 decimal paidForeign = payments.TryGetValue(o.Id, out var pAmt) ? pAmt : 0;
                 decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1;
-                decimal paidBase = Math.Round(paidForeign * rate, 2);
+                decimal paidBase = ReportAccounting.Money(paidForeign * rate);
 
                 // FIXED: Replaced undeclared discountedSubTotal with netForeign variable to fix compilation error
-                decimal rawGrandTotal = netForeign + taxForeign;
+                decimal rawGrandTotal = invoiceTotals[o.Id];
                 decimal creditedForeign = creditNotesMap.TryGetValue(o.Id, out var credAmt) ? credAmt : 0;
-                decimal discountBase = Math.Round(discountForeign * rate, 2);
-                decimal taxBase = Math.Round(taxForeign * rate, 2);
-                decimal creditAppliedBase = Math.Round(creditedForeign * rate, 2);
-                decimal netGrandTotalBase = Math.Round(rawGrandTotal * rate, 2) - creditAppliedBase;
+                decimal discountBase = ReportAccounting.Money(discountForeign * rate);
+                decimal taxBase = ReportAccounting.Money(taxForeign * rate);
+                decimal creditAppliedBase = ReportAccounting.Money(creditedForeign * rate);
+                decimal netGrandTotalBase = (snapshot?.TotalAmount ?? ReportAccounting.Money(rawGrandTotal * rate)) - creditAppliedBase;
 
                 bool isFirstLine = true;
                 foreach (var line in o.Lines)
                 {
-                    decimal unitPriceBase = Math.Round(line.UnitPrice * rate, 2);
-                    decimal lineTotalBase = Math.Round(line.Quantity * line.UnitPrice * rate, 2);
+                    decimal unitPriceBase = Math.Round(line.UnitPrice * rate, 4);
+                    decimal lineTotalBase = ReportAccounting.Money(ReportAccounting.Money(line.Quantity * line.UnitPrice) * rate);
                     var row = new List<string>
             {
                 isFirstLine ? o.Date.ToString("yyyy-MM-dd") : "",
                 isFirstLine ? o.OrderNumber : "",
                 isFirstLine ? (o.Customer?.Name ?? "Unknown") : "",
                 line.Item?.Name ?? line.Description ?? "Invoice line",
-                line.Quantity.ToString("N2"),
-                unitPriceBase.ToString("N2"),
-                lineTotalBase.ToString("N2"),
-                isFirstLine ? discountBase.ToString("N2") : "",
-                isFirstLine ? taxBase.ToString("N2") : "",
+                line.Item?.UoM ?? line.UomName,
+                line.Quantity.ToString("N4"),
+                unitPriceBase.ToString("N4"),
+                lineTotalBase.ToString("N4"),
+                isFirstLine ? discountBase.ToString("N4") : "",
+                isFirstLine ? taxBase.ToString("N4") : "",
                 // FIXED: Mapping the actual credit adjustments onto the data grid rows row-by-row
-                isFirstLine ? (creditAppliedBase > 0 ? $"({creditAppliedBase.ToString("N2")})" : "0.00") : "",
-                isFirstLine ? netGrandTotalBase.ToString("N2") : "",
-                isFirstLine ? paidBase.ToString("N2") : ""
+                isFirstLine ? (creditAppliedBase > 0 ? $"({creditAppliedBase.ToString("N4")})" : "0.0000") : "",
+                isFirstLine ? netGrandTotalBase.ToString("N4") : "",
+                isFirstLine ? paidBase.ToString("N4") : ""
             };
                     reportData.Rows.Add(row);
                     isFirstLine = false;
@@ -1125,7 +1155,8 @@ namespace Primafit_ERP.Services
                          && !ctx.SalesInvoices.Any(documentInvoice => documentInvoice.CompanyId == companyId && documentInvoice.Id == o.Id)
                          && o.Date <= asOfDate
                          && (o.IsDirectInvoice || o.InvoiceBatchId != null || o.OrderNumber.StartsWith("INV"))
-                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
+                         && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced)
+                         && (!o.InvoiceBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == o.InvoiceBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue))))
                 .ToListAsync();
 
             var documentInvoices = await ctx.SalesInvoices.AsNoTracking()
@@ -1133,8 +1164,10 @@ namespace Primafit_ERP.Services
                 .Where(x => x.CompanyId == companyId && x.Date <= asOfDate
                     && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
                     && ((!x.GLBatchId.HasValue && x.Status == SalesInvoiceStatus.Posted) || (x.GLBatchId.HasValue
-                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && (batch.Status == BatchStatus.Posted || batch.PostedAt.HasValue)))))
                 .ToListAsync();
+            var invoiceTotals = await ReportAccounting.LegacySalesTotalsAsync(ctx, companyId, orders);
+            foreach (var invoice in documentInvoices) invoiceTotals[invoice.Id] = invoice.TotalAmountForeign;
             orders.AddRange(documentInvoices.Select(ToSalesOrderReportRecord));
 
             var invoiceIds = orders.Select(o => o.Id).ToList();
@@ -1142,7 +1175,7 @@ namespace Primafit_ERP.Services
             var payments = await (from pa in ctx.PaymentApplications join payment in ctx.CustomerPayments on pa.CustomerPaymentId equals payment.Id
                 where invoiceIds.Contains(pa.InvoiceId) && payment.CompanyId == companyId && payment.Status == PaymentStatus.Posted
                     && payment.Date <= asOfDate.ToDateTime(TimeOnly.MaxValue)
-                    && (!payment.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == payment.GLBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
+                    && (!payment.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == payment.GLBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                 group pa by pa.InvoiceId into g
                 select new { InvoiceId = g.Key, TotalPaid = g.Sum(x => x.AppliedAmount + x.CashDiscountTaken + x.WithholdingAmountForeign) })
                 .ToDictionaryAsync(x => x.InvoiceId, x => x.TotalPaid);
@@ -1158,46 +1191,44 @@ namespace Primafit_ERP.Services
             {
                 ReportName = "AR Age Analysis (Outstanding Invoices)",
                 ReportingPeriod = $"As of {asOfDate:MMM dd, yyyy}",
-                Headers = new List<string> { "Customer", "Invoice #", "Date", "Age (Days)", "Invoice Total", "Amount Paid", "Balance Due" },
+                Headers = new List<string> { "Customer", "Invoice #", "Date", "Age (Days)", "Invoice Total", "Credit Applied", "Amount Paid", "Balance Due / (Credit)" },
                 Rows = new List<List<string>>()
             };
 
             decimal totalOutstanding = 0;
-            var groupedOrders = orders.GroupBy(o => o.Customer?.Name ?? "Unknown").OrderBy(g => g.Key);
+            var groupedOrders = orders.GroupBy(o => o.CustomerId).OrderBy(g => g.First().Customer?.Name ?? "Unknown");
 
             foreach (var group in groupedOrders)
             {
                 decimal customerBalance = 0;
+                var firstCustomerRow = reportData.Rows.Count;
 
                 foreach (var o in group.OrderBy(x => x.Date))
                 {
-                    decimal subTotal = o.Lines.Sum(l => l.Quantity * l.UnitPrice);
-                    decimal discount = o.DiscountPercentage > 0 ? subTotal * (o.DiscountPercentage / 100) : o.DiscountAmount;
-                    decimal net = subTotal - discount;
-                    decimal taxPer = o.TaxId.HasValue && taxes.ContainsKey(o.TaxId.Value) ? taxes[o.TaxId.Value] : 0;
-                    decimal grandTotalForeign = net + (net * (taxPer / 100));
+                    decimal grandTotalForeign = invoiceTotals[o.Id];
 
                     decimal paidForeign = payments.TryGetValue(o.Id, out var paidAmt) ? paidAmt : 0;
                     decimal creditedForeign = creditNotesMap.TryGetValue(o.Id, out var creditedAmt) ? creditedAmt : 0;
                     decimal rate = o.ExchangeRate > 0 ? o.ExchangeRate : 1m;
-                    decimal grandTotal = Math.Round(grandTotalForeign * rate, 2);
-                    decimal paid = Math.Round(paidForeign * rate, 2);
-                    decimal credited = Math.Round(creditedForeign * rate, 2);
+                    decimal grandTotal = documentInvoices.FirstOrDefault(x => x.Id == o.Id)?.TotalAmount ?? ReportAccounting.Money(grandTotalForeign * rate);
+                    decimal paid = ReportAccounting.Money(paidForeign * rate);
+                    decimal credited = ReportAccounting.Money(creditedForeign * rate);
                     decimal balance = grandTotal - paid - credited;
 
-                    if (balance > 0.01m)
+                    if (Math.Abs(balance) > 0.00005m)
                     {
                         int ageDays = (asOfDate.ToDateTime(TimeOnly.MinValue) - o.Date.ToDateTime(TimeOnly.MinValue)).Days;
 
                         reportData.Rows.Add(new List<string>
                         {
-                            group.Key,
+                            group.First().Customer?.Name ?? "Unknown",
                             o.OrderNumber,
                             o.Date.ToString("yyyy-MM-dd"),
                             ageDays.ToString(),
-                            grandTotal.ToString("N2"),
-                            paid.ToString("N2"),
-                            balance.ToString("N2")
+                            grandTotal.ToString("N4"),
+                            credited.ToString("N4"),
+                            paid.ToString("N4"),
+                            balance.ToString("N4")
                         });
 
                         customerBalance += balance;
@@ -1205,17 +1236,18 @@ namespace Primafit_ERP.Services
                     }
                 }
 
-                if (customerBalance > 0)
+                if (reportData.Rows.Count > firstCustomerRow)
                 {
-                    reportData.Rows.Add(new List<string> { "", $"SUMMARY: {group.Key}", "", "", "", "", customerBalance.ToString("N2") });
+                    reportData.Rows.Add(new List<string> { "", $"SUMMARY: {group.First().Customer?.Name ?? "Unknown"}", "", "", "", "", "", customerBalance.ToString("N4") });
                 }
             }
 
-            reportData.Rows.Add(new List<string> { "", "GRAND TOTAL", "", "", "", "", totalOutstanding.ToString("N2") });
+            reportData.Rows.Add(new List<string> { "", "GRAND TOTAL", "", "", "", "", "", totalOutstanding.ToString("N4") });
             return reportData;
         }
         public async Task<StandardReportData> GenerateSalesAnalysisReportAsync(Guid companyId, DateOnly start, DateOnly end, string itemSearchQuery = "")
         {
+            ReportAccounting.ValidatePeriod(start, end);
             using var ctx = await _dbFactory.CreateDbContextAsync();
             var validStatuses = new[] { OrderStatus.PartiallyInvoiced, OrderStatus.Invoiced };
 
@@ -1231,7 +1263,8 @@ namespace Primafit_ERP.Services
                          && l.Header.Date >= start
                          && l.Header.Date <= end
                          && (l.Header.IsDirectInvoice || l.Header.InvoiceBatchId != null || l.Header.OrderNumber.StartsWith("INV"))
-                         && validStatuses.Contains(l.Header.Status));
+                         && validStatuses.Contains(l.Header.Status)
+                         && (!l.Header.InvoiceBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == l.Header.InvoiceBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue))));
 
             var lines = await query.ToListAsync();
             var documentInvoices = await ctx.SalesInvoices.AsNoTracking()
@@ -1239,14 +1272,14 @@ namespace Primafit_ERP.Services
                 .Where(x => x.CompanyId == companyId && x.Date >= start && x.Date <= end
                     && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
                     && ((!x.GLBatchId.HasValue && x.Status == SalesInvoiceStatus.Posted) || (x.GLBatchId.HasValue
-                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                        && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && (batch.Status == BatchStatus.Posted || batch.PostedAt.HasValue)))))
                 .ToListAsync();
             foreach (var invoiceDocument in documentInvoices)
             {
                 var header = ToSalesOrderReportRecord(invoiceDocument);
                 lines.AddRange(invoiceDocument.Lines.Where(x => x.ItemId.HasValue).Select(x => new SalesOrderLine
                 { DimensionSetId = x.DimensionSetId,
-                    Id = x.SalesOrderLineId ?? x.Id,
+                    Id = x.Id,
                     HeaderId = header.Id,
                     Header = header,
                     ItemId = x.ItemId,
@@ -1269,12 +1302,43 @@ namespace Primafit_ERP.Services
             }
 
             // FEATURE: Extract target line IDs and build a look-up map for all matching posted credit note reductions
-            var lineIds = lines.Select(l => l.Id).ToList();
-            var lineCreditsMap = await ctx.CreditNoteLines
-                .Include(cl => cl.Header)
-                .Where(cl => (cl.SalesOrderLineId.HasValue && lineIds.Contains(cl.SalesOrderLineId.Value)) && cl.Header!.Status == CreditNoteStatus.Posted)
-                .Where(cl => cl.SalesOrderLineId.HasValue).GroupBy(cl => cl.SalesOrderLineId!.Value)
-                .ToDictionaryAsync(g => g.Key, g => g.Sum(x => x.Quantity));
+            var lineIds = lines.Select(l => l.Id).ToHashSet();
+            var sourceLinks = documentInvoices.SelectMany(i => i.Lines.Where(l => l.SalesOrderLineId.HasValue)
+                .Select(l => new { Invoice = i.Id, Source = l.SalesOrderLineId!.Value, Line = l.Id })).ToList();
+            var sourceIds = sourceLinks.Select(x => x.Source).Concat(lineIds).Distinct().ToList();
+            var creditLines = await ctx.CreditNoteLines.AsNoTracking().Include(x => x.Header)
+                .Where(x => x.Header!.CompanyId == companyId && x.Header.ReturnToStock && x.Header.Status == CreditNoteStatus.Posted
+                    && (!x.Header.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == x.Header.GlBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
+                    && ((x.SalesInvoiceLineId.HasValue && lineIds.Contains(x.SalesInvoiceLineId.Value)) || (x.SalesOrderLineId.HasValue && sourceIds.Contains(x.SalesOrderLineId.Value))))
+                .ToListAsync();
+            var lineCreditsMap = new Dictionary<Guid, decimal>();
+            var baseCreditMap = new Dictionary<Guid, decimal>();
+            var cumulativeCredits = new Dictionary<Guid, decimal>();
+            foreach (var credit in creditLines.OrderBy(x => x.Header!.PostedAt ?? x.Header.CreatedAt).ThenBy(x => x.Id))
+            {
+                Guid? target = credit.SalesInvoiceLineId.HasValue && lineIds.Contains(credit.SalesInvoiceLineId.Value) ? credit.SalesInvoiceLineId : null;
+                if (!target.HasValue && credit.SalesOrderLineId.HasValue)
+                {
+                    var invoiceId = credit.Header!.SalesInvoiceId ?? credit.Header.SalesOrderId;
+                    target = sourceLinks.FirstOrDefault(x => x.Invoice == invoiceId && x.Source == credit.SalesOrderLineId)?.Line;
+                    if (!target.HasValue && lines.Any(x => x.Id == credit.SalesOrderLineId && x.HeaderId == invoiceId)) target = credit.SalesOrderLineId;
+                }
+                if (target.HasValue)
+                {
+                    var line = lines.First(x => x.Id == target.Value);
+                    var prior = cumulativeCredits.GetValueOrDefault(target.Value);
+                    var originalBase = ReportAccounting.Money(ReportAccounting.Money(line.Quantity * line.UnitPrice) * (line.Header.ExchangeRate > 0 ? line.Header.ExchangeRate : 1));
+                    var reduction = credit.Header!.SalesInvoiceId.HasValue
+                        ? InvoiceReversalMath.Portion(originalBase, prior, credit.Quantity, line.Quantity)
+                        : Math.Round(credit.Quantity * credit.UnitPrice * (credit.Header.ExchangeRate > 0 ? credit.Header.ExchangeRate : 1), 2);
+                    cumulativeCredits[target.Value] = prior + credit.Quantity;
+                    if (credit.Header.Date <= end)
+                    {
+                        lineCreditsMap[target.Value] = lineCreditsMap.GetValueOrDefault(target.Value) + credit.Quantity;
+                        baseCreditMap[target.Value] = baseCreditMap.GetValueOrDefault(target.Value) + reduction;
+                    }
+                }
+            }
 
             var reportData = new StandardReportData
             {
@@ -1284,10 +1348,11 @@ namespace Primafit_ERP.Services
                 Rows = new List<List<string>>()
             };
 
-            // 3. Group and organize records strictly by item master names
+            decimal NetBase(SalesOrderLine line) => ReportAccounting.Money(ReportAccounting.Money(line.Quantity * line.UnitPrice) * (line.Header.ExchangeRate > 0 ? line.Header.ExchangeRate : 1)) - baseCreditMap.GetValueOrDefault(line.Id);
+            // 3. Group and organize records by item identity
             var groupedItems = lines
-                .GroupBy(l => l.Item.Name)
-                .OrderBy(g => g.Key)
+                .GroupBy(l => new { l.Item.Id, l.Item.Name })
+                .OrderBy(g => g.Key.Name)
                 .ToList();
 
             decimal grandTotalRevenueBase = 0;
@@ -1295,7 +1360,7 @@ namespace Primafit_ERP.Services
 
             foreach (var group in groupedItems)
             {
-                string itemHeaderName = group.Key;
+                string itemHeaderName = group.Key.Name;
                 var representativeLine = group.First();
                 string itemType = representativeLine.Item.IsService ? "Service" : "Physical Goods";
 
@@ -1303,7 +1368,7 @@ namespace Primafit_ERP.Services
                 decimal itemGroupQty = group.Sum(x =>
                 {
                     decimal creditedQty = lineCreditsMap.TryGetValue(x.Id, out var qty) ? qty : 0;
-                    return x.Quantity - creditedQty;
+                    return Math.Max(0m, x.Quantity - creditedQty);
                 });
 
                 // FIXED: Compute true Net Revenue Base Value for the section header
@@ -1311,8 +1376,8 @@ namespace Primafit_ERP.Services
                 {
                     decimal rate = x.Header.ExchangeRate > 0 ? x.Header.ExchangeRate : 1;
                     decimal creditedQty = lineCreditsMap.TryGetValue(x.Id, out var qty) ? qty : 0;
-                    decimal netQty = x.Quantity - creditedQty;
-                    return (netQty * x.UnitPrice) * rate;
+                    decimal netQty = Math.Max(0m, x.Quantity - creditedQty);
+                    return NetBase(x);
                 });
 
                 // SECTION HEADER ROW (Reflects true balanced adjustments)
@@ -1321,9 +1386,9 @@ namespace Primafit_ERP.Services
             $"SECTION_HEADER:{itemHeaderName}",
             itemType,
             "",
-            itemGroupQty.ToString("N2"),
+            itemGroupQty.ToString("N4"),
             "",
-            itemGroupRevenueBase.ToString("N2")
+            itemGroupRevenueBase.ToString("N4")
         });
 
                 // TRANSACTION LINE DETAIL ROWS
@@ -1333,19 +1398,19 @@ namespace Primafit_ERP.Services
 
                     // FIXED: Isolate line-level reductions to modify line display variables dynamically
                     decimal creditedQty = lineCreditsMap.TryGetValue(line.Id, out var qty) ? qty : 0;
-                    decimal netLineQty = line.Quantity - creditedQty;
+                    decimal netLineQty = Math.Max(0m, line.Quantity - creditedQty);
 
                     decimal basePrice = line.UnitPrice * currentRate;
-                    decimal baseAmount = (netLineQty * line.UnitPrice) * currentRate;
+                    decimal baseAmount = NetBase(line);
 
                     reportData.Rows.Add(new List<string>
             {
                 line.Header.Date.ToString("yyyy-MM-dd") + " (" + line.Header.OrderNumber + ")",
                 line.Header.Customer?.Name ?? "Unknown Customer",
-                itemType,
-                netLineQty.ToString("N2"), // Shows net quantity after credit note deductions
-                basePrice.ToString("N2"),
-                baseAmount.ToString("N2") // Shows net baseline amount after credit note deductions
+                itemType + " · " + line.Item.UoM,
+                netLineQty.ToString("N4"), // Shows net quantity after credit note deductions
+                basePrice.ToString("N4"),
+                baseAmount.ToString("N4") // Shows net baseline amount after credit note deductions
             });
                 }
 
@@ -1359,7 +1424,7 @@ namespace Primafit_ERP.Services
             // FINAL GRAND TOTAL SUMMATION
             reportData.Rows.Add(new List<string>
     {
-        "REPORT_TOTAL:GRAND TOTAL", "", "", grandTotalQty.ToString("N2"), "", grandTotalRevenueBase.ToString("N2")
+        "REPORT_TOTAL:GRAND TOTAL", "", "", grandTotalQty.ToString("N4"), "", grandTotalRevenueBase.ToString("N4")
     });
 
             return reportData;
@@ -1394,7 +1459,7 @@ namespace Primafit_ERP.Services
             GrandTotalForeign = invoice.TotalAmountForeign,
             Lines = invoice.Lines.Select(line => new SalesOrderLine
             { DimensionSetId = line.DimensionSetId,
-                Id = line.SalesOrderLineId ?? line.Id,
+                Id = line.Id,
                 HeaderId = invoice.Id,
                 ItemId = line.ItemId,
                 Item = line.Item,

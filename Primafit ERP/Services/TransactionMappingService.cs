@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -185,13 +185,13 @@ namespace Primafit_ERP.Services
 
                     if (line.BalanceAmount > 0)
                     {
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = customerArAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AR Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = arBalancingAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { Id = line.Id, DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = customerArAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AR Adj Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = false,  SegCoaId = arBalancingAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Cr - {line.EntityName}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = arBalancingAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = customerArAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AR Adj Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = false,  SegCoaId = arBalancingAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AR Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { Id = line.Id, DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = customerArAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AR Adj Cr - {line.EntityName}" });
                     }
                 }
 
@@ -283,13 +283,13 @@ namespace Primafit_ERP.Services
 
                     if (line.BalanceAmount > 0)
                     {
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = vendorApAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AP Adj Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = false,  SegCoaId = apBalancingAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { Id = line.Id, DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = vendorApAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AP Adj Cr - {line.EntityName}" });
                     }
                     else
                     {
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = vendorApAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AP Adj Dr - {line.EntityName}" });
-                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = apBalancingAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { Id = line.Id, DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,  SegCoaId = vendorApAccount, Debit = absoluteAmount, Credit = 0,  ProjectId = line.ProjectId, Reference = $"AP Adj Dr - {line.EntityName}" });
+                        glLines.Add(new GLJournalLine { DimensionSetId = line.DimensionSetId, IsDimensionDetail = false,  SegCoaId = apBalancingAccount, Debit = 0, Credit = absoluteAmount,  ProjectId = line.ProjectId, Reference = $"AP Adj Balancing Cr - {line.EntityName}" });
                     }
                 }
 

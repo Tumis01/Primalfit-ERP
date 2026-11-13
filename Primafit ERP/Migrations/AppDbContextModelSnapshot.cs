@@ -462,6 +462,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("PreparedByUserId")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -496,6 +500,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<Guid?>("BankReconciliationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateOnly>("Date")
@@ -691,6 +699,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid?>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("ExchangeRate")
                         .HasColumnType("decimal(18, 4)");
 
@@ -735,6 +747,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Credit")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("Debit")
                         .HasColumnType("decimal(18, 4)");
 
@@ -769,8 +785,6 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CashbookBatchId");
 
                     b.HasIndex("DimensionSetId");
 
@@ -899,6 +913,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("CustomTransactionTypeId")
                         .HasColumnType("uniqueidentifier");
 
@@ -987,6 +1005,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1024,8 +1046,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DimensionSetId");
-
-                    b.HasIndex("HeaderId");
 
                     b.HasIndex("ItemId");
 
@@ -1097,6 +1117,156 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("CurrencyManagements");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("CurrentRevision")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DataType")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "Scope", "Code")
+                        .IsUnique();
+
+                    b.ToTable("CustomFieldDefinition");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CustomFieldOption");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DecimalPlaces")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("HelpText")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<bool>("IncludeInExports")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IncludeOnPrint")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsFilterable")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsReportable")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("MaxLength")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("Maximum")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("Minimum")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<DateTime>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PublishedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("Required")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Section")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("CustomFieldRevision");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomTransactionType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1151,6 +1321,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("CustomerGroupId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1178,6 +1352,66 @@ namespace Primafit_ERP.Migrations
                         .IsUnique();
 
                     b.ToTable("Customers");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerCustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "CustomerId", "DefinitionId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.ToTable("CustomerCustomFieldValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomerCustomFieldValues_TypedValue", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerGroup", b =>
@@ -1223,6 +1457,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -1282,6 +1520,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -1373,6 +1615,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1410,8 +1656,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DimensionSetId");
-
-                    b.HasIndex("HeaderId");
 
                     b.HasIndex("ItemId");
 
@@ -1620,6 +1864,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<string>("TaxIdentificationNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BranchId");
@@ -1803,6 +2051,13 @@ namespace Primafit_ERP.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("CustomFieldContext")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -1839,8 +2094,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AccountingPeriodId");
-
-                    b.HasIndex("CompanyId");
 
                     b.ToTable("GLBatches");
                 });
@@ -1892,6 +2145,13 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("HasManualCustomFields")
+                        .HasColumnType("bit");
+
                     b.Property<string>("JournalNumber")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1921,11 +2181,18 @@ namespace Primafit_ERP.Migrations
                     b.Property<decimal>("Credit")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal>("Debit")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("HasManualCustomFields")
+                        .HasColumnType("bit");
 
                     b.Property<Guid>("HeaderId")
                         .HasColumnType("uniqueidentifier");
@@ -1945,8 +2212,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DimensionSetId");
-
-                    b.HasIndex("HeaderId");
 
                     b.HasIndex("ProjectId");
 
@@ -2058,6 +2323,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("CustomTransactionTypeId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2114,6 +2383,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("CustomTransactionTypeId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2157,6 +2430,10 @@ namespace Primafit_ERP.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("DimensionSetId")
@@ -2208,6 +2485,10 @@ namespace Primafit_ERP.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("DimensionSetId")
@@ -2280,6 +2561,132 @@ namespace Primafit_ERP.Migrations
                     b.ToTable("GrnLandedCosts");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CommittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("GLBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "GLBatchId");
+
+                    b.ToTable("InventoryAdjustmentDocument");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryAdjustmentRecordLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("HeaderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("QuantityChange")
+                        .HasColumnType("decimal(28,12)");
+
+                    b.Property<decimal>("ValueChange")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("InventoryAdjustmentRecordLine");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryEntryDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CommittedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("GLBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "GLBatchId");
+
+                    b.ToTable("InventoryEntryDocument");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryEntryRecordLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("HeaderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("QuantityChange")
+                        .HasColumnType("decimal(28,12)");
+
+                    b.Property<decimal>("ValueChange")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("InventoryEntryRecordLine");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.Item", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2310,6 +2717,10 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<int>("CostingType")
                         .HasColumnType("int");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("InventoryAssetAccountId")
                         .HasColumnType("uniqueidentifier");
@@ -2443,6 +2854,66 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("ItemId");
 
                     b.ToTable("ItemCostHistories");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemCustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "ItemId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("ItemCustomFieldValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ItemCustomFieldValues_TypedValue", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.ItemUomConversionLine", b =>
@@ -2818,6 +3289,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("CustomTransactionTypeId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2951,6 +3426,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -2998,8 +3477,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.HasIndex("PurchaseInvoiceId");
-
                     b.HasIndex("PurchaseOrderLineId");
 
                     b.ToTable("PurchaseInvoiceLines", (string)null);
@@ -3024,6 +3501,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -3132,6 +3613,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3170,8 +3655,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("DimensionSetId");
 
-                    b.HasIndex("PurchaseOrderId");
-
                     b.HasIndex("PurchaseRequestLineId")
                         .IsUnique()
                         .HasFilter("[PurchaseRequestLineId] IS NOT NULL");
@@ -3189,6 +3672,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("DimensionSetId")
@@ -3273,6 +3760,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -3307,8 +3798,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.HasIndex("PurchaseRequestId");
-
                     b.ToTable("PurchaseRequestLines", (string)null);
                 });
 
@@ -3331,6 +3820,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -3425,6 +3918,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3459,8 +3956,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DimensionSetId");
-
-                    b.HasIndex("HeaderId");
 
                     b.HasIndex("ItemId");
 
@@ -3511,6 +4006,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -3623,6 +4122,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -3645,7 +4148,7 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid?>("RevenueGlAccountId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("SalesInvoiceId")
+                    b.Property<Guid>("SalesInvoiceId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("SalesOrderLineId")
@@ -3679,8 +4182,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.HasIndex("SalesInvoiceId");
-
                     b.HasIndex("SalesOrderLineId");
 
                     b.HasIndex("ShipmentLineId")
@@ -3703,6 +4204,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -3754,6 +4259,9 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<int>("SubmissionState")
+                        .HasColumnType("int");
+
                     b.Property<Guid?>("TaxGLAccountId")
                         .HasColumnType("uniqueidentifier");
 
@@ -3794,6 +4302,66 @@ namespace Primafit_ERP.Migrations
                         .IsUnique();
 
                     b.ToTable("SalesOrders");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderCustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SalesOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "SalesOrderId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("SalesOrderCustomFieldValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesOrderCustomFieldValues_TypedValue", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderLine", b =>
@@ -3843,8 +4411,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("DimensionSetId");
 
-                    b.HasIndex("HeaderId");
-
                     b.HasIndex("ItemId");
 
                     b.HasIndex("SalesQuoteLineId")
@@ -3852,6 +4418,73 @@ namespace Primafit_ERP.Migrations
                         .HasFilter("[SalesQuoteLineId] IS NOT NULL");
 
                     b.ToTable("SalesOrderLines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderLineCustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SalesOrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SalesOrderLineId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "SalesOrderId");
+
+                    b.HasIndex("SalesOrderId", "SalesOrderLineId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "SalesOrderLineId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("SalesOrderLineCustomFieldValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_SalesOrderLineCustomFieldValues_TypedValue", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesQuote", b =>
@@ -3864,6 +4497,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CustomerId")
@@ -3948,6 +4585,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Description")
                         .HasColumnType("nvarchar(max)");
 
@@ -3982,8 +4623,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ItemId");
 
-                    b.HasIndex("SalesQuoteId");
-
                     b.ToTable("SalesQuoteLines", (string)null);
                 });
 
@@ -4001,6 +4640,10 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<DateTime>("CreatedDate")
                         .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
                         .HasColumnType("uniqueidentifier");
@@ -4043,6 +4686,10 @@ namespace Primafit_ERP.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("DimensionSetId")
@@ -4752,6 +5399,9 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTime?>("CommittedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -4796,6 +5446,9 @@ namespace Primafit_ERP.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<decimal?>("ValueChanged")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<Guid>("WarehouseId")
                         .HasColumnType("uniqueidentifier");
 
@@ -4815,6 +5468,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("DateReceived")
@@ -4887,6 +5544,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -4929,8 +5590,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ProjectId");
 
-                    b.HasIndex("StockTransferId");
-
                     b.ToTable("StockTransferLines");
                 });
 
@@ -4971,6 +5630,2646 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SystemRoleTemplates");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.BankReconciliation>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfBankReconciliationValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfBankReconciliationValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.BankStatementLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfBankStatementLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfBankStatementLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfBankStatementLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CashbookBatch>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfCashbookBatchValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfCashbookBatchValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CashbookEntry>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfCashbookEntryValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfCashbookEntryValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfCashbookEntryValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CreditNote>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfCreditNoteValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfCreditNoteValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CreditNoteLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfCreditNoteLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfCreditNoteLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfCreditNoteLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CustomerPayment>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfCustomerPaymentValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfCustomerPaymentValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.DebitNote>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfDebitNoteValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfDebitNoteValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.DebitNoteLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfDebitNoteLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfDebitNoteLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfDebitNoteLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GLBatch>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGLBatchValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGLBatchValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GLJournalLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGLJournalLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGLJournalLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfGLJournalLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceipt>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGoodsReceiptValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptDraft>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGoodsReceiptDraftValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptDraftValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptDraftLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGoodsReceiptDraftLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptDraftLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptDraftLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfGoodsReceiptLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfGoodsReceiptLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryAdjustmentDocument>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfInventoryAdjustmentDocumentValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfInventoryAdjustmentDocumentValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryAdjustmentRecordLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfInventoryAdjustmentRecordLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfInventoryAdjustmentRecordLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfInventoryAdjustmentRecordLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryEntryDocument>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfInventoryEntryDocumentValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfInventoryEntryDocumentValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryEntryRecordLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfInventoryEntryRecordLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfInventoryEntryRecordLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfInventoryEntryRecordLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseInvoice>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseInvoiceValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseInvoiceValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseInvoiceLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseInvoiceLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseInvoiceLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfPurchaseInvoiceLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseOrder>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseOrderValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseOrderValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseOrderLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseOrderLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseOrderLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfPurchaseOrderLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseRequest>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseRequestValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseRequestValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseRequestLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfPurchaseRequestLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfPurchaseRequestLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfPurchaseRequestLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.ReceiptRefund>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfReceiptRefundValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfReceiptRefundValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.ReceiptRefundLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfReceiptRefundLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfReceiptRefundLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfReceiptRefundLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesInvoice>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesInvoiceValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesInvoiceValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesInvoiceLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesInvoiceLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesInvoiceLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfSalesInvoiceLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesOrder>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesOrderValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesOrderValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesOrderLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesOrderLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesOrderLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfSalesOrderLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesQuote>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesQuoteValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesQuoteValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesQuoteLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesQuoteLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesQuoteLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfSalesQuoteLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesShipment>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesShipmentValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesShipmentValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesShipmentLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfSalesShipmentLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfSalesShipmentLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfSalesShipmentLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.StockTransfer>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfStockTransferValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfStockTransferValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.StockTransferLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfStockTransferLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfStockTransferLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfStockTransferLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorPayment>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfVendorPaymentValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfVendorPaymentValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfVendorPaymentValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorReturn>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfVendorReturnValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfVendorReturnValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorReturnLine>", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecordId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "ParentId");
+
+                    b.HasIndex("ParentId", "RecordId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "RecordId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("UdfVendorReturnLineValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_UdfVendorReturnLineValues_Parent", "[ParentId] IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_UdfVendorReturnLineValues_Value", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionGlMapping", b =>
@@ -5127,6 +8426,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<Guid>("CurrencyId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -5154,6 +8457,66 @@ namespace Primafit_ERP.Migrations
                         .IsUnique();
 
                     b.ToTable("Vendors");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorCustomFieldValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool?>("BooleanValue")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("DateValue")
+                        .HasColumnType("date");
+
+                    b.Property<decimal?>("DecimalValue")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<Guid>("DefinitionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OptionLabelSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("RevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TextValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("VendorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "OptionId");
+
+                    b.HasIndex("CompanyId", "DefinitionId", "RevisionId");
+
+                    b.HasIndex("CompanyId", "VendorId", "DefinitionId")
+                        .IsUnique();
+
+                    b.ToTable("VendorCustomFieldValues", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VendorCustomFieldValues_TypedValue", "(CASE WHEN [TextValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DateValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorGroup", b =>
@@ -5193,6 +8556,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<Guid>("BankGlAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -5249,8 +8616,6 @@ namespace Primafit_ERP.Migrations
 
                     b.HasIndex("ProjectId");
 
-                    b.HasIndex("PurchaseInvoiceId");
-
                     b.ToTable("VendorPayments");
                 });
 
@@ -5273,6 +8638,10 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("CurrencyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("CustomTransactionTypeId")
@@ -5371,6 +8740,10 @@ namespace Primafit_ERP.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("CustomFieldsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("DimensionSetId")
                         .HasColumnType("uniqueidentifier");
 
@@ -5405,8 +8778,6 @@ namespace Primafit_ERP.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DimensionSetId");
-
-                    b.HasIndex("HeaderId");
 
                     b.HasIndex("ItemId");
 
@@ -5803,6 +9174,26 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("ExchangeCurrencyRecord");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldOption", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldDefinition", null)
+                        .WithMany("Options")
+                        .HasForeignKey("CompanyId", "DefinitionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldRevision", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldDefinition", null)
+                        .WithMany("Revisions")
+                        .HasForeignKey("CompanyId", "DefinitionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.Customer", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.Currency", "DefaultCurrency")
@@ -5820,6 +9211,29 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("DefaultCurrency");
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerCustomFieldValue", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustomerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerGroup", b =>
@@ -6240,6 +9654,43 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("PurchaseOrderLine");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GLBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GLBatchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryAdjustmentRecordLine", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("HeaderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryEntryDocument", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GLBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GLBatchId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryEntryRecordLine", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryEntryDocument", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("HeaderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.Item", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.UnitOfMeasure", "AlternateUom")
@@ -6279,6 +9730,29 @@ namespace Primafit_ERP.Migrations
                         .WithMany("CostHistory")
                         .HasForeignKey("ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.ItemCustomFieldValue", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Item", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ItemId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -6722,7 +10196,8 @@ namespace Primafit_ERP.Migrations
                     b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", "SalesInvoice")
                         .WithMany("Lines")
                         .HasForeignKey("SalesInvoiceId")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("Primafit_ERP.Components.Models.SalesOrderLine", "SalesOrderLine")
                         .WithMany()
@@ -6780,6 +10255,29 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderCustomFieldValue", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SalesOrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderLine", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.DimensionSet", null)
@@ -6808,6 +10306,36 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Item");
 
                     b.Navigation("SalesQuoteLine");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.SalesOrderLineCustomFieldValue", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SalesOrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("SalesOrderId", "SalesOrderLineId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.SalesQuote", b =>
@@ -7143,6 +10671,1026 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("SystemRoleTemplate");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.BankReconciliation>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.BankReconciliation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.BankStatementLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.BankReconciliation", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.BankStatementLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("ReconciliationId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CashbookBatch>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CashbookBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CashbookEntry>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CashbookBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CashbookEntry", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("CashbookBatchId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CreditNote>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CreditNote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CreditNoteLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CreditNote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CreditNoteLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.CustomerPayment>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.CustomerPayment", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.DebitNote>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.DebitNote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.DebitNoteLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.DebitNote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.DebitNoteLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GLBatch>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GLBatch", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GLJournalLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GLJournalHeader", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.GLJournalLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceipt>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceipt", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptDraft>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceiptDraft", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptDraftLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceiptDraft", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceiptDraftLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("GoodsReceiptDraftId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.GoodsReceiptLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceipt", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.GoodsReceiptLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("GoodsReceiptId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryAdjustmentDocument>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryAdjustmentRecordLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryAdjustmentRecordLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryEntryDocument>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryEntryDocument", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.InventoryEntryRecordLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryEntryDocument", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.InventoryEntryRecordLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseInvoice>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseInvoiceLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseInvoiceLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("PurchaseInvoiceId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseOrder>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseOrderLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("PurchaseOrderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseRequest>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseRequest", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.PurchaseRequestLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseRequest", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseRequestLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("PurchaseRequestId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.ReceiptRefund>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.ReceiptRefund", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.ReceiptRefundLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.ReceiptRefund", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.ReceiptRefundLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesInvoice>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesInvoiceLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.SalesInvoiceLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("SalesInvoiceId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesOrder>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesOrderLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesQuote>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesQuote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesQuoteLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesQuote", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.SalesQuoteLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("SalesQuoteId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesShipment>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesShipment", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.SalesShipmentLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.SalesShipment", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.SalesShipmentLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("ShipmentId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.StockTransfer>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.StockTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.StockTransferLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.StockTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.StockTransferLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("StockTransferId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorPayment>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.PurchaseInvoice", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.VendorPayment", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("PurchaseInvoiceId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorReturn>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.VendorReturn", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RecordId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionCustomFieldValue<Primafit_ERP.Components.Models.VendorReturnLine>", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.VendorReturn", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ParentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.VendorReturnLine", null)
+                        .WithMany()
+                        .HasForeignKey("ParentId", "RecordId")
+                        .HasPrincipalKey("HeaderId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.TransactionGlMapping", b =>
                 {
                     b.HasOne("Primafit_ERP.Components.Models.CustomTransactionType", "CustomTransactionType")
@@ -7229,6 +11777,29 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("DefaultCurrency");
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.VendorCustomFieldValue", b =>
+                {
+                    b.HasOne("Primafit_ERP.Components.Models.Vendor", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "VendorId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldOption", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "OptionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Primafit_ERP.Components.Models.CustomFieldRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DefinitionId", "RevisionId")
+                        .HasPrincipalKey("CompanyId", "DefinitionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.VendorGroup", b =>
@@ -7398,6 +11969,13 @@ namespace Primafit_ERP.Migrations
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldDefinition", b =>
+                {
+                    b.Navigation("Options");
+
+                    b.Navigation("Revisions");
+                });
+
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomerPayment", b =>
                 {
                     b.Navigation("Applications");
@@ -7429,6 +12007,16 @@ namespace Primafit_ERP.Migrations
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.GoodsReceiptDraft", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryAdjustmentDocument", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Primafit_ERP.Components.Models.InventoryEntryDocument", b =>
                 {
                     b.Navigation("Lines");
                 });

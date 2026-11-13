@@ -227,6 +227,8 @@
                     </div>
                 </div>
 
+                <Primafit_ERP.Components.Shared.CustomFieldsEditor @ref="customFieldsEditor" CompanyId="currentCompanyId" Scope="CustomFieldScope.Item" OwnerId="currentItem.Id" />
+
                 <div class="flex justify-end gap-3">
                     <button type="button" @onclick="() => showForm = false" class="rounded-xl px-5 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancel</button>
                     <button type="submit" class="rounded-xl bg-slate-900 px-8 py-2.5 text-sm font-bold text-white shadow-md hover:bg-slate-800 transition-all active:scale-95">@(isEditing ? "Update Item" : "Save Item")</button>
@@ -338,6 +340,8 @@
 </style>
 
 @code {
+    private Primafit_ERP.Components.Shared.CustomFieldsEditor? customFieldsEditor;
+
     private List<Item> items = new();
     private List<UnitOfMeasure> uoms = new();
     private sealed class EquivalentUomRow
@@ -591,7 +595,7 @@
                 Id = x.Id, ItemId = currentItem.Id, UomId = x.UomId,
                 ConversionFactorToBase = Math.Round(x.EquivalentQuantity / x.PrimaryQuantity, 16, MidpointRounding.AwayFromZero), IsActive = true
             }).ToList();
-            err = await MasterService.SaveItemWithUomConversionsAsync(currentItem, conversions);
+            err = await MasterService.SaveItemWithUomConversionsAsync(currentItem, conversions, await customFieldsEditor!.GetStateAsync());
         }
         catch (Exception ex)
         {

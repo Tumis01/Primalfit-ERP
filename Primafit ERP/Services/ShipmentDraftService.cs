@@ -98,7 +98,7 @@ public sealed class ShipmentDraftService
     private static async Task<List<ShipmentOrderCandidate>> GetCandidatesAsync(AppDbContext db, Guid companyId, Guid customerId)
     {
         var orders = await db.SalesOrders.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.Item)
-            .Where(x => x.CompanyId == companyId && x.CustomerId == customerId && !x.IsDirectInvoice && !x.InvoiceBatchId.HasValue && (x.Status == OrderStatus.Order || x.Status == OrderStatus.Confirmed || x.Status == OrderStatus.PartiallyShipped || x.Status == OrderStatus.PartiallyInvoiced || x.Status == OrderStatus.Invoiced)).ToListAsync();
+            .Where(x => x.CompanyId == companyId && x.CustomerId == customerId && x.SubmissionState == SalesOrderSubmissionState.Submitted && !x.IsDirectInvoice && !x.InvoiceBatchId.HasValue && (x.Status == OrderStatus.Order || x.Status == OrderStatus.Confirmed || x.Status == OrderStatus.PartiallyShipped || x.Status == OrderStatus.PartiallyInvoiced || x.Status == OrderStatus.Invoiced)).ToListAsync();
         var ids = orders.SelectMany(x => x.Lines).Select(x => x.Id).ToList();
         var movements = await db.SalesShipmentLines.AsNoTracking().Where(x => x.SalesOrderLineId.HasValue && ids.Contains(x.SalesOrderLineId.Value) && x.Shipment!.CompanyId == companyId && (x.Shipment.Status == ShipmentStatus.Pending || x.Shipment.Status == ShipmentStatus.Shipped))
             .Select(x => new { x.SalesOrderLineId, x.QtyShipped, x.Shipment!.Status }).ToListAsync();

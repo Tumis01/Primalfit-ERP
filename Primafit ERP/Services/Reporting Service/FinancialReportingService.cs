@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
 using PrimafitERP.Data;
@@ -12,6 +12,7 @@ namespace Primafit_ERP.Services
     // DTO used strictly for Balance Sheet generation to avoid runtime errors with dynamic anonymous types
     public class BsTransactionDto
     {
+        public DateOnly PostingDate { get; set; }
         public decimal Debit { get; set; }
         public decimal Credit { get; set; }
         public int SegAccountTypeId { get; set; }
@@ -35,18 +36,19 @@ namespace Primafit_ERP.Services
         // =========================================================
         private string FormatCurrency(decimal amount)
         {
-            return amount < 0 ? $"({Math.Abs(amount):N2})" : amount.ToString("N2");
+            return amount < 0 ? $"({Math.Abs(amount):N4})" : amount.ToString("N4");
         }
         // =========================================================
         // 1. TRIAL BALANCE (Period Net Movement Format)
         // =========================================================
         public async Task<StandardReportData> GenerateTrialBalanceAsync(Guid companyId, DateOnly startDate, DateOnly endDate)
         {
+            ReportAccounting.ValidatePeriod(startDate, endDate);
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
             // 1. Fetch & Group: Sum debits and credits strictly within the selected date range.
             // Querying GLTransactions directly ensures retained/open batches are included.
-            var query = await (from t in ctx.GLTransactions.AsNoTracking()
+            var query = await (from t in ReportAccounting.PostedTransactions(ctx, companyId)
                                join a in ctx.SegChartOfAccounts.AsNoTracking() on t.SegCoaId equals a.Id
                                where t.CompanyId == companyId
                                   && t.PostingDate >= startDate
@@ -125,10 +127,11 @@ namespace Primafit_ERP.Services
         // =========================================================
         public async Task<StandardReportData> GeneratePnLAsync(Guid companyId, DateOnly startDate, DateOnly endDate, IReadOnlyCollection<Guid>? dimensionValueIds = null)
         {
+            ReportAccounting.ValidatePeriod(startDate, endDate);
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var accountTypes = await _segCoaService.GetAccountTypesAsync();
 
-            var source = ctx.GLTransactions.AsNoTracking();
+            var source = ReportAccounting.PostedTransactions(ctx, companyId);
             if (dimensionValueIds != null) source = await DimensionReportService.ApplyFiltersAsync(ctx, companyId, source, dimensionValueIds);
             // Fetch all transactions in the period for P&L accounts (IsBalanceSheet == false)
             var pnlTxns = await (from t in source
@@ -145,10 +148,10 @@ namespace Primafit_ERP.Services
                 Rows = new List<List<string>>()
             };
 
-            decimal totalRevenue = 0, totalCogs = 0, totalExpenses = 0;
+            decimal totalRevenue = 0, totalCogs = 0, totalExpenses = 0, otherIncome = 0;
 
             // Group by Account Type (Revenue, COGS, Expenses)
-            foreach (var type in accountTypes.Where(t => !t.IsBalanceSheet))
+            foreach (var type in accountTypes.Where(t => !t.IsBalanceSheet && t.Id != 14 && t.Id != 32))
             {
                 var typeTxns = pnlTxns.Where(t => t.SegAccountTypeId == type.Id).ToList();
                 if (!typeTxns.Any()) continue;
@@ -177,14 +180,16 @@ namespace Primafit_ERP.Services
                 // Categorize for Gross/Net Profit math based on your Seed Data IDs
                 if (type.Id == 9) totalRevenue += sectionTotal; // ID 9 = Revenue
                 else if (type.Id == 10) totalCogs += sectionTotal; // ID 10 = Cost of Sales
+                else if (!type.IsDebit) otherIncome += sectionTotal;
                 else totalExpenses += sectionTotal; // Everything else (Expenses, Tax, Finance Costs, etc)
             }
 
             // Summary Footer
             decimal grossProfit = totalRevenue - totalCogs;
-            decimal netProfit = grossProfit - totalExpenses;
+            decimal netProfit = grossProfit + otherIncome - totalExpenses;
 
             report.Rows.Add(new List<string> { "", "GROSS PROFIT", FormatCurrency(grossProfit) });
+            report.Rows.Add(new List<string> { "", "OTHER INCOME / (LOSSES)", FormatCurrency(otherIncome) });
             report.Rows.Add(new List<string> { "", "TOTAL EXPENSES", FormatCurrency(totalExpenses) });
             report.Rows.Add(new List<string> { "", "NET PROFIT (LOSS)", FormatCurrency(netProfit) });
 
@@ -199,7 +204,7 @@ namespace Primafit_ERP.Services
             await using var ctx = await _dbFactory.CreateDbContextAsync();
             var accountTypes = await _segCoaService.GetAccountTypesAsync();
 
-            var source = ctx.GLTransactions.AsNoTracking();
+            var source = ReportAccounting.PostedTransactions(ctx, companyId);
             if (dimensionValueIds != null) source = await DimensionReportService.ApplyFiltersAsync(ctx, companyId, source, dimensionValueIds);
             // Balance Sheet requires ALL transactions from the beginning of time up to AsOfDate
             var txns = await (from t in source
@@ -207,6 +212,7 @@ namespace Primafit_ERP.Services
                               where t.CompanyId == companyId && t.PostingDate <= asOfDate
                               select new BsTransactionDto
                               {
+                                  PostingDate = t.PostingDate,
                                   Debit = t.Debit,
                                   Credit = t.Credit,
                                   SegAccountTypeId = a.SegAccountTypeId,
@@ -235,7 +241,7 @@ namespace Primafit_ERP.Services
 
             // 2. LIABILITIES
             report.Rows.Add(new List<string> { "LIABILITIES", "", "" });
-            foreach (var type in accountTypes.Where(t => t.IsBalanceSheet && !t.IsDebit && !t.Description.Contains("Capital") && !t.Description.Contains("Earnings") && !t.Description.Contains("Reserves")))
+            foreach (var type in accountTypes.Where(t => t.IsBalanceSheet && !t.IsDebit && !new[] { 7, 11, 29 }.Contains(t.Id)))
             {
                 totalLiabilities += ProcessBsSection(txns, type, report);
             }
@@ -244,27 +250,36 @@ namespace Primafit_ERP.Services
 
             // 3. EQUITY
             report.Rows.Add(new List<string> { "EQUITY", "", "" });
-            foreach (var type in accountTypes.Where(t => t.IsBalanceSheet && !t.IsDebit && (t.Description.Contains("Capital") || t.Description.Contains("Earnings") || t.Description.Contains("Reserves"))))
+            foreach (var type in accountTypes.Where(t => t.IsBalanceSheet && !t.IsDebit && new[] { 7, 11, 29 }.Contains(t.Id)))
             {
                 totalEquity += ProcessBsSection(txns, type, report);
             }
 
             // Calculate current period Net Income (Revenue - Expenses) and add to Equity
-            var pnlTxns = txns.Where(txn => !accountTypes.First(at => at.Id == txn.SegAccountTypeId).IsBalanceSheet).ToList();
-            decimal currentNetIncome = 0;
+            var pnlTxns = txns.Where(txn => !accountTypes.First(at => at.Id == txn.SegAccountTypeId).IsBalanceSheet && txn.SegAccountTypeId != 14 && txn.SegAccountTypeId != 32).ToList();
+            decimal currentNetIncome = 0, priorNetIncome = 0;
             foreach (var txn in pnlTxns)
             {
                 var type = accountTypes.First(at => at.Id == txn.SegAccountTypeId);
                 decimal amount = type.IsDebit ? (txn.Debit - txn.Credit) : (txn.Credit - txn.Debit);
-                currentNetIncome += type.IsDebit ? -amount : amount; // Income increases Equity, Expense decreases Equity
+                if (txn.PostingDate.Year == asOfDate.Year) currentNetIncome += type.IsDebit ? -amount : amount;
+                else priorNetIncome += type.IsDebit ? -amount : amount; // Income increases Equity, Expense decreases Equity
             }
 
+            report.Rows.Add(new List<string> { "", "Prior Years Unclosed Income", FormatCurrency(priorNetIncome) });
+            totalEquity += priorNetIncome;
             report.Rows.Add(new List<string> { "", "Current Year Net Income", FormatCurrency(currentNetIncome) });
             totalEquity += currentNetIncome;
 
             report.Rows.Add(new List<string> { "", "TOTAL EQUITY", FormatCurrency(totalEquity) });
             report.Rows.Add(new List<string> { "", "", "" });
 
+            var comprehensiveIncome = txns.Where(t => t.SegAccountTypeId == 32).Sum(t => t.Credit - t.Debit);
+            var distributions = txns.Where(t => t.SegAccountTypeId == 14).Sum(t => t.Debit - t.Credit);
+            report.Rows.Insert(report.Rows.Count - 2, new List<string> { "", "Accumulated Other Comprehensive Income", FormatCurrency(comprehensiveIncome) });
+            report.Rows.Insert(report.Rows.Count - 2, new List<string> { "", "Distributions / Dividends Paid", FormatCurrency(-distributions) });
+            totalEquity += comprehensiveIncome - distributions;
+            var equityTotal = report.Rows.First(r => r[1] == "TOTAL EQUITY"); equityTotal[2] = FormatCurrency(totalEquity);
             // VALIDATION
             report.Rows.Add(new List<string> { "CHECK", "TOTAL LIABILITIES & EQUITY", FormatCurrency(totalLiabilities + totalEquity) });
 
@@ -299,14 +314,15 @@ namespace Primafit_ERP.Services
         // =========================================================
         public async Task<StandardReportData> GenerateBankLedgerAsync(Guid companyId, Guid bankAccountId, DateOnly startDate, DateOnly endDate)
         {
+            ReportAccounting.ValidatePeriod(startDate, endDate);
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
-            var bankAcct = await ctx.SegChartOfAccounts.FindAsync(bankAccountId);
+            var bankAcct = await ctx.SegChartOfAccounts.FirstOrDefaultAsync(x => x.Id == bankAccountId && x.CompanyId == companyId);
             if (bankAcct == null) throw new Exception("Bank account not found.");
 
             // 1. Calculate TRUE Opening Balance
             // Removed b.Status == 2 filter
-            decimal openingBalance = await (from t in ctx.GLTransactions.AsNoTracking()
+            decimal openingBalance = await (from t in ReportAccounting.PostedTransactions(ctx, companyId)
                                             where t.CompanyId == companyId
                                                && t.SegCoaId == bankAccountId
                                                && t.PostingDate < startDate
@@ -314,7 +330,7 @@ namespace Primafit_ERP.Services
 
             // 2. Fetch Transactions IN the period
             // Kept join for b.Description, but removed b.Status == 2 filter
-            var periodTxns = await (from t in ctx.GLTransactions.AsNoTracking()
+            var periodTxns = await (from t in ReportAccounting.PostedTransactions(ctx, companyId)
                                     join b in ctx.GLBatches.AsNoTracking() on t.BatchId equals b.Id
                                     where t.CompanyId == companyId
                                        && t.SegCoaId == bankAccountId
@@ -364,7 +380,7 @@ namespace Primafit_ERP.Services
                 });
             }
 
-            report.Rows.Add(new List<string> { "", "CLOSING BALANCE", FormatCurrency(totalDebits), FormatCurrency(totalCredits), "", FormatCurrency(closingBalance) });
+            report.Rows.Add(new List<string> { "", "CLOSING BALANCE", "", FormatCurrency(totalDebits), FormatCurrency(totalCredits), FormatCurrency(closingBalance) });
 
             return report;
         }

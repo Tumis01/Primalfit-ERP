@@ -280,7 +280,7 @@ namespace Primafit_ERP.Services
                         NewCostIn = qtyChange != 0 ? valueChange / qtyChange : valueChange,
                         ResultingWacc = item.WeightedAverageCost, Reference = receiptRef, DateChanged = now
                     });
-                    if (qtyChange != 0)
+                    if (qtyChange != 0 || valueChange != 0)
                     {
                         var signedUomQty = entryType == StockEntryType.QuantityDecrease || entryType == StockEntryType.BothDecrease
                             ? -Math.Abs(line.QuantityInUom) : Math.Abs(line.QuantityInUom);
@@ -309,6 +309,9 @@ namespace Primafit_ERP.Services
                     }
                 }
 
+                var entry = new InventoryEntryDocument { Id = ctx.CustomFieldWrites?.NewOwnerId(CustomFieldScope.StockEntryHeader) ?? Guid.NewGuid(), CompanyId = companyId, Reference = receiptRef, Date = DateOnly.FromDateTime(DateTime.Today), CommittedAt = null };
+                entry.Lines = lines.Select(l => new InventoryEntryRecordLine { Id = l.Id, HeaderId = entry.Id, ItemId = l.ItemId, WarehouseId = l.WarehouseId, QuantityChange = l.Quantity, ValueChange = l.TotalValueChange }).ToList();
+                await CustomFieldTransactions.ValidateNewAsync(_dbFactory, entry, entry.Lines.Cast<object>());
                 Guid? batchId = null;
                 if (glLines.Count > 0)
                 {
@@ -322,6 +325,8 @@ namespace Primafit_ERP.Services
                     foreach (var movement in stagedMovements) movement.GLBatchId = batchId;
                 }
 
+                entry.GLBatchId = batchId; entry.CommittedAt = batchId.HasValue ? null : DateTime.UtcNow;
+                ctx.Set<InventoryEntryDocument>().Add(entry);
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();
                 return string.Empty;
@@ -372,6 +377,7 @@ namespace Primafit_ERP.Services
 
                 var transfer = new StockTransfer
                 {
+                    Id = ctx.CustomFieldWrites?.NewOwnerId(CustomFieldScope.StockTransferHeader) ?? Guid.NewGuid(),
                     CompanyId = companyId,
                     ItemId = itemId,
                     FromWarehouseId = fromWhId,
@@ -496,6 +502,7 @@ namespace Primafit_ERP.Services
 
                     var transferLine = new StockTransferLine
                     {
+                        Id = input.Id,
                         ItemId = item.Id, Item = item, Quantity = baseQty,
                         UomId = input.UomId ?? item.UomId,
                         UomName = selectedUom.Name,
@@ -523,6 +530,7 @@ namespace Primafit_ERP.Services
                 var first = transferLines[0];
                 var transfer = new StockTransfer
                 {
+                    Id = ctx.CustomFieldWrites?.NewOwnerId(CustomFieldScope.StockTransferHeader) ?? Guid.NewGuid(),
                     CompanyId = companyId, Reference = reference.Trim(), FromWarehouseId = fromWarehouseId,
                     ToWarehouseId = toWarehouseId, ItemId = first.ItemId, Quantity = first.Quantity,
                     UomId = first.UomId, UomName = first.UomName, UomConversionFactor = first.UomConversionFactor,
@@ -535,6 +543,7 @@ namespace Primafit_ERP.Services
                 ctx.StockTransfers.Add(transfer);
                 foreach (var movement in outboundMovements) ctx.StockLedgers.Add(movement);
 
+                await CustomFieldTransactions.ValidateNewAsync(_dbFactory, transfer, transfer.Lines.Cast<object>());
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(
                     companyId, DateOnly.FromDateTime(DateTime.Today), "Transfer Ship", transfer.Reference, glLines, userId);
                 if (!string.IsNullOrWhiteSpace(glError)) throw new Exception(glError);
@@ -827,7 +836,7 @@ namespace Primafit_ERP.Services
 
                 // 2. Update Physical Stock Ledger
                 StockLedger? movementEntry = null;
-                if (qtyChange != 0)
+                if (qtyChange != 0 || valChange != 0)
                 {
                     movementEntry = new StockLedger
                     {
@@ -1060,6 +1069,9 @@ namespace Primafit_ERP.Services
 
                 // 6. Pack entries into general ledger batches
                 string batchRefName = $"INVADJ-{DateTime.UtcNow:yyMMddHHmm}";
+                var adjustment = new InventoryAdjustmentDocument { Id = ctx.CustomFieldWrites?.NewOwnerId(CustomFieldScope.InventoryAdjustmentHeader) ?? Guid.NewGuid(), CompanyId = companyId, Reference = batchRefName, Date = postingDate };
+                adjustment.Lines = validLines.Select(l => new InventoryAdjustmentRecordLine { Id = l.Id, HeaderId = adjustment.Id, ItemId = l.ItemId, WarehouseId = l.WarehouseId, QuantityChange = l.QuantityChange, ValueChange = l.IsDebitInventory ? l.TotalValueChange : -l.TotalValueChange }).ToList();
+                await CustomFieldTransactions.ValidateNewAsync(_dbFactory, adjustment, adjustment.Lines.Cast<object>());
                 var (glError, batchId) = await _glOps.CreateJournalEntryAsync(companyId, postingDate, batchRefName, "Inventory Batch Sub-ledger Adjustment", glLines, userId);
                 if (!string.IsNullOrEmpty(glError)) throw new Exception(glError);
                 if (!batchId.HasValue) throw new Exception("GL staging did not create a review batch for this inventory adjustment.");
@@ -1068,6 +1080,9 @@ namespace Primafit_ERP.Services
                 if (!string.IsNullOrEmpty(postError)) throw new Exception(postError);
                 foreach (var movement in stagedMovements)
                     movement.GLBatchId = batchId;
+                adjustment.GLBatchId = batchId.Value;
+                ctx.Set<InventoryAdjustmentDocument>().Add(adjustment);
+
 
                 await ctx.SaveChangesAsync();
                 await tx.CommitAsync();

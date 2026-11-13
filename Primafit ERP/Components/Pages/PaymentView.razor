@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/ar/payment-entry"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -199,7 +201,7 @@
                 </div>
 
                 <div class="flex items-center gap-2">
-                    <div class="rounded-xl border bg-white p-4"><h3 class="mb-2 text-sm font-bold">Receipt dimensions</h3><p class="mb-3 text-xs text-slate-500">Leave all selections blank to inherit the invoice line dimensions. Select values here to use one combination for this receipt.</p><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="receiptDimensionSetId" Disabled="@IsPaymentPosted" /></div>
+                    <div class="rounded-xl border bg-white p-4"><h3 class="mb-2 text-sm font-bold">Receipt dimensions</h3><p class="mb-3 text-xs text-slate-500">Leave all selections blank to inherit the invoice line dimensions. Select values here to use one combination for this receipt.</p><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="receiptDimensionSetId" Disabled="@IsPaymentPosted" /></div><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.CustomerPayment" OwnerId="@(payment.Id)" ReadOnly="@(IsPaymentPosted)" />@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
                     @if (canConfigureRoute)
                     {
                         <!-- Configure Route Button -->
@@ -699,6 +701,18 @@
 </style>
 
 @code {
+
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.CustomerPayment); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task PostPayment() => RunCustomFieldSave(() => PostPaymentCore());
+
     [SupplyParameterFromQuery]
     public Guid? invoiceId { get; set; }
 
@@ -1399,7 +1413,7 @@
         }
     }
 
-    private async Task PostPayment()
+    private async Task PostPaymentCore()
     {
         NormalizePaymentAmounts();
         if (!HasInvoiceSelected) { await JS.InvokeVoidAsync("alert", "Please select a Sales Order Invoice."); return; }

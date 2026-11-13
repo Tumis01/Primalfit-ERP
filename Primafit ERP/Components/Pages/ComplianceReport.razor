@@ -12,6 +12,7 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
@@ -34,6 +35,8 @@
         </div>
     </div>
 
+    @if (reportError.Length > 0) { <p role="alert" class="p-4 text-rose-700">@reportError</p> }
+    @if (payeData.Any(x => string.IsNullOrWhiteSpace(x.TaxId)) || ytdData.Any(x => string.IsNullOrWhiteSpace(x.TaxId))) { <p role="alert" class="p-4 text-amber-800">Some employees have no Tax ID. Update their Employee Directory profiles before exporting a tax schedule.</p> }
     @if (isLoading)
     {
         <div class="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-400 animate-pulse">Loading reports...</div>
@@ -135,7 +138,7 @@
                                     {
                                         <tr class="hover:bg-slate-50">
                                             <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
-                                            <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
+                                            <td class="p-3 font-mono text-xs text-slate-500">@(string.IsNullOrWhiteSpace(row.TaxId) ? "Missing Tax ID" : row.TaxId)</td>
                                             <td class="p-3 text-right font-mono text-slate-600">@row.GrossPay.ToString("N4")</td>
                                             <td class="p-3 text-right font-mono text-slate-600">@row.PensionDeducted.ToString("N4")</td>
                                             <td class="p-3 text-right font-mono font-bold text-rose-600">@row.PayeDeducted.ToString("N4")</td>
@@ -188,7 +191,7 @@
                             </div>
                             @if (!varianceData.Any())
                             {
-                                <div class="py-8 text-center text-slate-500 bg-slate-50 rounded-lg border border-slate-200">No variances found. Payroll is identical to the previous month.</div>
+                                <div class="py-8 text-center text-slate-500 bg-slate-50 rounded-lg border border-slate-200">No pay changes were found compared with the previous approved payroll run.</div>
                             }
                             else
                             {
@@ -269,7 +272,7 @@
                                     {
                                         <tr class="hover:bg-slate-50">
                                             <td class="p-3 font-bold text-slate-800">@row.EmployeeName</td>
-                                            <td class="p-3 font-mono text-xs text-slate-500">@row.TaxId</td>
+                                            <td class="p-3 font-mono text-xs text-slate-500">@(string.IsNullOrWhiteSpace(row.TaxId) ? "Missing Tax ID" : row.TaxId)</td>
                                             <td class="p-3 text-center font-bold">@row.MonthsWorked</td>
                                             <td class="p-3 text-right font-mono text-slate-700">@row.TotalGross.ToString("N4")</td>
                                             <td class="p-3 text-right font-mono text-slate-700">@row.TotalPension.ToString("N4")</td>
@@ -294,6 +297,7 @@
 
 @code {
     private Guid currentCompanyId = Guid.Empty;
+    private string reportError = "";
     private bool isLoading = true;
     private bool isGenerating = false;
 
@@ -322,7 +326,7 @@
         if (user?.CompanyDetailsId != null)
         {
             currentCompanyId = user.CompanyDetailsId.Value;
-            runs = await PayrollService.GetPayrollRunsAsync(currentCompanyId);
+            runs = (await PayrollService.GetPayrollRunsAsync(currentCompanyId)).Where(x => x.Status != PayrollRunStatus.Draft).ToList();
         }
         isLoading = false;
     }
@@ -334,6 +338,9 @@
             selectedRunId = id;
             isGenerating = true;
 
+            reportError = "";
+            summaryData.Clear(); payeData.Clear(); pensionData.Clear(); varianceData.Clear();
+            try {
             // Fetch all monthly reports concurrently
             var t1 = ReportingService.GetPayrollSummaryAsync(id, currentCompanyId);
             var t2 = ReportingService.GetPayeScheduleAsync(id, currentCompanyId);
@@ -347,7 +354,8 @@
             pensionData = t3.Result;
             varianceData = t4.Result;
 
-            isGenerating = false;
+            } catch { reportError = "The payroll schedules could not be loaded. Please try again."; }
+            finally { isGenerating = false; }
         }
         else
         {
@@ -358,8 +366,11 @@
     private async Task LoadYtdReport()
     {
         isGenerating = true;
-        ytdData = await ReportingService.GetAnnualYtdTaxReportAsync(selectedYear, currentCompanyId);
-        isGenerating = false;
+        reportError = "";
+        ytdData.Clear();
+        try { ytdData = await ReportingService.GetAnnualYtdTaxReportAsync(selectedYear, currentCompanyId); }
+        catch { reportError = "The annual tax report could not be loaded. Please try again."; }
+        finally { isGenerating = false; }
     }
 
     private async Task ExportToExcel<T>(List<T> data, string reportName)

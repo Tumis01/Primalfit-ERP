@@ -8,6 +8,7 @@ namespace Primafit_ERP.Components.Models
     // =================================────────────────================
     public class PurchaseOrder
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -90,6 +91,7 @@ namespace Primafit_ERP.Components.Models
 
     public class PurchaseOrderLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -120,6 +122,7 @@ namespace Primafit_ERP.Components.Models
     // =================================────────────────================
     public class GoodsReceipt
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -149,6 +152,7 @@ namespace Primafit_ERP.Components.Models
 
     public class GoodsReceiptLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -174,6 +178,7 @@ namespace Primafit_ERP.Components.Models
     // =================================================================
     public class PurchaseInvoice
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]
@@ -273,6 +278,7 @@ namespace Primafit_ERP.Components.Models
 
     public class PurchaseInvoiceLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]
@@ -316,6 +322,7 @@ namespace Primafit_ERP.Components.Models
     // =================================================================
     public class VendorPayment
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key]

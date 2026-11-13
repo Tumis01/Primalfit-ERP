@@ -36,8 +36,8 @@ public sealed class DimensionReportService(IDbContextFactory<AppDbContext> facto
     {
         if (valueIds.Distinct().Count() != await db.DimensionValues.CountAsync(x => x.CompanyId == companyId && valueIds.Contains(x.Id)))
             throw new ArgumentException("A report dimension is unavailable for this company.");
-        query = query.Where(x => x.CompanyId == companyId
-            && db.GLBatches.Any(b => b.Id == x.BatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted));
+        var committed = ReportAccounting.PostedTransactions(db, companyId);
+        query = query.Where(x => x.CompanyId == companyId && committed.Any(t => t.Id == x.Id));
         foreach (var valueId in valueIds)
             query = query.Where(x => x.DimensionSetId.HasValue && db.DimensionSetValues.Any(v => v.CompanyId == companyId
                 && v.DimensionSetId == x.DimensionSetId && v.DimensionValueId == valueId));

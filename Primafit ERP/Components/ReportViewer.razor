@@ -4,6 +4,7 @@
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Authorization
 
+@inject PermissionCacheService PermissionCache
 @inject ReportExportService Exporter
 @inject IJSRuntime JS
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -120,7 +121,7 @@
                                 }
                             </tr>
                         }
-                        @if (ReportData.Rows.Count == 0) { <tr><td colspan="@ReportData.Headers.Count" class="px-6 py-12 text-center text-slate-500">No posted activity matches these filters.</td></tr> }
+                        @if (ReportData.Rows.Count == 0) { <tr><td colspan="@ReportData.Headers.Count" class="px-6 py-12 text-center text-slate-500">No records match these filters.</td></tr> }
                     </tbody>
                 </table>
             </div>
@@ -133,6 +134,7 @@
 </div>
 
 @code {
+    [Parameter] public string PermissionKey { get; set; } = "";
     [Parameter] public string Title { get; set; } = "Report";
     [Parameter] public string Description { get; set; } = "";
     [Parameter] public bool ShowDateRange { get; set; } = false;
@@ -156,8 +158,9 @@
     private const int PageSize = 50;
     private int PageCount => Math.Max(1, ((ReportData?.Rows.Count ?? 0) + PageSize - 1) / PageSize);
     private IEnumerable<List<string>> VisibleRows => ReportData == null ? Enumerable.Empty<List<string>>() : Paginate ? ReportData.Rows.Skip((page - 1) * PageSize).Take(PageSize) : ReportData.Rows;
-    public void Invalidate() { ReportData = null; reportError = ""; page = 1; }
-    private static bool IsNumericHeader(string header) => new[] { "Amount", "Balance", "Debit", "Credit", "Total", "Quantity", "Price", "Cost" }.Any(word => header.Contains(word, StringComparison.OrdinalIgnoreCase));
+    private int reportVersion;
+    public void Invalidate() { reportVersion++; ReportData = null; reportError = ""; page = 1; }
+    private static bool IsNumericHeader(string header) => new[] { "Amount", "Balance", "Debit", "Credit", "Total", "Qty", "Quantity", "Price", "Cost", "Budget", "Forecast", "Actuals", "Variance", "Remaining" }.Any(word => header.Contains(word, StringComparison.OrdinalIgnoreCase));
 
     // Loading flags for downloads
     private bool isDownloadingPdf = false;
@@ -168,9 +171,11 @@
         if (FetchData == null || IsLoading || CompanyId == Guid.Empty) return;
         Invalidate();
         if (ShowDateRange && StartDate > EndDate) { reportError = "The start date must be on or before the end date."; return; }
+        var requestVersion = reportVersion;
         IsLoading = true;
         try
         {
+            await EnsureAccessAsync();
             var result = await FetchData(StartDate, EndDate);
 
             if (result != null)
@@ -188,12 +193,11 @@
                     result.Currency = company.BaseCurrency?.Trim() ?? string.Empty;
                 }
             }
-            ReportData = result;
+            if (requestVersion == reportVersion) ReportData = result;
         }
         catch (Exception ex)
         {
-            ReportData = null;
-            reportError = ex is ArgumentException ? ex.Message : "The report could not be loaded. Please try again.";
+            if (requestVersion == reportVersion) { ReportData = null; reportError = ex is ArgumentException ? ex.Message : "The report could not be loaded. Please try again."; }
         }
         finally
         {
@@ -204,14 +208,16 @@
     private async Task DownloadCsv()
     {
         if (ReportData == null || IsLoading) return;
+        await EnsureAccessAsync();
         static string Cell(string text) {
             if (text.Length > 0 && "=+-@\t\r\n".Contains(text[0])) text = "'" + text;
             return "\"" + text.Replace("\"", "\"\"") + "\"";
         }
         var csv = new System.Text.StringBuilder();
-        csv.AppendLine(string.Join(",", ReportData.Headers.Select(Cell)));
-        foreach (var row in ReportData.Rows) csv.AppendLine(string.Join(",", row.Select((cell, index) =>
-            index < ReportData.Headers.Count && IsNumericHeader(ReportData.Headers[index]) && decimal.TryParse(cell, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out var number)
+        var exported = ReportNumbers.ForExport(ReportData);
+        csv.AppendLine(string.Join(",", exported.Headers.Select(Cell)));
+        foreach (var row in exported.Rows) csv.AppendLine(string.Join(",", row.Select((cell, index) =>
+            index < exported.Headers.Count && IsNumericHeader(exported.Headers[index]) && decimal.TryParse(cell, System.Globalization.NumberStyles.Number | System.Globalization.NumberStyles.AllowParentheses, System.Globalization.CultureInfo.CurrentCulture, out var number)
                 ? number.ToString(System.Globalization.CultureInfo.InvariantCulture) : Cell(cell))));
         await using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(csv.ToString())).ToArray());
         using var reference = new DotNetStreamReference(stream);
@@ -234,6 +240,7 @@
             // Give Blazor a fraction of a second to render the UI spinner before locking the thread
             await Task.Delay(50);
 
+            await EnsureAccessAsync();
             byte[] fileBytes = isPdf ? Exporter.GeneratePdf(snapshot) : Exporter.GenerateExcel(snapshot);
             string extension = isPdf ? ".pdf" : ".xlsx";
             string mimeType = isPdf ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -255,4 +262,15 @@
             isDownloadingExcel = false;
         }
     }
+    private async Task EnsureAccessAsync()
+    {
+        var principal = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        var id = principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (principal.Identity?.IsAuthenticated != true || string.IsNullOrEmpty(PermissionKey) || !PermissionCache.Has(PermissionKey))
+            throw new UnauthorizedAccessException("You do not have permission to run this report.");
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (!await db.Users.AnyAsync(x => x.Id == id && x.CompanyDetailsId == CompanyId))
+            throw new UnauthorizedAccessException("The report company is unavailable.");
+    }
+
 }

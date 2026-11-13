@@ -1,4 +1,4 @@
-﻿@page "/reports/cashbook"
+@page "/reports/cashbook"
 
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -17,6 +17,7 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
@@ -34,7 +35,7 @@
             
             <div class="w-full md:w-64">
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Bank Account</label>
-                <select @bind="selectedBankId" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all outline-none shadow-sm">
+                <select @bind="selectedBankId" @bind:after="InvalidateReport" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:ring-slate-900 transition-all outline-none shadow-sm">
                     <option value="@Guid.Empty">-- Select Account --</option>
                     @foreach (var bank in bankAccounts)
                     {
@@ -45,12 +46,12 @@
 
             <div>
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Start Date</label>
-                <input type="date" @bind="startDate" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900" />
+                <input type="date" @bind="startDate" @bind:after="InvalidateReport" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900" />
             </div>
 
             <div>
                 <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">End Date</label>
-                <input type="date" @bind="endDate" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900" />
+                <input type="date" @bind="endDate" @bind:after="InvalidateReport" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900" />
             </div>
 
             <button @onclick="RunReportAsync" disabled="@(isGenerating || selectedBankId == Guid.Empty)"
@@ -135,8 +136,8 @@
                                         Closing Balance
                                     </td>
                                     <td class="px-6 py-4"></td>
-                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-600">@row[2]</td>
                                     <td class="px-6 py-4 text-right font-mono font-bold text-slate-600">@row[3]</td>
+                                    <td class="px-6 py-4 text-right font-mono font-bold text-slate-600">@row[4]</td>
                                     <td class="px-6 py-4 text-right font-mono font-bold text-emerald-600 text-lg">
                                         @row[5]
                                     </td>
@@ -147,7 +148,7 @@
                                 <tr class="hover:bg-slate-50 transition-colors group">
                                     <td class="px-6 py-3 font-mono text-slate-500 text-xs">@row[0]</td>
                                     <td class="px-6 py-3 font-mono text-xs text-indigo-600 font-bold">@row[1]</td>
-                                    <td class="px-6 py-3 text-slate-700 max-w-xs truncate" title="@row[2]">@row[2]</td>
+                                    <td class="px-6 py-3 text-slate-700 max-w-xs truncate" title="@row[2]">@row[3]</td>
                                     <td class="px-6 py-3 text-right font-mono text-emerald-600 font-medium">@row[3]</td>
                                     <td class="px-6 py-3 text-right font-mono text-rose-500 font-medium">@row[4]</td>
                                     <td class="px-6 py-3 text-right font-mono font-bold text-slate-800">@row[5]</td>
@@ -223,6 +224,8 @@
             
             // Inject current user name for the footer of the exports
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            await using var reportDb = await DbFactory.CreateDbContextAsync();
+            reportData.CompanyName = await reportDb.CompanyDetails.Where(x => x.CompanyDetailsId == currentCompanyId).Select(x => x.CompanyName).FirstOrDefaultAsync() ?? "";
             reportData.GeneratedBy = authState.User.Identity?.Name ?? "System User";
         }
         catch (Exception ex)
@@ -266,4 +269,6 @@
             isExporting = false;
         }
     }
+    private void InvalidateReport() => reportData = null;
+
 }

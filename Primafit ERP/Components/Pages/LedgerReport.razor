@@ -14,6 +14,7 @@
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500 pb-12">
@@ -341,7 +342,7 @@
 
                 using var ctx = await DbFactory.CreateDbContextAsync();
                 
-                var opBals = await ctx.GLTransactions
+                var opBals = await ReportAccounting.PostedTransactions(ctx, selectedCompanyId)
                     .AsNoTracking()
                     .Include(t => t.SegCoa)
                     .Where(t => t.CompanyId == selectedCompanyId

@@ -1,3 +1,4 @@
+﻿@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/procurement/purchase-orders"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -541,16 +542,18 @@
                     }
                     <div class="border border-slate-200 rounded-xl overflow-visible mb-6 shadow-sm">
                         <div class="relative overflow-x-auto">
-                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-sm text-left">
+                            <TransactionCustomFields CompanyId="currentCompanyId" Scope="@TransactionHeaderScope" OwnerId="@(currentOrder.Id)" ReadOnly="@IsLocked" />
+                @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
-                                    <tr>
+                                    <tr class="udf-column-groups"><th colspan="6">Transaction details</th><th class="udf-dimension-column">Dimensions</th><th class="udf-column">Custom fields</th></tr><tr>
                                         <th class="p-3 pl-4 w-[32%]">Item</th>
                                         <th class="p-3 w-[14%]">UOM</th>
                                         <th class="p-3 w-[14%] text-center">Qty</th>
                                         <th class="p-3 w-[18%] text-right">Unit Cost (@currencySymbol)</th>
                                         <th class="p-3 w-[17%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
-                                    <th class="p-3">Dimensions</th></tr>
+                                    <th data-udf-dim="true" class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100 min-h-[150px] overflow-visible">
                                     @foreach (var line in currentOrder.Lines)
@@ -587,7 +590,7 @@
                                                 <input type="number"   value="@GetDisplayedQuantity(line)" @onchange="@(e => OnLineQuantityChanged(line, e.Value?.ToString()))" class="input-class py-2 text-center font-bold appearance-none" placeholder="1.00" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number"   value="@GetDisplayedUnitCost(line)" @onchange="@(e => OnLineCostChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono appearance-none @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
+                                                <input type="number" min="0" step="0.0001" data-decimal-places="4" value="@UomConversion.FormatUnitPrice(GetDisplayedUnitCost(line))" @onchange="@(e => OnLineCostChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono appearance-none @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@(IsLocked || line.ItemId == Guid.Empty)" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-4 text-right font-mono font-bold text-slate-700">
                                                 @line.LineTotal.ToString("N4")
@@ -600,7 +603,7 @@
                                                     </button>
                                                 }
                                             </td>
-                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td></tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td><td class="p-3 align-top udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="@TransactionLineScope" OwnerId="line.Id" ReadOnly="@IsLocked" Inline="true" /></td></tr>
                                     }
                                 </tbody>
                             </table></div>
@@ -949,6 +952,21 @@
     <OrderSourceModal CompanyId="@currentCompanyId" PartnerId="@currentOrder.VendorId" CurrencyId="@currentOrder.CurrencyId" Purchase="true" InitialDocumentId="@initialSourceId" ExistingIds="@currentOrder.Lines.Where(x => x.PurchaseRequestLineId.HasValue).Select(x => x.PurchaseRequestLineId!.Value).ToList()" OnAdd="AddRequestLines" OnClose="CloseSourceModal" />
 }
 @code {
+    private CustomFieldScope TransactionHeaderScope => currentOrder.IsInvoiceDocument ? CustomFieldScope.PurchaseInvoiceHeader : currentOrder.Status == PurchaseOrderStatus.Request ? CustomFieldScope.PurchaseRequestHeader : CustomFieldScope.PurchaseOrderHeader;
+    private CustomFieldScope TransactionLineScope => currentOrder.IsInvoiceDocument ? CustomFieldScope.PurchaseInvoiceLine : currentOrder.Status == PurchaseOrderStatus.Request ? CustomFieldScope.PurchaseRequestLine : CustomFieldScope.PurchaseOrderLine;
+
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, TransactionHeaderScope, TransactionLineScope); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task SaveOrder() => RunCustomFieldSave(() => SaveOrderCore());
+    private Task SaveInvoiceDraft() => RunCustomFieldSave(() => SaveInvoiceDraftCore());
+
     [SupplyParameterFromQuery(Name = "request")] public Guid? SourceRequestId { get; set; }
     private bool showSourceModal;
     private Guid? initialSourceId;
@@ -1384,7 +1402,7 @@
         SetActiveTab(3);
     }
 
-    private async Task SaveInvoiceDraft()
+    private async Task SaveInvoiceDraftCore()
     {
         if (currentOrder.VendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a vendor."); return; }
         if (!currentOrder.Lines.Any()) { await JS.InvokeVoidAsync("alert", "Please add at least one line item."); return; }
@@ -1464,7 +1482,7 @@
         }
     }
 
-    private async Task SaveOrder()
+    private async Task SaveOrderCore()
     {
         if (currentOrder.VendorId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a vendor."); return; }
         isBusy = true;

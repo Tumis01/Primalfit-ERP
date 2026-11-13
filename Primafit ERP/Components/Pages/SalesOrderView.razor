@@ -1,3 +1,4 @@
+﻿@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/sc/sales-orders"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -161,11 +162,7 @@
                                             }
                                             else if (!o.IsInvoiceDocument)
                                             {
-                                                var hasShipped = o.Lines.Any(l => l.QtyShipped > 0);
-                                                var hasOpenLines = o.Lines.Any(l => l.ItemId.HasValue && items.Any(i => i.Id == l.ItemId && !i.IsService) && l.Quantity > l.QtyShipped + fulfillmentCredits.GetValueOrDefault(l.Id));
-                                                <button type="button" @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">@(hasShipped ? "View" : "Edit")</button>
-                                                @if (hasOpenLines) { <PermissionGate Key="SHIPMENT_CREATE"><Authorized><a href="@($"/wh/shipments/new?order={o.Id}")" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100">Process Shipment</a></Authorized></PermissionGate> }
-                                                else { <span class="px-3 py-1.5 text-[10px] font-bold text-slate-400 bg-slate-100 rounded border border-slate-200 uppercase tracking-wider">Processed</span> }
+                                                <span class="inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider @(o.SubmissionState == SalesOrderSubmissionState.Draft ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-700")">@(o.SubmissionState == SalesOrderSubmissionState.Draft ? "Draft" : o.Status.ToString())</span>
                                             }
                                             else if (o.IsInvoiceDocument)
                                             {
@@ -253,7 +250,7 @@
                                                     </PermissionGate>
                                                 }
                                             }
-                                            else if (o.Status == OrderStatus.Order || (o.Status == OrderStatus.Invoiced && !o.IsInvoiceDocument))
+                                            else if (!o.IsInvoiceDocument)
                                             {
                                                 bool isConverted = o.Status == OrderStatus.Invoiced || orders.Any(inv => inv.ConvertedFromQuoteNumber == o.OrderNumber);
                                                 if (isConverted)
@@ -266,10 +263,12 @@
                                                     <PermissionGate Key="SALES_ORDER_CREATE">
                                                         <Authorized>
                                                             <button type="button" @onclick="() => EditOrder(o.Id)" class="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded hover:bg-slate-50">Edit</button>
-                                                            <button type="button" @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button>
+                                                            @if (o.SubmissionState == SalesOrderSubmissionState.Submitted) { <button type="button" @onclick="() => ConvertOrderToInvoice(o)" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded hover:bg-indigo-100 shadow-sm">Make Invoice</button> }
                                                         </Authorized>
                                                     </PermissionGate>
                                                 }
+                                                @if (o.SubmissionState == SalesOrderSubmissionState.Submitted && o.Lines.Any(l => l.ItemId.HasValue && items.Any(i => i.Id == l.ItemId && !i.IsService) && l.Quantity > l.QtyShipped + fulfillmentCredits.GetValueOrDefault(l.Id)))
+                                                { <PermissionGate Key="SHIPMENT_CREATE"><Authorized><a href="@($"/wh/shipments/new?order={o.Id}")" class="px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded">Process Shipment</a></Authorized></PermissionGate> }
                                             }
                                             else if (o.IsInvoiceDocument)
                                             {
@@ -456,10 +455,17 @@
                     {
                         <button type="button" @onclick="() => { initialSourceId = null; showSourceModal = true; }" class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-100">Create order from sales quote</button>
                     }
+                    @if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote)
+                    {
+                        <Primafit_ERP.Components.Shared.CustomFieldsEditor @ref="orderCustomFields" CompanyId="selectedCompanyId" Scope="CustomFieldScope.SalesOrderHeader" OwnerId="currentOrder.Id" ReadOnly="IsLocked" />
+                        <p class="udf-order-state">Order state: @currentOrder.SubmissionState</p>
+                    } else { <TransactionCustomFields CompanyId="selectedCompanyId" Scope="@LegacyHeaderScope" OwnerId="currentOrder.Id" ReadOnly="@IsLocked" /> }
+
                     <div class="border border-slate-200 rounded-xl overflow-visible mb-6 shadow-sm">
                         <div class="relative overflow-x-auto">
                             <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[850px] text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
+                                    <tr class="udf-column-groups"><th colspan="6">Transaction details</th><th class="udf-dimension-column">Dimensions</th>@if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote) { <th class="udf-column">Custom fields</th> } else { <th class="udf-column">Custom fields</th> }</tr>
                                     <tr>
                                         <th class="p-3 pl-4 w-[34%]">Item</th>
                                         <th class="p-3 w-[14%]">UOM</th>
@@ -467,7 +473,7 @@
                                         <th class="p-3 w-[18%] text-right">Unit Price (@currencySymbol)</th>
                                         <th class="p-3 w-[17%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
-                                    <th class="p-3">Dimensions</th></tr>
+                                    <th class="p-3 udf-dimension-column">Dimensions</th>@if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote) { <th class="p-3 udf-column">Additional fields</th> } else { <th class="p-3 udf-column">Additional fields</th> }</tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100 min-h-[150px]">
                                     @foreach (var line in currentOrder.Lines)
@@ -520,7 +526,7 @@
                                                 }
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number"   value="@GetDisplayedUnitPrice(line)" @onchange="@(e => OnLinePriceChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@IsLocked" />
+                                                <input type="number" min="0" step="0.0001" data-decimal-places="4" value="@UomConversion.FormatUnitPrice(GetDisplayedUnitPrice(line))" @onchange="@(e => OnLinePriceChanged(line, e.Value?.ToString()))" class="input-class py-2 text-right font-mono @(IsLocked ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : "")" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-4 text-right font-mono font-bold text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N4"))
@@ -533,7 +539,12 @@
                                                     </button>
                                                 }
                                             </td>
-                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td></tr>
+                                        <td class="p-3 align-top udf-dimension-column"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td>
+                                        @if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote)
+                                        {
+                                            <td class="p-3 align-top udf-column"><Primafit_ERP.Components.Shared.CustomFieldsEditor @key="line.Id" CompanyId="selectedCompanyId" Scope="CustomFieldScope.SalesOrderLine" OwnerId="line.Id" Inline="true" ReadOnly="IsLocked" StateChanged="@(state => lineCustomFields[line.Id] = state)" /></td>
+                                        } else { <td class="p-3 udf-column"><TransactionCustomFields CompanyId="selectedCompanyId" Scope="@LegacyLineScope" OwnerId="line.Id" ReadOnly="@IsLocked" Inline="true" /></td> }
+</tr>
                                     }
                                 </tbody>
                             </table></div>
@@ -646,9 +657,14 @@
                             {
                                 <PermissionGate Key="SALES_ORDER_CREATE">
                                     <Authorized>
-                                        <button type="button" @onclick="SaveOrder" class="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 shadow-md transition-all active:scale-95 flex items-center gap-2">
-                                            Save Order
-                                        </button>
+                                        <div class="udf-order-actions">
+                                            @if (currentOrder.SubmissionState == SalesOrderSubmissionState.Draft)
+                                            {
+                                                <button type="button" @onclick="SaveOrder" class="udf-button">Save Draft</button>
+                                                <button type="button" @onclick="SubmitOrder" class="udf-button udf-primary">Submit Order</button>
+                                            }
+                                            else { <button type="button" @onclick="SaveOrder" class="udf-button udf-primary">Save Order</button> }
+                                        </div>
                                     </Authorized>
                                 </PermissionGate>
                             }
@@ -923,6 +939,21 @@
     <OrderSourceModal CompanyId="@selectedCompanyId" PartnerId="@currentOrder.CustomerId" CurrencyId="@currentOrder.CurrencyId" InitialDocumentId="@initialSourceId" ExistingIds="@currentOrder.Lines.Where(x => x.SalesQuoteLineId.HasValue).Select(x => x.SalesQuoteLineId!.Value).ToList()" OnAdd="AddQuoteLines" OnClose="CloseSourceModal" />
 }
 @code {
+
+    private CustomFieldScope LegacyHeaderScope => currentOrder.IsInvoiceDocument ? CustomFieldScope.SalesInvoiceHeader : CustomFieldScope.SalesQuoteHeader;
+    private CustomFieldScope LegacyLineScope => currentOrder.IsInvoiceDocument ? CustomFieldScope.SalesInvoiceLine : CustomFieldScope.SalesQuoteLine;
+    private async Task<bool> WithLegacyCustomFields(Func<Task<bool>> operation)
+    {
+        try { using var edit = CustomFieldWrites.BeginRegistered(selectedCompanyId, LegacyHeaderScope, LegacyLineScope); return await operation(); }
+        catch (ArgumentException ex) { await JS.InvokeVoidAsync("alert", ex.Message); return false; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { await JS.InvokeVoidAsync("alert", "The document changed. Refresh before saving."); return false; }
+    }
+    private Task<bool> SaveOrderCore() => WithLegacyCustomFields(SaveOrderImplementation);
+    private Task SaveAndPostInvoice() => WithLegacyCustomFields(async () => { await SaveAndPostInvoiceCore(); return true; });
+
+    private Primafit_ERP.Components.Shared.CustomFieldsEditor? orderCustomFields;
+    private Dictionary<Guid, CustomFieldFormState> lineCustomFields = new();
+
     [SupplyParameterFromQuery(Name = "quote")] public Guid? SourceQuoteId { get; set; }
     private bool showSourceModal;
     private Guid? initialSourceId;
@@ -1219,7 +1250,7 @@
     {
         _isNewOrderForm = true;
         sourceLabels.Clear();
-        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Order };
+        currentOrder = new SalesOrder { CompanyId = selectedCompanyId, Date = DateOnly.FromDateTime(DateTime.Today), Status = OrderStatus.Order, SubmissionState = SalesOrderSubmissionState.Draft };
         currentOrder.OrderNumber = await NumberingService.GenerateAndReserveNextNumberAsync(selectedCompanyId, SequenceTargetType.AR_Order, DateTime.Today);
         currencySymbol = "";
         currentOrder.Lines.Add(new SalesOrderLine { HeaderId = currentOrder.Id });
@@ -1502,19 +1533,33 @@
         StateHasChanged();
     }
 
-    private async Task SaveOrder()
+    private async Task SubmitOrder()
     {
-        if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return; }
+        var previous = currentOrder.SubmissionState;
+        currentOrder.SubmissionState = SalesOrderSubmissionState.Submitted;
+        if (!await SaveOrderCore()) currentOrder.SubmissionState = previous;
+    }
 
-        var err = await SalesService.SaveOrderAsync(currentOrder);
-        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return; }
+    private async Task SaveOrder() => await SaveOrderCore();
+
+    private async Task<bool> SaveOrderImplementation()
+    {
+        if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return false; }
+
+        if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote && currentOrder.Lines.Any(l => !lineCustomFields.ContainsKey(l.Id))) { await JS.InvokeVoidAsync("alert", "Wait for additional fields to finish loading."); return false; }
+        CustomFieldFormState? header = null;
+        try { if (!currentOrder.IsInvoiceDocument && currentOrder.Status != OrderStatus.Quote && orderCustomFields != null) header = await orderCustomFields.GetStateAsync(); }
+        catch (ArgumentException ex) { await JS.InvokeVoidAsync("alert", ex.Message); return false; }
+        var err = await SalesService.SaveOrderAsync(currentOrder, header, lineCustomFields);
+        if (!string.IsNullOrEmpty(err)) { await JS.InvokeVoidAsync("alert", err); return false; }
 
         await JS.InvokeVoidAsync("alert", "Saved Successfully.");
         await LoadData();
         activeTab = 0;
+        return true;
     }
 
-    private async Task SaveAndPostInvoice()
+    private async Task SaveAndPostInvoiceCore()
     {
         if (currentOrder.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a customer."); return; }
 

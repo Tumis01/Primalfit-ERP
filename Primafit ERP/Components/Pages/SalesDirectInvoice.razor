@@ -1,3 +1,4 @@
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/ar/direct-invoices"
 
 @using Microsoft.EntityFrameworkCore
@@ -148,15 +149,17 @@
 
                         <!-- Lines Grid -->
                         <div class="border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left">
+                            <TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.SalesInvoiceHeader" OwnerId="@(invoice.Id)" ReadOnly="@(false)" />
+                @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-sm text-left">
                                 <thead class="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 text-xs uppercase">
-                                    <tr>
+                                    <tr class="udf-column-groups"><th colspan="5">Transaction details</th><th class="udf-dimension-column">Dimensions</th><th class="udf-column">Custom fields</th></tr><tr>
                                         <th class="p-3 pl-4 w-[50%]">Description / Service Rendered <span class="text-rose-500">*</span></th>
                                         <th class="p-3 w-[15%] text-center">Qty</th>
                                         <th class="p-3 w-[15%] text-right">Unit Price (@currencySymbol)</th>
                                         <th class="p-3 w-[15%] text-right pr-4">Total</th>
                                         <th class="p-3 w-[5%]"></th>
-                                    <th class="p-3">Dimensions</th></tr>
+                                    <th data-udf-dim="true" class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in invoice.Lines)
@@ -169,7 +172,7 @@
                                                 <input type="number"   min="0.01" @bind="line.Quantity" class="input-class text-center font-bold" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 align-top pt-3">
-                                                <input type="number"   min="0" @bind="line.UnitPrice" class="input-class text-right font-mono" disabled="@IsLocked" />
+                                                <input type="number"   min="0" data-decimal-places="4" value="@UomConversion.FormatUnitPrice(line.UnitPrice)" @onchange="e => { if (UomConversion.TryParseUnitPrice(e.Value?.ToString(), out var price)) line.UnitPrice = price; }" class="input-class text-right font-mono" disabled="@IsLocked" />
                                             </td>
                                             <td class="p-2 pr-4 align-top pt-5 text-right font-mono font-bold text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N4"))
@@ -182,7 +185,7 @@
                                                     </button>
                                                 }
                                             </td>
-                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td></tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@selectedCompanyId" @bind-Value="line.DimensionSetId" Disabled="@IsLocked" /></td><td class="p-3 align-top udf-column"><TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.SalesInvoiceLine" OwnerId="line.Id" ReadOnly="@(false)" Inline="true" /></td></tr>
                                     }
                                 </tbody>
                             </table></div>
@@ -531,6 +534,17 @@
 </style>
 
 @code {
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(selectedCompanyId, CustomFieldScope.SalesInvoiceHeader, CustomFieldScope.SalesInvoiceLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task PostInvoice() => RunCustomFieldSave(() => PostInvoiceCore());
+
     [SupplyParameterFromQuery(Name = "view")] public Guid? ViewSourceId { get; set; }
     [Parameter] public bool StartInCreate { get; set; }
     [Parameter] public EventCallback OnExit { get; set; }
@@ -766,7 +780,8 @@
         }
     }
 
-    private async Task SaveDraftInvoice()
+    private Task SaveDraftInvoice() => RunCustomFieldSave(SaveDraftInvoiceCore);
+    private async Task SaveDraftInvoiceCore()
     {
         // 1. Mandatory Input Validation
         if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Validation Error: Please select a Customer."); return; }
@@ -853,7 +868,7 @@
         StateHasChanged();
     }
 
-    private async Task PostInvoice()
+    private async Task PostInvoiceCore()
     {
         // 1. Mandatory Input Validation
         if (invoice.CustomerId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Validation Error: Please select a Customer."); return; }

@@ -14,11 +14,7 @@
 <PageTitle>Dimension Types</PageTitle>
 <DimensionWorkspace Title="Dimension Types" Description="Organise transaction analysis into categories such as Project, Department or Cost Centre." Section="types">
     <Actions><button class="ds-button ds-button-primary" data-dimension-primary @onclick="NewType" disabled="@(loading || companyId == Guid.Empty || loadError.Length > 0)"><DimensionIcon Name="plus" />New type</button></Actions>
-    <Summary>
-        <div><dt>Total types</dt><dd>@(loading ? "—" : types.Count)</dd></div>
-        <div><dt>Active</dt><dd>@(loading ? "—" : types.Count(x => x.IsActive))</dd></div>
-        <div><dt>Active required</dt><dd>@(loading ? "—" : types.Count(x => x.IsActive && x.IsRequired))</dd></div>
-    </Summary>
+    
     <ChildContent>
         @if (message.Length > 0) { <div class="ds-notice" role="status"><DimensionIcon Name="check" /><p>@message</p><button aria-label="Dismiss notification" @onclick='() => message = ""'><DimensionIcon Name="close" /></button></div> }
         <section class="ds-panel" aria-label="Dimension types" aria-busy="@(loading ? "true" : "false")">

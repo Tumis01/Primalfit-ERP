@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject CustomFieldWriteSession CustomFieldWrites
 @page "/gl/adjustments"
 
 @using Primafit_ERP.Components.Models
@@ -119,6 +121,12 @@
 
         <div class="md:col-span-3">
             <DimensionSelect CompanyId="@companyId" @bind-Value="selectedDimensionSetId" />
+            <TransactionCustomFields CompanyId="companyId" Scope="CustomFieldScope.GeneralLedgerAdjustmentHeader" OwnerId="customFieldId" />
+            <div class="transaction-lines-scroll"><table class="transaction-lines"><thead><tr><th>Entry</th><th class="udf-column">Custom fields</th></tr></thead><tbody>
+            <tr><td>Debit</td><td class="udf-column"><TransactionCustomFields CompanyId="companyId" Scope="CustomFieldScope.GeneralLedgerAdjustmentLine" OwnerId="debitCustomFieldId" Inline="true" /></td></tr>
+            <tr><td>Credit</td><td class="udf-column"><TransactionCustomFields CompanyId="companyId" Scope="CustomFieldScope.GeneralLedgerAdjustmentLine" OwnerId="creditCustomFieldId" Inline="true" /></td></tr>
+            </tbody></table></div>
+            @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error">@customFieldError</div> }
         </div>
     </div>
 
@@ -219,6 +227,14 @@
 </style>
 
 @code {
+    private Guid customFieldId = Guid.NewGuid(), debitCustomFieldId = Guid.NewGuid(), creditCustomFieldId = Guid.NewGuid();
+    private string customFieldError = "";
+    private async Task CommitAdjustmentBatch()
+    {
+        try { using var edit = CustomFieldWrites.BeginRegistered(companyId, CustomFieldScope.GeneralLedgerAdjustmentHeader, CustomFieldScope.GeneralLedgerAdjustmentLine); await CommitAdjustmentBatchCore(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+    }
+
     private Guid companyId;
     private string userId = "";
     private bool isBusy = false;
@@ -304,7 +320,7 @@
         StateHasChanged();
     }
 
-    private async Task CommitAdjustmentBatch()
+    private async Task CommitAdjustmentBatchCore()
     {
         if (adjustmentValue <= 0) { await JS.InvokeVoidAsync("alert", "Error: Entry value must be greater than zero."); return; }
         if (string.IsNullOrWhiteSpace(narrationString)) { await JS.InvokeVoidAsync("alert", "Error: A ledger narration entry is mandatory."); return; }
@@ -323,8 +339,8 @@
         {
             var lines = new List<GLJournalLine>
             {
-                new() { SegCoaId = finalDebitId, Debit = adjustmentValue, Credit = 0, DimensionSetId = selectedDimensionSetId, Reference = narrationString },
-                new() { SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, DimensionSetId = selectedDimensionSetId, Reference = narrationString }
+                new() { Id = debitCustomFieldId, IsDimensionDetail = true, SegCoaId = finalDebitId, Debit = adjustmentValue, Credit = 0, DimensionSetId = selectedDimensionSetId, Reference = narrationString },
+                new() { Id = creditCustomFieldId, IsDimensionDetail = true, SegCoaId = finalCreditId, Debit = 0, Credit = adjustmentValue, DimensionSetId = selectedDimensionSetId, Reference = narrationString }
             };
 
             SequenceTargetType? numberingTarget = selectedMapping!.TransactionType switch

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -605,23 +605,7 @@ namespace Primafit_ERP.Services
             existing.OverrideInventoryAssetGlAccountId = vReturn.OverrideInventoryAssetGlAccountId;
             existing.OverrideAccountsPayableGlAccountId = vReturn.OverrideAccountsPayableGlAccountId;
 
-            ctx.VendorReturnLines.RemoveRange(existing.Lines);
-
-            foreach (var line in vReturn.Lines)
-            {
-                ctx.VendorReturnLines.Add(new VendorReturnLine
-                { DimensionSetId = line.DimensionSetId,
-                    Id = Guid.NewGuid(),
-                    HeaderId = existing.Id,
-                    ItemId = line.ItemId,
-                    UomId = line.UomId,
-                    UomName = line.UomName,
-                    UomConversionFactor = line.UomConversionFactor,
-                    PurchaseOrderLineId = line.PurchaseOrderLineId,
-                    Quantity = line.Quantity,
-                    UnitCost = line.UnitCost
-                });
-            }
+            CustomFieldLineIdentity.Sync(ctx, existing.Lines, vReturn.Lines, nameof(VendorReturnLine.HeaderId), existing.Id);
 
             await ctx.SaveChangesAsync();
             return string.Empty;

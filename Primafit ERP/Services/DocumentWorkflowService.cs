@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 
@@ -15,12 +15,14 @@ public sealed record WorkflowLineOption(Guid Id, Guid DocumentId, Guid PartnerId
     public decimal UomConversionFactor { get; init; } = 1m;
 }
 
-public sealed record ManualSalesInvoiceLineInput(Guid ItemId, Guid? UomId, string UomName, decimal UomConversionFactor, decimal Quantity, decimal UnitPrice, Guid? DimensionSetId = null);
-public sealed record ManualPurchaseInvoiceLineInput(Guid ItemId, Guid? UomId, string UomName, decimal UomConversionFactor, decimal Quantity, decimal UnitCost, Guid? DimensionSetId = null);
+public sealed record ManualSalesInvoiceLineInput(Guid ItemId, Guid? UomId, string UomName, decimal UomConversionFactor, decimal Quantity, decimal UnitPrice, Guid? DimensionSetId = null, Guid? Id = null);
+public sealed record ManualPurchaseInvoiceLineInput(Guid ItemId, Guid? UomId, string UomName, decimal UomConversionFactor, decimal Quantity, decimal UnitCost, Guid? DimensionSetId = null, Guid? Id = null);
 
 public sealed class DestinationDocumentTerms
 {
     public Dictionary<Guid, Guid?> LineDimensionSets { get; set; } = new();
+    public Guid CustomFieldsOwnerId { get; set; } = Guid.NewGuid();
+    public Dictionary<Guid, Guid> LineCustomFieldOwners { get; set; } = new();
     public bool Confirmed { get; set; }
     public Guid? SavedInvoiceId { get; set; }
     public InvoiceRoute Route { get; set; } = new();
@@ -493,7 +495,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
         if (existing == null)
         {
             request.Status = request.Status == PurchaseRequestStatus.Draft ? PurchaseRequestStatus.Draft : PurchaseRequestStatus.Open;
-            request.Lines.ForEach(x => { x.Id = Guid.NewGuid(); x.PurchaseRequestId = request.Id; });
+            request.Lines.ForEach(x => { if (x.Id == Guid.Empty) x.Id = Guid.NewGuid(); x.PurchaseRequestId = request.Id; });
             db.PurchaseRequests.Add(request);
         }
         else
@@ -514,17 +516,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             existing.WithholdingTaxName = request.WithholdingTaxName;
             existing.WithholdingPercentage = request.WithholdingPercentage;
             existing.WithholdingGlAccountId = request.WithholdingGlAccountId;
-            db.PurchaseRequestLines.RemoveRange(existing.Lines);
-            existing.Lines.Clear();
-            foreach (var source in request.Lines)
-            {
-                source.Id = Guid.NewGuid();
-                source.PurchaseRequestId = existing.Id;
-                // Insert scalar copies so a detached editor graph is never reattached.
-                var line = new PurchaseRequestLine();
-                db.Entry(line).CurrentValues.SetValues(source);
-                db.PurchaseRequestLines.Add(line);
-            }
+            CustomFieldLineIdentity.Sync(db, existing.Lines, request.Lines, "PurchaseRequestId", existing.Id);
         }
         await db.SaveChangesAsync();
         return string.Empty;
@@ -596,7 +588,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
         if (existing == null)
         {
             quote.Status = quote.Status == SalesQuoteStatus.Draft ? SalesQuoteStatus.Draft : SalesQuoteStatus.Open;
-            quote.Lines.ForEach(x => { x.Id = Guid.NewGuid(); x.SalesQuoteId = quote.Id; });
+            quote.Lines.ForEach(x => { if (x.Id == Guid.Empty) x.Id = Guid.NewGuid(); x.SalesQuoteId = quote.Id; });
             db.SalesQuotes.Add(quote);
         }
         else
@@ -618,17 +610,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             existing.WithholdingTaxName = quote.WithholdingTaxName;
             existing.WithholdingPercentage = quote.WithholdingPercentage;
             existing.WithholdingSalesGlAccountId = quote.WithholdingSalesGlAccountId;
-            db.SalesQuoteLines.RemoveRange(existing.Lines);
-            existing.Lines.Clear();
-            foreach (var source in quote.Lines)
-            {
-                source.Id = Guid.NewGuid();
-                source.SalesQuoteId = existing.Id;
-                // Assigned GUIDs must be explicitly added, rather than inferred as updates.
-                var line = new SalesQuoteLine();
-                db.Entry(line).CurrentValues.SetValues(source);
-                db.SalesQuoteLines.Add(line);
-            }
+            CustomFieldLineIdentity.Sync(db, existing.Lines, quote.Lines, "SalesQuoteId", existing.Id);
         }
         await db.SaveChangesAsync();
         return string.Empty;
@@ -784,7 +766,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
                 WarehouseId = group.Key.WarehouseId, CurrencyId = group.Key.CurrencyId,
                 OrderNumber = await _numbering.GenerateAndReserveNextNumberAsync(companyId, SequenceTargetType.AR_Order),
                 Date = DateOnly.FromDateTime(DateTime.Today), TransactionDateTime = DateTime.Now,
-                Status = OrderStatus.Order, ProjectId = first.ProjectId, ExchangeRate = first.ExchangeRate,
+                Status = OrderStatus.Order, SubmissionState = await db.Set<CustomFieldDefinition>().AnyAsync(d => d.CompanyId == companyId && d.IsActive && (d.Scope == CustomFieldScope.SalesOrderHeader || d.Scope == CustomFieldScope.SalesOrderLine)) ? SalesOrderSubmissionState.Draft : SalesOrderSubmissionState.Submitted, ProjectId = first.ProjectId, ExchangeRate = first.ExchangeRate,
                 TaxId = first.TaxId, TaxGLAccountId = first.TaxGlAccountId,
                 DiscountPercentage = first.DiscountPercentage, DiscountAmount = first.DiscountAmount,
                 DiscountGlAccountId = first.DiscountGlAccountId,
@@ -839,7 +821,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
         if (receiptLineIds.Any(x => x == Guid.Empty) || receiptLineIds.Distinct().Count() != receiptLineIds.Count) return "A receipt line cannot be selected more than once.";
         if (manualLines.Any(x => x.ItemId == Guid.Empty || x.Quantity <= 0 || x.UnitCost < 0)) return "Every manual line needs an item, positive quantity and non-negative unit cost.";
         if (!terms.InvoiceDate.HasValue) return "Enter an invoice date.";
-        if (terms.PartnerId != vendorId || terms.CurrencyId != currencyId || terms.SiteId != Guid.Empty || !terms.Confirmed) return "Review and confirm the invoice terms for the selected supplier and currency.";
+        if (terms.PartnerId != vendorId || terms.CurrencyId != currencyId || terms.SiteId != Guid.Empty) return "Select valid invoice terms for the selected supplier and currency.";
         if (terms.ExchangeRate <= 0 || terms.DiscountPercentage < 0 || terms.DiscountPercentage > 100 || terms.DiscountAmount < 0 || (terms.DiscountPercentage > 0 && terms.DiscountAmount > 0)) return "Enter a positive exchange rate and valid discount terms.";
         string number = "";
         try { if (!existingInvoiceId.HasValue) number = await _numbering.GenerateAndReserveNextNumberAsync(companyId, SequenceTargetType.AP_Invoice, terms.InvoiceDate); }
@@ -919,6 +901,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             }
             var invoice = new PurchaseInvoice
             {
+                Id = existingInvoice?.Id ?? terms.CustomFieldsOwnerId,
                 CompanyId = companyId, VendorId = vendorId, CurrencyId = currencyId, PurchaseInvoiceNumber = number,
                 SupplierInvoiceNumber = reference, ExternalInvoiceNumber = reference, BillDate = terms.InvoiceDate.Value.Date, InvoiceDate = terms.InvoiceDate.Value.Date,
                 IsDirectBill = false, ExchangeRate = resolved!.ExchangeRate, AccountsPayableGlId = vendor.PayablesAccountId ?? Guid.Empty,
@@ -933,7 +916,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             foreach (var source in receiptLines)
             {
                 var poLine = poLines[source.PurchaseOrderLineId!.Value]; var receipt = receipts[source.GoodsReceiptId];
-                invoice.Lines.Add(new PurchaseInvoiceLine { DimensionSetId = terms.LineDimensionSets.GetValueOrDefault(source.Id, source.DimensionSetId), PurchaseInvoiceId = invoice.Id, GoodsReceiptLineId = source.Id, PurchaseOrderLineId = poLine.Id,
+                invoice.Lines.Add(new PurchaseInvoiceLine { Id = terms.LineCustomFieldOwners.GetValueOrDefault(source.Id, Guid.NewGuid()), DimensionSetId = terms.LineDimensionSets.GetValueOrDefault(source.Id, source.DimensionSetId), PurchaseInvoiceId = invoice.Id, GoodsReceiptLineId = source.Id, PurchaseOrderLineId = poLine.Id,
                     ItemId = poLine.ItemId, Description = items[poLine.ItemId].Name, QuantityBilled = source.QuantityReceived, UnitCostBilled = poLine.UnitCost,
                     UomId = source.UomId ?? poLine.UomId, UomName = source.UomName, UomConversionFactor = source.UomConversionFactor, ExpenseGlAccountId = receipt.InventoryGlAccountId });
             }
@@ -948,7 +931,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             foreach (var line in manualLines)
             {
                 var item = items[line.ItemId];
-                invoice.Lines.Add(new PurchaseInvoiceLine { DimensionSetId = line.DimensionSetId,  PurchaseInvoiceId = invoice.Id, ItemId = item.Id, Description = item.Name,
+                invoice.Lines.Add(new PurchaseInvoiceLine { Id = line.Id ?? Guid.NewGuid(), DimensionSetId = line.DimensionSetId,  PurchaseInvoiceId = invoice.Id, ItemId = item.Id, Description = item.Name,
                     UomId = line.UomId, UomName = string.IsNullOrWhiteSpace(line.UomName) ? item.UoM : line.UomName.Trim(), UomConversionFactor = line.UomConversionFactor,
                     QuantityBilled = UomConversion.ToBase(line.Quantity, line.UomConversionFactor), UnitCostBilled = UomConversion.PriceToBase(line.UnitCost, line.UomConversionFactor),
                     ExpenseGlAccountId = item.IsService ? item.CostOfGoodsSoldAccountId : Guid.Empty });
@@ -969,10 +952,9 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             {
                 invoice.Id = existingInvoice.Id; invoice.GLBatchId = existingInvoice.GLBatchId;
                 invoice.IsPosted = existingInvoice.IsPosted; invoice.PostedDate = existingInvoice.PostedDate;
-                db.PurchaseInvoiceLines.RemoveRange(existingInvoice.Lines);
-                existingInvoice.Lines.Clear();
-                db.Entry(existingInvoice).CurrentValues.SetValues(invoice);
-                foreach (var row in invoice.Lines) { row.PurchaseInvoiceId = existingInvoice.Id; db.PurchaseInvoiceLines.Add(row); }
+                var version = existingInvoice.CustomFieldsVersion;
+                db.Entry(existingInvoice).CurrentValues.SetValues(invoice); existingInvoice.CustomFieldsVersion = version;
+                CustomFieldLineIdentity.Sync(db, existingInvoice.Lines, invoice.Lines, nameof(PurchaseInvoiceLine.PurchaseInvoiceId), existingInvoice.Id);
             }
             else db.PurchaseInvoices.Add(invoice);
             await db.SaveChangesAsync();
@@ -1123,8 +1105,8 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
         if (manualLines.Any(x => x.ItemId == Guid.Empty || x.Quantity <= 0 || x.UnitPrice < 0))
             return "Every manual line needs an item, positive quantity and non-negative unit price.";
         if (!terms.InvoiceDate.HasValue) return "Enter an invoice date.";
-        if (terms.PartnerId != customerId || terms.CurrencyId != currencyId || terms.SiteId != Guid.Empty || !terms.Confirmed)
-            return "Review and confirm the invoice terms for the selected customer and currency.";
+        if (terms.PartnerId != customerId || terms.CurrencyId != currencyId || terms.SiteId != Guid.Empty)
+            return "Select valid invoice terms for the selected customer and currency.";
         if (terms.ExchangeRate <= 0 || terms.DiscountPercentage < 0 || terms.DiscountPercentage > 100 || terms.DiscountAmount < 0
             || (terms.DiscountPercentage > 0 && terms.DiscountAmount > 0))
             return "Enter a positive exchange rate and valid discount terms.";
@@ -1217,6 +1199,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             }
             var invoice = new SalesInvoice
             {
+                Id = existingInvoice?.Id ?? terms.CustomFieldsOwnerId,
                 CompanyId = companyId, CustomerId = customerId, CurrencyId = currencyId, InvoiceNumber = number,
                 Date = DateOnly.FromDateTime(terms.InvoiceDate.Value), Status = SalesInvoiceStatus.Draft,
                 IsDirectInvoice = false, ExchangeRate = resolved!.ExchangeRate,
@@ -1232,7 +1215,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             foreach (var source in shipmentLines)
             {
                 var orderLine = orderLines[source.SalesOrderLineId!.Value];
-                invoice.Lines.Add(new SalesInvoiceLine { DimensionSetId = terms.LineDimensionSets.GetValueOrDefault(source.Id, source.DimensionSetId), ShipmentLineId = source.Id, SalesOrderLineId = orderLine.Id,
+                invoice.Lines.Add(new SalesInvoiceLine { Id = terms.LineCustomFieldOwners.GetValueOrDefault(source.Id, Guid.NewGuid()), DimensionSetId = terms.LineDimensionSets.GetValueOrDefault(source.Id, source.DimensionSetId), ShipmentLineId = source.Id, SalesOrderLineId = orderLine.Id,
                     ItemId = source.ItemId, Description = string.IsNullOrWhiteSpace(orderLine.Description) ? orderLine.Item?.Name : orderLine.Description,
                     QuantityInvoiced = source.QtyShipped, UnitPrice = orderLine.UnitPrice, UomId = source.UomId,
                     UomName = source.UomName, UomConversionFactor = source.UomConversionFactor,
@@ -1249,7 +1232,7 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             foreach (var line in manualLines)
             {
                 var item = items[line.ItemId];
-                invoice.Lines.Add(new SalesInvoiceLine { DimensionSetId = line.DimensionSetId,  ItemId = item.Id, Description = item.Name, UomId = line.UomId,
+                invoice.Lines.Add(new SalesInvoiceLine { Id = line.Id ?? Guid.NewGuid(), DimensionSetId = line.DimensionSetId,  ItemId = item.Id, Description = item.Name, UomId = line.UomId,
                     UomName = string.IsNullOrWhiteSpace(line.UomName) ? item.UoM : line.UomName.Trim(), UomConversionFactor = line.UomConversionFactor,
                     QuantityInvoiced = UomConversion.ToBase(line.Quantity, line.UomConversionFactor),
                     UnitPrice = UomConversion.PriceToBase(line.UnitPrice, line.UomConversionFactor),
@@ -1271,10 +1254,9 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
             {
                 invoice.Id = existingInvoice.Id; invoice.GLBatchId = existingInvoice.GLBatchId;
                 invoice.InvoiceBatchId = existingInvoice.InvoiceBatchId; invoice.Status = existingInvoice.Status;
-                db.SalesInvoiceLines.RemoveRange(existingInvoice.Lines);
-                existingInvoice.Lines.Clear();
-                db.Entry(existingInvoice).CurrentValues.SetValues(invoice);
-                foreach (var row in invoice.Lines) { row.SalesInvoiceId = existingInvoice.Id; db.SalesInvoiceLines.Add(row); }
+                var version = existingInvoice.CustomFieldsVersion;
+                db.Entry(existingInvoice).CurrentValues.SetValues(invoice); existingInvoice.CustomFieldsVersion = version;
+                CustomFieldLineIdentity.Sync(db, existingInvoice.Lines, invoice.Lines, nameof(SalesInvoiceLine.SalesInvoiceId), existingInvoice.Id);
             }
             else db.SalesInvoices.Add(invoice);
             await db.SaveChangesAsync();
@@ -1419,7 +1401,6 @@ var stageError = await StageSalesInvoiceAsync(db, invoiceId, userId);
         var matches = allTerms.Where(x => x.PartnerId == partnerId && x.SiteId == siteId && x.CurrencyId == currencyId).ToList();
         if (matches.Count != 1) return ("Enter terms for every destination supplier/customer, site and currency group.", null, null, null);
         var terms = matches[0];
-        if (!terms.Confirmed) return ("Review and confirm the terms for each destination document.", null, null, null);
         var currencyError = await DocumentCurrencyPolicy.ValidateAsync(db, companyId, currencyId, terms.ExchangeRate);
         if (currencyError != null) return (currencyError, null, null, null);
         if (terms.ExchangeRate <= 0 || terms.DiscountPercentage < 0 || terms.DiscountPercentage > 100 || terms.DiscountAmount < 0 || (terms.DiscountPercentage > 0 && terms.DiscountAmount > 0))

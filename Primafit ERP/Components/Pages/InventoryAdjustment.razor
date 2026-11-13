@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/inventory/adjustments"
 
 @using Primafit_ERP.Components.Models
@@ -83,7 +85,7 @@
         </div>
 
         <div class="adj-table-scroll">
-            <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[1250px] text-sm text-left adj-table">
+            <TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.InventoryAdjustmentHeader" OwnerId="@(newCustomFieldId)" ReadOnly="@(false)" />@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full min-w-[1250px] text-sm text-left adj-table">
                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                     <tr>
                         <th class="p-4 w-[28%] pl-6">Physical Inventory Item Reference</th>
@@ -93,7 +95,7 @@
                         <th class="p-4 text-right w-[11%]">Unit Cost</th>
                         <th class="p-4 text-right w-[10%] text-emerald-700">Debit (Dr)</th>
                         <th class="p-4 text-right w-[10%] text-rose-700">Credit (Cr)</th>
-                        <th class="p-4">Dimensions</th>
+                        <th class="p-4">Dimensions</th><th class="p-3 udf-column">Custom fields</th>
                         <th class="p-4 pr-6 text-center w-[5%]">Action</th>
                     </tr>
                 </thead>
@@ -191,7 +193,7 @@
                                 </div>
                             </td>
 
-                            <td class="p-3 align-middle"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td>
+                            <td class="p-3 align-middle"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td><td class="p-3 udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.InventoryAdjustmentLine" OwnerId="@(line.Id)" ReadOnly="@(false)" Inline="true" /></td>
                             <td class="p-3 pr-6 text-center align-middle">
                                 <button type="button" @onclick="() => RemoveLine(line)"
                                         class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
@@ -305,6 +307,18 @@
 </style>
 
 @code {
+
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.InventoryAdjustmentHeader, CustomFieldScope.InventoryAdjustmentLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task PostStockAdjustments() => RunCustomFieldSave(() => PostStockAdjustmentsCore());
+
     private Guid currentCompanyId;
     private string currentUserId = "";
     private bool isBusy = false;
@@ -456,12 +470,12 @@
     }
 
     private void ClearForm()
-    {
+    { newCustomFieldId = Guid.NewGuid();
         lines.Clear();
         lines.Add(new InventoryAdjustmentUiRowDto());
     }
 
-    private async Task PostStockAdjustments()
+    private async Task PostStockAdjustmentsCore()
     {
         var activeLines = lines.Where(l => l.ItemId != Guid.Empty && (l.DebitAmount > 0 || l.CreditAmount > 0)).ToList();
 

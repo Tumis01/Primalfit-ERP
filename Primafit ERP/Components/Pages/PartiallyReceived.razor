@@ -10,13 +10,14 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer PermissionKey="PURCHASING_REPORTS_PAGE" CompanyId="companyId"
                   Title="Partially Received Purchase Orders"
                   Description="Lists all open purchase orders where goods have been partially received but delivery is not yet complete. Includes the percentage received and the remaining quantity still expected."
-                  ShowAsOfDate="false"
+                  ShowDateRange="true" ShowAsOfDate="false"
                   FetchData="GetData" />
 </div>
 

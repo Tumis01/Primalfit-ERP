@@ -8,7 +8,16 @@
         // Never round transaction inputs in the browser. Exchange rates,
         // quantities and item ratios can require more than two decimals;
         // converting them to Number would also lose significant digits.
-        var formatted = input.value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+        var formatted;
+        if (input.dataset.decimalPlaces === '4') {
+            // Pad price displays using strings so large decimal amounts are
+            // never converted to a lossy JavaScript Number. C# rounds prices.
+            var parts = /^([+-]?\d+)(?:\.(\d*))?$/.exec(input.value);
+            if (!parts || (parts[2] || '').length > 4) return;
+            formatted = parts[1] + '.' + (parts[2] || '').padEnd(4, '0');
+        } else {
+            formatted = input.value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+        }
         if (input.value !== formatted) input.value = formatted;
     }
 

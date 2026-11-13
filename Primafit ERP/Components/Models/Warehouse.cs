@@ -26,6 +26,7 @@ namespace Primafit_ERP.Components.Models
 
     public class StockTransfer
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key] public Guid Id { get; set; } = Guid.NewGuid();
         public Guid CompanyId { get; set; }
         public string Reference { get; set; } = string.Empty; // e.g. TRF-1001
@@ -75,6 +76,7 @@ namespace Primafit_ERP.Components.Models
 
     public class StockTransferLine : IDimensionedLine
     {
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         public Guid? DimensionSetId { get; set; }
 
         [Key] public Guid Id { get; set; } = Guid.NewGuid();

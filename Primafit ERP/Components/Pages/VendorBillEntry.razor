@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/ap/bill-entry"
 @page "/ap/bill-entry/{RouteBillId:guid}"
 
@@ -293,7 +295,7 @@
                             <label class="label">Reference (Cheque / Transfer #)</label>
                             <input type="text" @bind="payment.Reference" class="input-class" placeholder="e.g. TRF-90210" />
                             <p class="mt-3 text-xs text-slate-500">Payment dimensions inherit the invoice lines when left blank.</p><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="payment.DimensionSetId" />
-                        </div>
+                        </div><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.VendorPayment" OwnerId="@(payment.Id)" ReadOnly="@(currentPaymentBatchStatus == BatchStatus.Posted)" />@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
 
                         @if (IsLocalVendor)
                         {
@@ -692,6 +694,18 @@
 </style>
 
 @code {
+
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.VendorPayment); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task PostPayment() => RunCustomFieldSave(() => PostPaymentCore());
+
     [Parameter] public Guid? RouteBillId { get; set; }
     [SupplyParameterFromQuery] public Guid? billId { get; set; }
     [SupplyParameterFromQuery] public Guid? poId { get; set; }
@@ -1451,7 +1465,7 @@
         }
     }
 
-    private async Task PostPayment()
+    private async Task PostPaymentCore()
     {
         if (SelectedBill == null || selectedBillId == Guid.Empty)
         {

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -51,7 +51,7 @@ namespace Primafit_ERP.Services
             var orders = await ctx.SalesOrders
                 .Include(o => o.Customer)
                 .Include(o => o.Lines).ThenInclude(l => l.Item)
-                .Where(o => o.CompanyId == companyId &&
+                .Where(o => o.CompanyId == companyId && o.SubmissionState == SalesOrderSubmissionState.Submitted &&
                             (o.Status == OrderStatus.Order || o.Status == OrderStatus.Invoiced ||
                              o.Status == OrderStatus.PartiallyShipped || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
@@ -66,6 +66,7 @@ namespace Primafit_ERP.Services
                                              .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return "Order not found.";
+            if (order.SubmissionState == SalesOrderSubmissionState.Draft) return "Submit the sales order before creating a shipment.";
 
             bool allShipped = order.Lines.Where(l => l.Item != null && !l.Item.IsService).All(l => l.QtyShipped >= l.Quantity);
             if (allShipped) return "All physical items for this order/invoice have already been shipped.";

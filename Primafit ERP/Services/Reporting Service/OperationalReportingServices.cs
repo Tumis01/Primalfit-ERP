@@ -28,55 +28,16 @@ namespace Primafit_ERP.Services
         // =========================================================
         public async Task<StandardReportData> GenerateInventoryValuationAsync(Guid companyId)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            // Only track physical goods (IsService == false)
-            var inventoryData = await (from i in ctx.Items.AsNoTracking()
-                                       join s in ctx.StockLedgers.AsNoTracking() on i.Id equals s.ItemId into stock
-                                       from s in stock.DefaultIfEmpty() // Left join to include items with 0 stock
-                                       where i.CompanyId == companyId && !i.IsService
-                                       group s by new { i.Code, i.Name, i.UoM, i.WeightedAverageCost } into g
-                                       select new
-                                       {
-                                           Code = g.Key.Code,
-                                           ItemName = g.Key.Name,
-                                           UoM = g.Key.UoM,
-                                           WACC = g.Key.WeightedAverageCost,
-                                           // Sum the QuantityChanged, defaulting to 0 if null
-                                           TotalQty = g.Sum(x => x == null ? 0 : x.QuantityChanged)
-                                       })
-                                       .OrderBy(x => x.ItemName)
-                                       .ToListAsync();
-
-            var report = new StandardReportData
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var positions = await InventoryBookValueService.GetAsync(db, companyId, DateOnly.FromDateTime(DateTime.Today));
+            var items = await db.Items.AsNoTracking().Where(x => x.CompanyId == companyId && !x.IsService).ToDictionaryAsync(x => x.Id);
+            var report = new StandardReportData { ReportName = "Inventory Valuation (Posted Ledger)", ReportingPeriod = $"As of {DateTime.Today:dd MMM yyyy}", Headers = new() { "Code", "Item", "Primary UOM", "Quantity", "Unit Cost", "Total Value" } };
+            foreach (var group in positions.Where(x => items.ContainsKey(x.ItemId)).GroupBy(x => x.ItemId))
             {
-                ReportName = "Inventory Valuation Report (WACC)",
-                ReportingPeriod = $"As of {DateTime.Today:MMM dd, yyyy}",
-                Headers = new List<string> { "Code", "Item Description", "UoM", "Qty on Hand", "Unit Cost (WACC)", "Total Value" }
-            };
-
-            decimal grandTotalValue = 0;
-
-            foreach (var item in inventoryData)
-            {
-                if (item.TotalQty <= 0) continue; // Only show items actually in stock
-
-                decimal totalValue = item.TotalQty * item.WACC;
-                grandTotalValue += totalValue;
-
-                report.Rows.Add(new List<string>
-                {
-                    item.Code,
-                    item.ItemName,
-                    item.UoM,
-                    item.TotalQty.ToString("N2"),
-                    item.WACC.ToString("N4"), // Show 4 decimals for accurate WACC
-                    totalValue.ToString("N2")
-                });
+                var item = items[group.Key]; var qty = group.Sum(x => x.Quantity); var value = group.Sum(x => x.Value);
+                report.Rows.Add(new() { item.Code, item.Name, item.UoM, qty.ToString("N4"), (qty == 0 ? 0 : value / qty).ToString("N4"), value.ToString("N4") });
             }
-
-            report.Rows.Add(new List<string> { "", "", "", "", "GRAND TOTAL VALUATION", grandTotalValue.ToString("N2") });
-
+            report.Rows.Add(new() { "", "GRAND TOTAL", "", "", "", positions.Where(x => items.ContainsKey(x.ItemId)).Sum(x => x.Value).ToString("N4") });
             return report;
         }
 
@@ -85,63 +46,20 @@ namespace Primafit_ERP.Services
         // =========================================================
         public async Task<StandardReportData> GenerateStockAgingReportAsync(Guid companyId, int daysWithoutMovementThreshold = 90)
         {
-            await using var ctx = await _dbFactory.CreateDbContextAsync();
-
-            // Find the last movement date for all physical items
-            var agingData = await (from i in ctx.Items.AsNoTracking()
-                                   join s in ctx.StockLedgers.AsNoTracking() on i.Id equals s.ItemId into stock
-                                   where i.CompanyId == companyId && !i.IsService
-                                   let lastMoveDate = stock.Max(x => (DateTime?)x.Date) // Might be null if never moved
-                                   let totalQty = stock.Sum(x => x.QuantityChanged)
-                                   where totalQty > 0 // Only care about items we actually have in stock
-                                   select new
-                                   {
-                                       i.Code,
-                                       i.Name,
-                                       TotalQty = totalQty,
-                                       i.WeightedAverageCost,
-                                       LastMoveDate = lastMoveDate
-                                   }).ToListAsync();
-
-            var report = new StandardReportData
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var positions = await InventoryBookValueService.GetAsync(db, companyId, DateOnly.FromDateTime(DateTime.Today));
+            var items = await db.Items.AsNoTracking().Where(x => x.CompanyId == companyId && !x.IsService).ToDictionaryAsync(x => x.Id);
+            var report = new StandardReportData { ReportName = "Stock Aging (Slow Moving Items)", ReportingPeriod = $"As of {DateTime.Today:dd MMM yyyy} · Inactive for {daysWithoutMovementThreshold}+ days · Posted ledger carrying value", Headers = new() { "Code", "Item", "Primary UOM", "Quantity", "Last Movement", "Days Inactive", "Capital Tied Up" } };
+            decimal total = 0;
+            foreach (var group in positions.Where(x => items.ContainsKey(x.ItemId)).GroupBy(x => x.ItemId))
             {
-                ReportName = "Stock Aging (Slow Moving Items)",
-                ReportingPeriod = $"Items inactive for {daysWithoutMovementThreshold}+ days",
-                Headers = new List<string> { "Code", "Item Description", "Qty on Hand", "Last Movement Date", "Days Inactive", "Capital Tied Up" }
-            };
-
-            decimal totalCapitalTiedUp = 0;
-            var today = DateTime.UtcNow;
-
-            foreach (var item in agingData)
-            {
-                // Calculate days since last movement. If never moved, calculate from today (effectively infinite/unknown, but let's flag it high)
-                int daysInactive = item.LastMoveDate.HasValue
-                                   ? (today - item.LastMoveDate.Value).Days
-                                   : 999;
-
-                if (daysInactive >= daysWithoutMovementThreshold)
-                {
-                    decimal capitalTiedUp = item.TotalQty * item.WeightedAverageCost;
-                    totalCapitalTiedUp += capitalTiedUp;
-
-                    report.Rows.Add(new List<string>
-                    {
-                        item.Code,
-                        item.Name,
-                        item.TotalQty.ToString("N2"),
-                        item.LastMoveDate.HasValue ? item.LastMoveDate.Value.ToString("yyyy-MM-dd") : "Never",
-                        daysInactive == 999 ? "N/A" : daysInactive.ToString(),
-                        capitalTiedUp.ToString("N2")
-                    });
-                }
+                var qty = group.Sum(x => x.Quantity); if (qty <= 0) continue;
+                var last = group.Max(x => x.LastMovement); var days = (DateTime.Today - last.Date).Days;
+                if (days < daysWithoutMovementThreshold) continue;
+                var item = items[group.Key]; var value = group.Sum(x => x.Value); total += value;
+                report.Rows.Add(new() { item.Code, item.Name, item.UoM, qty.ToString("N4"), last.ToString("yyyy-MM-dd"), days.ToString(), value.ToString("N4") });
             }
-
-            // Sort by capital tied up (descending) so highest liability is at the top
-            report.Rows = report.Rows.OrderByDescending(r => decimal.Parse(r[5])).ToList();
-
-            report.Rows.Add(new List<string> { "", "", "", "", "TOTAL DEAD CAPITAL", totalCapitalTiedUp.ToString("N2") });
-
+            report.Rows.Add(new() { "", "GRAND TOTAL", "", "", "", "", total.ToString("N4") });
             return report;
         }
         public async Task<CustomerStatementReport> GenerateCustomerStatementAsync(
@@ -180,12 +98,13 @@ namespace Primafit_ERP.Services
                     && (o.Status == OrderStatus.Invoiced || o.Status == OrderStatus.PartiallyInvoiced))
                 .ToListAsync();
 
+            var legacyTotals = await ReportAccounting.LegacySalesTotalsAsync(ctx, companyId, invoices);
             var documentInvoices = await ctx.SalesInvoices.AsNoTracking()
                 .Include(x => x.Lines)
                 .Where(x => x.CompanyId == companyId && customerIds.Contains(x.CustomerId) && x.Date <= endDate
                     && (x.Status == SalesInvoiceStatus.Posted || x.Status == SalesInvoiceStatus.InReview)
                     && ((!x.GLBatchId.HasValue && x.Status == SalesInvoiceStatus.Posted)
-                        || (x.GLBatchId.HasValue && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && batch.Status == BatchStatus.Posted))))
+                        || (x.GLBatchId.HasValue && ctx.GLBatches.Any(batch => batch.Id == x.GLBatchId.Value && batch.CompanyId == companyId && (batch.Status == BatchStatus.Posted || batch.PostedAt.HasValue)))))
                 .ToListAsync();
 
             var payments = await ctx.CustomerPayments
@@ -194,7 +113,7 @@ namespace Primafit_ERP.Services
                 .Where(p => p.CompanyId == companyId
                     && customerIds.Contains(p.CustomerId)
                     && p.Status == PaymentStatus.Posted
-                    && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
+                    && (!p.GLBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == p.GLBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                     && p.Date <= endDate.ToDateTime(TimeOnly.MaxValue))
                 .ToListAsync();
 
@@ -203,7 +122,7 @@ namespace Primafit_ERP.Services
                 .Where(cn => cn.CompanyId == companyId
                     && customerIds.Contains(cn.CustomerId)
                     && cn.Status == CreditNoteStatus.Posted
-                    && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
+                    && (!cn.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == cn.GlBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                     && cn.Date <= endDate)
                 .ToListAsync();
 
@@ -218,7 +137,7 @@ namespace Primafit_ERP.Services
                 .Where(r => r.CompanyId == companyId
                     && customerIds.Contains(r.CustomerId)
                     && r.Status == ReceiptRefundStatus.Posted
-                    && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId && b.CompanyId == companyId && b.Status == BatchStatus.Posted))
+                    && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                     && (r.RefundType == ReceiptRefundType.PaymentOnly || r.RefundType == ReceiptRefundType.Both)
                     && r.Date <= endDate)
                 .ToListAsync();
@@ -244,7 +163,7 @@ namespace Primafit_ERP.Services
             if (arAdjustmentMap?.OverrideDebitGlAccountId != null)
                 arAccountIds.Add(arAdjustmentMap.OverrideDebitGlAccountId.Value);
 
-            var glAdjustments = await ctx.GLTransactions
+            var glAdjustments = await ReportAccounting.PostedTransactions(ctx, companyId)
                 .AsNoTracking()
                 .Where(t => t.CompanyId == companyId
                     && t.PostingDate <= endDate
@@ -277,7 +196,7 @@ namespace Primafit_ERP.Services
 
                 foreach (var invoice in invoices.Where(i => i.CustomerId == customer.Id))
                 {
-                    decimal invoiceTotal = CalculateInvoiceTotal(invoice, taxes);
+                    decimal invoiceTotal = legacyTotals[invoice.Id];
                     decimal rate = invoice.ExchangeRate > 0 ? invoice.ExchangeRate : 1;
 
                     activity.Add(new CustomerStatementLine
@@ -315,7 +234,7 @@ namespace Primafit_ERP.Services
                         DocumentNumber = invoice.InvoiceNumber,
                         Type = "Invoice",
                         Description = invoice.IsDirectInvoice ? "Direct sales invoice" : "Sales invoice",
-                        Debit = Math.Round(invoiceTotal * rate, 2)
+                        Debit = invoice.TotalAmount
                     });
                 }
 
@@ -605,8 +524,8 @@ namespace Primafit_ERP.Services
         private static string FormatMoney(decimal value)
         {
             return value < 0
-                ? $"({Math.Abs(value):N2})"
-                : value.ToString("N2");
+                ? $"({Math.Abs(value):N4})"
+                : value.ToString("N4");
         }
 
         private static bool IsMoneyHeader(string header)
@@ -654,9 +573,11 @@ namespace Primafit_ERP.Services
                 .Where(b => b.CompanyId == companyId
                     && vendorIds.Contains(b.VendorId)
                     && b.IsPosted
+                    && (!b.GLBatchId.HasValue || ctx.GLBatches.Any(g => g.Id == b.GLBatchId && g.CompanyId == companyId && (g.Status == BatchStatus.Posted || g.PostedAt.HasValue)))
                     && b.BillDate <= endDate.ToDateTime(TimeOnly.MaxValue))
                 .ToListAsync();
 
+            var postedPaymentBatches = (await ctx.GLBatches.Where(b => b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)).Select(b => b.Id).ToListAsync()).ToHashSet();
             // Debit notes reduce the vendor AP balance. TotalAmount is stored in
             // the document currency, so convert it to the same base currency used
             // by PurchaseInvoice.TotalAmount and VendorPayment.Amount in this report.
@@ -666,6 +587,7 @@ namespace Primafit_ERP.Services
                 .Where(d => d.CompanyId == companyId
                     && vendorIds.Contains(d.VendorId)
                     && d.Status == DebitNoteStatus.Posted
+                    && (!d.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == d.GlBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                     && d.Date <= endDate)
                 .ToListAsync();
 
@@ -682,6 +604,7 @@ namespace Primafit_ERP.Services
                 .Where(r => r.CompanyId == companyId
                     && vendorIds.Contains(r.VendorId)
                     && r.Status == VendorReturnStatus.Posted
+                    && (!r.GlBatchId.HasValue || ctx.GLBatches.Any(b => b.Id == r.GlBatchId && b.CompanyId == companyId && (b.Status == BatchStatus.Posted || b.PostedAt.HasValue)))
                     && r.Date <= endDate)
                 .ToListAsync();
 
@@ -706,7 +629,7 @@ namespace Primafit_ERP.Services
             if (apAdjustmentMap?.OverrideDebitGlAccountId != null)
                 apAccountIds.Add(apAdjustmentMap.OverrideDebitGlAccountId.Value);
 
-            var glAdjustments = await ctx.GLTransactions
+            var glAdjustments = await ReportAccounting.PostedTransactions(ctx, companyId)
                 .AsNoTracking()
                 .Where(t => t.CompanyId == companyId
                     && t.PostingDate <= endDate
@@ -751,7 +674,7 @@ namespace Primafit_ERP.Services
                         Credit = bill.TotalAmount
                     });
 
-                    foreach (var payment in bill.Payments.Where(p => p.Date <= endDate.ToDateTime(TimeOnly.MaxValue)))
+                    foreach (var payment in bill.Payments.Where(p => p.Date <= endDate.ToDateTime(TimeOnly.MaxValue) && !p.Reference.StartsWith("draft-", StringComparison.OrdinalIgnoreCase) && (!p.GLBatchId.HasValue || postedPaymentBatches.Contains(p.GLBatchId.Value))))
                     {
                         activity.Add(new VendorStatementLine
                         {
@@ -762,7 +685,7 @@ namespace Primafit_ERP.Services
                             DocumentNumber = payment.Reference,
                             Type = "Payment",
                             Description = $"Payment for {bill.ExternalInvoiceNumber}",
-                            Debit = payment.Amount
+                            Debit = payment.Amount + payment.WithholdingAmount
                         });
                     }
                 }

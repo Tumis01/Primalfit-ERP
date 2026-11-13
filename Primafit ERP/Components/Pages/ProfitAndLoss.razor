@@ -1,4 +1,4 @@
-﻿@page "/reports/profit-and-loss"
+@page "/reports/profit-and-loss"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -10,10 +10,11 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId" Title="Profit & Loss Statement"
+    <ReportViewer PermissionKey="FINANCE_REPORTS_PAGE" CompanyId="companyId" Title="Profit & Loss Statement"
                   Description="Income statement tracking revenue, COGS, and operating expenses."
                   ShowDateRange="true"
                   FetchData="GetData" />

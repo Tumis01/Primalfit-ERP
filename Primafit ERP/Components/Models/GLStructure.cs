@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -9,6 +9,8 @@ namespace Primafit_ERP.Components.Models
 
     public class GLBatch
     {
+        public CustomFieldScope? CustomFieldContext { get; set; }
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -55,6 +57,8 @@ namespace Primafit_ERP.Components.Models
 
     public class GLJournalHeader
     {
+        public bool HasManualCustomFields { get; set; }
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -84,6 +88,8 @@ namespace Primafit_ERP.Components.Models
 
     public class GLJournalLine : IDimensionedLine
     {
+        public bool HasManualCustomFields { get; set; }
+        [System.ComponentModel.DataAnnotations.ConcurrencyCheck] public Guid? CustomFieldsVersion { get; set; }
         [NotMapped] public bool IsDimensionDetail { get; set; }
         public Guid? DimensionSetId { get; set; }
 

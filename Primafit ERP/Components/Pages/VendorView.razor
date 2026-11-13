@@ -123,6 +123,8 @@
                     </div>
                 </div>
 
+                <Primafit_ERP.Components.Shared.CustomFieldsEditor @ref="customFieldsEditor" CompanyId="currentCompanyId" Scope="CustomFieldScope.Vendor" OwnerId="currentVendor.Id" />
+
                 <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
                     <button type="button" @onclick="() => showForm = false" class="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 font-bold transition-colors">Cancel</button>
                     <button type="submit" class="px-6 py-2.5 rounded-xl bg-slate-900 text-white font-bold shadow-md hover:bg-slate-800 transition-colors">Save Vendor</button>
@@ -256,6 +258,8 @@
 </style>
 
 @code {
+    private Primafit_ERP.Components.Shared.CustomFieldsEditor? customFieldsEditor;
+
     private List<Vendor> vendors = new();
     private List<Currency> currencies = new();
     private List<VendorGroup> groups = new();
@@ -422,7 +426,7 @@
         string err;
         try
         {
-            err = await MasterService.SaveVendorAsync(currentVendor);
+            err = await MasterService.SaveVendorAsync(currentVendor, await customFieldsEditor!.GetStateAsync());
         }
         catch (Exception ex)
         {

@@ -5,24 +5,33 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.Components.Authorization
 
+@inject PermissionCacheService PermissionCache
+@inject NavigationManager NavManager
 @inject PurchasingService PurchasingService
 @inject UserManager<ApplicationUser> UserManager
 @inject AuthenticationStateProvider AuthStateProvider
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer @ref="viewer" PermissionKey="PURCHASING_REPORTS_PAGE" CompanyId="companyId"
                   Title="Goods Receipt Note (GRN) Log"
                   Description="A detailed line-by-line log of all inventory and services received from vendors. Shows invoice number, transaction and primary UOM quantities, transaction-UOM cost, base value, and GL posting status."
-                  ShowAsOfDate="false"
-                  FetchData="GetData" />
+                  ShowDateRange="true" ShowAsOfDate="false"
+                  FetchData="GetData">
+        <FilterContent><label class="flex gap-2 items-center"><input type="checkbox" checked="@includeUnposted" @onchange="ChangeStatusScope" />Include draft and rejected receipts (excluded by default)</label></FilterContent>
+    </ReportViewer>
 </div>
 
 @code {
     private Guid companyId;
+    private ReportViewer? viewer;
+    private bool includeUnposted;
+    private void ChangeStatusScope(ChangeEventArgs e) { includeUnposted = e.Value is true; viewer?.Invalidate(); }
 
     protected override async Task OnInitializedAsync()
     {
+        if (!PermissionCache.Has("PURCHASING_REPORTS_PAGE")) { NavManager.NavigateTo("/access-denied"); return; }
         var user = await UserManager.GetUserAsync(
             (await AuthStateProvider.GetAuthenticationStateAsync()).User);
 
@@ -32,6 +41,7 @@
 
     private async Task<StandardReportData> GetData(DateOnly start, DateOnly end)
     {
-        return await PurchasingService.GenerateGRNLogReportAsync(companyId, start, end);
+        if (!PermissionCache.Has("PURCHASING_REPORTS_PAGE")) throw new UnauthorizedAccessException();
+        return await PurchasingService.GenerateGRNLogReportAsync(companyId, start, end, !includeUnposted);
     }
 }

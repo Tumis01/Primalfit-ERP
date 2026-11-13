@@ -1,3 +1,4 @@
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/purchases/vendor-returns"
 @page "/purchases/vendor-returns/entry/{Id:guid?}"
 
@@ -418,9 +419,11 @@
 
                             <div class="overflow-x-auto flex-1 p-6">
                                 @if (currentReturn.ReturnType == VendorReturnType.PaymentOnly) { <div class="mb-4 rounded-xl border p-4"><h3 class="mb-2 text-sm font-bold">Refund dimensions</h3><p class="mb-2 text-xs text-slate-500">Leave blank to inherit the invoice line dimensions.</p><DimensionSelect CompanyId="@currentReturn.CompanyId" @bind-Value="currentReturn.DimensionSetId" Disabled="@(currentReturn.Status != VendorReturnStatus.Draft)" /></div> }
-<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
+<TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.VendorReturnHeader" OwnerId="@(currentReturn.Id)" ReadOnly="@(IsPosted)" />
+                @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm border border-slate-200 rounded-lg overflow-hidden">
                                     <thead class="text-[10px] uppercase font-extrabold text-slate-500 bg-slate-50 border-b border-slate-200 tracking-wider">
-                                        <tr>
+                                        <tr class="udf-column-groups"><th colspan="7">Transaction details</th><th class="udf-dimension-column">Dimensions</th><th class="udf-column">Custom fields</th></tr><tr>
                                             <th class="px-4 py-3">Item Details</th>
                                             <th class="px-4 py-3 text-center">UOM</th>
                                             <th class="px-4 py-3 text-center">Received</th>
@@ -428,7 +431,7 @@
                                             <th class="px-4 py-3 text-center text-amber-600">Max Allowance</th>
                                             <th class="px-4 py-3 text-right">Unit Cost</th>
                                             <th class="px-4 py-3 text-right w-36">Return Qty</th>
-                                        <th class="p-3">Dimensions</th></tr>
+                                        <th data-udf-dim="true" class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                     </thead>
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach (var line in currentReturn.Lines)
@@ -453,7 +456,7 @@
                                                            placeholder="0.00"
                                                             class="w-full text-right font-bold font-mono text-rose-700 border border-slate-300 rounded-lg px-2 py-1.5 appearance-none outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all disabled:opacity-50" />
                                                 </td>
-                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@currentReturn.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentReturn.Status != VendorReturnStatus.Draft)" /></td></tr>
+                                            <td class="p-3 align-top"><DimensionSelect CompanyId="@currentReturn.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentReturn.Status != VendorReturnStatus.Draft)" /></td><td class="p-3 align-top udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.VendorReturnLine" OwnerId="line.Id" ReadOnly="@(IsPosted)" Inline="true" /></td></tr>
                                         }
                                     </tbody>
                                 </table></div>
@@ -713,6 +716,18 @@
 </style>
 
 @code {
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.VendorReturnHeader, CustomFieldScope.VendorReturnLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task SaveDraftWorkspace() => RunCustomFieldSave(() => SaveDraftWorkspaceCore());
+    private Task PostVendorReturn() => RunCustomFieldSave(() => PostVendorReturnCore());
+
     [Parameter] public Guid? Id { get; set; }
 
     private Guid currentCompanyId = Guid.Empty;
@@ -1102,7 +1117,7 @@
         line.UomConversionFactor = GetItemFactor(line.Item, selectedId);
     }
 
-    private async Task SaveDraftWorkspace()
+    private async Task SaveDraftWorkspaceCore()
     {
         if (currentReturn == null) return;
 
@@ -1129,7 +1144,7 @@
         }
     }
 
-    private async Task PostVendorReturn()
+    private async Task PostVendorReturnCore()
     {
         if (currentReturn == null) return;
 

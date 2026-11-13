@@ -1,4 +1,4 @@
-﻿@page "/reports/sales-analysis"
+@page "/reports/sales-analysis"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -14,6 +14,7 @@
 @inject NavigationManager NavManager
 @inject IJSRuntime JS
 
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6 space-y-6 font-sans text-slate-800">
@@ -79,7 +80,7 @@
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
 
         <div class="hidden">
-            <ReportViewer CompanyId="companyId" Title="Sales Analysis by Item" Description="" ShowAsOfDate="false" FetchData="GetData" @ref="reportViewerRef" />
+            <ReportViewer PermissionKey="SALES_REPORTS_PAGE" CompanyId="companyId" Title="Sales Analysis by Item" Description="" ShowAsOfDate="false" FetchData="GetData" @ref="reportViewerRef" />
         </div>
 
         @if (activeReportData != null)
@@ -240,7 +241,7 @@
             // Hydrate reporting parameters parameters context metadata
             activeReportData.GeneratedBy = currentUserName;
             activeReportData.DateGenerated = DateTime.Now;
-            activeReportData.CompanyName = "Primafit Enterprise Operations";
+            activeReportData.CompanyName = (await CompanyService.GetCompanyByIdAsync(companyId))?.CompanyName ?? "";
             activeReportData.Currency = companyBaseCurrency;
 
             byte[] fileBytesArray;

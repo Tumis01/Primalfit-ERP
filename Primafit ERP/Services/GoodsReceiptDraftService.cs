@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
@@ -162,14 +162,15 @@ public sealed class GoodsReceiptDraftService(IDbContextFactory<AppDbContext> fac
             var draft = await db.GoodsReceiptDrafts.Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == receipt.Id);
             if (draft != null && draft.CompanyId != receipt.CompanyId) return "Receipt draft not found.";
             if (draft == null) { draft = new GoodsReceiptDraft { Id = receipt.Id, CompanyId = receipt.CompanyId }; db.GoodsReceiptDrafts.Add(draft); }
-            else { db.GoodsReceiptDraftLines.RemoveRange(draft.Lines); await db.SaveChangesAsync(); draft.Lines.Clear(); }
+            
             draft.VendorId = vendorId; draft.WarehouseId = warehouseId; draft.GrnNumber = receipt.GrnNumber;
             draft.DateReceived = receipt.DateReceived; draft.ProjectId = receipt.ProjectId; draft.InventoryGlAccountId = receipt.InventoryGlAccountId;
             draft.CustomTransactionTypeId = receipt.CustomTransactionTypeId; draft.OverrideInventoryAssetGlAccountId = receipt.OverrideInventoryAssetGlAccountId;
             draft.OverrideGrIrClearingGlAccountId = receipt.OverrideGrIrClearingGlAccountId;
-            draft.Lines = lines.Select(x => new GoodsReceiptDraftLine { DimensionSetId = x.DimensionSetId,  Id = x.Id == Guid.Empty ? Guid.NewGuid() : x.Id, GoodsReceiptDraftId = draft.Id,
+            var incomingLines = lines.Select(x => new GoodsReceiptDraftLine { DimensionSetId = x.DimensionSetId,  Id = x.Id == Guid.Empty ? Guid.NewGuid() : x.Id, GoodsReceiptDraftId = draft.Id,
                 PurchaseOrderLineId = x.PurchaseOrderLineId!.Value, QuantityReceived = x.QuantityReceived, UomId = x.UomId,
                 UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList();
+            CustomFieldLineIdentity.Sync(db, draft.Lines, incomingLines, nameof(GoodsReceiptDraftLine.GoodsReceiptDraftId), draft.Id);
             db.GoodsReceiptDraftLines.AddRange(draft.Lines);
             await db.SaveChangesAsync(); await tx.CommitAsync(); return string.Empty;
         }
@@ -224,13 +225,14 @@ public sealed class GoodsReceiptDraftService(IDbContextFactory<AppDbContext> fac
             var draft = await db.GoodsReceiptDrafts.Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == receipt.Id);
             if (draft != null && draft.CompanyId != receipt.CompanyId) return "Receipt draft not found.";
             if (draft == null) { draft = new GoodsReceiptDraft { Id = receipt.Id, CompanyId = receipt.CompanyId }; db.GoodsReceiptDrafts.Add(draft); }
-            else { db.GoodsReceiptDraftLines.RemoveRange(draft.Lines); await db.SaveChangesAsync(); draft.Lines.Clear(); }
+            
             draft.VendorId = vendorId; draft.WarehouseId = warehouseId; draft.GrnNumber = receipt.GrnNumber; draft.DateReceived = receipt.DateReceived;
             draft.ProjectId = receipt.ProjectId; draft.InventoryGlAccountId = receipt.InventoryGlAccountId; draft.CustomTransactionTypeId = receipt.CustomTransactionTypeId;
             draft.OverrideInventoryAssetGlAccountId = receipt.OverrideInventoryAssetGlAccountId; draft.OverrideGrIrClearingGlAccountId = receipt.OverrideGrIrClearingGlAccountId;
-            draft.Lines = lines.Select(x => new GoodsReceiptDraftLine { DimensionSetId = x.DimensionSetId,  Id = x.Id == Guid.Empty ? Guid.NewGuid() : x.Id, GoodsReceiptDraftId = draft.Id,
+            var incomingLines = lines.Select(x => new GoodsReceiptDraftLine { DimensionSetId = x.DimensionSetId,  Id = x.Id == Guid.Empty ? Guid.NewGuid() : x.Id, GoodsReceiptDraftId = draft.Id,
                 PurchaseOrderLineId = x.PurchaseOrderLineId, PurchaseInvoiceLineId = x.PurchaseInvoiceLineId, QuantityReceived = x.QuantityReceived,
                 UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList();
+            CustomFieldLineIdentity.Sync(db, draft.Lines, incomingLines, nameof(GoodsReceiptDraftLine.GoodsReceiptDraftId), draft.Id);
             db.GoodsReceiptDraftLines.AddRange(draft.Lines);
             await db.SaveChangesAsync(); await tx.CommitAsync(); return string.Empty;
         }

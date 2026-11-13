@@ -1,3 +1,5 @@
+﻿@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
+@using Primafit_ERP.Components.Shared
 @page "/gl/journal-entry"
 
 @using Primafit_ERP.Components.Models
@@ -182,8 +184,11 @@
                         }
 
                         <!-- Editable Line Entry Form (Only when in Draft or Rejected) -->
+                        <TransactionCustomFields CompanyId="currentCompanyId" Scope="@JournalHeaderScope" OwnerId="selectedBatch.Id" ReadOnly="@(selectedBatch.Status is BatchStatus.Ready or BatchStatus.Posted || selectedBatch.IsLocked)" />
                         @if ((selectedBatch.Status == BatchStatus.Draft || selectedBatch.Status == BatchStatus.Rejected) && !selectedBatch.IsLocked)
                         {
+
+                            @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
                             <EditForm Model="@entryForm" OnValidSubmit="SaveLine" class="p-5 bg-slate-50/50 border-b border-slate-100">
                                 <DataAnnotationsValidator />
                                 <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
@@ -225,6 +230,7 @@
                                         }
                                     </div>
                                 </div>
+                            <fieldset class="transaction-lines-scroll"><legend class="udf-group-title">Custom fields</legend><TransactionCustomFields CompanyId="currentCompanyId" Scope="@JournalLineScope" OwnerId="entryForm.Id" Inline="true" /></fieldset>
                             </EditForm>
                         }
 
@@ -239,7 +245,7 @@
                                         <th class="p-4 text-right w-36">Credit</th>
                                         <th class="p-4">Dimensions</th>
                                         <th class="p-4 w-24 text-center">Action</th>
-                                    </tr>
+                                    <th class="p-3 udf-column">Custom fields</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @if (CurrentLines.Any())
@@ -286,7 +292,7 @@
                                                         <span class="text-xs text-slate-400 font-medium italic">Locked</span>
                                                     }
                                                 </td>
-                                            </tr>
+                                            <td class="p-3 udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="@JournalLineScope" @key="(line.Id, line.CustomFieldsVersion)" OwnerId="line.Id" Inline="true" ReadOnly="true" /></td></tr>
                                         }
                                     }
                                     else
@@ -414,6 +420,20 @@
 </style>
 
 @code {
+    private CustomFieldScope JournalHeaderScope => selectedBatch?.CustomFieldContext ?? CustomFieldScope.JournalHeader;
+    private CustomFieldScope JournalLineScope => (CustomFieldScope)((int)JournalHeaderScope + 1);
+
+    private string customFieldError = "";
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentCompanyId, JournalHeaderScope, JournalLineScope); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The transaction changed while editing. Refresh before saving."; }
+    }
+    private Task SaveLine() => RunCustomFieldSave(SaveLineCore);
+    private Task SubmitForApproval() => RunCustomFieldSave(SubmitForApprovalCore);
+
     private const string InputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all";
 
     private Guid currentCompanyId = Guid.Empty;
@@ -517,7 +537,7 @@
         }
     }
 
-    private async Task SubmitForApproval()
+    private async Task SubmitForApprovalCore()
     {
         if (selectedBatch == null || !IsBalanced) return;
 
@@ -592,7 +612,7 @@
         }
     }
 
-    private async Task SaveLine()
+    private async Task SaveLineCore()
     {
         if (entryForm.SegCoaId == Guid.Empty) { await JS.InvokeVoidAsync("alert", "Please select a GL Account."); return; }
         if (string.IsNullOrWhiteSpace(entryForm.Reference)) { await JS.InvokeVoidAsync("alert", "Reference / Details is required."); return; }

@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
@@ -65,21 +65,21 @@ namespace Primafit_ERP.Services
             sb.AppendLine("<div style='flex: 1; border: 1px solid #e2e8f0; border-radius: 4px;'>");
             sb.AppendLine("<div style='background: #f8fafc; padding: 8px 12px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>EARNINGS</div>");
             sb.AppendLine("<table style='width: 100%; font-size: 14px; border-collapse: collapse;'>");
-            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>Basic Salary & Allowances</td><td style='padding: 8px 12px; text-align: right;'>{item.GrossPay:N2}</td></tr>");
+            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>Basic Salary & Allowances</td><td style='padding: 8px 12px; text-align: right;'>{item.GrossPay:N4}</td></tr>");
             foreach (var earn in item.CustomEarnings)
-                sb.AppendLine($"<tr><td style='padding: 8px 12px;'>{earn.Description}</td><td style='padding: 8px 12px; text-align: right;'>{earn.Amount:N2}</td></tr>");
-            sb.AppendLine($"<tr style='font-weight: bold; border-top: 1px solid #e2e8f0;'><td style='padding: 8px 12px;'>Total Gross</td><td style='padding: 8px 12px; text-align: right;'>{(item.GrossPay + item.OtherEarnings):N2}</td></tr>");
+                sb.AppendLine($"<tr><td style='padding: 8px 12px;'>{earn.Description}</td><td style='padding: 8px 12px; text-align: right;'>{earn.Amount:N4}</td></tr>");
+            sb.AppendLine($"<tr style='font-weight: bold; border-top: 1px solid #e2e8f0;'><td style='padding: 8px 12px;'>Total Gross</td><td style='padding: 8px 12px; text-align: right;'>{(item.GrossPay + item.OtherEarnings):N4}</td></tr>");
             sb.AppendLine("</table></div>");
 
             // Deductions Column
             sb.AppendLine("<div style='flex: 1; border: 1px solid #e2e8f0; border-radius: 4px;'>");
             sb.AppendLine("<div style='background: #f8fafc; padding: 8px 12px; font-weight: bold; border-bottom: 1px solid #e2e8f0;'>DEDUCTIONS</div>");
             sb.AppendLine("<table style='width: 100%; font-size: 14px; border-collapse: collapse;'>");
-            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>PAYE Tax</td><td style='padding: 8px 12px; text-align: right;'>{item.PAYETax:N2}</td></tr>");
-            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>Pension (Employee)</td><td style='padding: 8px 12px; text-align: right;'>{item.EmployeePension:N2}</td></tr>");
+            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>PAYE Tax</td><td style='padding: 8px 12px; text-align: right;'>{item.PAYETax:N4}</td></tr>");
+            sb.AppendLine($"<tr><td style='padding: 8px 12px;'>Pension (Employee)</td><td style='padding: 8px 12px; text-align: right;'>{item.EmployeePension:N4}</td></tr>");
             foreach (var ded in item.CustomDeductions)
-                sb.AppendLine($"<tr><td style='padding: 8px 12px;'>{ded.Description}</td><td style='padding: 8px 12px; text-align: right;'>{ded.Amount:N2}</td></tr>");
-            sb.AppendLine($"<tr style='font-weight: bold; border-top: 1px solid #e2e8f0; color: #e11d48;'><td style='padding: 8px 12px;'>Total Deductions</td><td style='padding: 8px 12px; text-align: right;'>{(item.PAYETax + item.EmployeePension + item.OtherDeductions):N2}</td></tr>");
+                sb.AppendLine($"<tr><td style='padding: 8px 12px;'>{ded.Description}</td><td style='padding: 8px 12px; text-align: right;'>{ded.Amount:N4}</td></tr>");
+            sb.AppendLine($"<tr style='font-weight: bold; border-top: 1px solid #e2e8f0; color: #e11d48;'><td style='padding: 8px 12px;'>Total Deductions</td><td style='padding: 8px 12px; text-align: right;'>{(item.PAYETax + item.EmployeePension + item.OtherDeductions):N4}</td></tr>");
             sb.AppendLine("</table></div>");
 
             sb.AppendLine("</div>");
@@ -87,7 +87,7 @@ namespace Primafit_ERP.Services
             // Net Pay
             sb.AppendLine($"<div style='margin-top: 20px; background: #0f172a; color: white; padding: 15px 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;'>");
             sb.AppendLine("<span style='font-size: 16px; font-weight: bold; text-transform: uppercase;'>Net Net Payable</span>");
-            sb.AppendLine($"<span style='font-size: 24px; font-weight: bold; font-family: monospace;'>{item.NetPay:N2}</span>");
+            sb.AppendLine($"<span style='font-size: 24px; font-weight: bold; font-family: monospace;'>{item.NetPay:N4}</span>");
             sb.AppendLine("</div>");
 
             sb.AppendLine("</div>");
@@ -144,23 +144,23 @@ namespace Primafit_ERP.Services
                             row.RelativeItem().PaddingRight(10).Column(col =>
                             {
                                 col.Item().Background(Colors.Grey.Lighten4).Padding(5).Text("EARNINGS").SemiBold();
-                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("Basic & Allowances"); r.RelativeItem().AlignRight().Text(item.GrossPay.ToString("N2")); });
+                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("Basic & Allowances"); r.RelativeItem().AlignRight().Text(item.GrossPay.ToString("N4")); });
                                 foreach (var earn in item.CustomEarnings)
-                                    col.Item().Padding(5).Row(r => { r.RelativeItem().Text(earn.Description); r.RelativeItem().AlignRight().Text(earn.Amount.ToString("N2")); });
+                                    col.Item().Padding(5).Row(r => { r.RelativeItem().Text(earn.Description); r.RelativeItem().AlignRight().Text(earn.Amount.ToString("N4")); });
 
-                                col.Item().PaddingTop(5).BorderTop(1).BorderColor(Colors.Grey.Lighten2).Padding(5).Row(r => { r.RelativeItem().Text("Total Gross").SemiBold(); r.RelativeItem().AlignRight().Text((item.GrossPay + item.OtherEarnings).ToString("N2")).SemiBold(); });
+                                col.Item().PaddingTop(5).BorderTop(1).BorderColor(Colors.Grey.Lighten2).Padding(5).Row(r => { r.RelativeItem().Text("Total Gross").SemiBold(); r.RelativeItem().AlignRight().Text((item.GrossPay + item.OtherEarnings).ToString("N4")).SemiBold(); });
                             });
 
                             // Deductions
                             row.RelativeItem().PaddingLeft(10).Column(col =>
                             {
                                 col.Item().Background(Colors.Grey.Lighten4).Padding(5).Text("DEDUCTIONS").SemiBold();
-                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("PAYE Tax"); r.RelativeItem().AlignRight().Text(item.PAYETax.ToString("N2")); });
-                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("Pension (Employee)"); r.RelativeItem().AlignRight().Text(item.EmployeePension.ToString("N2")); });
+                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("PAYE Tax"); r.RelativeItem().AlignRight().Text(item.PAYETax.ToString("N4")); });
+                                col.Item().Padding(5).Row(r => { r.RelativeItem().Text("Pension (Employee)"); r.RelativeItem().AlignRight().Text(item.EmployeePension.ToString("N4")); });
                                 foreach (var ded in item.CustomDeductions)
-                                    col.Item().Padding(5).Row(r => { r.RelativeItem().Text(ded.Description); r.RelativeItem().AlignRight().Text(ded.Amount.ToString("N2")); });
+                                    col.Item().Padding(5).Row(r => { r.RelativeItem().Text(ded.Description); r.RelativeItem().AlignRight().Text(ded.Amount.ToString("N4")); });
 
-                                col.Item().PaddingTop(5).BorderTop(1).BorderColor(Colors.Grey.Lighten2).Padding(5).Row(r => { r.RelativeItem().Text("Total Deductions").SemiBold().FontColor(Colors.Red.Medium); r.RelativeItem().AlignRight().Text((item.PAYETax + item.EmployeePension + item.OtherDeductions).ToString("N2")).SemiBold().FontColor(Colors.Red.Medium); });
+                                col.Item().PaddingTop(5).BorderTop(1).BorderColor(Colors.Grey.Lighten2).Padding(5).Row(r => { r.RelativeItem().Text("Total Deductions").SemiBold().FontColor(Colors.Red.Medium); r.RelativeItem().AlignRight().Text((item.PAYETax + item.EmployeePension + item.OtherDeductions).ToString("N4")).SemiBold().FontColor(Colors.Red.Medium); });
                             });
                         });
 
@@ -168,7 +168,7 @@ namespace Primafit_ERP.Services
                         column.Item().PaddingTop(30).Background(Colors.BlueGrey.Darken4).Padding(15).Row(row =>
                         {
                             row.RelativeItem().Text("NET PAYABLE").FontSize(14).SemiBold().FontColor(Colors.White);
-                            row.RelativeItem().AlignRight().Text(item.NetPay.ToString("N2")).FontSize(18).SemiBold().FontColor(Colors.White);
+                            row.RelativeItem().AlignRight().Text(item.NetPay.ToString("N4")).FontSize(18).SemiBold().FontColor(Colors.White);
                         });
                     });
 
@@ -219,7 +219,7 @@ namespace Primafit_ERP.Services
                 ws.Cell(row, 4).Value = item.Employee.BankName;
                 ws.Cell(row, 5).Value = $"'{item.Employee.AccountNumber}"; // Prefix with ' to force string, preserving leading zeros
                 ws.Cell(row, 6).Value = item.NetPay;
-                ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+                ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.0000";
                 row++;
             }
 

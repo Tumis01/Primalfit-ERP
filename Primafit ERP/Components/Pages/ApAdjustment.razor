@@ -1,3 +1,5 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject CustomFieldWriteSession CustomFieldWrites
 @page "/finance/ap-adjustments"
 
 @using Primafit_ERP.Components.Models
@@ -110,13 +112,15 @@
     <!-- Rows Grid Container -->
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-visible flex flex-col">
         <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm whitespace-nowrap min-w-[850px]">
+            <TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.VendorAdjustmentHeader" OwnerId="customFieldId" />
+@if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error">@customFieldError</div> }
+<table class="w-full text-left text-sm whitespace-nowrap min-w-[850px]">
                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
                     <tr>
                         <th class="p-4 w-[45%] pl-6">Vendor Profile Reference Identity</th>
                         <th class="p-4 text-right w-[22%]">Debit Amount (Dr - Decrease/Prepay)</th>
                         <th class="p-4 text-right w-[22%]">Credit Amount (Cr - Increase Balance)</th>
-                        <th class="p-4">Dimensions</th>
+                        <th class="p-4">Dimensions</th><th class="p-3 udf-column">Custom fields</th>
                         <th class="p-4 text-center w-[11%] pr-6">Action</th>
                     </tr>
                 </thead>
@@ -156,7 +160,7 @@
                                 </div>
                             </td>
 
-                            <td class="p-3"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td>
+                            <td class="p-3"><DimensionSelect CompanyId="@currentCompanyId" @bind-Value="line.DimensionSetId" /></td><td class="p-3 udf-column"><TransactionCustomFields CompanyId="currentCompanyId" Scope="CustomFieldScope.VendorAdjustmentLine" OwnerId="line.Id" Inline="true" /></td>
                             <td class="p-3 text-center pr-6">
                                 <button type="button" @onclick="() => RemoveLine(line)" class="text-slate-400 hover:text-rose-600 transition-colors" title="Delete Row Item">
                                     <svg class="w-5 h-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -343,6 +347,16 @@
 </style>
 
 @code {
+
+    private Guid customFieldId = Guid.NewGuid();
+    private string customFieldError = "";
+    private async Task PostAdjustments()
+    {
+        try { using var edit = CustomFieldWrites.BeginRegistered(currentCompanyId, CustomFieldScope.VendorAdjustmentHeader, CustomFieldScope.VendorAdjustmentLine); await PostAdjustmentsCore(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (DbUpdateConcurrencyException) { customFieldError = "The adjustment changed. Refresh before saving."; }
+    }
+
     private Guid currentCompanyId;
     private string currentUserId = "";
     private bool isBusy = false;
@@ -538,7 +552,7 @@
         lines.Add(new VendorAdjustmentUiRowDto());
     }
 
-    private async Task PostAdjustments()
+    private async Task PostAdjustmentsCore()
     {
         var targetRows = new List<OpeningBalanceLineDto>();
 
@@ -549,6 +563,7 @@
 
             targetRows.Add(new OpeningBalanceLineDto
             {
+                Id = uiLine.Id,
                 EntityId = uiLine.EntityId,
                 EntityName = vendors.FirstOrDefault(v => v.Id == uiLine.EntityId)?.Name ?? "Unknown Vendor",
                 BalanceAmount = evaluatedAmount,
@@ -579,7 +594,7 @@
             if (string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", "Vendor transactions adjustment batch successfully submitted and balanced on the GL!");
-                ClearLines();
+                ClearLines(); customFieldId = Guid.NewGuid();
             }
             else
             {

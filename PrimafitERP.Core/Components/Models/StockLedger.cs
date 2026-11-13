@@ -22,6 +22,12 @@ namespace Primafit_ERP.Components.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal CostAtTime { get; set; } // Snapshot of WACC at this moment
 
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal? ValueChanged { get; set; }
+
+        // Once accepted, reopening the containing GL batch must not unpost this movement.
+        public DateTime? CommittedAt { get; set; }
+
         public string Reference { get; set; } = string.Empty; // e.g., "INV-1001" or "PO-55"
         public Guid? GLBatchId { get; set; }
     }

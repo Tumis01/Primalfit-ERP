@@ -1,3 +1,6 @@
+﻿@using Primafit_ERP.Components.Shared
+@inject CustomFieldWriteSession CustomFieldWrites
+@inject Microsoft.EntityFrameworkCore.IDbContextFactory<PrimafitERP.Data.AppDbContext> CustomFieldDbFactory
 @page "/gl/bank-reconciliation"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -217,6 +220,9 @@
             </PermissionGate>
         </div>
 
+        <TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.BankReconciliationHeader" OwnerId="vm.Reconciliation.Id" ReadOnly="@(vm.Reconciliation.Status == ReconStatus.Finalized)" />
+        @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error">@customFieldError</div> }
+        @if (vm.Reconciliation.Status == ReconStatus.Draft) { <PermissionGate Key="CUSTOM_FIELDS_EDIT"><button type="button" class="udf-button" @onclick="SaveAdditionalFields">Save additional information</button></PermissionGate> }
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
 
             @if (vm.Reconciliation.Type == ReconType.Automatic)
@@ -233,7 +239,7 @@
                                     <th class="px-4 py-3">Date</th>
                                     <th class="px-4 py-3">Details</th>
                                     <th class="px-4 py-3 text-right">Amount</th>
-                                </tr>
+                                <th class="p-3 udf-column">Custom fields</th></tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 @foreach (var line in vm.Reconciliation.StatementLines)
@@ -249,7 +255,7 @@
                                             }
                                         </td>
                                         <td class="px-4 py-2 text-right font-mono font-bold text-slate-900">@line.Amount.ToString("N4")</td>
-                                    </tr>
+                                    <td class="p-3 udf-column" @onclick:stopPropagation="true"><TransactionCustomFields CompanyId="selectedCompanyId" Scope="CustomFieldScope.BankReconciliationLine" OwnerId="line.Id" ReadOnly="@(vm.Reconciliation.Status == ReconStatus.Finalized)" Inline="true" /></td></tr>
                                 }
                             </tbody>
                         </table>
@@ -362,6 +368,22 @@
 </style>
 
 @code {
+    private string customFieldError = "";
+    private async Task SaveAdditionalFields() => await WithCustomFields(async () => {
+        await using var db = await CustomFieldDbFactory.CreateDbContextAsync();
+        var reconciliation = await db.BankReconciliations.FindAsync(reconId);
+        if (reconciliation == null || reconciliation.CompanyId != selectedCompanyId) throw new ArgumentException("The reconciliation was not found.");
+        reconciliation.CustomFieldsVersion = Guid.NewGuid(); await db.SaveChangesAsync();
+    });
+    private Task Finalize() => WithCustomFields(FinalizeCore);
+    private async Task WithCustomFields(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var edit = CustomFieldWrites.BeginRegistered(selectedCompanyId, CustomFieldScope.BankReconciliationHeader, CustomFieldScope.BankReconciliationLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The reconciliation changed. Refresh before saving."; }
+    }
+
     // Context & State
     private Guid selectedCompanyId = Guid.Empty;
     private string companyName = "";
@@ -547,7 +569,7 @@
         await Refresh();
     }
 
-    private async Task Finalize()
+    private async Task FinalizeCore()
     {
         if (Difference != 0)
         {

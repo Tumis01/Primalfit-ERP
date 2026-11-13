@@ -1,4 +1,4 @@
-﻿using ClosedXML.Excel;
+using ClosedXML.Excel;
 using iText.IO.Font.Constants;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
@@ -22,10 +22,12 @@ namespace Primafit_ERP.Services
         // ==========================================
         public byte[] GeneratePdf(StandardReportData data)
         {
+            data = ReportNumbers.ForExport(data);
             using var stream = new MemoryStream();
             using var writer = new PdfWriter(stream);
             using var pdf = new PdfDocument(writer);
-            if (data.Headers.Count > 6) pdf.SetDefaultPageSize(iText.Kernel.Geom.PageSize.A4.Rotate());
+            if (data.Headers.Count >= 10) pdf.SetDefaultPageSize(iText.Kernel.Geom.PageSize.A3.Rotate());
+            else if (data.Headers.Count > 6) pdf.SetDefaultPageSize(iText.Kernel.Geom.PageSize.A4.Rotate());
             using var document = new Document(pdf);
 
             var fontBold = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
@@ -66,32 +68,10 @@ namespace Primafit_ERP.Services
 
                 for (int i = 0; i < data.Headers.Count; i++)
                 {
-                    string headerUpper = data.Headers[i].ToUpper();
-
-                    // Right-align numbers and give them a standard width
-                    if (headerUpper.Contains("AMOUNT") || headerUpper.Contains("BALANCE") ||
-                        headerUpper.Contains("VALUE") || headerUpper.Contains("DEBIT") ||
-                        headerUpper.Contains("CREDIT") || headerUpper.Contains("TOTAL") ||
-                        headerUpper.Contains("QTY") || headerUpper.Contains("QUANTITY") ||
-                        headerUpper.Contains("PRICE") || headerUpper.Contains("COST"))
-                    {
-                        isNumericColumn[i] = true;
-                        columnWidths[i] = 2.5f;
-                    }
-                    // Left-align descriptions and make them wider
-                    else if (headerUpper.Contains("NAME") || headerUpper.Contains("DESCRIPTION") ||
-                             headerUpper.Contains("NARRATION") || headerUpper.Contains("ITEM") ||
-                             headerUpper.Contains("ACCOUNT"))
-                    {
-                        isNumericColumn[i] = false;
-                        columnWidths[i] = (headerUpper.Contains("CODE")) ? 2f : 5f; // Code needs less space than Name
-                    }
-                    // Default fallback
-                    else
-                    {
-                        isNumericColumn[i] = false;
-                        columnWidths[i] = 2f;
-                    }
+                    var header = data.Headers[i];
+                    var numeric = ReportNumbers.Column(data, i).Kind != ReportColumnKind.Text;
+                    isNumericColumn[i] = numeric;
+                    columnWidths[i] = numeric ? 3f : new[] { "Item", "Name", "Description", "Narration", "Account" }.Any(x => header.Contains(x, StringComparison.OrdinalIgnoreCase)) ? 5f : 3f;
                 }
 
                 // Apply the dynamic widths
@@ -105,7 +85,7 @@ namespace Primafit_ERP.Services
                         .SetBorder(Border.NO_BORDER)
                         .SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f))
                         .SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1f))
-                        .SetPaddingTop(4f)
+                        .SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(4f)
                         .SetPaddingBottom(4f)
                         .SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
 
@@ -137,7 +117,7 @@ namespace Primafit_ERP.Services
 
                             Cell cell = new Cell().Add(p)
                                 .SetBorder(Border.NO_BORDER)
-                                .SetPaddingTop(3f)
+                                .SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(3f)
                                 .SetPaddingBottom(3f);
 
                             if (isSummary)
@@ -187,6 +167,7 @@ namespace Primafit_ERP.Services
         // ==========================================
         public byte[] GenerateExcel(StandardReportData data)
         {
+            data = ReportNumbers.ForExport(data);
             using var workbook = new XLWorkbook();
             var worksheet = workbook.Worksheets.Add("Report Output");
 
@@ -220,7 +201,7 @@ namespace Primafit_ERP.Services
                                          h.Contains("VALUE") || h.Contains("DEBIT") ||
                                          h.Contains("CREDIT") || h.Contains("TOTAL") ||
                                          h.Contains("QTY") || h.Contains("QUANTITY") ||
-                                         h.Contains("PRICE") || h.Contains("COST");
+                                         h.Contains("PRICE") || h.Contains("COST") || ReportNumbers.Column(data, i).Kind != ReportColumnKind.Text;
 
                     var cell = worksheet.Cell(currentRow, i + 1);
                     cell.Value = data.Headers[i];
@@ -257,10 +238,18 @@ namespace Primafit_ERP.Services
                             string cellText = c < row.Count ? (row[c] ?? "") : "";
 
                             // Logic to correctly process numbers vs text
-                            if (isNumericColumn[c] && decimal.TryParse(cellText.Replace(",", ""), out decimal numericValue))
+                            if (ReportNumbers.Column(data, c).Kind == ReportColumnKind.Date && DateTime.TryParseExact(cellText, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dateValue))
+                            {
+                                cell.Value = dateValue;
+                                cell.Style.NumberFormat.Format = "yyyy-mm-dd";
+                            }
+                            else if (ReportNumbers.Column(data, c).Kind == ReportColumnKind.Boolean && (cellText == "Yes" || cellText == "No")) cell.Value = cellText == "Yes";
+                            else if (ReportNumbers.Column(data, c).Kind is ReportColumnKind.Number or ReportColumnKind.Integer or ReportColumnKind.Percentage && ReportNumbers.TryParse(cellText, out decimal numericValue))
                             {
                                 cell.Value = numericValue;
-                                cell.Style.NumberFormat.Format = "#,##0.00"; // Enforce standard accounting decimal layout
+                                var column = ReportNumbers.Column(data, c);
+                                if (column.Kind == ReportColumnKind.Percentage) cell.Value = numericValue / 100m;
+                                cell.Style.NumberFormat.Format = column.Kind == ReportColumnKind.Integer ? "#,##0" : column.Kind == ReportColumnKind.Percentage ? "0.00%" : ("#,##0" + (column.DecimalPlaces > 0 ? "." + new string('0', column.DecimalPlaces) : "")); // Preserve configured precision
                             }
                             else
                             {
@@ -763,7 +752,7 @@ namespace Primafit_ERP.Services
                         .SetBorder(Border.NO_BORDER)
                         .SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f))
                         .SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1f))
-                        .SetPaddingTop(4f)
+                        .SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(4f)
                         .SetPaddingBottom(4f)
                         .SetTextAlignment(isNumericColumn[i] ? TextAlignment.RIGHT : TextAlignment.LEFT);
 
@@ -807,10 +796,10 @@ namespace Primafit_ERP.Services
                             string grandQty = row.Count > 3 ? row[3] : "0.00";
                             string grandAmount = row.Count > 5 ? row[5] : "0.00";
 
-                            table.AddCell(new Cell(1, 3).Add(new Paragraph(totalLabel).SetFont(fontBold).SetFontSize(10)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
-                            table.AddCell(new Cell().Add(new Paragraph(grandQty).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
+                            table.AddCell(new Cell(1, 3).Add(new Paragraph(totalLabel).SetFont(fontBold).SetFontSize(10)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(4f));
+                            table.AddCell(new Cell().Add(new Paragraph(grandQty).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(4f));
                             table.AddCell(new Cell().SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)));
-                            table.AddCell(new Cell().Add(new Paragraph(grandAmount).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingTop(4f));
+                            table.AddCell(new Cell().Add(new Paragraph(grandAmount).SetFont(fontBold).SetFontSize(10).SetTextAlignment(TextAlignment.RIGHT)).SetBorder(Border.NO_BORDER).SetBorderTop(new SolidBorder(ColorConstants.BLACK, 1f)).SetBorderBottom(new SolidBorder(ColorConstants.BLACK, 1.5f)).SetPaddingLeft(4f).SetPaddingRight(4f).SetPaddingTop(4f));
                             continue;
                         }
 
@@ -924,14 +913,14 @@ namespace Primafit_ERP.Services
                                 var cQ = worksheet.Cell(currentRow, 4);
                                 cQ.Value = qGroup;
                                 cQ.Style.Font.Bold = true;
-                                cQ.Style.NumberFormat.Format = "#,##0.00";
+                                cQ.Style.NumberFormat.Format = "#,##0.0000";
                             }
                             if (decimal.TryParse(row[5].Replace(",", ""), out decimal aGroup))
                             {
                                 var cA = worksheet.Cell(currentRow, 6);
                                 cA.Value = aGroup;
                                 cA.Style.Font.Bold = true;
-                                cA.Style.NumberFormat.Format = "#,##0.00";
+                                cA.Style.NumberFormat.Format = "#,##0.0000";
                             }
 
                             var rowRange = worksheet.Range(currentRow, 1, currentRow, data.Headers.Count);
@@ -956,14 +945,14 @@ namespace Primafit_ERP.Services
                                 var cQ = worksheet.Cell(currentRow, 4);
                                 cQ.Value = qGrand;
                                 cQ.Style.Font.Bold = true;
-                                cQ.Style.NumberFormat.Format = "#,##0.00";
+                                cQ.Style.NumberFormat.Format = "#,##0.0000";
                             }
                             if (decimal.TryParse(row[5].Replace(",", ""), out decimal aGrand))
                             {
                                 var cA = worksheet.Cell(currentRow, 6);
                                 cA.Value = aGrand;
                                 cA.Style.Font.Bold = true;
-                                cA.Style.NumberFormat.Format = "#,##0.00";
+                                cA.Style.NumberFormat.Format = "#,##0.0000";
                             }
 
                             var totalRange = worksheet.Range(currentRow, 1, currentRow, data.Headers.Count);
@@ -980,10 +969,18 @@ namespace Primafit_ERP.Services
                             var cell = worksheet.Cell(currentRow, c + 1);
                             string cellText = row[c] ?? "";
 
-                            if (isNumericColumn[c] && decimal.TryParse(cellText.Replace(",", ""), out decimal numericValue))
+                            if (ReportNumbers.Column(data, c).Kind == ReportColumnKind.Date && DateTime.TryParseExact(cellText, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dateValue))
+                            {
+                                cell.Value = dateValue;
+                                cell.Style.NumberFormat.Format = "yyyy-mm-dd";
+                            }
+                            else if (ReportNumbers.Column(data, c).Kind == ReportColumnKind.Boolean && (cellText == "Yes" || cellText == "No")) cell.Value = cellText == "Yes";
+                            else if (ReportNumbers.Column(data, c).Kind is ReportColumnKind.Number or ReportColumnKind.Integer or ReportColumnKind.Percentage && ReportNumbers.TryParse(cellText, out decimal numericValue))
                             {
                                 cell.Value = numericValue;
-                                cell.Style.NumberFormat.Format = "#,##0.00";
+                                var column = ReportNumbers.Column(data, c);
+                                if (column.Kind == ReportColumnKind.Percentage) cell.Value = numericValue / 100m;
+                                cell.Style.NumberFormat.Format = column.Kind == ReportColumnKind.Integer ? "#,##0" : column.Kind == ReportColumnKind.Percentage ? "0.00%" : "#,##0.0000";
                             }
                             else
                             {

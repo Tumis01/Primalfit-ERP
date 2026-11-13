@@ -8,11 +8,13 @@ namespace Primafit_ERP.Services
     {
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private readonly IDocumentNumberingService _numberingService;
+        private readonly CustomFieldService? _customFields;
 
-        public MasterDataService(IDbContextFactory<AppDbContext> dbFactory, IDocumentNumberingService numberingService)
+        public MasterDataService(IDbContextFactory<AppDbContext> dbFactory, IDocumentNumberingService numberingService, CustomFieldService? customFields = null)
         {
             _dbFactory = dbFactory;
             _numberingService = numberingService;
+            _customFields = customFields;
         }
 
         // --- CUSTOMERS ---
@@ -27,9 +29,10 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        public async Task<string> SaveCustomerAsync(Customer customer)
+        public async Task<string> SaveCustomerAsync(Customer customer, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.Customers.AnyAsync(x => x.Id == customer.Id && x.CompanyId != customer.CompanyId)) return "Customer not found in this company.";
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
             if (customer.CustomerGroupId == Guid.Empty) return "Customer Group is required.";
             if (string.IsNullOrWhiteSpace(customer.Name)) return "Customer Name is required.";
@@ -57,7 +60,12 @@ namespace Primafit_ERP.Services
             {
                 ctx.Customers.Update(customer);
             }
-            await ctx.SaveChangesAsync();
+            await using var transaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var fieldError = _customFields == null ? await CustomFieldService.UnavailableAsync(ctx, customer.CompanyId, CustomFieldScope.Customer)
+                : await _customFields.ApplyAsync(ctx, customer.CompanyId, CustomFieldScope.Customer, customer.Id, customer, customFields, true);
+            if (fieldError.Length > 0) return fieldError;
+            try { await ctx.SaveChangesAsync(); await transaction.CommitAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This customer changed while editing. Refresh and try again."; }
             return string.Empty;
         }
 
@@ -81,9 +89,10 @@ namespace Primafit_ERP.Services
                 .ToListAsync();
         }
 
-        public async Task<string> SaveVendorAsync(Vendor vendor)
+        public async Task<string> SaveVendorAsync(Vendor vendor, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            if (await ctx.Vendors.AnyAsync(x => x.Id == vendor.Id && x.CompanyId != vendor.CompanyId)) return "Vendor not found in this company.";
             if (vendor.CurrencyId == Guid.Empty) return "Default Currency is required.";
             if (vendor.VendorGroupId == Guid.Empty) return "Vendor Group is required.";
             if (string.IsNullOrWhiteSpace(vendor.Name)) return "Vendor Name is required.";
@@ -108,7 +117,12 @@ namespace Primafit_ERP.Services
             {
                 ctx.Vendors.Update(vendor);
             }
-            await ctx.SaveChangesAsync();
+            await using var transaction = await ctx.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            var fieldError = _customFields == null ? await CustomFieldService.UnavailableAsync(ctx, vendor.CompanyId, CustomFieldScope.Vendor)
+                : await _customFields.ApplyAsync(ctx, vendor.CompanyId, CustomFieldScope.Vendor, vendor.Id, vendor, customFields, true);
+            if (fieldError.Length > 0) return fieldError;
+            try { await ctx.SaveChangesAsync(); await transaction.CommitAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This vendor changed while editing. Refresh and try again."; }
             return string.Empty;
         }
 
@@ -129,10 +143,10 @@ namespace Primafit_ERP.Services
         public Task<string> SaveItemWithUomConversionAsync(Item item, ItemUomConversionLine conversionLine)
             => SaveItemCoreAsync(item, conversionLine);
 
-        public Task<string> SaveItemWithUomConversionsAsync(Item item, IReadOnlyCollection<ItemUomConversionLine> conversions)
-            => SaveItemCoreAsync(item, null, conversions);
+        public Task<string> SaveItemWithUomConversionsAsync(Item item, IReadOnlyCollection<ItemUomConversionLine> conversions, CustomFieldFormState? customFields = null)
+            => SaveItemCoreAsync(item, null, conversions, customFields);
 
-        private async Task<string> SaveItemCoreAsync(Item item, ItemUomConversionLine? conversionLine, IReadOnlyCollection<ItemUomConversionLine>? conversions = null)
+        private async Task<string> SaveItemCoreAsync(Item item, ItemUomConversionLine? conversionLine, IReadOnlyCollection<ItemUomConversionLine>? conversions = null, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -325,8 +339,12 @@ namespace Primafit_ERP.Services
                 }
             }
 
-            await ctx.SaveChangesAsync();
-            await transaction.CommitAsync();
+            var trackedItem = ctx.ChangeTracker.Entries<Item>().Single(x => x.Entity.Id == item.Id).Entity;
+            var fieldError = _customFields == null ? await CustomFieldService.UnavailableAsync(ctx, item.CompanyId, CustomFieldScope.Item)
+                : await _customFields.ApplyAsync(ctx, item.CompanyId, CustomFieldScope.Item, item.Id, trackedItem, customFields, true);
+            if (fieldError.Length > 0) return fieldError;
+            try { await ctx.SaveChangesAsync(); await transaction.CommitAsync(); }
+            catch (DbUpdateConcurrencyException) { return "This item changed while editing. Refresh and try again."; }
             return string.Empty;
         }
 

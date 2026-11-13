@@ -101,6 +101,7 @@
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+            CustomFieldMapping.Configure(builder);
 
             foreach (var property in builder.Model.GetEntityTypes()
                 .SelectMany(t => t.GetProperties())
@@ -259,14 +260,18 @@
 
         public override int SaveChanges(bool acceptAllChangesOnSuccess)
         {
+            CustomFieldPersistence.ValidateAsync(this).GetAwaiter().GetResult();
+            StockValueSnapshots.Capture(this);
             BlockSegAccountTypeChanges();
             return base.SaveChanges(acceptAllChangesOnSuccess);
         }
 
-        public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+        public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
         {
+            await CustomFieldPersistence.ValidateAsync(this, cancellationToken);
+            StockValueSnapshots.Capture(this);
             BlockSegAccountTypeChanges();
-            return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
         }
 
         private void BlockSegAccountTypeChanges()

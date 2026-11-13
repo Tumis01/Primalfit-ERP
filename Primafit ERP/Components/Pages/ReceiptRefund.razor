@@ -1,3 +1,4 @@
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/sales/receipt-refunds/entry/{Id:guid?}"
 
 @using Primafit_ERP.Components.Models
@@ -296,9 +297,11 @@
 
                         <div class="overflow-x-auto">
                             @if (currentRefund.RefundType == ReceiptRefundType.PaymentOnly) { <div class="mb-4 rounded-xl border p-4"><h3 class="mb-2 text-sm font-bold">Refund dimensions</h3><p class="mb-2 text-xs text-slate-500">Leave blank to inherit the invoice line dimensions.</p><DimensionSelect CompanyId="@currentRefund.CompanyId" @bind-Value="currentRefund.DimensionSetId" Disabled="@(currentRefund.Status != ReceiptRefundStatus.Draft)" /></div> }
-<div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm min-w-[900px]">
+<TransactionCustomFields CompanyId="currentRefund.CompanyId" Scope="CustomFieldScope.ReceiptRefundHeader" OwnerId="@(currentRefund.Id)" ReadOnly="@(IsPosted)" />
+                @if (!string.IsNullOrEmpty(customFieldError)) { <div class="udf-error" role="alert">@customFieldError</div> }
+                <div class="transaction-lines-scroll" role="region" aria-label="Transaction line items" tabindex="0"><table class="transaction-lines w-full text-left text-sm min-w-[900px]">
                                 <thead class="bg-slate-50 text-[10px] uppercase font-extrabold text-slate-500 border-b border-slate-200 tracking-wider">
-                                    <tr>
+                                    <tr class="udf-column-groups"><th colspan="7">Transaction details</th><th class="udf-dimension-column">Dimensions</th><th class="udf-column">Custom fields</th></tr><tr>
                                         <th class="p-4 pl-6 w-[28%]">Item Name</th>
                                         <th class="p-4 text-center w-64 min-w-[16rem]">UOM</th>
                                         <th class="p-4 text-center">Unit Price</th>
@@ -306,7 +309,7 @@
                                         <th class="p-4 text-center bg-rose-50/40 text-rose-700">Max Returnable</th>
                                         <th class="p-4 text-center w-32">Return Qty</th>
                                         <th class="p-4 text-right pr-6">Return Value</th>
-                                    <th class="p-3">Dimensions</th></tr>
+                                    <th data-udf-dim="true" class="p-3">Dimensions</th><th class="p-3 udf-column">Custom fields</th></tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
                                     @foreach (var line in currentRefund.Lines)
@@ -349,7 +352,7 @@
                                             <td class="p-4 pr-6 text-right font-mono font-black text-slate-700">
                                                 @((line.Quantity * line.UnitPrice).ToString("N4"))
                                             </td>
-                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentRefund.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentRefund.Status != ReceiptRefundStatus.Draft)" /></td></tr>
+                                        <td class="p-3 align-top"><DimensionSelect CompanyId="@currentRefund.CompanyId" @bind-Value="line.DimensionSetId" Disabled="@(currentRefund.Status != ReceiptRefundStatus.Draft)" /></td><td class="p-3 align-top udf-column"><TransactionCustomFields CompanyId="currentRefund.CompanyId" Scope="CustomFieldScope.ReceiptRefundLine" OwnerId="line.Id" ReadOnly="@(IsPosted)" Inline="true" /></td></tr>
                                     }
                                 </tbody>
                             </table></div>
@@ -633,6 +636,18 @@
 </style>
 
 @code {
+    private string customFieldError = "";
+    private Guid newCustomFieldId = Guid.NewGuid();
+    private async Task RunCustomFieldSave(Func<Task> operation)
+    {
+        customFieldError = "";
+        try { using var write = CustomFieldWrites.BeginRegistered(currentRefund.CompanyId, CustomFieldScope.ReceiptRefundHeader, CustomFieldScope.ReceiptRefundLine); await operation(); }
+        catch (ArgumentException ex) { customFieldError = ex.Message; }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException) { customFieldError = "The document changed while editing. Refresh before saving."; }
+    }
+    private Task SaveDraft() => RunCustomFieldSave(() => SaveDraftCore());
+    private Task PostRefund() => RunCustomFieldSave(() => PostRefundCore());
+
     [Parameter] public Guid? Id { get; set; }
 
     private Primafit_ERP.Components.Models.ReceiptRefund currentRefund = new();
@@ -1024,14 +1039,14 @@
         line.UomConversionFactor = GetItemFactor(line.Item, selectedId);
     }
 
-    private async Task SaveDraft()
+    private async Task SaveDraftCore()
     {
         var err = await RefundService.SaveDraftAsync(currentRefund);
         if (string.IsNullOrEmpty(err)) await JS.InvokeVoidAsync("alert", "Voucher configurations saved as draft.");
         else await JS.InvokeVoidAsync("alert", err);
     }
 
-    private async Task PostRefund()
+    private async Task PostRefundCore()
     {
         if (currentRefund.RefundType == ReceiptRefundType.QuantityOnly || currentRefund.RefundType == ReceiptRefundType.Both)
         {

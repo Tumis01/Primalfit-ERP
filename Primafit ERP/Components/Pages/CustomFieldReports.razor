@@ -1,0 +1,84 @@
+﻿@page "/reports/custom-fields"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@rendermode InteractiveServer
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@inject CustomFieldService FieldsService
+@inject AuthenticationStateProvider Authentication
+@inject UserManager<ApplicationUser> Users
+@inject PermissionCacheService Permissions
+@inject NavigationManager Navigation
+
+<div class="udf-workspace">
+    @if (company != Guid.Empty && scopes.Count > 0)
+    {
+        <ReportViewer @ref="viewer" PermissionKey="CUSTOM_FIELDS_REPORTS" CompanyId="company" Title="Custom Field Register" Description="Review captured values or find missing required fields. Draft orders may be incomplete. Master records have no transaction date filter." ShowDateRange="@(!CustomFieldService.IsMasterScope(scope))" Paginate="true" ShowCsvExport="true" FetchData="Fetch">
+            <FilterContent>
+                <div class="udf-grid">
+                    <label>Record and field location<select aria-label="Record and field location" value="@scope" @onchange="ChangeScope">@foreach (var s in scopes) { <option value="@s">@CustomFieldService.Module(s) / @CustomFieldService.ScopeLabel(s)</option> }</select></label>
+                    <label>Reference / master name<input @bind="filter.Reference" @bind:after="Invalidate" /></label>
+                    <label>Filter field<select @bind="filter.FieldId" @bind:after="Invalidate"><option value="">All values</option>@foreach (var f in fields.Where(x => x.Revision.IsFilterable)) { <option value="@f.Definition.Id">@f.Revision.Label</option> }</select></label>
+                    <label>Filter value<input @bind="filter.Value" @bind:after="Invalidate" placeholder="Text contains; number/date/Yes/No matches exactly" /></label>
+                    <label class="udf-check"><input type="checkbox" @bind="filter.MissingRequiredOnly" @bind:after="Invalidate" />Missing required fields only</label>
+                </div>
+                <details><summary>Report columns</summary><div class="udf-grid">@foreach (var f in fields.Where(x => x.Revision.IsReportable)) { <label class="udf-check"><input type="checkbox" checked="@filter.Columns.Contains(f.Definition.Id)" @onchange="e => Column(f.Definition.Id, e.Value is true)" />@f.Revision.Label</label> }</div></details>
+            </FilterContent>
+        </ReportViewer>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleFilter { get; set; }
+    private Guid company;
+    private CustomFieldScope scope;
+    private List<CustomFieldScope> scopes = new();
+    private List<CustomFieldEditorField> fields = new();
+    private CustomFieldReportFilter filter = new();
+    private ReportViewer? viewer;
+    private string appliedModule = "";
+    private bool initialized;
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await Users.GetUserAsync((await Authentication.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId == null) { Navigation.NavigateTo("/access-denied"); return; }
+        company = user.CompanyDetailsId.Value; await Permissions.LoadAsync(user.Id, company);
+        if (!Permissions.Has("CUSTOM_FIELDS_REPORTS") || !Permissions.Has("CUSTOM_FIELDS_VIEW")) { Navigation.NavigateTo("/access-denied"); return; }
+        scopes = Enum.GetValues<CustomFieldScope>().Where(x => Permissions.Has(CustomFieldService.ViewPermission(x)) && (string.IsNullOrEmpty(ModuleFilter) || CustomFieldService.Module(x).Equals(ModuleFilter, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (scopes.Count == 0) { Navigation.NavigateTo("/access-denied"); return; } scope = scopes[0]; await LoadFields(); appliedModule = ModuleFilter ?? ""; initialized = true;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!initialized || appliedModule == (ModuleFilter ?? "")) return;
+        appliedModule = ModuleFilter ?? "";
+        scopes = Enum.GetValues<CustomFieldScope>().Where(x => Permissions.Has(CustomFieldService.ViewPermission(x)) && (appliedModule.Length == 0 || CustomFieldService.Module(x).Equals(appliedModule, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (scopes.Count == 0) { Navigation.NavigateTo("/access-denied"); return; } scope = scopes[0]; await LoadFields();
+    }
+    private Task fieldsLoad = Task.CompletedTask;
+    private int fieldsRequest;
+    private Task LoadFields()
+    {
+        viewer?.Invalidate();
+        return fieldsLoad = LoadFieldsCore(scope, ++fieldsRequest);
+    }
+    private async Task LoadFieldsCore(CustomFieldScope requestedScope, int request)
+    {
+        var definitions = await FieldsService.GetReportDefinitionsAsync(company, requestedScope);
+        if (request != fieldsRequest) return;
+        fields = definitions.Select(d => new CustomFieldEditorField { Definition = d, Revision = d.Revisions.Single(r => r.RevisionNumber == d.CurrentRevision) }).ToList();
+        filter = new() { Columns = fields.Where(x => x.Revision.IsReportable).Select(x => x.Definition.Id).ToList() };
+    }
+    private async Task ChangeScope(ChangeEventArgs e) { if (Enum.TryParse<CustomFieldScope>(e.Value?.ToString(), out var value) && scopes.Contains(value)) { scope = value; await LoadFields(); } }
+    private void Column(Guid id, bool include) { if (include && !filter.Columns.Contains(id)) filter.Columns.Add(id); else if (!include) filter.Columns.Remove(id); Invalidate(); }
+    private void Invalidate() => viewer?.Invalidate();
+    private async Task<StandardReportData> Fetch(DateOnly from, DateOnly to)
+    {
+        Task pending;
+        do { pending = fieldsLoad; await pending; } while (!ReferenceEquals(pending, fieldsLoad));
+        var requestedScope = scope;
+        var snapshot = new CustomFieldReportFilter { Columns = filter.Columns.ToList(), FieldId = filter.FieldId, Value = filter.Value, Reference = filter.Reference, MissingRequiredOnly = filter.MissingRequiredOnly };
+        return await FieldsService.GenerateRegisterAsync(company, requestedScope, from, to, snapshot);
+    }
+}

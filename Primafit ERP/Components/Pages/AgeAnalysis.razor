@@ -1,4 +1,4 @@
-﻿@page "/reports/ar-age-analysis"
+@page "/reports/ar-age-analysis"
 @using Primafit_ERP.Services
 @using Primafit_ERP.Components.Models.Reporting
 @using Primafit_ERP.Components.Models
@@ -10,10 +10,11 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject PermissionCacheService PermissionCache
 @inject NavigationManager NavManager
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 
 <div class="max-w-7xl mx-auto mt-6">
-    <ReportViewer CompanyId="companyId"
+    <ReportViewer PermissionKey="SALES_REPORTS_PAGE" CompanyId="companyId"
                   Title="Accounts Receivable Age Analysis"
                   Description="Tracks outstanding customer balances, partial payments, and invoice age in days."
                   ShowAsOfDate="true"
