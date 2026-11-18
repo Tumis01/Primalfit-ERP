@@ -1,4 +1,4 @@
-﻿using ExcelDataReader;
+using ExcelDataReader;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
@@ -212,7 +212,7 @@ namespace Primafit_ERP.Services
 
             public string Description { get; set; } = "";
             public int SegAccountTypeId { get; set; }
-            public bool AllowJournal { get; set; } = true;
+            public bool IsControlAccount { get; set; } = false;
             public bool IsActive { get; set; } = true;
         }
 
@@ -308,7 +308,7 @@ namespace Primafit_ERP.Services
                     account.Description = finalDesc;
                     account.SegAccountTypeId = draft.SegAccountTypeId;
                     account.CurrencyId = draft.CurrencyId;
-                    account.AllowJournal = draft.AllowJournal;
+                    account.IsControlAccount = draft.IsControlAccount;
                     account.IsActive = draft.IsActive;
 
                     ctx.Update(account);
@@ -330,7 +330,7 @@ namespace Primafit_ERP.Services
                         Description = finalDesc,
                         SegAccountTypeId = draft.SegAccountTypeId,
                         CurrencyId = draft.CurrencyId,
-                        AllowJournal = draft.AllowJournal,
+                        IsControlAccount = draft.IsControlAccount,
                         IsActive = true
                     };
                     ctx.Add(account);
@@ -411,7 +411,7 @@ namespace Primafit_ERP.Services
             if (p != null) p.SetValue(obj, value);
         }
 
-        public async Task<List<SegChartOfAccount>> GetSegmentedChartOfAccountsAsync(Guid companyId, bool allowJournalOnly = true)
+        public async Task<List<SegChartOfAccount>> GetSegmentedChartOfAccountsAsync(Guid companyId, bool nonControlOnly = true)
         {
             using var context = _dbFactory.CreateDbContext();
 
@@ -419,8 +419,8 @@ namespace Primafit_ERP.Services
                 .AsNoTracking()
                 .Where(c => c.CompanyId == companyId);
 
-            if (allowJournalOnly)
-                q = q.Where(c => c.AllowJournal);
+            if (nonControlOnly)
+                q = q.Where(c => !c.IsControlAccount);
 
             return await q
                 .OrderBy(c => c.AccountCode)
@@ -676,7 +676,7 @@ namespace Primafit_ERP.Services
                         continue;
                     }
 
-                    // FALLBACK SYSTEM DETECTION LOGIC: Set status to false if mapping onto control account layers
+                    // FALLBACK SYSTEM DETECTION LOGIC: Identify control account classifications when importing accounts
                     // Type 24 = Inventories, Type 25 = Trade Receivables, Type 26 = Trade Payables
                     bool isControlAccountType = typeId == 24 || typeId == 25 || typeId == 26;
 
@@ -694,7 +694,7 @@ namespace Primafit_ERP.Services
                             : currenciesMap.TryGetValue(rawCurrency.Trim().ToUpperInvariant(), out var currencyId)
                                 ? currencyId
                                 : null,
-                        AllowJournal = !isControlAccountType, // Enforce false for control classifications
+                        IsControlAccount = isControlAccountType, // Mark control classifications explicitly
                         IsActive = true
                     };
 

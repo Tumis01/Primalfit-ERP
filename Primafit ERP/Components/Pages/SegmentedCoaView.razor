@@ -1,4 +1,4 @@
-﻿@page "/finance/segmented-coa"
+@page "/finance/segmented-coa"
 
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Components.Models.Reporting
@@ -490,9 +490,9 @@
 
                         <div class="col-span-2 flex items-center gap-6 mb-2">
                             <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-colors">
-                                <input type="checkbox" class="h-4 w-4 rounded text-slate-900 focus:ring-slate-900" @bind="draft.AllowJournal" />
+                                <input type="checkbox" class="h-4 w-4 rounded text-slate-900 focus:ring-slate-900" @bind="draft.IsControlAccount" />
                                 <div>
-                                    <span class="block text-sm font-bold text-slate-900">Allow Manual Entry</span>
+                                    <span class="block text-sm font-bold text-slate-900">Is control account</span>
                                 </div>
                             </label>
 
@@ -528,7 +528,7 @@
                             <th class="px-6 py-4">Description</th>
                             <th class="px-6 py-4">Account Type</th>
                             <th class="px-6 py-4">Currency</th>
-                            <th class="px-6 py-4 text-center">Journal Entry</th>
+                            <th class="px-6 py-4 text-center">Control account</th>
                             <th class="px-6 py-4 text-center">Status</th>
                             <th class="px-6 py-4 text-right">Action</th>
                         </tr>
@@ -544,13 +544,13 @@
                                 </td>
                                 <td class="px-6 py-4 font-mono text-xs text-slate-600">@(a.Currency?.CurrencyCode ?? baseCurrency?.CurrencyCode ?? "-")</td>
                                 <td class="px-6 py-4 text-center">
-                                    @if (a.AllowJournal)
+                                    @if (a.IsControlAccount)
                                     {
-                                        <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">Allowed</span>
+                                        <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">Yes</span>
                                     }
                                     else
                                     {
-                                        <span class="inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 ring-1 ring-inset ring-rose-500/10">Locked</span>
+                                        <span class="inline-flex items-center rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 ring-1 ring-inset ring-rose-500/10">No</span>
                                     }
                                 </td>
                                 <td class="px-6 py-4 text-center">
@@ -762,7 +762,7 @@
 
     private void ResetDraft()
     {
-        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, AllowJournal = true, IsActive = true, Id = null, SegAccountTypeId = 0, CurrencyId = null };
+        draft = new SegCoaService.SegCoaDraft { CompanyId = selectedCompanyId, IsControlAccount = false, IsActive = true, Id = null, SegAccountTypeId = 0, CurrencyId = null };
         draftCode = "";
         descTouched = false;
         isEditing = false;
@@ -786,7 +786,7 @@
             Description = acc.Description,
             SegAccountTypeId = acc.SegAccountTypeId,
             CurrencyId = acc.CurrencyId,
-            AllowJournal = acc.AllowJournal,
+            IsControlAccount = acc.IsControlAccount,
             IsActive = acc.IsActive
         };
 

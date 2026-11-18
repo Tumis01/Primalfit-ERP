@@ -115,7 +115,7 @@ public static class DatabaseInitializer
             await connection.OpenAsync(cancellationToken);
 
         try
-        {
+        {   
             await using var command = connection.CreateCommand();
             command.CommandText = ApplicationTablesProbe;
             var value = await command.ExecuteScalarAsync(cancellationToken);

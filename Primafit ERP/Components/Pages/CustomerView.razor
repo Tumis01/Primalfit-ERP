@@ -345,8 +345,7 @@
         allAccounts = await SegCoaService.GetCoaAsync(selectedCompanyId);
         arAccounts = allAccounts.Where(a =>
         {
-            var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-            return type != null && type.IsBalanceSheet == true && type.IsDebit == true && a.IsActive;
+            return MasterDataAccountPolicy.IsEligible(a, accountTypes, true, true);
         }).OrderBy(a => a.AccountCode).ToList();
     }
 

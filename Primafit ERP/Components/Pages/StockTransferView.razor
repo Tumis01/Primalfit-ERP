@@ -1,4 +1,4 @@
-﻿@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @page "/sc/transfers"
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
@@ -453,14 +453,14 @@
                 .ToListAsync();
         }
 
-        allAccounts = await GLService.GetSegmentedChartOfAccountsAsync(selectedCompanyId);
+        allAccounts = await GLService.GetSegmentedChartOfAccountsAsync(selectedCompanyId, nonControlOnly: false);
 
         // Transit should be an Asset account typically
         var types = await GLService.GetAccountTypesAsync();
         var assetTypeIds = types.Where(t => t.IsBalanceSheet).Select(t => t.Id).ToHashSet();
 
         transitAccounts = allAccounts
-            .Where(a => a.AllowJournal && assetTypeIds.Contains(a.SegAccountTypeId))
+            .Where(a => a.IsActive && a.IsControlAccount && assetTypeIds.Contains(a.SegAccountTypeId))
             .OrderBy(a => a.AccountCode)
             .ToList();
 

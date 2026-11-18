@@ -268,7 +268,7 @@ internal sealed class NewInvoiceCorrectionService(IDbContextFactory<AppDbContext
             var note = await db.DebitNotes.FromSqlInterpolated($"SELECT * FROM [DebitNotes] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {id}").Include(x => x.Lines).FirstOrDefaultAsync();
             if (note?.PurchaseInvoiceId == null) return "Invoice debit note not found.";
             if (note.Status != DebitNoteStatus.Draft || note.GlBatchId.HasValue) return "This debit note is already submitted or locked.";
-            var invoice = await db.PurchaseInvoices.FromSqlInterpolated($"SELECT * FROM [PurchaseInvoices] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {note.PurchaseInvoiceId.Value}").Include(x => x.Lines).Include(x => x.Vendor).FirstOrDefaultAsync();
+            var invoice = await db.PurchaseInvoices.FromSqlInterpolated($"SELECT * FROM [PurchaseInvoices] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {note.PurchaseInvoiceId.Value}").Include(x => x.Lines).ThenInclude(x => x.Item).Include(x => x.Vendor).FirstOrDefaultAsync();
             if (invoice == null || invoice.CompanyId != note.CompanyId || invoice.VendorId != note.VendorId || invoice.CurrencyId != note.CurrencyId || !await IsPostedPurchaseAsync(db, invoice)) return "The source invoice is unavailable or not posted.";
             var ids = invoice.Lines.Select(x => x.Id).ToList();
             await db.PurchaseInvoiceLines.FromSqlRaw("SELECT * FROM [PurchaseInvoiceLines] WITH (UPDLOCK, HOLDLOCK)").Where(x => ids.Contains(x.Id)).Select(x => x.Id).ToListAsync();
@@ -297,11 +297,23 @@ internal sealed class NewInvoiceCorrectionService(IDbContextFactory<AppDbContext
                 if (reduction > Math.Max(0, unfulfilled - b.Reserved)) return $"The correction for '{source.Description}' conflicts with a receipt draft.";
                 if (source.PurchaseOrderLineId.HasValue) { var root = source.PurchaseOrderLineId.Value; rootReductions[root] = rootReductions.GetValueOrDefault(root) + reduction; if (rootReductions[root] > Math.Max(0, b.RootUnfulfilled - b.Reserved)) return "Combined corrections exceed the remaining order quantity."; }
                 line.UnfulfilledQuantity = reduction;
-                var postedGross = Math.Round(source.LineTotal * invoice.ExchangeRate, 2, MidpointRounding.AwayFromZero);
-                var reference = !string.IsNullOrWhiteSpace(source.Description) ? source.Description : $"Purchase Invoice: {invoice.ExternalInvoiceNumber}";
-                var postedAccounts = ledger.Where(x => x.Debit == postedGross && x.Narration == reference).Select(x => x.SegCoaId).Distinct().ToList();
-                var account = note.OverrideGrIrClearingGlAccountId ?? (postedAccounts.Count == 1 ? postedAccounts[0] : Guid.Empty);
-                if (account == Guid.Empty) return $"The original invoice account for '{source.Description}' could not be verified.";
+                if (source.ItemId.HasValue && (source.Item == null || source.Item.CompanyId != note.CompanyId)) return $"The item for '{source.Description}' is unavailable.";
+                Guid account;
+                if (source.Item is { IsService: false })
+                {
+                    // Stock corrections credit the item's asset, even when the invoice
+                    // debited GR/IR or an older draft contains a credit-route override.
+                    account = source.Item.InventoryAssetAccountId;
+                    if (account == Guid.Empty) return $"Posting Aborted: Item '{source.Item.Name}' is missing its Inventory Asset GL account.";
+                }
+                else
+                {
+                    var postedGross = Math.Round(source.LineTotal * invoice.ExchangeRate, 2, MidpointRounding.AwayFromZero);
+                    var reference = !string.IsNullOrWhiteSpace(source.Description) ? source.Description : $"Purchase Invoice: {invoice.ExternalInvoiceNumber}";
+                    var postedAccounts = ledger.Where(x => x.Debit == postedGross && x.Narration == reference).Select(x => x.SegCoaId).Distinct().ToList();
+                    account = postedAccounts.Count == 1 ? postedAccounts[0] : Guid.Empty;
+                    if (account == Guid.Empty) return $"The original invoice expense account for '{source.Description}' could not be verified.";
+                }
                 var amount = prices[source.Id].ForQuantity(b.PriorCorrected, line.Quantity, b.Invoiced);
                 var gross = amount.Gross;
                 var baseAmount = amount.GrossBase;

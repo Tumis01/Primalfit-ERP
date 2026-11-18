@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace PrimafitERP.Api.DTOs
 {
@@ -10,6 +10,6 @@ namespace PrimafitERP.Api.DTOs
         public string Description { get; set; } = string.Empty;
         public string AccountType { get; set; } = string.Empty;
         public bool IsActive { get; set; }
-        public bool AllowJournal { get; set; }
+        public bool IsControlAccount { get; set; }
     }
 }

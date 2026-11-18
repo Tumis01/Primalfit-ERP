@@ -9,6 +9,12 @@ public static class CustomFieldMapping
     public static void Configure(ModelBuilder b)
     {
         b.Ignore<CustomFieldValue>();
+        b.Entity<CustomFieldDefinition>().ToTable("CustomFieldDefinition", t =>
+            t.HasCheckConstraint("CK_CustomFieldDefinition_DataType", "[DataType] IN (0, 2, 3, 4, 5)"));
+        b.Entity<CustomFieldRevision>().ToTable("CustomFieldRevision", t => {
+            t.HasCheckConstraint("CK_CustomFieldRevision_MaxLength", "[MaxLength] BETWEEN 1 AND 4000");
+            t.HasCheckConstraint("CK_CustomFieldRevision_FieldName", "LEN(LTRIM(RTRIM([FieldName]))) > 0");
+        });
         b.Entity<CustomFieldDefinition>().HasAlternateKey(x => new { x.CompanyId, x.Id });
         b.Entity<CustomFieldDefinition>().HasIndex(x => new { x.CompanyId, x.Scope, x.Code }).IsUnique();
         b.Entity<CustomFieldDefinition>().HasMany(x => x.Revisions).WithOne().HasForeignKey(x => new { x.CompanyId, x.DefinitionId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);

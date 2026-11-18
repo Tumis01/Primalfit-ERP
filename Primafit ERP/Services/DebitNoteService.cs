@@ -254,7 +254,7 @@ namespace Primafit_ERP.Services
                 foreach (var line in selected)
                 {
                     var source = inv.Lines.FirstOrDefault(x => x.Id == line.PurchaseOrderLineId);
-                    if (source == null || source.ItemId != line.ItemId || source.UnitCost != line.UnitCost)
+                    if (source == null || line.Item == null || line.Item.CompanyId != dn.CompanyId || source.ItemId != line.ItemId || source.UnitCost != line.UnitCost)
                         return "Each debit line must match its source item and unit cost.";
                     if (line.Quantity + prior.GetValueOrDefault(line.PurchaseOrderLineId.GetValueOrDefault()) > source.QuantityOrdered)
                         return $"The correction for {line.Item?.Name ?? "this item"} exceeds its remaining invoice quantity.";
@@ -283,13 +283,6 @@ namespace Primafit_ERP.Services
 
                 if (apAccount == Guid.Empty)
                     return "Posting Aborted: Vendor Accounts Payable (AP) GL account mapping is unassigned.";
-
-                // Debit notes reduce the vendor liability against the stock
-                // asset. They must not create a bank/cash leg. A line's item
-                // inventory account is therefore the default credit account;
-                // an explicit route override remains available.
-                Guid? clearingOverride = dn.OverrideGrIrClearingGlAccountId
-                    ?? customMapping?.OverrideCreditGlAccountId;
 
                 // Discount Rollback
                 bool hasDiscounts = inv.DiscountPercentage > 0 || inv.DiscountAmount > 0;
@@ -338,13 +331,12 @@ namespace Primafit_ERP.Services
                     decimal lineGrossForeign = line.Quantity * line.UnitCost;
                     decimal lineGrossBase = Math.Round(lineGrossForeign * rate, 2);
 
-                    Guid targetReversalAccount = clearingOverride
-                        ?? (line.Item.InventoryAssetAccountId != Guid.Empty ? line.Item.InventoryAssetAccountId : Guid.Empty);
+                    Guid targetReversalAccount = line.Item.InventoryAssetAccountId;
 
                     if (targetReversalAccount == Guid.Empty)
                         return $"Posting Aborted: Item '{line.Item.Name}' is missing its Inventory Asset GL account.";
 
-                    // Credit: Clearing/Expense/Inventory
+                    // Credit each item's inventory asset; header/template credit routes do not apply.
                     glLines.Add(new GLJournalLine
                     { DimensionSetId = line.DimensionSetId, IsDimensionDetail = true,
                         SegCoaId = targetReversalAccount,

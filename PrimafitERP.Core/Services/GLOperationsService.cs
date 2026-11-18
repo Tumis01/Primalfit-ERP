@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Data;
 using System;
@@ -55,7 +55,7 @@ namespace Primafit_ERP.Services
             AppDbContext ctx,
             Guid companyId,
             List<GLJournalLine> lines,
-            bool requireAllowJournal)
+            bool excludeControlAccounts)
         {
             var ids = lines.Select(x => x.SegCoaId).Where(x => x != Guid.Empty).Distinct().ToList();
             if (ids.Count == 0) return "No valid accounts selected.";
@@ -63,17 +63,17 @@ namespace Primafit_ERP.Services
             var accounts = await ctx.SegChartOfAccounts
                 .AsNoTracking()
                 .Where(a => a.CompanyId == companyId && ids.Contains(a.Id))
-                .Select(a => new { a.Id, a.AllowJournal })
+                .Select(a => new { a.Id, a.IsControlAccount })
                 .ToListAsync();
 
             if (accounts.Count != ids.Count)
                 return "One or more selected accounts do not exist in the Segmented COA for this company.";
 
-            if (requireAllowJournal)
+            if (excludeControlAccounts)
             {
-                var blocked = accounts.Where(a => !a.AllowJournal).Select(a => a.Id).ToList();
+                var blocked = accounts.Where(a => a.IsControlAccount).Select(a => a.Id).ToList();
                 if (blocked.Any())
-                    return "One or more selected accounts are not allowed for Journal posting (AllowJournal = No).";
+                    return "Control accounts cannot be used for manual journals or adjustments.";
             }
 
             return null;
@@ -89,7 +89,7 @@ namespace Primafit_ERP.Services
     string? description,
     List<GLJournalLine> lines,
     string userId,
-    bool requireAllowJournal = false) // FIXED: Default to false to allow automated sub-ledgers to pass control accounts
+    bool excludeControlAccounts = false) // FIXED: Default to false to allow automated sub-ledgers to pass control accounts
         {
             string journalNumber = $"JV-{DateTime.Now:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}";
 
@@ -104,7 +104,7 @@ namespace Primafit_ERP.Services
                 lines,
                 BatchType.Standard,
                 userId,
-                requireAllowJournal); // FIXED: Forwarding the configuration flag
+                excludeControlAccounts); // FIXED: Forwarding the configuration flag
 
             if (!string.IsNullOrWhiteSpace(result.error) || !result.batchId.HasValue)
                 return result;
@@ -140,9 +140,9 @@ namespace Primafit_ERP.Services
             catch (Exception ex) { return (ex.Message, null); }
 
             // FIX: Only enforce Allow Journal rules for Standard Manual Journals
-            bool requireAllowJournal = type == BatchType.Standard;
+            bool excludeControlAccounts = type == BatchType.Standard;
 
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal);
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, excludeControlAccounts);
             if (!string.IsNullOrWhiteSpace(acctErr)) return (acctErr!, null);
 
             var batch = new GLBatch
@@ -182,7 +182,7 @@ namespace Primafit_ERP.Services
     List<GLJournalLine> lines,
     BatchType type,
     string userId,
-    bool? requireAllowJournalOverride = null)
+    bool? excludeControlAccountsOverride = null)
         {
             await using var ctx = await _dbFactory.CreateDbContextAsync();
 
@@ -200,9 +200,9 @@ namespace Primafit_ERP.Services
             catch (Exception ex) { return (ex.Message, null); }
 
             // FIXED: Evaluate if an explicit sub-ledger bypass override flag is passed down
-            bool requireAllowJournal = requireAllowJournalOverride ?? (type == BatchType.Standard);
+            bool excludeControlAccounts = excludeControlAccountsOverride ?? (type == BatchType.Standard);
 
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal);
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, excludeControlAccounts);
             if (!string.IsNullOrWhiteSpace(acctErr)) return (acctErr!, null);
 
             var batch = new GLBatch
@@ -246,7 +246,7 @@ namespace Primafit_ERP.Services
             catch (Exception ex) { return ex.Message; }
 
             // FIX: Allow Migration batches to post to Control Accounts (AR, AP, Inventory)
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, requireAllowJournal: false);
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, cleanLines, excludeControlAccounts: false);
             if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
 
             var batch = new GLBatch
@@ -342,7 +342,7 @@ namespace Primafit_ERP.Services
                     if (!pendingLines.Any()) return "No new lines to post.";
                     if (!IsBalanced(pendingLines)) return $"Journal '{journal.JournalNumber}' pending lines are not balanced.";
 
-                    var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, pendingLines, requireAllowJournal: false);
+                    var acctErr = await ValidateSegmentedAccountsAsync(ctx, companyId, pendingLines, excludeControlAccounts: false);
                     if (!string.IsNullOrWhiteSpace(acctErr)) return acctErr!;
 
                     foreach (var line in pendingLines)
@@ -520,8 +520,8 @@ namespace Primafit_ERP.Services
             if (header == null) return "Journal Header is missing.";
 
             // FIX: Only enforce if this is a Standard Batch
-            bool requireAllowJournal = batch.Type == BatchType.Standard;
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, batch.CompanyId, new List<GLJournalLine> { line }, requireAllowJournal);
+            bool excludeControlAccounts = batch.Type == BatchType.Standard;
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, batch.CompanyId, new List<GLJournalLine> { line }, excludeControlAccounts);
 
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 
@@ -540,8 +540,8 @@ namespace Primafit_ERP.Services
             if (existing.Header?.Batch?.Status != BatchStatus.Draft) return "Batch is locked.";
 
             // FIX: Only enforce if this is a Standard Batch
-            bool requireAllowJournal = existing.Header.Batch.Type == BatchType.Standard;
-            var acctErr = await ValidateSegmentedAccountsAsync(ctx, existing.Header.CompanyId, new List<GLJournalLine> { line }, requireAllowJournal);
+            bool excludeControlAccounts = existing.Header.Batch.Type == BatchType.Standard;
+            var acctErr = await ValidateSegmentedAccountsAsync(ctx, existing.Header.CompanyId, new List<GLJournalLine> { line }, excludeControlAccounts);
 
             if (!string.IsNullOrEmpty(acctErr)) return acctErr;
 

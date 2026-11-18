@@ -1,4 +1,4 @@
-﻿@page "/reports/custom-fields"
+@page "/reports/custom-fields"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @rendermode InteractiveServer
 @using Primafit_ERP.Components.Models
@@ -20,11 +20,11 @@
                 <div class="udf-grid">
                     <label>Record and field location<select aria-label="Record and field location" value="@scope" @onchange="ChangeScope">@foreach (var s in scopes) { <option value="@s">@CustomFieldService.Module(s) / @CustomFieldService.ScopeLabel(s)</option> }</select></label>
                     <label>Reference / master name<input @bind="filter.Reference" @bind:after="Invalidate" /></label>
-                    <label>Filter field<select @bind="filter.FieldId" @bind:after="Invalidate"><option value="">All values</option>@foreach (var f in fields.Where(x => x.Revision.IsFilterable)) { <option value="@f.Definition.Id">@f.Revision.Label</option> }</select></label>
+                    <label>Filter field<select @bind="filter.FieldId" @bind:after="Invalidate"><option value="">All values</option>@foreach (var f in fields.Where(x => x.Revision.IsFilterable)) { <option value="@f.Definition.Id">@f.Revision.FieldName</option> }</select></label>
                     <label>Filter value<input @bind="filter.Value" @bind:after="Invalidate" placeholder="Text contains; number/date/Yes/No matches exactly" /></label>
                     <label class="udf-check"><input type="checkbox" @bind="filter.MissingRequiredOnly" @bind:after="Invalidate" />Missing required fields only</label>
                 </div>
-                <details><summary>Report columns</summary><div class="udf-grid">@foreach (var f in fields.Where(x => x.Revision.IsReportable)) { <label class="udf-check"><input type="checkbox" checked="@filter.Columns.Contains(f.Definition.Id)" @onchange="e => Column(f.Definition.Id, e.Value is true)" />@f.Revision.Label</label> }</div></details>
+                <details><summary>Report columns</summary><div class="udf-grid">@foreach (var f in fields.Where(x => x.Revision.IsReportable)) { <label class="udf-check"><input type="checkbox" checked="@filter.Columns.Contains(f.Definition.Id)" @onchange="e => Column(f.Definition.Id, e.Value is true)" />@f.Revision.FieldName</label> }</div></details>
             </FilterContent>
         </ReportViewer>
     }

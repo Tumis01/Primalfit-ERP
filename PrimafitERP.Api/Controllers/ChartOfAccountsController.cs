@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PrimafitERP.Data;
 using Primafit_ERP.Components.Models; // Your models namespace
@@ -41,7 +41,7 @@ namespace PrimafitERP.Api.Controllers
                 Description = a.Description,
                 AccountType = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId)?.Description ?? "Unknown Type",
                 IsActive = a.IsActive,
-                AllowJournal = a.AllowJournal
+                IsControlAccount = a.IsControlAccount
             })
             .OrderBy(a => a.AccountCode)
             .ToList();

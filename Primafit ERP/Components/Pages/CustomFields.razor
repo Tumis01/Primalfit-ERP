@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @using Primafit_ERP.Components.Models
 @using Primafit_ERP.Services
+@using Primafit_ERP.Components.Shared
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @inject CustomFieldService FieldsService
@@ -11,62 +12,87 @@
 @inject PermissionCacheService Permissions
 @inject NavigationManager Navigation
 
-<div class="udf-workspace">
-    <div class="udf-heading"><div><h1>Custom fields</h1><p>Configure additional information for documents and master records.</p></div><a href="/reports/custom-fields">Custom Field Register</a></div>
-    @if (!string.IsNullOrEmpty(message)) { <div class="@(hasError ? "udf-error" : "udf-success")" role="status">@message</div> }
+<PageTitle>Custom field setup</PageTitle>
+<div class="udf-workspace udf-setup-page">
+    <header class="udf-heading udf-setup-heading">
+        <div><span class="udf-eyebrow">Configuration</span><h1>Custom fields</h1><p>Add the information your team needs to records and documents.</p></div>
+    </header>
+    @if (!string.IsNullOrEmpty(message)) { <div class="udf-setup-notice @(hasError ? "udf-error" : "udf-success")" role="@(hasError ? "alert" : "status")">@message</div> }
     @if (company != Guid.Empty && scopes.Count > 0)
     {
-        <div class="udf-toolbar"><label>Record and field location<select aria-label="Record and field location" value="@scope" @onchange="ChangeScope">@foreach (var s in scopes) { <option value="@s">@CustomFieldService.Module(s) / @CustomFieldService.ScopeLabel(s)</option> }</select></label><button type="button" class="udf-button udf-primary" @onclick="NewField">New field</button></div>
+        <section class="udf-location-toolbar" aria-label="Field location">
+            <div class="udf-location-picker">
+                <SearchableEnumSelect TEnum="CustomFieldScope" Label="Record and field location" Placeholder="Search records, documents or modules…"
+                                      Options="scopes" Value="scope" ValueChanged="ChangeScope" OptionLabel="LocationLabel" Disabled="@busy" />
+                <p class="udf-help">Choose where these fields will appear.</p>
+            </div>
+            <button type="button" class="udf-button udf-primary" disabled="@busy" @onclick="NewField"><span aria-hidden="true">＋</span> New field</button>
+        </section>
         <div class="udf-setup-layout">
-            <div class="udf-section"><h2>Configured fields</h2>
-                @if (definitions.Count == 0) { <p class="udf-help">No fields configured for this location.</p> }
-                @foreach (var field in definitions)
+            <aside class="udf-section udf-field-library" aria-label="Configured fields">
+                <div class="udf-card-heading"><h2>Configured fields</h2><span class="udf-count">@definitions.Count</span></div>
+                <label class="udf-field-search">Search fields<input type="search" @bind="fieldSearch" @bind:event="oninput" placeholder="Search by code or field name" /></label>
+                <div class="udf-definition-list">
+                @foreach (var field in FilteredDefinitions)
                 {
                     var rev = field.Revisions.Single(x => x.RevisionNumber == field.CurrentRevision);
-                    <button type="button" class="udf-definition" @onclick="() => Edit(field)"><strong>@rev.Label</strong><span>@field.Code · @field.DataType</span><span>@(field.IsActive ? "Active" : "Inactive") · @(rev.Required ? "Required" : "Optional") · Revision @field.CurrentRevision</span></button>
+                    <button type="button" class="udf-definition @(edit?.Definition.Id == field.Id ? "is-selected" : "")" disabled="@busy" aria-pressed="@(edit?.Definition.Id == field.Id ? "true" : "false")" @onclick="() => Edit(field)">
+                        <span class="udf-definition-title"><strong>@rev.FieldName</strong><span class="udf-status @(field.IsActive ? "is-active" : "")">@(field.IsActive ? "Active" : "Inactive")</span></span>
+                        <span class="udf-definition-code">@field.Code</span>
+                        <span>@TypeLabel(field.DataType) · @(rev.Required ? "Required" : "Optional")</span>
+                    </button>
                 }
-            </div>
+                @if (!FilteredDefinitions.Any()) { <div class="udf-empty-list"><strong>@(definitions.Count == 0 ? "No fields here yet" : "No matching fields")</strong><p>@(definitions.Count == 0 ? "Create a field for this record and location." : "Try another code or field name.")</p></div> }
+                </div>
+            </aside>
             @if (edit != null)
             {
-                <div class="udf-section"><h2>@(isNew ? "New field" : "Field settings")</h2>
+                <form class="udf-section udf-field-settings" @onsubmit="Publish" @onsubmit:preventDefault="true">
+                    <div class="udf-editor-heading"><div><span class="udf-eyebrow">@CustomFieldService.ScopeLabel(scope)</span><h2>@(isNew ? "New field" : "Field settings")</h2><p class="udf-help">@(isNew ? "Define the field, then choose how your team will use it." : "Update the field name, validation and availability.")</p></div>@if (!isNew) { <span class="udf-revision">Revision @edit.Definition.CurrentRevision</span> }</div>
+                    <fieldset disabled="@busy">
+                    <h3 class="udf-form-heading">Field details</h3>
                     <div class="udf-grid">
-                        <label>Field label<input @bind="edit.Revision.Label" maxlength="100" /></label>
-                        <label>Stable code<input @bind="edit.Definition.Code" disabled="@(!isNew)" maxlength="60" placeholder="DELIVERY_ZONE" /></label>
-                        <label>Field type<select @bind="edit.Definition.DataType" disabled="@(!isNew)">@foreach (var type in Enum.GetValues<CustomFieldDataType>()) { <option value="@type">@type</option> }</select></label>
-                        <label>Section<input @bind="edit.Revision.Section" maxlength="80" /></label>
-                        <label>Display order<input type="number" @bind="edit.Revision.DisplayOrder" /></label>
-                        <label>Help text<input @bind="edit.Revision.HelpText" maxlength="300" /></label>
-                        @if (edit.Definition.DataType is CustomFieldDataType.ShortText or CustomFieldDataType.LongText) { <label>Maximum characters<input type="number" min="1" max="4000" @bind="edit.Revision.MaxLength" /></label> }
+                        <div class="udf-control"><label for="field-code">Code <span class="udf-required">*</span></label><input id="field-code" @bind="edit.Definition.Code" @bind:event="oninput" disabled="@(!isNew)" required maxlength="60" pattern="[A-Za-z][A-Za-z0-9_]{0,59}" title="Start with a letter. Use letters, numbers and underscores only." placeholder="e.g. DELIVERY_ZONE" /><p class="udf-help">@(isNew ? "Use letters, numbers and underscores. Code cannot change after publishing." : "Code is fixed after publishing.")</p></div>
+                        <div class="udf-control"><label for="field-name">Field name <span class="udf-required">*</span></label><input id="field-name" @bind="edit.Revision.FieldName" @bind:event="oninput" required maxlength="100" placeholder="e.g. Delivery zone" /><p class="udf-help">The name your team sees on the record.</p></div>
+                        <div class="udf-control"><label for="field-type">Field type</label><select id="field-type" @bind="SelectedFieldType" disabled="@(!isNew)"><option value="Text">Text</option><option value="Decimal">Number</option><option value="Date">Date</option><option value="Boolean">Yes / No</option><option value="SingleSelect">Dropdown</option></select>@if (!isNew) { <p class="udf-help">Field type is fixed after publishing.</p> }</div>
+                        @if (IsText) { <div class="udf-control"><label for="field-length">Maximum characters <span class="udf-required">*</span></label><input id="field-length" type="number" min="1" max="4000" step="1" required @bind="edit.Revision.MaxLength" @bind:event="oninput" /><p class="udf-help">Set the allowed text length, from 1 to 4,000 characters.</p></div> }
                         @if (edit.Definition.DataType == CustomFieldDataType.Decimal)
                         {
-                            <label>Decimal places<input type="number" min="0" max="4" @bind="edit.Revision.DecimalPlaces" /></label><label>Minimum<input type="number" step="0.0001" @bind="edit.Revision.Minimum" /></label><label>Maximum<input type="number" step="0.0001" @bind="edit.Revision.Maximum" /></label>
+                            <label>Decimal places<input type="number" min="0" max="4" required @bind="edit.Revision.DecimalPlaces" /></label><label>Minimum<input type="number" step="0.0001" @bind="edit.Revision.Minimum" placeholder="No minimum" /></label><label>Maximum<input type="number" step="0.0001" @bind="edit.Revision.Maximum" placeholder="No maximum" /></label>
                         }
+                        <label>Display order<input type="number" required @bind="edit.Revision.DisplayOrder" /></label>
                     </div>
                     @if (edit.Definition.DataType == CustomFieldDataType.SingleSelect)
                     {
-                        <div class="udf-options"><h3>Dropdown choices</h3>
+                        <div class="udf-options"><h3 class="udf-form-heading">Dropdown choices</h3><p class="udf-help">Add the options your team can select. Inactive choices stay on saved records.</p>
                         @foreach (var option in edit.Options)
-                        { <div class="udf-option-row" @key="option.Id"><input aria-label="Choice label" @bind="option.Label" maxlength="100" /><label class="udf-check"><input type="checkbox" @bind="option.IsActive" />Active</label></div> }
+                        { <div class="udf-option-row" @key="option.Id"><input aria-label="Choice label" @bind="option.Label" required maxlength="100" placeholder="Enter a choice" /><label class="udf-check"><input type="checkbox" @bind="option.IsActive" />Active</label></div> }
                         <button type="button" class="udf-button" @onclick="AddOption">Add choice</button></div>
                     }
-                    <div class="udf-grid">
-                        <label class="udf-check"><input type="checkbox" @bind="edit.Definition.IsActive" />Active</label>
-                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.Required" />@(scope is CustomFieldScope.Customer or CustomFieldScope.Vendor or CustomFieldScope.Item ? "Required on save" : "Required on submission")</label>
-                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IncludeInExports" />Include in exports</label>
-                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsReportable" />Available as report column</label>
-                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsFilterable" />Allow report filtering</label>
+                    <h3 class="udf-form-heading udf-form-divider">Usage and availability</h3>
+                    <div class="udf-behavior-grid">
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Definition.IsActive" /><span>Active<small>Show this field for new entries.</small></span></label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.Required" /><span>@(scope is CustomFieldScope.Customer or CustomFieldScope.Vendor or CustomFieldScope.Item ? "Required on save" : "Required on submission")<small>Ask your team to complete this field.</small></span></label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IncludeInExports" /><span>Include in exports<small>Include values in downloaded reports.</small></span></label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsReportable" /><span>Available as report column<small>Show values in the custom field register.</small></span></label>
+                        <label class="udf-check"><input type="checkbox" @bind="edit.Revision.IsFilterable" /><span>Allow report filtering<small>Find records using this field's value.</small></span></label>
                     </div>
-                    <details class="udf-preview"><summary>Field preview</summary><label>@edit.Revision.Label @(edit.Revision.Required ? "*" : "")
+                    <section class="udf-preview" aria-label="Field preview"><div class="udf-card-heading"><h3>Field preview</h3><span>Updates as you edit</span></div><label>@(string.IsNullOrWhiteSpace(edit.Revision.FieldName) ? "Your field name" : edit.Revision.FieldName) @(edit.Revision.Required ? "*" : "")
                         @switch (edit.Definition.DataType)
                         {
                             case CustomFieldDataType.SingleSelect: <select aria-label="Preview dropdown"><option>Select a choice</option>@foreach (var option in edit.Options.Where(x => x.IsActive)) { <option>@option.Label</option> }</select> break;
                             case CustomFieldDataType.Boolean: <select aria-label="Preview yes/no"><option>Select an answer</option><option>Yes</option><option>No</option></select> break;
-                            case CustomFieldDataType.LongText: <textarea rows="2" aria-label="Preview long text"></textarea> break;
-                            default: <input type="@(edit.Definition.DataType == CustomFieldDataType.Date ? "date" : edit.Definition.DataType == CustomFieldDataType.Decimal ? "number" : "text")" aria-label="Preview field" /> break;
+                            case CustomFieldDataType.Text when edit.Revision.MaxLength > 200: <textarea rows="2" maxlength="@edit.Revision.MaxLength" aria-label="Preview field"></textarea> break;
+                            default: <input type="@(edit.Definition.DataType == CustomFieldDataType.Date ? "date" : edit.Definition.DataType == CustomFieldDataType.Decimal ? "number" : "text")" maxlength="@edit.Revision.MaxLength" aria-label="Preview field" /> break;
                         }
-                        <span class="udf-help">@edit.Revision.HelpText</span></label></details>
-                    <div class="udf-actions"><button type="button" class="udf-button" @onclick="() => edit = null">Cancel</button><button type="button" class="udf-button udf-primary" disabled="@busy" @onclick="Publish">@(busy ? "Publishing…" : "Publish field")</button></div>
-                </div>
+                        </label>@if (IsText) { <p class="udf-help">Up to @edit.Revision.MaxLength.ToString("N0") characters</p> }</section>
+                    <div class="udf-actions"><button type="button" class="udf-button" @onclick="() => edit = null">Cancel</button><button type="submit" class="udf-button udf-primary">@(busy ? "Publishing…" : isNew ? "Publish field" : "Publish changes")</button></div>
+                    </fieldset>
+                </form>
+            }
+            else
+            {
+                <section class="udf-section udf-editor-empty"><span class="udf-empty-icon" aria-hidden="true">Aa</span><h2>Make room for the details that matter</h2><p>Select a configured field to edit its settings, or create a new field for @CustomFieldService.ScopeLabel(scope).</p><button type="button" class="udf-button udf-primary" disabled="@busy" @onclick="NewField">Create a field</button></section>
             }
         </div>
     }
@@ -81,6 +107,24 @@
     private CustomFieldDefinitionEdit? edit;
     private bool busy, isNew, hasError;
     private string message = "";
+    private string fieldSearch = "";
+    private static string LocationLabel(CustomFieldScope value) => $"{CustomFieldService.Module(value)} / {CustomFieldService.ScopeLabel(value)}";
+    private static string TypeLabel(CustomFieldDataType value) => value switch {
+        CustomFieldDataType.Text => "Text",
+        CustomFieldDataType.Decimal => "Number", CustomFieldDataType.Boolean => "Yes / No",
+        CustomFieldDataType.SingleSelect => "Dropdown", _ => "Date"
+    };
+    private bool IsText => edit?.Definition.DataType is CustomFieldDataType.Text;
+    private string SelectedFieldType {
+        get => edit == null || IsText ? "Text" : edit.Definition.DataType.ToString();
+        set {
+            if (edit == null || !isNew) return;
+            if (Enum.TryParse<CustomFieldDataType>(value, out var type) && Enum.IsDefined(type)) edit.Definition.DataType = type;
+        }
+    }
+    private IEnumerable<CustomFieldDefinition> FilteredDefinitions => definitions.Where(x => string.IsNullOrWhiteSpace(fieldSearch)
+        || x.Code.Contains(fieldSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+        || x.Revisions.Single(r => r.RevisionNumber == x.CurrentRevision).FieldName.Contains(fieldSearch.Trim(), StringComparison.OrdinalIgnoreCase));
     private string appliedModule = "";
     private bool initialized;
     protected override async Task OnInitializedAsync()
@@ -102,7 +146,7 @@
         scope = scopes[0]; message = ""; await Load();
     }
     private async Task Load() { edit = null; try { definitions = await FieldsService.GetDefinitionsAsync(company, scope); } catch (UnauthorizedAccessException) { Navigation.NavigateTo("/access-denied"); } }
-    private async Task ChangeScope(ChangeEventArgs e) { if (Enum.TryParse<CustomFieldScope>(e.Value?.ToString(), out var value) && scopes.Contains(value)) { scope = value; message = ""; await Load(); } }
+    private async Task ChangeScope(CustomFieldScope value) { if (!busy && value != scope && scopes.Contains(value)) { scope = value; fieldSearch = ""; message = ""; await Load(); } }
     private void NewField() { isNew = true; message = ""; edit = new() { Definition = new() { CompanyId = company, Scope = scope }, Revision = new() { DisplayOrder = definitions.Count + 1 } }; }
     private void Edit(CustomFieldDefinition d)
     {

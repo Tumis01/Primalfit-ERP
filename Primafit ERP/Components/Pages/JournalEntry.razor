@@ -1,4 +1,4 @@
-﻿@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
+@inject Primafit_ERP.Services.CustomFieldWriteSession CustomFieldWrites
 @using Primafit_ERP.Components.Shared
 @page "/gl/journal-entry"
 
@@ -484,7 +484,7 @@
 
             var allCoa = await SetupService.GetCoaAsync(currentCompanyId);
             fullMasterCoaList = allCoa.ToList();
-            coaList = allCoa.Where(x => x.AllowJournal && x.IsActive).OrderBy(x => x.AccountCode).ToList();
+            coaList = allCoa.Where(x => !x.IsControlAccount && x.IsActive).OrderBy(x => x.AccountCode).ToList();
             projects = await ProjectService.GetActiveProjectsAsync(currentCompanyId);
 
             await LoadBatches();

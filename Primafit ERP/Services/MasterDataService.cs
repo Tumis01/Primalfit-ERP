@@ -32,6 +32,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveCustomerAsync(Customer customer, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, customer.CompanyId, (customer.ReceivablesAccountId, true, true, "Accounts receivable", true));
+            if (accountError.Length > 0) return accountError;
             if (await ctx.Customers.AnyAsync(x => x.Id == customer.Id && x.CompanyId != customer.CompanyId)) return "Customer not found in this company.";
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
             if (customer.CustomerGroupId == Guid.Empty) return "Customer Group is required.";
@@ -92,6 +94,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveVendorAsync(Vendor vendor, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, vendor.CompanyId, (vendor.PayablesAccountId, true, false, "Accounts payable", true));
+            if (accountError.Length > 0) return accountError;
             if (await ctx.Vendors.AnyAsync(x => x.Id == vendor.Id && x.CompanyId != vendor.CompanyId)) return "Vendor not found in this company.";
             if (vendor.CurrencyId == Guid.Empty) return "Default Currency is required.";
             if (vendor.VendorGroupId == Guid.Empty) return "Vendor Group is required.";
@@ -149,6 +153,8 @@ namespace Primafit_ERP.Services
         private async Task<string> SaveItemCoreAsync(Item item, ItemUomConversionLine? conversionLine, IReadOnlyCollection<ItemUomConversionLine>? conversions = null, CustomFieldFormState? customFields = null)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, item.CompanyId, (item.IsService ? null : item.InventoryAssetAccountId, true, true, "Inventory asset", true), (item.SalesIncomeAccountId, false, false, "Sales income", false), (item.CostOfGoodsSoldAccountId, false, true, "Cost of goods sold", false), (item.IsService ? null : item.AdjustmentExpenseAccountId, false, true, "Inventory adjustment expense", false));
+            if (accountError.Length > 0) return accountError;
 
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
@@ -394,6 +400,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveCustomerGroupAsync(CustomerGroup group)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, group.CompanyId, (group.ReceivablesAccountId, true, true, "Default accounts receivable", true));
+            if (accountError.Length > 0) return accountError;
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
             if (group.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x => x.Id == group.SequenceDefinitionId.Value && x.CompanyId == group.CompanyId && x.TargetType == SequenceTargetType.CustomerCode))
@@ -450,6 +458,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveVendorGroupAsync(VendorGroup group)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, group.CompanyId, (group.PayablesAccountId, true, false, "Default accounts payable", true));
+            if (accountError.Length > 0) return accountError;
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
             if (group.SequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x => x.Id == group.SequenceDefinitionId.Value && x.CompanyId == group.CompanyId && x.TargetType == SequenceTargetType.VendorCode))
@@ -652,6 +662,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveItemCategoryAsync(ItemCategory category)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, category.CompanyId, (category.IsService ? null : category.InventoryAssetAccountId, true, true, "Inventory asset", true), (category.SalesIncomeAccountId, false, false, "Sales income", false), (category.CostOfGoodsSoldAccountId, false, true, "Cost of goods sold", false), (category.IsService ? null : category.AdjustmentExpenseAccountId, false, true, "Inventory adjustment expense", false));
+            if (accountError.Length > 0) return accountError;
 
             if (string.IsNullOrWhiteSpace(category.Name)) return "Category Name is required.";
             if (category.ItemCodeSequenceDefinitionId.HasValue && !await ctx.SequenceDefinitions.AnyAsync(x =>

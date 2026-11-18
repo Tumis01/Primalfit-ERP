@@ -171,7 +171,6 @@ public sealed class GoodsReceiptDraftService(IDbContextFactory<AppDbContext> fac
                 PurchaseOrderLineId = x.PurchaseOrderLineId!.Value, QuantityReceived = x.QuantityReceived, UomId = x.UomId,
                 UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList();
             CustomFieldLineIdentity.Sync(db, draft.Lines, incomingLines, nameof(GoodsReceiptDraftLine.GoodsReceiptDraftId), draft.Id);
-            db.GoodsReceiptDraftLines.AddRange(draft.Lines);
             await db.SaveChangesAsync(); await tx.CommitAsync(); return string.Empty;
         }
         catch (DbUpdateException) { return "The receipt draft could not be saved. Refresh the available lines and try again."; }
@@ -233,7 +232,6 @@ public sealed class GoodsReceiptDraftService(IDbContextFactory<AppDbContext> fac
                 PurchaseOrderLineId = x.PurchaseOrderLineId, PurchaseInvoiceLineId = x.PurchaseInvoiceLineId, QuantityReceived = x.QuantityReceived,
                 UomId = x.UomId, UomName = x.UomName, UomConversionFactor = x.UomConversionFactor }).ToList();
             CustomFieldLineIdentity.Sync(db, draft.Lines, incomingLines, nameof(GoodsReceiptDraftLine.GoodsReceiptDraftId), draft.Id);
-            db.GoodsReceiptDraftLines.AddRange(draft.Lines);
             await db.SaveChangesAsync(); await tx.CommitAsync(); return string.Empty;
         }
         catch (DbUpdateException) { return "The receipt draft could not be saved. Refresh the available lines and try again."; }

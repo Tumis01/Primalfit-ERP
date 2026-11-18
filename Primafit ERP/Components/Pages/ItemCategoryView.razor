@@ -294,8 +294,8 @@
             allAccounts = await SegCoaService.GetCoaAsync(currentCompanyId);
 
             assetAccounts = FilterAccounts(true, true);
-            revenueAccounts = FilterAccounts(false, false);
-            expenseAccounts = FilterAccounts(false, true);
+            revenueAccounts = FilterAccounts(false, false, requireControlAccount: false);
+            expenseAccounts = FilterAccounts(false, true, requireControlAccount: false);
         }
     }
 
@@ -304,13 +304,12 @@
         categories = await MasterService.GetItemCategoriesAsync(currentCompanyId);
     }
 
-    private List<SegChartOfAccount> FilterAccounts(bool isBs, bool isDr)
+    private List<SegChartOfAccount> FilterAccounts(bool isBs, bool isDr, bool requireControlAccount = true)
     {
         return allAccounts
             .Where(a =>
             {
-                var type = accountTypes.FirstOrDefault(t => t.Id == a.SegAccountTypeId);
-                return type != null && type.IsBalanceSheet == isBs && type.IsDebit == isDr && a.IsActive;
+                return MasterDataAccountPolicy.IsEligible(a, accountTypes, isBs, isDr, requireControlAccount);
             })
             .OrderBy(a => a.AccountCode)
             .ToList();

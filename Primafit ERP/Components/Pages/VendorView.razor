@@ -303,8 +303,7 @@
 
             apAccounts = allAccounts.Where(a =>
             {
-                var t = accountTypes.FirstOrDefault(type => type.Id == a.SegAccountTypeId);
-                return t != null && t.IsBalanceSheet == true && t.IsDebit == false;
+                return MasterDataAccountPolicy.IsEligible(a, accountTypes, true, false);
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();

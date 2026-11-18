@@ -1,4 +1,4 @@
-﻿@using Primafit_ERP.Components.Shared
+@using Primafit_ERP.Components.Shared
 @inject CustomFieldWriteSession CustomFieldWrites
 @page "/gl/adjustments"
 
@@ -273,7 +273,7 @@
             companyId = user.CompanyDetailsId.Value;
             userId = user.Id;
 
-            coaList = await SegCoaService.GetActiveCoaAsync(companyId);
+            coaList = (await SegCoaService.GetActiveCoaAsync(companyId)).Where(a => !a.IsControlAccount).ToList();
             customTypes = await MappingService.GetCustomTransactionTypesAsync(companyId);
             mappingsList = await MappingService.GetMappingsAsync(companyId);
             projects = await ProjectService.GetActiveProjectsAsync(companyId);
@@ -355,7 +355,7 @@
 
             var (err, batchId) = await GlOperations.CreateJournalEntryAsync(
                 companyId, postingDate, "ADJ-BATCH", narrationString, lines, userId,
-                journalNumberOverride: journalNumber);
+                excludeControlAccounts: true, journalNumberOverride: journalNumber);
             if (!string.IsNullOrEmpty(err))
             {
                 await JS.InvokeVoidAsync("alert", $"Ledger Refusal: {err}");

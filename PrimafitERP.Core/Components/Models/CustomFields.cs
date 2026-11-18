@@ -17,7 +17,8 @@ public enum CustomFieldScope
     GeneralLedgerAdjustmentHeader, GeneralLedgerAdjustmentLine, CustomerAdjustmentHeader, CustomerAdjustmentLine, VendorAdjustmentHeader, VendorAdjustmentLine,
     StockEntryHeader, StockEntryLine, BankReconciliationHeader, BankReconciliationLine
 }
-public enum CustomFieldDataType { ShortText, LongText, Decimal, Date, Boolean, SingleSelect }
+// Keep the stored IDs of non-text types unchanged when merging the former text types.
+public enum CustomFieldDataType { Text = 0, Decimal = 2, Date = 3, Boolean = 4, SingleSelect = 5 }
 public enum SalesOrderSubmissionState { Submitted, Draft }
 
 public sealed class CustomFieldDefinition
@@ -42,12 +43,10 @@ public sealed class CustomFieldRevision
     public Guid CompanyId { get; set; }
     public Guid DefinitionId { get; set; }
     public int RevisionNumber { get; set; }
-    [MaxLength(100)] public string Label { get; set; } = "";
-    [MaxLength(300)] public string HelpText { get; set; } = "";
-    [MaxLength(80)] public string Section { get; set; } = "Additional information";
+    [Required, MaxLength(100)] public string FieldName { get; set; } = "";
     public int DisplayOrder { get; set; }
     public bool Required { get; set; }
-    public int MaxLength { get; set; } = 200;
+    [Range(1, 4000)] public int MaxLength { get; set; } = 200;
     [Column(TypeName = "decimal(18,4)")] public decimal? Minimum { get; set; }
     [Column(TypeName = "decimal(18,4)")] public decimal? Maximum { get; set; }
     public int DecimalPlaces { get; set; } = 4;

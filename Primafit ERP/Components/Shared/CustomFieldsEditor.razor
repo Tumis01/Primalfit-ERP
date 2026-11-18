@@ -15,23 +15,20 @@ else if (form?.Fields.Count > 0)
 {
     <div class="@(Inline ? "udf-inline" : "udf-section")" aria-label="Custom fields">
         @if (!Inline) { <h3>Additional information</h3> }
-        @foreach (var section in form.Fields.GroupBy(x => x.Revision.Section))
-        {
-            @if (!Inline && section.Key != "Additional information") { <h4 class="udf-group-title">@section.Key</h4> }
             <div class="@(Inline ? "udf-inline-fields" : "udf-grid")">
-            @foreach (var field in section)
+            @foreach (var field in form.Fields)
             {
                 var id = $"udf-{OwnerId:N}-{field.Definition.Id:N}";
                 var disabled = ReadOnly || !form.CanEdit || !field.Definition.IsActive;
                 <div class="udf-field" @key="field.Definition.Id">
-                    <label for="@id">@field.Revision.Label @if (field.Revision.Required && field.Definition.IsActive) { <span class="udf-required">*</span> } @if (!field.Definition.IsActive) { <span class="udf-help">(inactive)</span> }</label>
+                    <label for="@id">@field.Revision.FieldName @if (field.Revision.Required && field.Definition.IsActive) { <span class="udf-required">*</span> } @if (!field.Definition.IsActive) { <span class="udf-help">(inactive)</span> }</label>
                     @if (ReadOnly)
                     {
                         <div class="udf-readonly">@CustomFieldService.Format(field.Input, field.Definition.DataType, field.Options, field.Revision.DecimalPlaces)</div>
                     }
                     else if (field.Definition.DataType == CustomFieldDataType.SingleSelect)
                     {
-                        <SearchableGuidSelect Options="@(field.Options.Select(x => new DropdownOption(x.Id, x.Label, Disabled: !x.IsActive)).ToList())" Value="field.Input.OptionId" ValueChanged="@(async id => { field.Input.OptionId = id; await Changed(field); })" Label="" Placeholder="@($"Select {field.Revision.Label}")" Required="field.Revision.Required" Disabled="disabled" InlineMenu="true" />
+                        <SearchableGuidSelect Options="@(field.Options.Select(x => new DropdownOption(x.Id, x.Label, Disabled: !x.IsActive)).ToList())" Value="field.Input.OptionId" ValueChanged="@(async id => { field.Input.OptionId = id; await Changed(field); })" Label="" Placeholder="@($"Select {field.Revision.FieldName}")" Required="field.Revision.Required" Disabled="disabled" InlineMenu="true" />
                     }
                     else if (field.Definition.DataType == CustomFieldDataType.Boolean)
                     {
@@ -47,7 +44,7 @@ else if (form?.Fields.Count > 0)
                     {
                         <input id="@id" type="text" inputmode="decimal" value="@(field.Input.DecimalValue?.ToString($"F{field.Revision.DecimalPlaces}", CultureInfo.CurrentCulture))" disabled="@disabled" @onchange="@(e => DecimalChanged(field, e.Value?.ToString()))" aria-required="@field.Revision.Required" />
                     }
-                    else if (field.Definition.DataType == CustomFieldDataType.LongText)
+                    else if (field.Definition.DataType == CustomFieldDataType.Text && (field.Revision.MaxLength > 200 || field.Input.TextValue?.Contains('\n') == true || field.Input.TextValue?.Contains('\r') == true))
                     {
                         <textarea id="@id" rows="2" maxlength="@field.Revision.MaxLength" disabled="@disabled" @bind="field.Input.TextValue" @bind:after="() => Changed(field)" aria-required="@field.Revision.Required"></textarea>
                     }
@@ -55,12 +52,10 @@ else if (form?.Fields.Count > 0)
                     {
                         <input id="@id" type="text" maxlength="@field.Revision.MaxLength" disabled="@disabled" @bind="field.Input.TextValue" @bind:after="() => Changed(field)" aria-required="@field.Revision.Required" />
                     }
-                    @if (!string.IsNullOrEmpty(field.Revision.HelpText)) { <span class="udf-help">@field.Revision.HelpText</span> }
                     @if (!string.IsNullOrEmpty(field.Error ?? field.ParseError)) { <span class="udf-error" role="alert">@(field.Error ?? field.ParseError)</span> }
                 </div>
             }
             </div>
-        }
         @if (!string.IsNullOrEmpty(form.Error)) { <div class="udf-error" role="alert">@form.Error</div> }
     </div>
 }
@@ -117,7 +112,7 @@ else if (Inline)
         field.ParseError = null;
         if (string.IsNullOrWhiteSpace(text)) field.Input.DecimalValue = null;
         else if (decimal.TryParse(text, NumberStyles.Number, CultureInfo.CurrentCulture, out var number)) field.Input.DecimalValue = number;
-        else field.ParseError = $"Enter a valid number for {field.Revision.Label}.";
+        else field.ParseError = $"Enter a valid number for {field.Revision.FieldName}.";
         await Changed(field);
     }
 }

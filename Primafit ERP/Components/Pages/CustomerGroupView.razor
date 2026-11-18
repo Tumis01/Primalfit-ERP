@@ -221,8 +221,7 @@
 
             arAccounts = allCoa.Where(a =>
             {
-                var t = types.FirstOrDefault(x => x.Id == a.SegAccountTypeId);
-                return t != null && t.IsBalanceSheet == true && t.IsDebit == true;
+                return MasterDataAccountPolicy.IsEligible(a, types, true, true);
             }).OrderBy(x => x.AccountCode).ToList();
 
             await LoadData();

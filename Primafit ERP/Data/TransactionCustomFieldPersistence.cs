@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Services;
 
@@ -46,7 +46,7 @@ public static class TransactionCustomFieldPersistence
             if (edit.State == EntityState.Deleted)
             {
                 var required = definition.Revisions.Single(r => r.RevisionNumber == definition.CurrentRevision);
-                if (definition.IsActive && required.Required && (await CustomFieldTransactions.StageAsync(db, binding, owner)).Required) throw new ArgumentException($"Complete {required.Label} before removing this required transaction value.");
+                if (definition.IsActive && required.Required && (await CustomFieldTransactions.StageAsync(db, binding, owner)).Required) throw new ArgumentException($"Complete {required.FieldName} before removing this required transaction value.");
                 continue;
             }
             var revision = definition.Revisions.SingleOrDefault(r => r.Id == value.RevisionId) ?? throw new ArgumentException("Invalid custom-field revision.");
@@ -87,7 +87,7 @@ public static class TransactionCustomFieldPersistence
                     var valueType = typeof(TransactionCustomFieldValue<>).MakeGenericType(binding.OwnerType);
                     var pending = db.ChangeTracker.Entries().LastOrDefault(e => e.Entity.GetType() == valueType && ((CustomFieldValue)e.Entity).OwnerId == id && ((CustomFieldValue)e.Entity).DefinitionId == d.Id);
                     var found = pending == null ? saved.Any(v => v.DefinitionId == d.Id) : pending.State != EntityState.Deleted;
-                    if (!found) throw new ArgumentException($"Complete {d.Revisions.Single(r => r.RevisionNumber == d.CurrentRevision).Label} for {CustomFieldService.ScopeLabel(binding.Scope)}.");
+                    if (!found) throw new ArgumentException($"Complete {d.Revisions.Single(r => r.RevisionNumber == d.CurrentRevision).FieldName} for {CustomFieldService.ScopeLabel(binding.Scope)}.");
                 }
             }
         }

@@ -1161,7 +1161,10 @@ namespace Primafit_ERP.Migrations
                     b.HasIndex("CompanyId", "Scope", "Code")
                         .IsUnique();
 
-                    b.ToTable("CustomFieldDefinition");
+                    b.ToTable("CustomFieldDefinition", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomFieldDefinition_DataType", "[DataType] IN (0, 2, 3, 4, 5)");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomFieldOption", b =>
@@ -1210,10 +1213,10 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("DisplayOrder")
                         .HasColumnType("int");
 
-                    b.Property<string>("HelpText")
+                    b.Property<string>("FieldName")
                         .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<bool>("IncludeInExports")
                         .HasColumnType("bit");
@@ -1226,11 +1229,6 @@ namespace Primafit_ERP.Migrations
 
                     b.Property<bool>("IsReportable")
                         .HasColumnType("bit");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
 
                     b.Property<int>("MaxLength")
                         .HasColumnType("int");
@@ -1254,17 +1252,17 @@ namespace Primafit_ERP.Migrations
                     b.Property<int>("RevisionNumber")
                         .HasColumnType("int");
 
-                    b.Property<string>("Section")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("nvarchar(80)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId", "DefinitionId", "RevisionNumber")
                         .IsUnique();
 
-                    b.ToTable("CustomFieldRevision");
+                    b.ToTable("CustomFieldRevision", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomFieldRevision_FieldName", "LEN(LTRIM(RTRIM([FieldName]))) > 0");
+
+                            t.HasCheckConstraint("CK_CustomFieldRevision_MaxLength", "[MaxLength] BETWEEN 1 AND 4000");
+                        });
                 });
 
             modelBuilder.Entity("Primafit_ERP.Components.Models.CustomTransactionType", b =>
@@ -5030,9 +5028,6 @@ namespace Primafit_ERP.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<bool>("AllowJournal")
-                        .HasColumnType("bit");
-
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uniqueidentifier");
 
@@ -5045,6 +5040,9 @@ namespace Primafit_ERP.Migrations
                         .HasColumnType("nvarchar(250)");
 
                     b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsControlAccount")
                         .HasColumnType("bit");
 
                     b.Property<int>("SegAccountTypeId")

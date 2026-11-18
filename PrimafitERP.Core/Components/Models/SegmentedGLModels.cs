@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Primafit_ERP.Components.Models
@@ -115,7 +115,7 @@ namespace Primafit_ERP.Components.Models
         [Required]
         public int SegAccountTypeId { get; set; }
 
-        public bool AllowJournal { get; set; } = true;
+        public bool IsControlAccount { get; set; } = false;
         public bool IsActive { get; set; } = true;
     }
     public class SegCoaConfig

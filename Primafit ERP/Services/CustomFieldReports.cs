@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 using Primafit_ERP.Components.Models.Reporting;
@@ -86,7 +86,7 @@ public sealed partial class CustomFieldService
         if (scope.ToString().EndsWith("Line", StringComparison.Ordinal)) { result.Headers.Add("Line ID"); result.Columns.Add(new(ReportColumnKind.Text)); }
         foreach (var d in selected)
         {
-            var r = d.Revisions.Single(x => x.RevisionNumber == d.CurrentRevision); result.Headers.Add(r.Label + (d.IsActive ? "" : " (inactive)"));
+            var r = d.Revisions.Single(x => x.RevisionNumber == d.CurrentRevision); result.Headers.Add(r.FieldName + (d.IsActive ? "" : " (inactive)"));
             result.Columns.Add(new(d.DataType switch { CustomFieldDataType.Decimal => ReportColumnKind.Number, CustomFieldDataType.Date => ReportColumnKind.Date, CustomFieldDataType.Boolean => ReportColumnKind.Boolean, _ => ReportColumnKind.Text }, r.DecimalPlaces, r.IncludeInExports));
         }
         foreach (var owner in owners.OrderBy(x => x.Reference).ThenBy(x => x.Id))

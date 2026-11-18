@@ -110,7 +110,7 @@
                                     }
                                 </td>
                                 <td class="p-4">
-                                    @if (map.OverrideCreditGlAccountId.HasValue)
+                                    @if (map.TransactionType != SystemTransactionType.DebitNote && map.OverrideCreditGlAccountId.HasValue)
                                     {
                                         <div class="font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100 inline-block text-xs truncate max-w-[180px]">
                                             @GetAccountDisplayName(map.OverrideCreditGlAccountId)
@@ -265,24 +265,34 @@
                     </div>
                 </div>
 
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-[30]">
-                    <label class="w-full sm:w-1/3 block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
-                    <div class="w-full sm:w-2/3 flex items-center gap-2">
-                        <div class="min-w-0 flex-1">
-                            <SearchableGlAccount Label=""
-                                                 Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, false))"
-                                                 Accounts="@coaList"
-                                                 Value="@(tempCredit ?? Guid.Empty)"
-                                                 ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
-                        </div>
-                        @if (tempCredit.HasValue)
-                        {
-                            <button type="button" title="Clear Override" aria-label="Clear credit account override" @onclick="() => tempCredit = null" class="shrink-0 text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
-                                Clear Override
-                            </button>
-                        }
+                @if (editingMap?.TransactionType == SystemTransactionType.DebitNote)
+                {
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <span class="w-full sm:w-1/3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit account</span>
+                        <p class="w-full sm:w-2/3 text-sm text-slate-600">@GetDefaultDescription(SystemTransactionType.DebitNote, false)</p>
                     </div>
-                </div>
+                }
+                else
+                {
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-[30]">
+                        <label class="w-full sm:w-1/3 block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
+                        <div class="w-full sm:w-2/3 flex items-center gap-2">
+                            <div class="min-w-0 flex-1">
+                                <SearchableGlAccount Label=""
+                                                     Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.SalesInvoice, false))"
+                                                     Accounts="@coaList"
+                                                     Value="@(tempCredit ?? Guid.Empty)"
+                                                     ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
+                            </div>
+                            @if (tempCredit.HasValue)
+                            {
+                                <button type="button" title="Clear Override" aria-label="Clear credit account override" @onclick="() => tempCredit = null" class="shrink-0 text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100 transition-colors">
+                                    Clear Override
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
 
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl relative z-[10] shrink-0 route-config-footer">
@@ -495,7 +505,8 @@
                 if (targetRecord != null)
                 {
                     targetRecord.OverrideDebitGlAccountId = tempDebit;
-                    targetRecord.OverrideCreditGlAccountId = tempCredit;
+                    if (targetRecord.TransactionType != SystemTransactionType.DebitNote)
+                        targetRecord.OverrideCreditGlAccountId = tempCredit;
                     targetRecord.UpdatedByUserId = currentUserId;
                     targetRecord.UpdatedAt = DateTime.UtcNow;
 
@@ -581,7 +592,7 @@
             SystemTransactionType.CreditNote => "Customer returns and accounts receivable sales credits.",
             SystemTransactionType.VendorReturnStock => "Vendor physical stock returns (AP Liability Reduction vs Inventory Asset Credit).",
             SystemTransactionType.VendorReturnRefund => "Vendor cash payment refunds (Deposit Bank Asset vs AP Liability Restoration).",
-            SystemTransactionType.DebitNote => "Purchase invoice price reductions & non-stock corrections.",
+            SystemTransactionType.DebitNote => "Reduces the vendor payable for a purchase invoice adjustment.",
             SystemTransactionType.CustomerPayment => "Customer receipts and cash collections (Deposit Bank Asset vs Customer AR).",
             SystemTransactionType.VendorPayment => "Vendor bill outgoing payments (AP Liability Reduction vs Disbursement Bank).",
             SystemTransactionType.ReceiptRefundStock => "Customer physical stock intake reversal (Inventory Asset Dr vs COGS Cr).",
@@ -636,7 +647,7 @@
                 SystemTransactionType.CreditNote => "System Default [Customer AR]",
                 SystemTransactionType.VendorReturnStock => "System Default [Item Inventory Asset Account]",
                 SystemTransactionType.VendorReturnRefund => "System Default [Vendor AP Control]",
-                SystemTransactionType.DebitNote => "System Default [Line Expense / Clearing Account]",
+                SystemTransactionType.DebitNote => "Item inventory account or original invoice expense",
                 SystemTransactionType.CustomerPayment => "System Default [Customer AR Control]",
                 SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
                 SystemTransactionType.ReceiptRefundStock => "System Default [Item COGS Account]",

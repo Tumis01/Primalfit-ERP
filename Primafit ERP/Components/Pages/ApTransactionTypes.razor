@@ -112,7 +112,7 @@
                                 </td>
 
                                 <td class="p-4">
-                                    @if (map.OverrideCreditGlAccountId.HasValue)
+                                    @if (map.TransactionType != SystemTransactionType.DebitNote && map.OverrideCreditGlAccountId.HasValue)
                                     {
                                         <div class="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100 inline-block text-xs truncate max-w-[180px]">
                                             @GetAccountDisplayName(map.OverrideCreditGlAccountId)
@@ -204,22 +204,32 @@
 
                 <div class="h-2"></div>
 
-                <div class="space-y-2 relative z-30">
-                    <div class="flex justify-between items-center">
-                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
-                        @if (tempCredit.HasValue)
-                        {
-                            <button type="button" @onclick="() => tempCredit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
-                                Clear Override
-                            </button>
-                        }
+                @if (editingMap?.TransactionType == SystemTransactionType.DebitNote)
+                {
+                    <div class="space-y-2">
+                        <span class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit account</span>
+                        <p class="text-sm text-slate-600">@GetDefaultDescription(SystemTransactionType.DebitNote, false)</p>
                     </div>
-                    <SearchableGlAccount Label=""
-                                         Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.PurchaseInvoice, false))"
-                                         Accounts="@coaList"
-                                         Value="@(tempCredit ?? Guid.Empty)"
-                                         ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
-                </div>
+                }
+                else
+                {
+                    <div class="space-y-2 relative z-30">
+                        <div class="flex justify-between items-center">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Credit Account Override Mapping</label>
+                            @if (tempCredit.HasValue)
+                            {
+                                <button type="button" @onclick="() => tempCredit = null" class="text-[9px] font-bold text-rose-500 hover:text-rose-700 uppercase tracking-wider bg-rose-50 px-2 py-0.5 rounded border border-rose-100">
+                                    Clear Override
+                                </button>
+                            }
+                        </div>
+                        <SearchableGlAccount Label=""
+                                             Placeholder="@(isCreatingCustom ? "Select Default Credit Account (Optional)..." : GetDefaultDescription(editingMap?.TransactionType ?? SystemTransactionType.PurchaseInvoice, false))"
+                                             Accounts="@coaList"
+                                             Value="@(tempCredit ?? Guid.Empty)"
+                                             ValueChanged="@((Guid val) => tempCredit = val == Guid.Empty ? null : val)" />
+                    </div>
+                }
             </div>
 
             <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 rounded-b-2xl route-config-footer">
@@ -425,7 +435,8 @@
                 if (targetRecord != null)
                 {
                     targetRecord.OverrideDebitGlAccountId = tempDebit;
-                    targetRecord.OverrideCreditGlAccountId = tempCredit;
+                    if (targetRecord.TransactionType != SystemTransactionType.DebitNote)
+                        targetRecord.OverrideCreditGlAccountId = tempCredit;
                     targetRecord.UpdatedByUserId = currentUserId;
                     targetRecord.UpdatedAt = DateTime.UtcNow;
 
@@ -540,7 +551,7 @@
             SystemTransactionType.VendorPayment => "Vendor bill outgoing payments & bank disbursements.",
             SystemTransactionType.VendorReturnStock => "Vendor physical stock returns (AP Liability Reduction vs Inventory Asset Credit).",
             SystemTransactionType.VendorReturnRefund => "Vendor cash payment refunds (Deposit Bank Asset vs AP Liability Restoration).",
-            SystemTransactionType.DebitNote => "Purchase invoice price reductions & non-stock corrections.",
+            SystemTransactionType.DebitNote => "Reduces the vendor payable for a purchase invoice adjustment.",
             SystemTransactionType.GoodsReceipt => "Accrual clearing account (GR/IR) for physical goods receipts.",
             SystemTransactionType.DiscountReceived => "Financial ledger routing for purchasing discounts captured / rolled back.",
             _ => "Core accounts payable ledger route."
@@ -575,7 +586,7 @@
                 SystemTransactionType.VendorPayment => "NOT SET [Disbursement Bank / Cash Asset]",
                 SystemTransactionType.VendorReturnStock => "System Default [Item Inventory Asset Account]",
                 SystemTransactionType.VendorReturnRefund => "System Default [Vendor AP Control]",
-                SystemTransactionType.DebitNote => "System Default [Line Expense / Clearing Account]",
+                SystemTransactionType.DebitNote => "Item inventory account or original invoice expense",
                 SystemTransactionType.GoodsReceipt => "NOT SET [GR/IR Clearing Liability Account]",
                 SystemTransactionType.DiscountReceived => "System Default [Line Discount Received Acc]",
                 _ => "System Default"

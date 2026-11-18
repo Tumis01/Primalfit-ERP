@@ -65,6 +65,7 @@ builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<WarehouseService>();
 builder.Services.AddScoped<MasterDataService>();
 builder.Services.AddScoped<CustomFieldService>();
+builder.Services.AddScoped<FulfilmentReportService>();
 builder.Services.AddScoped<CustomFieldWriteSession>();
 builder.Services.AddScoped<IDocumentNumberingService, DocumentNumberingService>();
 builder.Services.AddScoped<DashboardService>();

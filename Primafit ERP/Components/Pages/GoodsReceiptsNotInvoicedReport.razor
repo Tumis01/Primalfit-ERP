@@ -1,0 +1,83 @@
+@page "/reports/receipts-not-invoiced"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using PrimafitERP.Data
+@using Primafit_ERP.Components.Models
+@using Primafit_ERP.Components.Models.Reporting
+@using Primafit_ERP.Components.Shared
+@using Primafit_ERP.Services
+@inject FulfilmentReportService Reports
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject AuthenticationStateProvider Authentication
+@inject UserManager<ApplicationUser> Users
+@inject PermissionCacheService Permissions
+@inject NavigationManager Navigation
+
+<PageTitle>@ReportTitle</PageTitle>
+
+@if (companyId != Guid.Empty)
+{
+    <div class="mx-auto max-w-[1600px] mt-6">
+        <ReportViewer @ref="viewer" CompanyId="companyId" PermissionKey="@PermissionKey" Title="@ReportTitle"
+                      Description="Items on GL-posted goods receipt notes that are still awaiting invoicing, including partially invoiced receipts. Values are in base currency before tax and discounts."
+                      ShowAsOfDate="true" ShowCsvExport="true" ShowInitialState="true" Paginate="true" FetchData="GetData">
+            <FilterContent>
+                <div class="grid gap-5 md:grid-cols-2">
+                    <SearchableGuidSelect Label="Vendor" Options="vendorOptions" Value="vendorId" ValueChanged="SelectVendor"
+                                          Placeholder="All vendors — search to filter" ClearLabel="All vendors" />
+                    <label class="block text-xs font-bold text-slate-600">
+                        Item name or code
+                        <input type="search" @bind="itemSearch" @bind:event="oninput" @bind:after="Invalidate"
+                               placeholder="All items" class="mt-2 block w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm font-normal" />
+                    </label>
+                </div>
+            </FilterContent>
+        </ReportViewer>
+    </div>
+}
+
+@code {
+    private const string PermissionKey = "PURCHASING_REPORTS_PAGE";
+    private static readonly string ReportTitle = FulfilmentReportService.Title(FulfilmentReportKind.PurchaseReceivedNotInvoiced);
+    private Guid companyId;
+    private Guid? vendorId;
+    private string itemSearch = "";
+    private ReportViewer? viewer;
+    private List<DropdownOption> vendorOptions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = await Users.GetUserAsync((await Authentication.GetAuthenticationStateAsync()).User);
+        if (user?.CompanyDetailsId is not Guid userCompany)
+        {
+            Navigation.NavigateTo("/access-denied");
+            return;
+        }
+
+        await Permissions.LoadAsync(user.Id, userCompany);
+        if (!Permissions.Has(PermissionKey))
+        {
+            Navigation.NavigateTo("/access-denied");
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        vendorOptions = await db.Vendors.Where(p => p.CompanyId == userCompany).OrderBy(p => p.Name)
+            .Select(p => new DropdownOption(p.Id, p.Name, p.Code)).ToListAsync();
+        companyId = userCompany;
+    }
+
+    private void SelectVendor(Guid? value)
+    {
+        vendorId = value;
+        Invalidate();
+    }
+
+    private void Invalidate() => viewer?.Invalidate();
+
+    private Task<StandardReportData> GetData(DateOnly start, DateOnly end) =>
+        Reports.GenerateAsync(companyId, FulfilmentReportKind.PurchaseReceivedNotInvoiced, end, vendorId, itemSearch);
+}

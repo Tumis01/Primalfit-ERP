@@ -55,7 +55,7 @@ public sealed partial class CustomFieldService(IDbContextFactory<AppDbContext> f
         var input = edit.Definition; var revision = edit.Revision;
         var code = input.Code.Trim().ToUpperInvariant();
         if (!Regex.IsMatch(code, "^[A-Z][A-Z0-9_]{0,59}$")) return "Code must start with a letter and contain only letters, numbers and underscores (maximum 60).";
-        if (string.IsNullOrWhiteSpace(revision.Label) || revision.Label.Length > 100 || revision.HelpText.Length > 300 || revision.Section.Length > 80) return "Enter a label (up to 100 characters), section (up to 80) and help text (up to 300).";
+        if (string.IsNullOrWhiteSpace(revision.FieldName) || revision.FieldName.Length > 100) return "Enter a field name of up to 100 characters.";
         if (!Enum.IsDefined(input.DataType) || revision.MaxLength is < 1 or > 4000 || revision.DecimalPlaces is < 0 or > 4 || revision.Minimum > revision.Maximum) return "Check the field type, text length, decimal places and range.";
         if (edit.Options.Count > 100 || edit.Options.Any(x => string.IsNullOrWhiteSpace(x.Label) || x.Label.Trim().Length > 100) || edit.Options.GroupBy(x => x.Label.Trim(), StringComparer.OrdinalIgnoreCase).Any(x => x.Count() > 1)) return "Choices must be unique, non-empty labels of up to 100 characters; at most 100 choices are supported.";
         if (input.DataType == CustomFieldDataType.SingleSelect && !edit.Options.Any(x => x.IsActive)) return "Add at least one active dropdown choice.";
@@ -68,7 +68,7 @@ public sealed partial class CustomFieldService(IDbContextFactory<AppDbContext> f
         var definition = existing ?? new CustomFieldDefinition { CompanyId = company, Scope = scope, Code = code, DataType = input.DataType, CreatedByUserId = actor };
         if (existing == null) db.Add(definition); else definition.CurrentRevision++;
         definition.IsActive = input.IsActive;
-        var storedRevision = new CustomFieldRevision { CompanyId = company, DefinitionId = definition.Id, RevisionNumber = definition.CurrentRevision, Label = revision.Label.Trim(), HelpText = revision.HelpText.Trim(), Section = string.IsNullOrWhiteSpace(revision.Section) ? "Additional information" : revision.Section.Trim(), DisplayOrder = revision.DisplayOrder, Required = revision.Required, MaxLength = revision.MaxLength, DecimalPlaces = revision.DecimalPlaces, Minimum = revision.Minimum, Maximum = revision.Maximum, IncludeOnPrint = revision.IncludeOnPrint, IncludeInExports = revision.IncludeInExports, IsReportable = revision.IsReportable, IsFilterable = revision.IsFilterable, PublishedByUserId = actor };
+        var storedRevision = new CustomFieldRevision { CompanyId = company, DefinitionId = definition.Id, RevisionNumber = definition.CurrentRevision, FieldName = revision.FieldName.Trim(), DisplayOrder = revision.DisplayOrder, Required = revision.Required, MaxLength = revision.MaxLength, DecimalPlaces = revision.DecimalPlaces, Minimum = revision.Minimum, Maximum = revision.Maximum, IncludeOnPrint = revision.IncludeOnPrint, IncludeInExports = revision.IncludeInExports, IsReportable = revision.IsReportable, IsFilterable = revision.IsFilterable, PublishedByUserId = actor };
         db.Add(storedRevision);
         foreach (var previous in definition.Options) previous.IsActive = false;
         foreach (var choice in edit.Options)
@@ -81,7 +81,7 @@ public sealed partial class CustomFieldService(IDbContextFactory<AppDbContext> f
             }
             option.Label = choice.Label.Trim(); option.IsActive = choice.IsActive; option.DisplayOrder = choice.DisplayOrder;
         }
-        db.AuditLogs.Add(new AuditLog { CompanyId = company, UserId = actor, Action = "CustomFieldPublished", EntityType = nameof(CustomFieldDefinition), EntityId = definition.Id, Details = JsonSerializer.Serialize(new { definition.Code, definition.Scope, definition.CurrentRevision, definition.IsActive, storedRevision.Label }) });
+        db.AuditLogs.Add(new AuditLog { CompanyId = company, UserId = actor, Action = "CustomFieldPublished", EntityType = nameof(CustomFieldDefinition), EntityId = definition.Id, Details = JsonSerializer.Serialize(new { definition.Code, definition.Scope, definition.CurrentRevision, definition.IsActive, storedRevision.FieldName }) });
         try { await db.SaveChangesAsync(); await tx.CommitAsync(); return ""; }
         catch (DbUpdateConcurrencyException) { return "The field changed while publishing. Refresh and try again."; }
         catch (DbUpdateException) { return "The field could not be published. Check its code and choices, then refresh."; }
@@ -133,7 +133,7 @@ public sealed partial class CustomFieldService(IDbContextFactory<AppDbContext> f
             var options = def.Options.Where(x => x.IsActive || x.Id == value?.OptionId).Select(x => new CustomFieldOption { Id = x.Id, Label = x.Id == value?.OptionId ? value.OptionLabelSnapshot ?? x.Label : x.Label, IsActive = x.IsActive }).ToList();
             form.Fields.Add(new() { Definition = def, Revision = revision, Input = value == null ? new() { DefinitionId = def.Id } : CustomFieldInput.From(value), Options = options });
         }
-        form.Fields = form.Fields.OrderBy(x => x.Revision.DisplayOrder).ThenBy(x => x.Revision.Label).ToList(); return form;
+        form.Fields = form.Fields.OrderBy(x => x.Revision.DisplayOrder).ThenBy(x => x.Revision.FieldName).ToList(); return form;
     }
 
     public static async Task<string> UnavailableAsync(AppDbContext db, Guid company, params CustomFieldScope[] scopes) => await db.Set<CustomFieldDefinition>().AnyAsync(x => x.CompanyId == company && scopes.Contains(x.Scope) && x.IsActive) ? "This operation requires the authenticated custom-field document editor." : "";
@@ -198,14 +198,14 @@ public sealed partial class CustomFieldService(IDbContextFactory<AppDbContext> f
     private static bool Equal(CustomFieldInput a, CustomFieldInput b) => (a.TextValue ?? "").Trim() == (b.TextValue ?? "").Trim() && a.DecimalValue == b.DecimalValue && a.DateValue == b.DateValue && a.BooleanValue == b.BooleanValue && a.OptionId == b.OptionId;
     private static string? Validate(CustomFieldDefinition d, CustomFieldRevision r, CustomFieldInput input, CustomFieldValue? old, bool required)
     {
-        if (!d.IsActive) return old == null && !input.IsEmpty || old != null && !Equal(input, CustomFieldInput.From(old)) ? $"{r.Label} is inactive; preserve its saved value." : null;
-        if (input.IsEmpty) return required && r.Required ? $"Complete {r.Label}." : null;
+        if (!d.IsActive) return old == null && !input.IsEmpty || old != null && !Equal(input, CustomFieldInput.From(old)) ? $"{r.FieldName} is inactive; preserve its saved value." : null;
+        if (input.IsEmpty) return required && r.Required ? $"Complete {r.FieldName}." : null;
         var typed = new[] { !string.IsNullOrWhiteSpace(input.TextValue), input.DecimalValue.HasValue, input.DateValue.HasValue, input.BooleanValue.HasValue, input.OptionId.HasValue };
-        var typeIndex = d.DataType switch { CustomFieldDataType.ShortText or CustomFieldDataType.LongText => 0, CustomFieldDataType.Decimal => 1, CustomFieldDataType.Date => 2, CustomFieldDataType.Boolean => 3, _ => 4 };
-        if (typed.Count(x => x) != 1 || !typed[typeIndex]) return $"{r.Label} has an invalid value type.";
-        if (input.TextValue?.Length > r.MaxLength) return $"{r.Label} allows at most {r.MaxLength} characters.";
-        if (input.DecimalValue is decimal n && (n <= -100000000000000m || n >= 100000000000000m || Math.Round(n, r.DecimalPlaces) != n || n < r.Minimum || n > r.Maximum)) return $"Check {r.Label}'s range and {r.DecimalPlaces}-decimal precision.";
-        if (input.OptionId.HasValue && !d.Options.Any(x => x.Id == input.OptionId && (x.IsActive || old?.OptionId == input.OptionId))) return $"Select an active choice for {r.Label}.";
+        var typeIndex = d.DataType switch { CustomFieldDataType.Text => 0, CustomFieldDataType.Decimal => 1, CustomFieldDataType.Date => 2, CustomFieldDataType.Boolean => 3, _ => 4 };
+        if (typed.Count(x => x) != 1 || !typed[typeIndex]) return $"{r.FieldName} has an invalid value type.";
+        if (input.TextValue?.Length > r.MaxLength) return $"{r.FieldName} allows at most {r.MaxLength} characters.";
+        if (input.DecimalValue is decimal n && (n <= -100000000000000m || n >= 100000000000000m || Math.Round(n, r.DecimalPlaces) != n || n < r.Minimum || n > r.Maximum)) return $"Check {r.FieldName}'s range and {r.DecimalPlaces}-decimal precision.";
+        if (input.OptionId.HasValue && !d.Options.Any(x => x.Id == input.OptionId && (x.IsActive || old?.OptionId == input.OptionId))) return $"Select an active choice for {r.FieldName}.";
         return null;
     }
 }

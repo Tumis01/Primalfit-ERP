@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Primafit_ERP.Components.Models;
 using PrimafitERP.Api.DTOs;
@@ -44,7 +44,7 @@ public class JournalEntryController : ControllerBase
         }).ToList();
 
         // 3. Create the Journal Entry Batch Wrapper
-        // Maps to: CreateJournalEntryAsync(Guid companyId, DateOnly txnDate, string batchName, string? description, List<GLJournalLine> lines, string userId, bool requireAllowJournal = false)
+        // Maps to: CreateJournalEntryAsync(Guid companyId, DateOnly txnDate, string batchName, string? description, List<GLJournalLine> lines, string userId, bool excludeControlAccounts = false)
         var (err, batchId) = await _glOps.CreateJournalEntryAsync(
             companyId,
             DateOnly.FromDateTime(dto.TransactionDate),
@@ -52,7 +52,7 @@ public class JournalEntryController : ControllerBase
             dto.Description,
             glLines,
             userId,
-            requireAllowJournal: true // Enforces standard manual journal business validation checks
+            excludeControlAccounts: true // Enforces standard manual journal business validation checks
         );
 
         if (!string.IsNullOrEmpty(err)) return BadRequest(new { message = err });

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Primafit_ERP.Components.Models;
 
 namespace PrimafitERP.Data;
@@ -9,6 +9,15 @@ public static class CustomFieldPersistence
     public static async Task ValidateAsync(AppDbContext db, CancellationToken cancellationToken = default)
     {
         db.ChangeTracker.DetectChanges();
+        foreach (var definition in db.ChangeTracker.Entries<CustomFieldDefinition>().Where(e => e.State == EntityState.Added).Select(e => e.Entity))
+            if (!Enum.IsDefined(definition.DataType)) throw new ArgumentException("Select a supported custom-field type.");
+        foreach (var revision in db.ChangeTracker.Entries<CustomFieldRevision>().Where(e => e.State == EntityState.Added).Select(e => e.Entity))
+        {
+            if (string.IsNullOrWhiteSpace(revision.FieldName) || revision.FieldName.Length > 100)
+                throw new ArgumentException("Enter a field name of up to 100 characters.");
+            if (revision.MaxLength is < 1 or > 4000)
+                throw new ArgumentException("Text length must be between 1 and 4,000 characters.");
+        }
         if (db.ChangeTracker.Entries<CustomFieldRevision>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Published custom-field revisions are immutable.");
         if (db.ChangeTracker.Entries<CustomFieldDefinition>().Any(e => e.State == EntityState.Modified && new[] { "Code", "DataType", "Scope", "CompanyId" }.Any(p => e.Property(p).IsModified)))
@@ -93,15 +102,19 @@ public static class CustomFieldPersistence
                 {
                     var edit = pending.LastOrDefault(e => ((CustomFieldValue)e.Entity).CompanyId == owner.Company && ((CustomFieldValue)e.Entity).OwnerId == owner.Id && ((CustomFieldValue)e.Entity).DefinitionId == definition.Id);
                     var exists = edit != null ? edit.State != EntityState.Deleted : saved.Any(v => v.OwnerId == owner.Id && v.DefinitionId == definition.Id);
-                    if (!exists) throw new ArgumentException($"Complete {definition.Revisions.Single(r => r.RevisionNumber == definition.CurrentRevision).Label} before saving/submitting this {owner.Scope} record.");
+                    if (!exists) throw new ArgumentException($"Complete {definition.Revisions.Single(r => r.RevisionNumber == definition.CurrentRevision).FieldName} before saving/submitting this {owner.Scope} record.");
                 }
         }
         foreach (var entry in pending.Where(e => e.State is EntityState.Added or EntityState.Modified))
         {
             var value = (CustomFieldValue)entry.Entity;
-            var d = await db.Set<CustomFieldDefinition>().FirstOrDefaultAsync(x => x.Id == value.DefinitionId && x.CompanyId == value.CompanyId, cancellationToken) ?? throw new ArgumentException("Invalid custom-field company/definition.");
+            var d = await db.Set<CustomFieldDefinition>().Include(x => x.Revisions).FirstOrDefaultAsync(x => x.Id == value.DefinitionId && x.CompanyId == value.CompanyId, cancellationToken) ?? throw new ArgumentException("Invalid custom-field company/definition.");
+            var revision = d.Revisions.SingleOrDefault(r => r.Id == value.RevisionId)
+                ?? throw new ArgumentException("Invalid custom-field revision.");
+            if (value.TextValue != null && (string.IsNullOrWhiteSpace(value.TextValue) || value.TextValue.Length > revision.MaxLength))
+                throw new ArgumentException($"{revision.FieldName} allows at most {revision.MaxLength} characters and cannot be blank.");
             var scope = value switch { CustomerCustomFieldValue => CustomFieldScope.Customer, VendorCustomFieldValue => CustomFieldScope.Vendor, ItemCustomFieldValue => CustomFieldScope.Item, SalesOrderCustomFieldValue => CustomFieldScope.SalesOrderHeader, _ => CustomFieldScope.SalesOrderLine };
-            bool validType = d.DataType switch { CustomFieldDataType.ShortText or CustomFieldDataType.LongText => value.TextValue != null, CustomFieldDataType.Decimal => value.DecimalValue.HasValue, CustomFieldDataType.Date => value.DateValue.HasValue, CustomFieldDataType.Boolean => value.BooleanValue.HasValue, _ => value.OptionId.HasValue };
+            bool validType = d.DataType switch { CustomFieldDataType.Text => value.TextValue != null, CustomFieldDataType.Decimal => value.DecimalValue.HasValue, CustomFieldDataType.Date => value.DateValue.HasValue, CustomFieldDataType.Boolean => value.BooleanValue.HasValue, _ => value.OptionId.HasValue };
             if (d.Scope != scope || !validType) throw new ArgumentException("Invalid custom-field scope or typed value.");
         }
     }

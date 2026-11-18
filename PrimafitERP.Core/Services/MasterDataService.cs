@@ -28,6 +28,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveCustomerAsync(Customer customer)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, customer.CompanyId, (customer.ReceivablesAccountId, true, true, "Accounts receivable", true));
+            if (accountError.Length > 0) return accountError;
             if (customer.CurrencyId == Guid.Empty) return "Default Currency is required.";
 
             // Note: The auto-fill logic for ReceivablesAccountId happens in the UI (Razor)
@@ -68,6 +70,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveVendorAsync(Vendor vendor)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, vendor.CompanyId, (vendor.PayablesAccountId, true, false, "Accounts payable", true));
+            if (accountError.Length > 0) return accountError;
             if (vendor.CurrencyId == Guid.Empty) return "Default Currency is required.";
 
             if (vendor.Id == Guid.Empty || !await ctx.Vendors.AnyAsync(x => x.Id == vendor.Id))
@@ -92,6 +96,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveItemAsync(Item item)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, item.CompanyId, (item.IsService ? null : item.InventoryAssetAccountId, true, true, "Inventory asset", true), (item.SalesIncomeAccountId, false, false, "Sales income", false), (item.CostOfGoodsSoldAccountId, false, true, "Cost of goods sold", false), (item.IsService ? null : item.AdjustmentExpenseAccountId, false, true, "Inventory adjustment expense", false));
+            if (accountError.Length > 0) return accountError;
 
             if (item.CompanyId == Guid.Empty) return "Security Error: No Company Context.";
             if (string.IsNullOrWhiteSpace(item.Name)) return "Item Name is required.";
@@ -160,6 +166,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveCustomerGroupAsync(CustomerGroup group)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, group.CompanyId, (group.ReceivablesAccountId, true, true, "Default accounts receivable", true));
+            if (accountError.Length > 0) return accountError;
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
 
@@ -206,6 +214,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveVendorGroupAsync(VendorGroup group)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, group.CompanyId, (group.PayablesAccountId, true, false, "Default accounts payable", true));
+            if (accountError.Length > 0) return accountError;
 
             if (string.IsNullOrWhiteSpace(group.Name)) return "Group Name is required.";
 
@@ -300,6 +310,8 @@ namespace Primafit_ERP.Services
         public async Task<string> SaveItemCategoryAsync(ItemCategory category)
         {
             using var ctx = await _dbFactory.CreateDbContextAsync();
+            var accountError = await MasterDataAccountPolicy.ValidateAsync(ctx, category.CompanyId, (category.IsService ? null : category.InventoryAssetAccountId, true, true, "Inventory asset", true), (category.SalesIncomeAccountId, false, false, "Sales income", false), (category.CostOfGoodsSoldAccountId, false, true, "Cost of goods sold", false), (category.IsService ? null : category.AdjustmentExpenseAccountId, false, true, "Inventory adjustment expense", false));
+            if (accountError.Length > 0) return accountError;
 
             if (await ctx.ItemCategories.AnyAsync(c => c.CompanyId == category.CompanyId && c.Name.ToLower() == category.Name.ToLower() && c.Id != category.Id))
                 return "A category with this name already exists.";
